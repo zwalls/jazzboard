@@ -1,0 +1,265 @@
+.panel {
+  animation: activity-slide-in 170ms ease-out;
+  backdrop-filter: blur(20px) saturate(1.2);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  bottom: 62px;
+  box-shadow: var(--shadow-card);
+  left: 16px;
+  max-height: min(690px, calc(100dvh - 145px));
+  overflow: hidden;
+  position: absolute;
+  width: min(410px, calc(100vw - 32px));
+  z-index: 430;
+}
+
+.heading {
+  align-items: center;
+  border-bottom: 1px solid #eceef3;
+  display: flex;
+  gap: 10px;
+  padding: 12px 12px 10px;
+}
+
+.headingIcon {
+  align-items: center;
+  background: var(--brand-soft);
+  border-radius: 9px;
+  color: var(--brand-deep);
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.heading > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.heading > div > span {
+  color: var(--ink-faint);
+  font-size: 8px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.heading strong {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.closeButton {
+  align-items: center;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  display: flex;
+  height: 31px;
+  justify-content: center;
+  width: 31px;
+}
+
+.closeButton:hover {
+  background: #f0f2f7;
+}
+
+.filters {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  padding: 9px 11px;
+}
+
+.filters button {
+  align-items: center;
+  background: #f3f4f7;
+  border-radius: 999px;
+  color: #687186;
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 730;
+  gap: 4px;
+  padding: 6px 9px;
+  text-transform: capitalize;
+}
+
+.filters .selectedFilter {
+  background: var(--brand);
+  color: white;
+}
+
+.filters .refreshButton {
+  background: transparent;
+  margin-left: auto;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  max-height: min(585px, calc(100dvh - 260px));
+  overflow: auto;
+  padding: 0 10px 11px;
+}
+
+.card {
+  background: #fafbfe;
+  border: 1px solid #e4e7ef;
+  border-radius: 12px;
+  padding: 10px;
+  position: relative;
+}
+
+.cardTopline {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.actorMark {
+  align-items: center;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.cardTopline > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cardTopline > div > strong {
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardTopline > div > span,
+.cardTopline > small {
+  color: var(--ink-faint);
+  font-size: 8px;
+  margin-top: 2px;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  margin-top: 9px;
+}
+
+.cardBody > strong {
+  font-size: 11px;
+}
+
+.cardBody > p {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.cardBody > small {
+  color: #767f92;
+  font-size: 8px;
+  margin-top: 5px;
+}
+
+.cardActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.cardActions button,
+.error button {
+  align-items: center;
+  background: white;
+  border: 1px solid #dfe2ea;
+  border-radius: 8px;
+  color: #555f74;
+  display: inline-flex;
+  font-size: 8px;
+  font-weight: 720;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.cardActions button:hover:not(:disabled),
+.error button:hover {
+  border-color: #c9cef0;
+  color: var(--brand-deep);
+}
+
+.cardActions button:disabled,
+.filters button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.revertBadge {
+  background: #edf8f4;
+  border-radius: 6px;
+  color: #1c7b64;
+  display: inline-flex;
+  font-size: 7px;
+  font-weight: 700;
+  margin-top: 8px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty,
+.error {
+  align-items: center;
+  color: var(--ink-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.empty strong,
+.error strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.empty span,
+.error span {
+  font-size: 9px;
+}
+
+.spin {
+  animation: activity-spin 0.8s linear infinite;
+}
+
+@keyframes activity-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes activity-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 620px) {
+  .panel {
+    bottom: 58px;
+    left: 8px;
+    width: calc(100vw - 16px);
+  }
+}

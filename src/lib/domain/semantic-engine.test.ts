@@ -1,0 +1,522 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  applyLayoutCommand,
+  applySemanticTransaction,
+  normalizeRoomSemanticState,
+} from "./engine";
+import { DomainError } from "./errors";
+import type {
+  ActorRef,
+  CanvasObject,
+  Diagram,
+  Participant,
+  RoomState,
+} from "./types";
+
+const NOW = 2_000_000;
+
+function participant(participantId: string, displayName: string): Participant {
+  const presence = { cursor: null, viewport: null, lastSeenAt: NOW, activity: null };
+  return {
+    participantId,
+    displayName,
+    color: participantId === "alice" ? "blue" : "red",
+    role: "participant",
+    joinedAt: NOW,
+    lastSeenAt: NOW,
+    connected: true,
+    agentActive: false,
+    human: { ...presence },
+    agent: { ...presence },
+  };
+}
+
+const alice = participant("alice", "Alice");
+const bob = participant("bob", "Bob");
+
+function actor(owner: Participant, kind: "human" | "agent" = "human"): ActorRef {
+  return {
+    participantId: owner.participantId,
+    displayName: owner.displayName,
+    color: owner.color,
+    kind,
+  };
+}
+
+function node(id: string, x: number, y: number, revision = 1): CanvasObject {
+  return {
+    id,
+    kind: "shape",
+    x,
+    y,
+    width: 200,
+    height: 100,
+    rotation: 0,
+    zIndex: 1,
+    revision,
+    groupId: null,
+    diagramIds: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+    createdBy: actor(alice),
+    lastEditedBy: actor(alice),
+    shape: "rectangle",
+    nodeType: "service",
+    label: id,
+    fill: "green",
+    stroke: "green",
+  };
+}
+
+function connector(id: string, startId: string, endId: string): CanvasObject {
+  return {
+    id,
+    kind: "connector",
+    x: 200,
+    y: 50,
+    width: 200,
+    height: 1,
+    rotation: 0,
+    zIndex: 0,
+    revision: 1,
+    groupId: null,
+    diagramIds: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+    createdBy: actor(alice),
+    lastEditedBy: actor(alice),
+    start: { x: 200, y: 50, objectId: startId },
+    end: { x: 400, y: 50, objectId: endId },
+    direction: "end",
+    label: `${startId} to ${endId}`,
+    color: "black",
+  };
+}
+
+function diagram(memberObjectIds: string[], connectorIds: string[] = []): Diagram {
+  return {
+    id: "diagram-main",
+    title: "Main architecture",
+    description: "Authoritative diagram",
+    diagramType: "architecture",
+    category: "system",
+    tags: ["demo"],
+    memberObjectIds,
+    connectorIds,
+    bounds: { x: 0, y: 0, width: 1, height: 1 },
+    revision: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    createdBy: actor(alice),
+    lastEditedBy: actor(alice),
+  };
+}
+
+function room(objects: CanvasObject[], diagrams: Diagram[] = []): RoomState {
+  return normalizeRoomSemanticState({
+    id: "room-semantic",
+    code: "2468",
+    title: "Semantic room",
+    roomRevision: 4,
+    createdAt: NOW,
+    updatedAt: NOW,
+    participants: { alice: structuredClone(alice), bob: structuredClone(bob) },
+    objects: Object.fromEntries(objects.map((object) => [object.id, object])),
+    diagrams: Object.fromEntries(diagrams.map((item) => [item.id, item])),
+    leases: {},
+    spotlight: null,
+    agentEditPolicy: "live",
+    reviewProposals: [],
+  });
+}
+
+function captureDomainError(run: () => unknown): DomainError {
+  try {
+    run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(DomainError);
+    return error as DomainError;
+  }
+  throw new Error("Expected DomainError");
+}
+
+describe("atomic semantic transactions", () => {
+  it("aborts every object, revision, room, and agent-presence change on a stale target", () => {
+    const source = room([node("a", 0, 0), node("b", 400, 0, 2)]);
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(
+        source,
+        "alice",
+        "agent",
+        {
+          commands: [
+            {
+              type: "update",
+              objectId: "a",
+              expectedRevision: 1,
+              operation: "edit",
+              patch: { label: "would have changed" },
+            },
+            {
+              type: "update",
+              objectId: "b",
+              expectedRevision: 1,
+              operation: "edit",
+              patch: { label: "stale" },
+            },
+          ],
+          diagramCommands: [],
+        },
+        NOW + 100,
+      ),
+    );
+
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { objectId: "b", currentRevision: 2 } });
+    expect(source).toEqual(before);
+    expect(source.participants.alice).toMatchObject({ agentActive: false, agent: { activity: null } });
+  });
+
+  it("aborts when moving a node would implicitly rewrite a foreign-leased connector", () => {
+    const source = room([node("a", 0, 0), node("b", 400, 0), connector("edge", "a", "b")]);
+    source.leases.edge = {
+      leaseId: "bob-edge-lease",
+      objectId: "edge",
+      actor: actor(bob),
+      operation: "connect",
+      objectRevision: 1,
+      acquiredAt: NOW,
+      expiresAt: NOW + 4_000,
+    };
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(
+        source,
+        "alice",
+        "agent",
+        {
+          commands: [{ type: "move", targets: [{ objectId: "a", expectedRevision: 1, x: 100, y: 200 }] }],
+          diagramCommands: [],
+        },
+        NOW + 100,
+      ),
+    );
+
+    expect(error).toMatchObject({ code: "OBJECT_BUSY", details: { objectId: "edge", operation: "connect" } });
+    expect(source).toEqual(before);
+    expect(source.participants.alice.agentActive).toBe(false);
+  });
+
+  it("creates explicitly classified nodes and a first-class diagram in one commit", () => {
+    const source = room([]);
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          {
+            type: "create",
+            object: {
+              id: "payments",
+              kind: "shape",
+              x: 10,
+              y: 20,
+              width: 240,
+              height: 120,
+              rotation: 0,
+              zIndex: 1,
+              groupId: null,
+              shape: "rectangle",
+              nodeType: "service",
+              label: "Payments",
+              fill: "green",
+              stroke: "green",
+            },
+          },
+        ],
+        diagramCommands: [
+          {
+            type: "diagram.create",
+            diagram: {
+              id: "payments-flow",
+              title: "Payments flow",
+              description: "Payment service",
+              diagramType: "flow",
+              category: "payments",
+              tags: ["critical"],
+              memberObjectIds: ["payments"],
+              connectorIds: [],
+            },
+          },
+        ],
+      },
+      NOW + 200,
+    );
+
+    expect(result.room.roomRevision).toBe(source.roomRevision + 1);
+    expect(result.room.objects.payments).toMatchObject({
+      nodeType: "service",
+      diagramIds: ["payments-flow"],
+      revision: 1,
+      createdBy: actor(alice, "agent"),
+    });
+    expect(result.room.diagrams?.["payments-flow"]).toMatchObject({
+      revision: 1,
+      bounds: { x: 10, y: 20, width: 240, height: 120 },
+      createdBy: actor(alice, "agent"),
+    });
+  });
+
+  it("rejects cross-type semantic ID collisions atomically", () => {
+    const source = room([node("payments", 0, 0)]);
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(
+        source,
+        "alice",
+        "agent",
+        {
+          commands: [],
+          diagramCommands: [
+            {
+              type: "diagram.create",
+              diagram: {
+                id: "payments",
+                title: "Payments",
+                description: "",
+                diagramType: "architecture",
+                category: null,
+                tags: [],
+                memberObjectIds: [],
+                connectorIds: [],
+              },
+            },
+          ],
+        },
+        NOW + 225,
+      ),
+    );
+
+    expect(error).toMatchObject({ code: "INVALID_OPERATION", details: { id: "payments" } });
+    expect(source).toEqual(before);
+  });
+});
+
+describe("derived geometry and diagram integrity", () => {
+  it("revisions a Diagram once when member semantics change without changing membership or bounds", () => {
+    const source = room(
+      [node("api", 0, 0), node("worker", 400, 0), connector("edge", "api", "worker")],
+      [diagram(["api", "worker"], ["edge"])],
+    );
+    const beforeBounds = structuredClone(source.diagrams["diagram-main"].bounds);
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          {
+            type: "update",
+            objectId: "api",
+            expectedRevision: 1,
+            operation: "edit",
+            patch: { label: "Public API", nodeType: "component", fill: "violet" },
+          },
+        ],
+        diagramCommands: [],
+      },
+      NOW + 250,
+    );
+
+    expect(result.room.diagrams["diagram-main"]).toMatchObject({
+      revision: 2,
+      bounds: beforeBounds,
+      updatedAt: NOW + 250,
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.changedDiagramIds).toEqual(["diagram-main"]);
+  });
+
+  it("revisions a Diagram exactly once for multiple member and implicit connector touches with unchanged outer bounds", () => {
+    const source = room(
+      [
+        node("left", 0, 0),
+        node("middle", 400, 0),
+        node("right", 800, 0),
+        connector("middle-right", "middle", "right"),
+      ],
+      [diagram(["left", "middle", "right"], ["middle-right"])],
+    );
+    const beforeBounds = structuredClone(source.diagrams["diagram-main"].bounds);
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          { type: "move", targets: [{ objectId: "middle", expectedRevision: 1, x: 450, y: 0 }] },
+          {
+            type: "update",
+            objectId: "left",
+            expectedRevision: 1,
+            operation: "edit",
+            patch: { stroke: "violet" },
+          },
+        ],
+        diagramCommands: [],
+      },
+      NOW + 275,
+    );
+
+    expect(result.room.diagrams["diagram-main"]).toMatchObject({
+      revision: 2,
+      bounds: beforeBounds,
+      updatedAt: NOW + 275,
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.room.objects["middle-right"]).toMatchObject({
+      revision: 2,
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.changedDiagramIds).toEqual(["diagram-main"]);
+  });
+
+  it("revisions a Diagram once for connector label and direction edits even when connector bounds stay fixed", () => {
+    const source = room(
+      [node("api", 0, 0), node("worker", 400, 0), connector("edge", "api", "worker")],
+      [diagram(["api", "worker"], ["edge"])],
+    );
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          {
+            type: "update",
+            objectId: "edge",
+            expectedRevision: 1,
+            operation: "connect",
+            patch: { label: "request / response", direction: "both" },
+          },
+        ],
+        diagramCommands: [],
+      },
+      NOW + 290,
+    );
+
+    expect(result.room.objects.edge).toMatchObject({ revision: 2, label: "request / response", direction: "both" });
+    expect(result.room.diagrams["diagram-main"]).toMatchObject({
+      revision: 2,
+      updatedAt: NOW + 290,
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.changedDiagramIds).toEqual(["diagram-main"]);
+  });
+
+  it("lays out a connected diagram and revisions connectors and diagram bounds exactly once", () => {
+    const source = room(
+      [
+        node("api", 0, 0),
+        node("worker", 40, 180),
+        node("db", 80, 360),
+        connector("api-worker", "api", "worker"),
+        connector("worker-db", "worker", "db"),
+      ],
+      [diagram(["api", "worker", "db"], ["api-worker", "worker-db"])],
+    );
+
+    const result = applyLayoutCommand(
+      source,
+      "alice",
+      "agent",
+      {
+        layout: "flow",
+        direction: "right",
+        targets: ["api", "worker", "db"].map((objectId) => ({ objectId, expectedRevision: 1 })),
+        origin: { x: 100, y: 200 },
+        primaryGap: 100,
+        secondaryGap: 80,
+        diagramId: "diagram-main",
+        expectedDiagramRevision: 1,
+      },
+      NOW + 300,
+    );
+
+    expect(result.positions).toEqual([
+      { objectId: "api", x: 100, y: 200 },
+      { objectId: "worker", x: 400, y: 200 },
+      { objectId: "db", x: 700, y: 200 },
+    ]);
+    expect(result.room.objects["api-worker"]).toMatchObject({
+      revision: 2,
+      start: { objectId: "api", x: 300, y: 250 },
+      end: { objectId: "worker", x: 400, y: 250 },
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.room.objects["worker-db"]).toMatchObject({ revision: 2 });
+    expect(result.room.diagrams?.["diagram-main"]).toMatchObject({
+      revision: 2,
+      bounds: { x: 100, y: 200, width: 800, height: 100 },
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.changedObjectIds).toEqual(expect.arrayContaining(["api", "worker", "db", "api-worker", "worker-db"]));
+    expect(result.changedDiagramIds).toEqual(["diagram-main"]);
+  });
+
+  it("deleting a member detaches relationships and reconciles diagram membership and bounds", () => {
+    const source = room(
+      [node("api", 0, 0), node("worker", 400, 0), connector("edge", "api", "worker")],
+      [diagram(["api", "worker"], ["edge"])],
+    );
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [{ type: "delete", targets: [{ objectId: "worker", expectedRevision: 1 }] }],
+        diagramCommands: [],
+      },
+      NOW + 400,
+    );
+
+    expect(result.room.objects.worker).toBeUndefined();
+    expect(result.room.objects.edge).toMatchObject({
+      revision: 2,
+      start: { objectId: "api" },
+      end: { objectId: null },
+      diagramIds: ["diagram-main"],
+    });
+    expect(result.room.diagrams?.["diagram-main"]).toMatchObject({
+      memberObjectIds: ["api"],
+      connectorIds: ["edge"],
+      revision: 2,
+    });
+    expect(result.room.objects.api.diagramIds).toEqual(["diagram-main"]);
+  });
+
+  it("normalizes pre-diagram persisted rooms without fabricating classifications", () => {
+    const legacyNode = { ...node("legacy", 0, 0) } as unknown as Record<string, unknown>;
+    delete legacyNode.diagramIds;
+    delete legacyNode.nodeType;
+    const legacy = {
+      ...room([]),
+      objects: { legacy: legacyNode },
+      diagrams: undefined,
+    } as unknown as RoomState;
+
+    const normalized = normalizeRoomSemanticState(legacy);
+
+    expect(normalized.diagrams).toEqual({});
+    expect(normalized.objects.legacy).toMatchObject({ diagramIds: [], nodeType: null });
+  });
+});

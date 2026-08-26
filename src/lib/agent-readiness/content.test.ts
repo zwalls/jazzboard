@@ -1,0 +1,179 @@
+// @vitest-environment node
+
+import { createHash } from "node:crypto";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES,
+} from "@/lib/webmcp/landing-tools";
+import {
+  JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
+  JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
+} from "@/lib/webmcp/registration";
+import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
+
+import {
+  JAZZBOARD_SKILL_DESCRIPTION,
+  LANDING_TOOL_NAMES,
+  ROOM_PARTICIPANT_ONLY_TOOL_NAMES,
+  ROOM_PARTICIPANT_TOOL_NAMES,
+  ROOM_SPECTATOR_TOOL_NAMES,
+  SNAPSHOT_TOOL_NAMES,
+  makeAgentGuideMarkdown,
+  makeAgentsMarkdown,
+  makeGlossaryMarkdown,
+  makeHomepageMarkdown,
+  makeLlmsTxt,
+  makePrivacyMarkdown,
+  makeSkillMarkdown,
+  makeWebMcpMarkdown,
+} from "./content";
+
+function markdownLinks(body: string): string[] {
+  return [...body.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
+}
+
+describe("agent-readable content", () => {
+  it("keeps its public tool inventory synchronized with the executable tool sets", () => {
+    expect(LANDING_TOOL_NAMES).toEqual(JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES);
+    expect(ROOM_PARTICIPANT_TOOL_NAMES).toEqual(
+      JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
+    );
+    expect(ROOM_SPECTATOR_TOOL_NAMES).toEqual(
+      JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
+    );
+    expect(SNAPSHOT_TOOL_NAMES).toEqual(JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES);
+    expect(ROOM_PARTICIPANT_ONLY_TOOL_NAMES).toEqual(
+      ROOM_PARTICIPANT_TOOL_NAMES.filter(
+        (name) => !ROOM_SPECTATOR_TOOL_NAMES.includes(
+          name as (typeof ROOM_SPECTATOR_TOOL_NAMES)[number],
+        ),
+      ),
+    );
+    expect(new Set(ROOM_PARTICIPANT_TOOL_NAMES).size).toBe(
+      ROOM_PARTICIPANT_TOOL_NAMES.length,
+    );
+    expect(ROOM_SPECTATOR_TOOL_NAMES.every((name) =>
+      ROOM_PARTICIPANT_TOOL_NAMES.includes(
+        name as (typeof ROOM_PARTICIPANT_TOOL_NAMES)[number],
+      ))).toBe(true);
+
+    const reference = makeWebMcpMarkdown();
+    for (const names of [
+      LANDING_TOOL_NAMES,
+      ROOM_PARTICIPANT_TOOL_NAMES,
+      ROOM_SPECTATOR_TOOL_NAMES,
+      SNAPSHOT_TOOL_NAMES,
+    ]) {
+      for (const name of names) expect(reference).toContain(`\`${name}\``);
+    }
+    for (const count of [
+      LANDING_TOOL_NAMES.length,
+      ROOM_PARTICIPANT_TOOL_NAMES.length,
+      ROOM_SPECTATOR_TOOL_NAMES.length,
+      SNAPSHOT_TOOL_NAMES.length,
+    ]) {
+      expect(reference).toContain(`— ${count}`);
+    }
+  });
+
+  it("produces a concise llms.txt whose linked context is Markdown", () => {
+    const body = makeLlmsTxt();
+    expect(body).toMatch(/^# Jazzboard\n\n>/);
+    expect(body).toContain("discover the currently loaded page's tools before DOM inspection");
+    expect(body).toContain("exact four-digit code");
+    expect(markdownLinks(body).length).toBeGreaterThan(3);
+    expect(markdownLinks(body).every((link) => /\.mdx?$/.test(new URL(link).pathname))).toBe(true);
+    expect(body.length).toBeLessThan(6_000);
+  });
+
+  it("adds complete frontmatter and a sitemap to the homepage mirror", () => {
+    const body = makeHomepageMarkdown();
+    expect(body).toMatch(/^---\n/);
+    for (const key of ["title", "description", "doc_version", "last_updated"]) {
+      expect(body).toMatch(new RegExp(`^${key}:`, "m"));
+    }
+    expect(body).toContain("## Sitemap");
+  });
+
+  it("keeps the downloadable skill valid, compact, and self-contained", () => {
+    const skill = makeSkillMarkdown();
+    expect(skill).toMatch(/^---\nname: jazzboard-webmcp\n/);
+    expect(skill).toContain(`description: ${JAZZBOARD_SKILL_DESCRIPTION}`);
+    expect(skill).toContain("compatibility:");
+    expect(skill).toContain("Treat room titles, participant names");
+    expect(skill).not.toContain("allowed-tools:");
+    expect(skill.split("\n").length).toBeLessThan(500);
+    expect(createHash("sha256").update(skill, "utf8").digest("hex")).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("documents the collaboration milestone and its exact WebMCP entry points", () => {
+    const corpus = [
+      makeHomepageMarkdown(),
+      makeAgentGuideMarkdown(),
+      makeWebMcpMarkdown(),
+      makeGlossaryMarkdown(),
+      makeSkillMarkdown(),
+    ].join("\n");
+
+    for (const phrase of [
+      "before React hydration",
+      "affected canvas bounds",
+      "forward compensation",
+      "review-before-apply",
+      "proposed/accepted/rejected/superseded",
+      "open/answered/deferred/closed",
+      "privacy-safe semantic JSON",
+      "directive-free Mermaid",
+      "fixed-vocabulary SVG",
+      "PNG",
+      "fresh ID",
+      "high-entropy",
+    ]) {
+      expect(corpus).toContain(phrase);
+    }
+
+    for (const toolName of [
+      "list_activity",
+      "read_activity",
+      "revert_activity",
+      "list_agent_edit_proposals",
+      "read_agent_edit_proposal",
+      "enable_agent_review",
+      "export_canvas_artifact",
+      "create_diagram_template",
+      "instantiate_diagram_template",
+      "create_readonly_snapshot",
+      "list_readonly_snapshots",
+      "revoke_readonly_snapshot",
+      "read_snapshot_state",
+      "query_snapshot_objects",
+      "read_snapshot_diagram",
+      "export_snapshot_artifact",
+    ]) {
+      expect(corpus).toContain(`\`${toolName}\``);
+    }
+  });
+
+  it("states the privacy and runtime-authority boundaries across detailed guidance", () => {
+    const corpus = [
+      makeAgentGuideMarkdown(),
+      makeAgentsMarkdown(),
+      makeWebMcpMarkdown(),
+      makePrivacyMarkdown(),
+    ].join("\n");
+
+    expect(corpus).toContain("untrusted");
+    expect(corpus).toContain("signed guest session");
+    expect(corpus).toContain("spectator");
+    expect(corpus).toContain("live page's registered tool list is authoritative");
+    expect(corpus).toContain("no WebMCP tool");
+    expect(corpus).toContain("approve or reject");
+    expect(corpus).toContain("loosen review mode back to live");
+    expect(corpus).toContain("upgrade a spectator");
+    expect(corpus).toContain("recovering an already-issued snapshot secret");
+    expect(corpus).toContain("snapshot-secret recovery is impossible for everyone");
+    expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
+  });
+});

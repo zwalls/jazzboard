@@ -1,0 +1,174 @@
+// @vitest-environment node
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { DomainError } from "@/lib/domain/errors";
+
+const mocks = vi.hoisted(() => ({
+  consumeJoinAttempt: vi.fn(),
+  createRoom: vi.fn(),
+  getOrCreateGuestSession: vi.fn(),
+  joinRoom: vi.fn(),
+}));
+
+vi.mock("@/lib/server/join-attempt-limiter", () => ({
+  consumeJoinAttempt: mocks.consumeJoinAttempt,
+}));
+vi.mock("@/lib/server/room-store", () => ({
+  getRoomStore: () => ({ createRoom: mocks.createRoom, joinRoom: mocks.joinRoom }),
+}));
+vi.mock("@/lib/server/session", () => ({
+  getOrCreateGuestSession: mocks.getOrCreateGuestSession,
+}));
+
+import { POST } from "./route";
+
+function request(body: unknown, headers?: HeadersInit): Request {
+  return new Request("https://jazzboard.example/api/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("room create and exact-code join route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getOrCreateGuestSession.mockReturnValue({
+      participantId: "p_signed-session",
+      setCookie: "jazzboard_guest=new-signed-cookie; Path=/; HttpOnly; SameSite=Lax",
+    });
+    mocks.consumeJoinAttempt.mockResolvedValue({
+      allowed: true,
+      limit: 8,
+      remaining: 7,
+      retryAfterSeconds: 0,
+    });
+    mocks.createRoom.mockResolvedValue({ id: "room_created", code: "1234" });
+    mocks.joinRoom.mockResolvedValue({ id: "room_joined", code: "0042" });
+  });
+
+  it("limits a validated join by signed session ID and joins one exact code", async () => {
+    const response = await POST(
+      request({ action: "join", code: "0042", displayName: "Ada", role: "participant" }, {
+        "x-forwarded-for": "203.0.113.9",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session");
+    expect(mocks.joinRoom).toHaveBeenCalledWith({
+      participantId: "p_signed-session",
+      code: "0042",
+      displayName: "Ada",
+      role: "participant",
+    });
+    expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+  });
+
+  it("rejects prefixes, non-four-digit codes, and arrays before consuming an attempt", async () => {
+    for (const code of ["42", "004", "00420", " 0042 ", "00*", ["0042", "0043"]]) {
+      const response = await POST(
+        request({ action: "join", code, displayName: "Ada", role: "participant" }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_REQUEST" },
+      });
+      expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+    }
+    expect(mocks.consumeJoinAttempt).not.toHaveBeenCalled();
+    expect(mocks.joinRoom).not.toHaveBeenCalled();
+  });
+
+  it("returns the newly issued guest cookie with malformed JSON errors", async () => {
+    const response = await POST(
+      new Request("https://jazzboard.example/api/rooms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not-json",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST" },
+    });
+  });
+
+  it("returns a structured retry response and the newly issued guest cookie when limited", async () => {
+    mocks.consumeJoinAttempt.mockResolvedValue({
+      allowed: false,
+      limit: 8,
+      remaining: 0,
+      retryAfterSeconds: 37,
+    });
+
+    const response = await POST(
+      request({ action: "join", code: "0042", displayName: "Ada", role: "spectator" }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("37");
+    expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "JOIN_RATE_LIMITED",
+        message: "Too many room-code attempts. Try again in 37 seconds.",
+        details: { limit: 8, remaining: 0, retryAfterSeconds: 37 },
+      },
+    });
+    expect(mocks.joinRoom).not.toHaveBeenCalled();
+  });
+
+  it("returns the newly issued guest cookie when an exact-code join fails", async () => {
+    mocks.joinRoom.mockRejectedValue(
+      new DomainError("ROOM_NOT_FOUND", "No Jazzboard exists with that code."),
+    );
+
+    const response = await POST(
+      request({ action: "join", code: "9999", displayName: "Ada", role: "participant" }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: { code: "ROOM_NOT_FOUND" },
+    });
+  });
+
+  it("preserves unthrottled room creation", async () => {
+    const response = await POST(request({ action: "create", displayName: "Ada", title: "Design" }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.createRoom).toHaveBeenCalledWith({
+      participantId: "p_signed-session",
+      displayName: "Ada",
+      title: "Design",
+    });
+    expect(mocks.consumeJoinAttempt).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, { action: "search", codePrefix: "00" }, { action: "CREATE" }])(
+    "fails closed when action is missing or unknown",
+    async (body) => {
+      const response = await POST(request(body));
+
+      expect(response.status).toBe(400);
+      expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_REQUEST" },
+      });
+      expect(mocks.createRoom).not.toHaveBeenCalled();
+      expect(mocks.joinRoom).not.toHaveBeenCalled();
+      expect(mocks.consumeJoinAttempt).not.toHaveBeenCalled();
+    },
+  );
+});
