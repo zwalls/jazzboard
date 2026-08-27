@@ -12,6 +12,10 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
   fullyParallel: false,
+  // Latency and recovery tests deliberately hold requests open against one
+  // local Next.js process. Serial workers keep those gates deterministic and
+  // avoid development-server listener pressure obscuring product failures.
+  workers: 1,
   retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {

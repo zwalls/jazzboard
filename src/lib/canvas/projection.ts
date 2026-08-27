@@ -26,8 +26,11 @@ import type { CanvasObject, CreateCanvasObject, DiagramNodeType, RoomState } fro
 type JazzboardMeta = JsonObject & {
   jazzboardId?: string;
   jazzboardRevision?: number;
+  jazzboardCreatedAt?: number;
   jazzboardKind?: string;
-  jazzboardGroupId?: string;
+  jazzboardGroupId?: string | null;
+  jazzboardZIndex?: number;
+  jazzboardRenderedZIndex?: number;
   jazzboardFill?: string;
   jazzboardStroke?: string;
   jazzboardRenderedColor?: string;
@@ -101,7 +104,9 @@ function metaFor(object: CanvasObject): JazzboardMeta {
   const meta: JazzboardMeta = {
     jazzboardId: object.id,
     jazzboardRevision: object.revision,
+    jazzboardCreatedAt: object.createdAt,
     jazzboardKind: object.kind,
+    jazzboardZIndex: object.zIndex,
   };
   if (object.kind === "shape") {
     meta.jazzboardFill = object.fill;
@@ -125,7 +130,7 @@ function semanticGroupIdForShape(shape: TLShape | undefined): string | null {
     : `group_${shape.id.slice("shape:".length)}`;
 }
 
-function projectedGroupShapeId(groupId: string): TLShapeId {
+export function tldrawGroupShapeId(groupId: string): TLShapeId {
   return createShapeId(`jazzboard-group-${groupId}`);
 }
 
@@ -144,6 +149,7 @@ function semanticToShape(room: RoomState, object: CanvasObject): TLShapePartial 
     x: object.x,
     y: object.y,
     rotation: object.rotation,
+    isLocked: object.kind === "image" ? object.locked : false,
     meta: metaFor(object),
   };
 
@@ -294,103 +300,358 @@ function reconcileConnectorBindings(editor: Editor, object: CanvasObject): void 
   }
 }
 
+export interface ProjectionOptions {
+  /** Object IDs whose local tldraw state must remain completely untouched. */
+  protectedObjectIds?: ReadonlySet<string>;
+  /** Object IDs that should accept the authoritative state even without a newer revision. */
+  forceObjectIds?: ReadonlySet<string>;
+}
+
+const EMPTY_OBJECT_IDS: ReadonlySet<string> = new Set<string>();
+const deferredGroupReconciliations = new WeakMap<Editor, Set<string>>();
+
+function isLegacyProtectionSet(
+  options: ProjectionOptions | ReadonlySet<string>,
+): options is ReadonlySet<string> {
+  return typeof (options as ReadonlySet<string>).has === "function";
+}
+
+function normalizeProjectionOptions(
+  options: ProjectionOptions | ReadonlySet<string>,
+): Required<ProjectionOptions> {
+  // Keep the former third-argument ReadonlySet API working while callers move
+  // to the named options. A legacy active-ID set has protection semantics.
+  if (isLegacyProtectionSet(options)) {
+    return { protectedObjectIds: options, forceObjectIds: EMPTY_OBJECT_IDS };
+  }
+  return {
+    protectedObjectIds: options.protectedObjectIds ?? EMPTY_OBJECT_IDS,
+    forceObjectIds: options.forceObjectIds ?? EMPTY_OBJECT_IDS,
+  };
+}
+
+function projectedRevision(shape: TLShape | undefined): number | null {
+  if (!shape) return null;
+  const revision = (shape.meta as JazzboardMeta).jazzboardRevision;
+  return typeof revision === "number" ? revision : null;
+}
+
+function projectedCreatedAt(shape: TLShape | undefined): number | null {
+  if (!shape) return null;
+  const createdAt = (shape.meta as JazzboardMeta).jazzboardCreatedAt;
+  return typeof createdAt === "number" ? createdAt : null;
+}
+
+function parentShape(editor: Editor, shape: TLShape | undefined): TLShape | undefined {
+  if (!shape || !String(shape.parentId).startsWith("shape:")) return undefined;
+  return editor.getShape(shape.parentId as TLShapeId);
+}
+
+function reconcileMemberGroupMetadata(
+  editor: Editor,
+  object: CanvasObject,
+  authoritativeGroupSize: number,
+): boolean {
+  const shape = editor.getShape(tldrawShapeId(object.id));
+  if (!shape || shape.type === "group") return false;
+  const parentGroupId = semanticGroupIdForShape(parentShape(editor, shape));
+  const desiredFallbackGroupId =
+    object.groupId && (authoritativeGroupSize < 2 || parentGroupId !== object.groupId)
+      ? object.groupId
+      : null;
+  const meta = shape.meta as JazzboardMeta;
+  const currentFallbackGroupId =
+    typeof meta.jazzboardGroupId === "string" ? meta.jazzboardGroupId : null;
+  if (currentFallbackGroupId === desiredFallbackGroupId) return false;
+  editor.updateShape({
+    id: shape.id,
+    type: shape.type,
+    meta: { ...meta, jazzboardGroupId: desiredFallbackGroupId },
+  });
+  return true;
+}
+
+function protectedGroupShapeIds(
+  editor: Editor,
+  protectedObjectIds: ReadonlySet<string>,
+): ReadonlySet<TLShapeId> {
+  const result = new Set<TLShapeId>();
+  for (const objectId of protectedObjectIds) {
+    let shape = editor.getShape(tldrawShapeId(objectId));
+    while (shape && String(shape.parentId).startsWith("shape:")) {
+      const parent = editor.getShape(shape.parentId as TLShapeId);
+      if (!parent) break;
+      if (parent.type === "group") result.add(parent.id);
+      shape = parent;
+    }
+  }
+  return result;
+}
+
+function renderedZIndex(editor: Editor, shape: TLShape): number {
+  return Math.max(
+    editor.getCurrentPageShapesSorted().findIndex((item) => item.id === shape.id),
+    0,
+  );
+}
+
+function reconcileRenderedOrderMetadata(
+  editor: Editor,
+  room: RoomState,
+  protectedObjectIds: ReadonlySet<string>,
+  rebaseline: boolean,
+): void {
+  for (const object of Object.values(room.objects)) {
+    if (protectedObjectIds.has(object.id)) continue;
+    const shape = editor.getShape(tldrawShapeId(object.id));
+    if (!shape) continue;
+    const meta = shape.meta as JazzboardMeta;
+    if (
+      !rebaseline &&
+      meta.jazzboardZIndex === object.zIndex &&
+      typeof meta.jazzboardRenderedZIndex === "number"
+    ) {
+      continue;
+    }
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      meta: {
+        ...meta,
+        jazzboardZIndex: object.zIndex,
+        jazzboardRenderedZIndex: renderedZIndex(editor, shape),
+      },
+    });
+  }
+}
+
 export function projectRoomIntoTldraw(
   editor: Editor,
   room: RoomState,
-  locallyActiveObjectIds: ReadonlySet<string> = new Set(),
+  options: ProjectionOptions | ReadonlySet<string> = {},
 ): void {
+  const { protectedObjectIds, forceObjectIds } = normalizeProjectionOptions(options);
   const wasReadonly = editor.getIsReadonly();
+  let renderedOrderChanged = false;
   if (wasReadonly) editor.updateInstanceState({ isReadonly: false });
   try {
     editor.store.mergeRemoteChanges(() => {
       const serverIds = new Set(Object.keys(room.objects));
-      const desiredGroupIds = new Set(
-        Object.values(room.objects).flatMap((object) => (object.groupId ? [object.groupId] : [])),
-      );
-
-      for (const shape of editor.getCurrentPageShapes()) {
-        if (shape.type !== "group") continue;
-        const meta = shape.meta as JazzboardMeta;
-        if (meta.jazzboardGroupId && !desiredGroupIds.has(meta.jazzboardGroupId)) {
-          editor.ungroupShapes([shape.id], { select: false });
+      const forcedMissingObjectIdsByShapeId = new Map<TLShapeId, string>();
+      for (const objectId of forceObjectIds) {
+        if (!serverIds.has(objectId)) {
+          forcedMissingObjectIdsByShapeId.set(tldrawShapeId(objectId), objectId);
         }
+      }
+      const protectedGroups = protectedGroupShapeIds(editor, protectedObjectIds);
+      const protectedSemanticGroups = new Set<string>();
+      for (const objectId of protectedObjectIds) {
+        const serverGroupId = room.objects[objectId]?.groupId;
+        if (serverGroupId) protectedSemanticGroups.add(serverGroupId);
+      }
+      for (const groupShapeId of protectedGroups) {
+        const semanticGroupId = semanticGroupIdForShape(editor.getShape(groupShapeId));
+        if (semanticGroupId) protectedSemanticGroups.add(semanticGroupId);
+      }
+      let deferredGroups = deferredGroupReconciliations.get(editor);
+      if (!deferredGroups) {
+        deferredGroups = new Set<string>();
+        deferredGroupReconciliations.set(editor, deferredGroups);
+      }
+      const projectedObjectIds = new Set<string>();
+      const groupsToReconcile = new Set<string>();
+      const reconciledGroups = new Set<string>();
+      for (const groupId of deferredGroups) {
+        if (!protectedSemanticGroups.has(groupId)) groupsToReconcile.add(groupId);
       }
 
       for (const object of Object.values(room.objects).sort((a, b) => a.zIndex - b.zIndex)) {
-        if (locallyActiveObjectIds.has(object.id)) continue;
-        ensureImageAsset(editor, object);
+        if (protectedObjectIds.has(object.id)) continue;
         const id = tldrawShapeId(object.id);
         let existing = editor.getShape(id);
+        const revision = projectedRevision(existing);
+        const createdAt = projectedCreatedAt(existing);
+        const sameIncarnation = createdAt === null || createdAt === object.createdAt;
+        if (
+          existing &&
+          !forceObjectIds.has(object.id) &&
+          sameIncarnation &&
+          revision !== null &&
+          object.revision <= revision
+        ) {
+          continue;
+        }
+
         let partial = semanticToShape(room, object);
-        if (existing && String(existing.parentId).startsWith("shape:")) {
-          const parent = editor.getShape(existing.parentId as TLShapeId);
-          if (object.groupId && semanticGroupIdForShape(parent) === object.groupId && parent) {
+        let parent = parentShape(editor, existing);
+        const currentGroupId = semanticGroupIdForShape(parent);
+        const typeChanged = Boolean(existing && existing.type !== partial.type);
+
+        // Reparenting or replacing a member can make tldraw dissolve a group
+        // with one remaining child. Defer that object's whole projection while
+        // the group protects another local object, so protection cannot be
+        // defeated as a side effect of reconciling a sibling.
+        if (
+          parent &&
+          protectedGroups.has(parent.id) &&
+          (currentGroupId !== object.groupId || typeChanged)
+        ) {
+          continue;
+        }
+
+        ensureImageAsset(editor, object);
+        // A projected member can carry a changed authoritative z-index even
+        // when it remains in the same group. Reconcile the whole group's
+        // child order after the record update rather than relying on tldraw's
+        // existing index for that member.
+        if (object.groupId) groupsToReconcile.add(object.groupId);
+        if (existing && parent) {
+          if (object.groupId && currentGroupId === object.groupId && !typeChanged) {
             const localOrigin = editor.getPointInShapeSpace(parent, { x: object.x, y: object.y });
             partial = { ...partial, x: localOrigin.x, y: localOrigin.y };
           } else {
             editor.reparentShapes([id], editor.getCurrentPageId());
             existing = editor.getShape(id);
+            parent = undefined;
           }
         }
         if (existing && existing.type !== partial.type) editor.deleteShape(id);
         if (editor.getShape(id)) editor.updateShape(partial);
         else editor.createShape(partial);
+        projectedObjectIds.add(object.id);
       }
 
       // Bindings must be reconciled only after every target shape exists;
       // semantic z-order does not guarantee that connectors follow targets.
       for (const object of Object.values(room.objects)) {
-        if (!locallyActiveObjectIds.has(object.id)) reconcileConnectorBindings(editor, object);
+        if (projectedObjectIds.has(object.id)) reconcileConnectorBindings(editor, object);
       }
 
       const stale = editor
         .getCurrentPageShapes()
         .filter((shape) => {
-          const objectId = (shape.meta as JazzboardMeta).jazzboardId;
-          return objectId && !locallyActiveObjectIds.has(objectId) && !serverIds.has(objectId);
+          const objectId =
+            (shape.meta as JazzboardMeta).jazzboardId ??
+            forcedMissingObjectIdsByShapeId.get(shape.id);
+          const parent = parentShape(editor, shape);
+          return (
+            objectId &&
+            !protectedObjectIds.has(objectId) &&
+            !serverIds.has(objectId) &&
+            (!parent || !protectedGroups.has(parent.id))
+          );
         })
         .map((shape) => shape.id);
       if (stale.length) editor.deleteShapes(stale);
 
       const groups = new Map<string, CanvasObject[]>();
       for (const object of Object.values(room.objects)) {
-        if (!object.groupId || locallyActiveObjectIds.has(object.id)) continue;
+        if (!object.groupId) continue;
         const members = groups.get(object.groupId) ?? [];
         members.push(object);
         groups.set(object.groupId, members);
       }
-      for (const [semanticGroupId, members] of groups) {
-        const memberIds = members.map((object) => tldrawShapeId(object.id)).filter((id) => editor.getShape(id));
-        if (memberIds.length < 2) continue;
+      for (const semanticGroupId of groupsToReconcile) {
+        const members = groups.get(semanticGroupId) ?? [];
+        const memberIds = members
+          .map((object) => tldrawShapeId(object.id))
+          .filter((id) => editor.getShape(id));
         const existingGroup = editor
           .getCurrentPageShapes()
           .find((shape) => semanticGroupIdForShape(shape) === semanticGroupId);
-        const groupShapeId = existingGroup?.id ?? projectedGroupShapeId(semanticGroupId);
-        if (!existingGroup) editor.groupShapes(memberIds, { groupId: groupShapeId, select: false });
-        else {
+        // Reparenting or raising any child changes the group's internal
+        // indexes. Defer the complete operation while even one member is
+        // locally protected, then replay it after protection clears.
+        if (
+          protectedSemanticGroups.has(semanticGroupId) ||
+          (existingGroup && protectedGroups.has(existingGroup.id))
+        ) {
+          deferredGroups.add(semanticGroupId);
+          continue;
+        }
+        const groupShapeId = existingGroup?.id ?? tldrawGroupShapeId(semanticGroupId);
+        if (!existingGroup && memberIds.length >= 2) {
+          editor.groupShapes(memberIds, { groupId: groupShapeId, select: false });
+          if (editor.getShape(groupShapeId)) {
+            editor.updateShape({
+              id: groupShapeId,
+              type: "group",
+              meta: { jazzboardGroupId: semanticGroupId },
+            });
+          }
+        } else if (existingGroup) {
           const missing = memberIds.filter((id) => editor.getShape(id)?.parentId !== groupShapeId);
           if (missing.length) editor.reparentShapes(missing, groupShapeId);
         }
-        if (editor.getShape(groupShapeId)) {
-          editor.updateShape({
-            id: groupShapeId,
-            type: "group",
-            meta: { jazzboardGroupId: semanticGroupId },
-          });
+        for (const member of members.sort((a, b) => a.zIndex - b.zIndex)) {
+          const memberId = tldrawShapeId(member.id);
+          if (editor.getShape(memberId)?.parentId === groupShapeId) {
+            editor.bringToFront([memberId]);
+          }
         }
-        for (const member of [...members].sort((a, b) => a.zIndex - b.zIndex)) {
-          editor.bringToFront([tldrawShapeId(member.id)]);
-        }
+        deferredGroups.delete(semanticGroupId);
+        reconciledGroups.add(semanticGroupId);
       }
 
-      const topLevel = Object.values(room.objects)
-        .filter((object) => !object.groupId)
-        .map((object) => ({ id: tldrawShapeId(object.id), zIndex: object.zIndex }));
-      for (const [groupId, members] of groups) {
-        const group = editor.getCurrentPageShapes().find((shape) => semanticGroupIdForShape(shape) === groupId);
-        if (group) topLevel.push({ id: group.id, zIndex: Math.min(...members.map((member) => member.zIndex)) });
+      // tldraw dissolves a group once it has fewer than two children. Keep a
+      // semantic fallback only on members whose authoritative group therefore
+      // has no matching visual container; normal multi-member groups continue
+      // deriving their identity from the parent so an explicit ungroup can
+      // still round-trip as groupId: null.
+      for (const object of Object.values(room.objects)) {
+        if (protectedObjectIds.has(object.id)) continue;
+        const shape = editor.getShape(tldrawShapeId(object.id));
+        const parent = parentShape(editor, shape);
+        if (parent && protectedGroups.has(parent.id)) continue;
+        reconcileMemberGroupMetadata(
+          editor,
+          object,
+          object.groupId ? (groups.get(object.groupId)?.length ?? 0) : 0,
+        );
       }
-      for (const item of topLevel.sort((a, b) => a.zIndex - b.zIndex)) editor.bringToFront([item.id]);
+
+      // A room-only revision change has no projected or stale object and must
+      // not perturb local stack indexes. When object state did change, retain
+      // the existing full ordering pass for exact authoritative z-order.
+      renderedOrderChanged = Boolean(
+        projectedObjectIds.size || stale.length || reconciledGroups.size,
+      );
+      if (
+        renderedOrderChanged &&
+        protectedObjectIds.size === 0
+      ) {
+        const topLevel = Object.values(room.objects)
+          .filter((object) => !object.groupId && !protectedObjectIds.has(object.id))
+          .map((object) => ({ id: tldrawShapeId(object.id), zIndex: object.zIndex }));
+        for (const [groupId, members] of groups) {
+          const group = editor
+            .getCurrentPageShapes()
+            .find((shape) => semanticGroupIdForShape(shape) === groupId);
+          if (group) {
+            topLevel.push({
+              id: group.id,
+              zIndex: Math.min(...members.map((member) => member.zIndex)),
+            });
+          } else {
+            for (const member of members) {
+              const memberId = tldrawShapeId(member.id);
+              if (editor.getShape(memberId)?.parentId === editor.getCurrentPageId()) {
+                topLevel.push({ id: memberId, zIndex: member.zIndex });
+              }
+            }
+          }
+        }
+        for (const item of topLevel.sort((a, b) => a.zIndex - b.zIndex)) {
+          if (editor.getShape(item.id)) editor.bringToFront([item.id]);
+        }
+      }
+    });
+    // Group dissolution and other tldraw index normalization can settle at
+    // the end of the projection transaction. Record that final rendered rank
+    // separately from the authoritative semantic z-index so a later document
+    // edit only emits a new z-index after the user actually reorders a shape.
+    editor.store.mergeRemoteChanges(() => {
+      reconcileRenderedOrderMetadata(editor, room, protectedObjectIds, renderedOrderChanged);
     });
   } finally {
     if (wasReadonly) editor.updateInstanceState({ isReadonly: true });
@@ -398,15 +659,29 @@ export function projectRoomIntoTldraw(
 }
 
 function groupIdFor(editor: Editor, shape: TLShape): string | null {
-  if (!String(shape.parentId).startsWith("shape:")) return null;
-  const parent = editor.getShape(shape.parentId as TLShapeId);
-  return semanticGroupIdForShape(parent);
+  if (String(shape.parentId).startsWith("shape:")) {
+    const parent = editor.getShape(shape.parentId as TLShapeId);
+    const parentGroupId = semanticGroupIdForShape(parent);
+    if (parentGroupId) return parentGroupId;
+  }
+  const fallbackGroupId = (shape.meta as JazzboardMeta).jazzboardGroupId;
+  return typeof fallbackGroupId === "string" ? fallbackGroupId : null;
 }
 
 export function tldrawShapeToSemantic(editor: Editor, shape: TLShape): CreateCanvasObject | null {
   const pageTransform = editor.getShapePageTransform(shape);
   const origin = pageTransform.point();
   const localBounds = editor.getShapeGeometry(shape).bounds;
+  const meta = shape.meta as JazzboardMeta;
+  const localZIndex = renderedZIndex(editor, shape);
+  const projectedZIndex =
+    typeof meta.jazzboardId === "string" &&
+    shape.id === tldrawShapeId(meta.jazzboardId) &&
+    typeof meta.jazzboardZIndex === "number" &&
+    typeof meta.jazzboardRenderedZIndex === "number" &&
+    localZIndex === meta.jazzboardRenderedZIndex
+      ? meta.jazzboardZIndex
+      : localZIndex;
   const base = {
     id: semanticId(shape),
     x: origin.x,
@@ -414,7 +689,7 @@ export function tldrawShapeToSemantic(editor: Editor, shape: TLShape): CreateCan
     width: Math.max(localBounds.width, 1),
     height: Math.max(localBounds.height, 1),
     rotation: pageTransform.rotation(),
-    zIndex: Math.max(editor.getCurrentPageShapesSorted().findIndex((item) => item.id === shape.id), 0),
+    zIndex: projectedZIndex,
     groupId: groupIdFor(editor, shape),
   };
 
@@ -546,11 +821,16 @@ export function tldrawShapeToSemantic(editor: Editor, shape: TLShape): CreateCan
   return null;
 }
 
-export function jazzboardMeta(shape: TLShape): { objectId: string | null; revision: number | null } {
+export function jazzboardMeta(shape: TLShape): {
+  objectId: string | null;
+  revision: number | null;
+  createdAt: number | null;
+} {
   const meta = shape.meta as JazzboardMeta;
   return {
     objectId: typeof meta.jazzboardId === "string" ? meta.jazzboardId : null,
     revision: typeof meta.jazzboardRevision === "number" ? meta.jazzboardRevision : null,
+    createdAt: typeof meta.jazzboardCreatedAt === "number" ? meta.jazzboardCreatedAt : null,
   };
 }
 

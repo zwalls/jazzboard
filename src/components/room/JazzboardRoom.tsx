@@ -283,7 +283,11 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }, [followTarget, updateFollowTarget]);
 
   if (!room || !self || !participantId) {
-    const notAuthorized = controller.error && "status" in controller.error && [401, 403, 404].includes(controller.error.status);
+    const notAuthorized =
+      controller.error &&
+      "status" in controller.error &&
+      typeof controller.error.status === "number" &&
+      [401, 403, 404].includes(controller.error.status);
     return (
       <main className={styles.loadingPage}>
         <JazzboardLogo />
@@ -623,7 +627,9 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         self={self}
         followTarget={effectiveFollowTarget}
         command={controller.command}
+        semanticTransaction={controller.semanticTransaction}
         lease={controller.lease}
+        refresh={controller.refresh}
         presence={controller.presence}
         onSelectionChange={setSelection}
         onEditorChange={setEditor}

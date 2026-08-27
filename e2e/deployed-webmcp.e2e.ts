@@ -472,6 +472,7 @@ test.describe("WebMCP browser acceptance", () => {
     expect(
       connectorIds.map((connectorId) => idleProjection.room.objects[connectorId].revision),
     ).toEqual(settledConnectorRevisions);
+    expect(Object.keys(idleProjection.room.leases)).toEqual([]);
 
     const drawing = successData(
       await callWebMcpTool<CreateObjectData>(page, "create_drawing", {
