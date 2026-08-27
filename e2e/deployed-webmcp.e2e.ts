@@ -880,10 +880,7 @@ test.describe("WebMCP browser acceptance", () => {
     await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTestId("site-tools-status")).toHaveAccessibleName(
-      "WebMCP site tools status: 44 site tools",
-    );
-    await expect(page.getByTestId("site-tools-status")).toContainText("44");
+    await expect(page.getByTestId("site-tools-status")).toHaveCount(0);
     for (const toolName of [...SHARED_ROOM_READ_TOOL_NAMES, ...PARTICIPANT_ONLY_READ_TOOL_NAMES]) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
     }
@@ -1770,10 +1767,7 @@ test.describe("WebMCP browser acceptance", () => {
       await spectatorPeople.hover();
       await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
       await spectatorPage.mouse.move(0, 0);
-      await expect(spectatorPage.getByTestId("site-tools-status")).toHaveAccessibleName(
-        "WebMCP site tools status: 14 non-editing tools",
-      );
-      await expect(spectatorPage.getByTestId("site-tools-status")).toContainText("14");
+      await expect(spectatorPage.getByTestId("site-tools-status")).toHaveCount(0);
       const spectatorMetadata = await expectRegisteredSurface(spectatorPage, SPECTATOR_ROOM_TOOL_NAMES);
       for (const toolName of SHARED_ROOM_READ_TOOL_NAMES) {
         expect(spectatorMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
@@ -2290,10 +2284,7 @@ test.describe("WebMCP browser acceptance", () => {
     });
 
     await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTestId("site-tools-status")).toHaveAccessibleName(
-      "WebMCP site tools status: 44 site tools",
-    );
-    await expect(page.getByTestId("site-tools-status")).toContainText("44");
+    await expect(page.getByTestId("site-tools-status")).toHaveCount(0);
 
     const created = await callWebMcpTool<CreateObjectData>(page, "create_text", {
       content: WEBMCP_TEXT,

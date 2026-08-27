@@ -29,9 +29,7 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     await spectatorPeople.hover();
     await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
     await spectatorPage.mouse.move(0, 0);
-    await expect(spectatorPage.getByTestId("site-tools-status")).toHaveAccessibleName(
-      "WebMCP site tools status: WebMCP preview",
-    );
+    await expect(spectatorPage.getByTestId("site-tools-status")).toHaveCount(0);
     await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toBeVisible();
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toHaveCount(0);
 

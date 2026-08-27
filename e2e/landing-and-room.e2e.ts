@@ -88,7 +88,6 @@ test.describe("landing and room entry", () => {
     for (const indicator of [
       controls.getByTestId("connection-status"),
       controls.getByRole("button", { name: "Show people in this room" }),
-      controls.getByTestId("site-tools-status"),
     ]) {
       const box = await indicator.boundingBox();
       expect(box).not.toBeNull();
@@ -103,11 +102,8 @@ test.describe("landing and room entry", () => {
     await expect(page.getByRole("tooltip")).toHaveText(/^(Connecting|Live|Synced)$/);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("tooltip")).toHaveCount(0);
-
-    await controls.getByTestId("site-tools-status").focus();
-    await expect(page.getByRole("tooltip")).toHaveText(/WebMCP preview|tools ready|site tools/);
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(controls.getByTestId("site-tools-status")).toHaveCount(0);
+    await expect(controls.getByText("44", { exact: true })).toHaveCount(0);
 
     const peopleButton = controls.getByRole("button", { name: "Show people in this room" });
     await peopleButton.hover();

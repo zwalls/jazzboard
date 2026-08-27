@@ -233,28 +233,36 @@ button.compactIndicator:hover {
 }
 
 .connectionIndicator {
-  background: var(--mint-soft);
-  color: #137861;
+  background: transparent;
+  min-width: 25px;
+  padding: 0 8px;
 }
 
 .connectionIndicator.offline {
-  background: #f1f2f5;
-  color: #7b8496;
+  background: transparent;
 }
 
 .connectionIndicator.connecting {
-  background: #fff7e3;
-  color: #9a6a00;
+  background: transparent;
 }
 
-.siteToolsIndicator {
-  background: #fff7e3;
-  color: #9a6a00;
+.connectionDot {
+  background: #20a778;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(32, 167, 120, 0.12);
+  display: block;
+  height: 8px;
+  width: 8px;
 }
 
-.siteToolsIndicator.ready {
-  background: #eceeff;
-  color: #4d58cc;
+.connectionIndicator.offline .connectionDot {
+  background: #98a2b3;
+  box-shadow: none;
+}
+
+.connectionIndicator.connecting .connectionDot {
+  background: #e7a526;
+  box-shadow: 0 0 0 3px rgba(231, 165, 38, 0.13);
 }
 
 .indicatorCount {

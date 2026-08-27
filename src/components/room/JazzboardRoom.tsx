@@ -25,8 +25,6 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
-  Wifi,
-  WifiOff,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -57,7 +55,7 @@ import {
   JazzboardWebMcpRegistrar,
   renderCanvasPreview,
 } from "@/lib/webmcp";
-import type { JazzboardWebMcpContext, JazzboardWebMcpRegistrationStatus } from "@/lib/webmcp";
+import type { JazzboardWebMcpContext } from "@/lib/webmcp";
 import { useRoom } from "@/hooks/use-room";
 
 import { JazzboardCanvas } from "./JazzboardCanvas";
@@ -132,7 +130,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
   const [followOpen, setFollowOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
-  const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | "site-tools" | null>(null);
+  const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | null>(null);
   const [spotlightPickerOpen, setSpotlightPickerOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -148,7 +146,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [declinedSpotlight, setDeclinedSpotlight] = useState<number | null>(null);
-  const [webMcpStatus, setWebMcpStatus] = useState<JazzboardWebMcpRegistrationStatus | null>(null);
   const spotlightJoinRef = useRef<number | null>(null);
   const roomStateRef = useRef(room);
   const selectionRef = useRef(selection);
@@ -197,7 +194,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }, [editor, followTarget, room, selection]);
 
   useEffect(() => {
-    let cancelled = false;
     const previewHost = previewHostRef.current;
     const context: JazzboardWebMcpContext = {
       getRoom: () => roomStateRef.current,
@@ -243,23 +239,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     const binding = webMcpRoomId && webMcpRole && participantId
       ? { roomId: webMcpRoomId, participantId, role: webMcpRole, context }
       : null;
-    void webMcpRegistrar
-      .update(binding)
-      .then((status) => {
-        if (!cancelled) setWebMcpStatus(status);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWebMcpStatus({
-            supported: false,
-            roomId: webMcpRoomId,
-            role: webMcpRole,
-            registeredToolNames: [],
-          });
-        }
-      });
+    void webMcpRegistrar.update(binding).catch(() => undefined);
     return () => {
-      cancelled = true;
       webMcpRegistrar.dispose();
       previewHost?.dismiss();
     };
@@ -355,8 +336,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const followingSpotlight = spotlight?.followingParticipantIds.includes(participantId) ?? false;
   const declined = spotlight ? declinedSpotlight === spotlight.startedAt : false;
   const diagrams = Object.values(room.diagrams ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
-  const siteToolsSupported = webMcpStatus?.supported ?? false;
-  const registeredToolCount = webMcpStatus?.registeredToolNames.length ?? 0;
   const participantCount = Object.keys(room.participants).length;
   const connectionLabel = controller.connection === "live"
     ? "Live"
@@ -366,17 +345,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         ? "Offline"
         : "Connecting";
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"} in this room · Your role: ${self.role}`;
-  const siteToolsLabel = self.role === "spectator"
-    ? registeredToolCount
-      ? `${registeredToolCount} non-editing tools`
-      : siteToolsSupported
-        ? "Non-editing tools ready"
-        : "WebMCP preview"
-    : registeredToolCount
-      ? `${registeredToolCount} site tools`
-      : siteToolsSupported
-        ? "Site tools ready"
-        : "WebMCP preview";
 
   function toggleDurability(nextMode: DurabilityPanelMode) {
     setDurabilityOpen((open) => nextMode !== durabilityMode || !open);
@@ -544,13 +512,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               role="status"
               tabIndex={0}
             >
-              {controller.connection === "offline" ? (
-                <WifiOff size={15} />
-              ) : controller.connection === "connecting" ? (
-                <RefreshCw className={styles.spin} size={15} />
-              ) : (
-                <Wifi size={15} />
-              )}
+              <i className={styles.connectionDot} aria-hidden="true" />
               {statusTooltip === "connection" ? (
                 <span className={styles.compactTooltip} id="connection-status-tooltip" role="tooltip">
                   {connectionLabel}
@@ -594,34 +556,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               </button>
               {presenceOpen ? <PresencePopover room={room} selfId={participantId} /> : null}
             </div>
-            <span
-              aria-describedby={statusTooltip === "site-tools" ? "site-tools-status-tooltip" : undefined}
-              aria-label={`WebMCP site tools status: ${siteToolsLabel}`}
-              className={`${styles.compactIndicator} ${styles.siteToolsIndicator} ${
-                siteToolsSupported ? styles.ready : ""
-              }`}
-              data-testid="site-tools-status"
-              onBlur={() => setStatusTooltip(null)}
-              onFocus={() => setStatusTooltip("site-tools")}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setStatusTooltip(null);
-                  event.stopPropagation();
-                }
-              }}
-              onMouseEnter={() => setStatusTooltip("site-tools")}
-              onMouseLeave={() => setStatusTooltip(null)}
-              role="status"
-              tabIndex={0}
-            >
-              <Bot size={15} />
-              {registeredToolCount ? <span className={styles.indicatorCount}>{registeredToolCount}</span> : null}
-              {statusTooltip === "site-tools" ? (
-                <span className={styles.compactTooltip} id="site-tools-status-tooltip" role="tooltip">
-                  {siteToolsLabel}
-                </span>
-              ) : null}
-            </span>
           </div>
           <span className={styles.controlDivider} aria-hidden="true" />
           <div className={styles.popoverAnchor}>
