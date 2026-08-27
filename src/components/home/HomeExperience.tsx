@@ -191,15 +191,23 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let inviteFrame: number | null = null;
     const timer = window.setTimeout(() => {
       setDisplayName(readDisplayName());
       const invitedCode = roomInviteCodeFromHash(window.location.hash);
       if (invitedCode) {
         setMode("join");
-        setJoinCode(invitedCode);
+        // Mount the join field before assigning its fragment-provided value.
+        // Some browsers restore one-time-code fields immediately after mount;
+        // a next-frame controlled update keeps that restoration from clearing
+        // a valid private invite code.
+        inviteFrame = window.requestAnimationFrame(() => setJoinCode(invitedCode));
       }
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (inviteFrame !== null) window.cancelAnimationFrame(inviteFrame);
+    };
   }, []);
 
   function selectMode(nextMode: EntryMode): void {
