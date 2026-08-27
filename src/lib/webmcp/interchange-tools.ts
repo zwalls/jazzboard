@@ -208,7 +208,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "export_canvas_artifact",
     title: "Export semantic canvas artifact",
     description:
-      "Export this authorized room, one Diagram, or an exact selection as redacted semantic JSON, safe Mermaid, or fixed-vocabulary SVG. Omits room/session secrets, presence, leases, colors, and private image URLs. PNG is client-derived from safe SVG.",
+      "Export this authorized room, one Diagram, or an exact selection as redacted semantic JSON, safe Mermaid, or fixed-vocabulary SVG. Omits room/session secrets, presence, leases, colors, and private image URLs. Use export_canvas_png for a separate image-faithful local download.",
     schema: exportArtifactInput,
     readOnly: true,
     async execute(input, signal) {

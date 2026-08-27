@@ -1,6 +1,7 @@
 /// <reference types="webmcp-types" />
 
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 import { createRoomFromLanding, expectBuiltInTldrawWatermark, getRoom } from "./helpers";
 
@@ -30,12 +31,12 @@ const SHARED_ROOM_READ_TOOL_NAMES = [
 
 const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
   "create_diagram_template",
-  "list_readonly_snapshots",
 ] as const;
 
 // Rendering does not mutate shared room state, but it intentionally paints a
 // temporary local surface, so it is neither a strict read nor a room mutation.
 const PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES = ["render_canvas_preview"] as const;
+const AUTHORIZED_LOCAL_DOWNLOAD_TOOL_NAMES = ["export_canvas_png"] as const;
 
 const ROOM_MUTATION_TOOL_NAMES = [
   "create_text",
@@ -64,8 +65,6 @@ const ROOM_MUTATION_TOOL_NAMES = [
   "create_diagram",
   "edit_diagram",
   "revert_activity",
-  "create_readonly_snapshot",
-  "revoke_readonly_snapshot",
   "instantiate_diagram_template",
   "enable_agent_review",
 ] as const;
@@ -74,16 +73,20 @@ const PARTICIPANT_ROOM_TOOL_NAMES = [
   ...SHARED_ROOM_READ_TOOL_NAMES,
   ...PARTICIPANT_ONLY_READ_TOOL_NAMES,
   ...PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES,
+  ...AUTHORIZED_LOCAL_DOWNLOAD_TOOL_NAMES,
   ...ROOM_MUTATION_TOOL_NAMES,
 ] as const;
-const SPECTATOR_ROOM_TOOL_NAMES = [...SHARED_ROOM_READ_TOOL_NAMES] as const;
+const SPECTATOR_ROOM_TOOL_NAMES = [
+  ...SHARED_ROOM_READ_TOOL_NAMES,
+  ...AUTHORIZED_LOCAL_DOWNLOAD_TOOL_NAMES,
+] as const;
 
 const WEBMCP_TEXT = "Written through browser WebMCP";
 const REJECTED_LABEL = "MUST_NOT_COMMIT_E2E";
 const LONG_CONNECTOR_LABEL =
   "Authorize the signed guest session before loading protected room state";
 const TINY_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8Dwn4GBgYGJAQoAHgQCAQKc7S8AAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGP8z7DlPwMewIRPcvgoAADJ3wLCTMjowgAAAABJRU5ErkJggg==",
   "base64",
 );
 
@@ -331,14 +334,6 @@ function successData<T>(result: WebMcpToolResult<T>): T {
     );
   }
   return result.data;
-}
-
-function expectReadOnlySurface(metadata: ToolMetadata[], expectedNames: readonly string[]) {
-  expect(metadata.map((tool) => tool.name)).toEqual([...expectedNames].sort());
-  for (const tool of metadata) {
-    expect(tool.annotations?.readOnlyHint, `${tool.name} must be truthfully read-only`).toBe(true);
-    expect(tool.annotations?.untrustedContentHint, `${tool.name} returns room/session content`).toBe(true);
-  }
 }
 
 function requireConnector(
@@ -838,13 +833,13 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 46 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 44 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(46);
-    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(13);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(44);
+    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(14);
 
     await installWebMcpShim(page);
     await page.goto("/");
@@ -885,7 +880,7 @@ test.describe("WebMCP browser acceptance", () => {
     await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("44 site tools");
     for (const toolName of [...SHARED_ROOM_READ_TOOL_NAMES, ...PARTICIPANT_ONLY_READ_TOOL_NAMES]) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
     }
@@ -900,6 +895,16 @@ test.describe("WebMCP browser acceptance", () => {
     });
     expect(
       participantMetadata.find((tool) => tool.name === "render_canvas_preview")?.annotations
+        ?.readOnlyHint,
+    ).not.toBe(true);
+    expect(
+      participantMetadata.find((tool) => tool.name === "export_canvas_png"),
+    ).toMatchObject({
+      name: "export_canvas_png",
+      annotations: { untrustedContentHint: true },
+    });
+    expect(
+      participantMetadata.find((tool) => tool.name === "export_canvas_png")?.annotations
         ?.readOnlyHint,
     ).not.toBe(true);
 
@@ -1448,51 +1453,37 @@ test.describe("WebMCP browser acceptance", () => {
       sourceDiagramRevision: expect.any(Number),
     });
 
-    let currentDiagramForSnapshot = successData(
+    const currentDiagramForPng = successData(
       await callWebMcpTool<ReadDiagramData>(page, "read_diagram", { diagramId }),
     );
-    type CreateSnapshotData = {
-        ok: true;
-        snapshot: { id: string; path: string; title: string; expiresAt: number };
-      };
-    const createSnapshot = () =>
-      callWebMcpTool<CreateSnapshotData>(page, "create_readonly_snapshot", {
-        expectedRoomRevision: currentDiagramForSnapshot.roomRevision,
+    const [pngDownload, pngToolResult] = await Promise.all([
+      page.waitForEvent("download"),
+      callWebMcpTool<{
+        filename: string;
+        mimeType: string;
+        width: number;
+        height: number;
+        byteLength: number;
+        persistedByJazzboard: boolean;
+      }>(page, "export_canvas_png", {
         scope: {
           kind: "diagram",
           diagramId,
-          expectedDiagramRevision: currentDiagramForSnapshot.diagram.revision,
+          expectedRevision: currentDiagramForPng.diagram.revision,
         },
-        expiresInHours: 24,
-      });
-    let createSnapshotResult = await createSnapshot();
-    if (!createSnapshotResult.ok && createSnapshotResult.error.code === "REVISION_CONFLICT") {
-      currentDiagramForSnapshot = successData(
-        await callWebMcpTool<ReadDiagramData>(page, "read_diagram", { diagramId }),
-      );
-      createSnapshotResult = await createSnapshot();
-    }
-    const createdSnapshot = successData(createSnapshotResult);
-    expect(createdSnapshot.snapshot).toMatchObject({
-      id: expect.stringMatching(/^snapshot_/),
-      path: expect.stringMatching(/^\/snapshot\/[A-Za-z0-9_-]{43}$/),
-      title: "Authentication request flow",
+      }),
+    ]);
+    const pngExport = successData(pngToolResult);
+    expect(pngExport).toMatchObject({
+      filename: "authentication-request-flow.png",
+      mimeType: "image/png",
+      width: expect.any(Number),
+      height: expect.any(Number),
+      byteLength: expect.any(Number),
+      persistedByJazzboard: false,
     });
-    const snapshotResponse = await page.request.get(
-      new URL(createdSnapshot.snapshot.path, page.url()).toString(),
-    );
-    expect(snapshotResponse.status()).toBe(200);
-    expect(await snapshotResponse.text()).toContain("Read-only snapshot");
-    const listedSnapshots = successData(
-      await callWebMcpTool<{ ok: true; snapshots: Array<{ id: string }> }>(
-        page,
-        "list_readonly_snapshots",
-        {},
-      ),
-    );
-    expect(listedSnapshots.snapshots).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: createdSnapshot.snapshot.id })]),
-    );
+    expect(pngDownload.suggestedFilename()).toBe(pngExport.filename);
+    expect(await pngDownload.path()).not.toBeNull();
 
     const reviewEnabled = successData(
       await callWebMcpTool<{ policy: string; changed: boolean; roomRevision: number }>(
@@ -1610,19 +1601,6 @@ test.describe("WebMCP browser acceptance", () => {
       ),
     );
     expect(activityList.activities.some((item) => item.actor.kind === "agent")).toBe(true);
-
-    const revokedSnapshot = successData(
-      await callWebMcpTool<{ ok: true; snapshotId: string; revoked: boolean }>(
-        page,
-        "revoke_readonly_snapshot",
-        { snapshotId: createdSnapshot.snapshot.id },
-      ),
-    );
-    expect(revokedSnapshot).toMatchObject({
-      snapshotId: createdSnapshot.snapshot.id,
-      revoked: true,
-    });
-    expect((await page.request.get(new URL(createdSnapshot.snapshot.path, page.url()).toString())).status()).toBe(404);
 
     const host = await getRoom(page.request, created.room.id);
     expect(host.room.participants[host.participantId].agentActive).toBe(true);
@@ -1786,9 +1764,14 @@ test.describe("WebMCP browser acceptance", () => {
       );
       await expect(spectatorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
       await expect(spectatorPage.locator("header").getByText("spectator", { exact: true })).toBeVisible();
-      await expect(spectatorPage.getByTitle("WebMCP site tools status")).toContainText("13 read-only tools");
+      await expect(spectatorPage.getByTitle("WebMCP site tools status")).toContainText("14 non-editing tools");
       const spectatorMetadata = await expectRegisteredSurface(spectatorPage, SPECTATOR_ROOM_TOOL_NAMES);
-      expectReadOnlySurface(spectatorMetadata, SPECTATOR_ROOM_TOOL_NAMES);
+      for (const toolName of SHARED_ROOM_READ_TOOL_NAMES) {
+        expect(spectatorMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
+      }
+      expect(spectatorMetadata.find((tool) => tool.name === "export_canvas_png")?.annotations).toEqual({
+        untrustedContentHint: true,
+      });
 
       const spectatorRoom = await getRoom(spectatorContext.request, created.room.id);
       expect(spectatorRoom.room.participants[spectatorRoom.participantId].agentActive).toBe(false);
@@ -2298,7 +2281,7 @@ test.describe("WebMCP browser acceptance", () => {
     });
 
     await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("44 site tools");
 
     const created = await callWebMcpTool<CreateObjectData>(page, "create_text", {
       content: WEBMCP_TEXT,
@@ -2399,6 +2382,52 @@ test.describe("WebMCP browser acceptance", () => {
     expect(storedImage.status()).toBe(200);
     expect(storedImage.headers()["content-type"]).toBe("image/png");
     expect(Buffer.from(await storedImage.body())).toEqual(TINY_PNG);
+
+    if (!image) throw new Error("The authoritative image object is missing.");
+    const [webMcpPngDownload, webMcpPngResult] = await Promise.all([
+      page.waitForEvent("download"),
+      callWebMcpTool<{
+        filename: string;
+        mimeType: string;
+        width: number;
+        height: number;
+        byteLength: number;
+        persistedByJazzboard: boolean;
+      }>(page, "export_canvas_png", {
+        scope: {
+          kind: "objects",
+          targets: [{ objectId: image.id, expectedRevision: image.revision }],
+        },
+        filename: "Browser acceptance image",
+      }),
+    ]);
+    expect(successData(webMcpPngResult)).toMatchObject({
+      filename: "browser-acceptance-image.png",
+      mimeType: "image/png",
+      persistedByJazzboard: false,
+    });
+    const webMcpPngPath = await webMcpPngDownload.path();
+    expect(webMcpPngPath).not.toBeNull();
+    const webMcpPng = await readFile(webMcpPngPath!);
+    const webMcpPixels = await page.evaluate(async (base64) => {
+      const response = await fetch(`data:image/png;base64,${base64}`);
+      const bitmap = await createImageBitmap(await response.blob());
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas decoding is unavailable.");
+      context.drawImage(bitmap, 0, 0);
+      const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      let sourceColorPixels = 0;
+      for (let index = 0; index < data.length; index += 4) {
+        if (data[index] > 220 && data[index + 1] < 40 && data[index + 2] > 140 && data[index + 3] > 240) {
+          sourceColorPixels += 1;
+        }
+      }
+      return sourceColorPixels;
+    }, webMcpPng.toString("base64"));
+    expect(webMcpPixels).toBeGreaterThan(0);
 
     await expect
       .poll(() =>

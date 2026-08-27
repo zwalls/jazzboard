@@ -35,6 +35,7 @@ import { useRouter } from "next/navigation";
 import type { Editor } from "tldraw";
 
 import { JazzboardLogo } from "@/components/brand/JazzboardLogo";
+import { downloadBlobFile } from "@/lib/client/download";
 import { tldrawShapeId } from "@/lib/canvas/projection";
 import type {
   ActorKind,
@@ -229,6 +230,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           );
         }
         return host.present(artifact, signal);
+      },
+      saveCanvasPng: async (artifact, filename, signal) => {
+        if (signal.aborted) throw new DOMException("The PNG export was cancelled.", "AbortError");
+        downloadBlobFile(artifact.blob, filename);
       },
       acceptRoom: controller.acceptRoom,
       setFollowTarget: updateFollowTarget,
@@ -514,9 +519,9 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             <Bot size={14} />
             {self.role === "spectator"
               ? registeredToolCount
-                ? `${registeredToolCount} read-only tools`
+                ? `${registeredToolCount} non-editing tools`
                 : siteToolsSupported
-                  ? "Read-only tools ready"
+                  ? "Non-editing tools ready"
                   : "WebMCP preview"
               : registeredToolCount
                 ? `${registeredToolCount} site tools`
@@ -868,6 +873,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           room={room}
           role={self.role}
           selection={selection}
+          editor={editor}
           getImportOrigin={() => {
             const currentEditor = editorRef.current;
             if (!currentEditor) return { x: 120, y: 120 };

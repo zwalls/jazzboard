@@ -21,6 +21,11 @@ export interface JazzboardWebMcpContext {
     signal: AbortSignal,
   ): Promise<CanvasPreviewArtifact>;
   presentCanvasPreview?: CanvasPreviewPresenter;
+  saveCanvasPng?(
+    artifact: CanvasPreviewArtifact,
+    filename: string,
+    signal: AbortSignal,
+  ): Promise<void>;
   acceptRoom(room: RoomState): void;
   setFollowTarget(target: FollowTarget): void;
   setDeclinedSpotlight(startedAt: number | null): void;

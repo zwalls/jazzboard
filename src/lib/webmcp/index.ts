@@ -66,6 +66,10 @@ export {
   createJazzboardPreviewWebMcpTools,
   JAZZBOARD_PREVIEW_TOOL_NAMES,
 } from "./preview-tools";
+export {
+  createJazzboardPngExportWebMcpTools,
+  JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
+} from "./png-export-tools";
 export type {
   JazzboardToolFailure,
   JazzboardToolResult,

@@ -2,23 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Clock3,
   Copy,
   Download,
   FileJson,
   FileUp,
   ImageDown,
-  Link2,
   LoaderCircle,
   Share2,
-  Trash2,
   Workflow,
   X,
 } from "lucide-react";
+import type { Editor } from "tldraw";
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
-import { downloadPngFromSvg, downloadTextFile, svgDownloadDimensions } from "@/lib/client/download";
+import { downloadCanvasPng, downloadTextFile, liveCanvasObjectIds } from "@/lib/client/download";
+import { safeDownloadStem } from "@/lib/export-filename";
 import { buildRoomInvite } from "@/lib/client/room-invite";
+import { tldrawShapeId } from "@/lib/canvas/projection";
 import type { Point, RoomState } from "@/lib/domain/types";
 
 import styles from "./durability-panel.module.css";
@@ -36,21 +36,6 @@ type ArtifactExport = {
   sourceRoomRevision: number;
   sourceDiagramRevision: number | null;
 };
-
-type SnapshotScope =
-  | { kind: "room" }
-  | { kind: "diagram"; diagramId: string; expectedDiagramRevision: number };
-
-type SnapshotSummary = {
-  id: string;
-  title: string;
-  scope: SnapshotScope;
-  sourceRoomRevision: number;
-  createdAt: number;
-  expiresAt: number;
-};
-
-type CreatedSnapshot = SnapshotSummary & { path: string };
 
 type MutationResponse = {
   ok: true;
@@ -80,20 +65,12 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : "Jazzboard could not complete that request.";
 }
 
-function dateLabel(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
 export function DurabilityPanel({
   mode,
   room,
   role,
   selection,
+  editor,
   getImportOrigin,
   acceptRoom,
   onClose,
@@ -103,6 +80,7 @@ export function DurabilityPanel({
   room: RoomState;
   role: "participant" | "spectator";
   selection: string[];
+  editor: Editor | null;
   getImportOrigin(): Point;
   acceptRoom(room: RoomState): void;
   onClose(): void;
@@ -121,37 +99,56 @@ export function DurabilityPanel({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
-  const [createdSnapshot, setCreatedSnapshot] = useState<CreatedSnapshot | null>(null);
-  const [expiresInHours, setExpiresInHours] = useState(24);
+  const [canvasVersion, setCanvasVersion] = useState(0);
   const templateInput = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  const pngExportController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      pngExportController.current?.abort();
+      pngExportController.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editor) return;
+    return editor.store.listen(
+      () => setCanvasVersion((version) => version + 1),
+      { scope: "document" },
+    );
+  }, [editor]);
 
   const effectiveDiagramId = room.diagrams[diagramId] ? diagramId : diagrams[0]?.id ?? "";
   const selectedDiagram = room.diagrams[effectiveDiagramId] ?? null;
+  const liveSelection = useMemo(
+    () => {
+      void canvasVersion;
+      return editor ? liveCanvasObjectIds(editor, editor.getSelectedShapes()) : validSelection;
+    },
+    [canvasVersion, editor, validSelection],
+  );
   const effectiveScope: DurabilityScope =
     scope === "diagram" && !selectedDiagram
       ? "room"
-      : scope === "selection" && !validSelection.length
+      : scope === "selection" && !liveSelection.length
         ? "room"
         : scope;
   const scopeReady = effectiveScope === "room" || (effectiveScope === "diagram" ? Boolean(selectedDiagram) : validSelection.length > 0);
-  const snapshotsUrl = `/api/rooms/${encodeURIComponent(room.id)}/snapshots`;
 
-  useEffect(() => {
-    if (mode !== "share" || role !== "participant") return;
-    const controller = new AbortController();
-    void apiRequest<{ ok: true; snapshots: SnapshotSummary[] }>(snapshotsUrl, {
-      method: "GET",
-      signal: controller.signal,
-    })
-      .then((result) => setSnapshots(result.snapshots))
-      .catch((requestError) => {
-        if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
-          setError(messageFor(requestError));
-        }
-      });
-    return () => controller.abort();
-  }, [mode, role, snapshotsUrl]);
+  const pngObjectIds = useMemo(() => {
+    void canvasVersion;
+    if (!editor) return [];
+    if (effectiveScope === "selection") return liveCanvasObjectIds(editor, editor.getSelectedShapes());
+    if (effectiveScope === "diagram" && selectedDiagram) {
+      return [...new Set([...selectedDiagram.memberObjectIds, ...selectedDiagram.connectorIds])]
+        .filter((objectId) => Boolean(room.objects[objectId] && editor.getShape(tldrawShapeId(objectId))));
+    }
+    return liveCanvasObjectIds(editor);
+  }, [canvasVersion, editor, effectiveScope, room.objects, selectedDiagram]);
+  const pngReady = Boolean(editor && pngObjectIds.length);
 
   function artifactUrl(format: ArtifactFormat): string {
     return buildArtifactUrl({
@@ -164,34 +161,59 @@ export function DurabilityPanel({
   }
 
   async function exportArtifact(format: ArtifactFormat | "png") {
-    if (!scopeReady) return;
+    if (format !== "png" && !scopeReady) return;
     setBusyAction(format);
     setError(null);
     setWarnings([]);
+    let exportController: AbortController | null = null;
     try {
-      const serverFormat = format === "png" ? "svg" : format;
-      const response = await apiRequest<{ ok: true; export: ArtifactExport }>(artifactUrl(serverFormat));
-      setWarnings(response.export.warnings.map((warning) => warning.message));
       if (format === "png") {
-        const dimensions = svgDownloadDimensions(response.export.content);
-        await downloadPngFromSvg({
-          svg: response.export.content,
-          width: dimensions.width,
-          height: dimensions.height,
-          filename: response.export.filename.replace(/\.svg$/i, ".png"),
+        const currentObjectIds = !editor
+          ? []
+          : effectiveScope === "selection"
+            ? liveCanvasObjectIds(editor, editor.getSelectedShapes())
+            : effectiveScope === "diagram" && selectedDiagram
+              ? [...new Set([...selectedDiagram.memberObjectIds, ...selectedDiagram.connectorIds])]
+                .filter((objectId) => Boolean(room.objects[objectId] && editor.getShape(tldrawShapeId(objectId))))
+              : liveCanvasObjectIds(editor);
+        if (!editor || !currentObjectIds.length) {
+          throw new Error("This canvas scope has no visible objects to export.");
+        }
+        exportController = new AbortController();
+        pngExportController.current?.abort();
+        pngExportController.current = exportController;
+        const label = effectiveScope === "diagram" && selectedDiagram
+          ? selectedDiagram.title
+          : effectiveScope === "selection"
+            ? `${room.title} selection`
+            : room.title;
+        const result = await downloadCanvasPng({
+          editor,
+          objectIds: currentObjectIds,
+          filename: `${safeDownloadStem(label, "jazzboard")}.png`,
+          signal: exportController.signal,
         });
+        if (exportController.signal.aborted || !mounted.current) return;
+        setWarnings(result.warnings);
+        onAnnounce("PNG downloaded.");
+        return;
       } else {
+        const response = await apiRequest<{ ok: true; export: ArtifactExport }>(artifactUrl(format));
+        setWarnings(response.export.warnings.map((warning) => warning.message));
         downloadTextFile({
           content: response.export.content,
           filename: response.export.filename,
           mimeType: response.export.mediaType,
         });
+        onAnnounce(`${response.export.filename} downloaded.`);
       }
-      onAnnounce(`${format === "png" ? "PNG" : response.export.filename} downloaded.`);
     } catch (requestError) {
-      setError(messageFor(requestError));
+      if (!exportController?.signal.aborted && mounted.current) setError(messageFor(requestError));
     } finally {
-      setBusyAction(null);
+      if (exportController && pngExportController.current === exportController) {
+        pngExportController.current = null;
+      }
+      if (mounted.current) setBusyAction(null);
     }
   }
 
@@ -223,47 +245,6 @@ export function DurabilityPanel({
     }
   }
 
-  function currentSnapshotScope(): SnapshotScope | null {
-    if (effectiveScope === "room") return { kind: "room" };
-    if (effectiveScope === "diagram" && selectedDiagram) {
-      return {
-        kind: "diagram",
-        diagramId: selectedDiagram.id,
-        expectedDiagramRevision: selectedDiagram.revision,
-      };
-    }
-    return null;
-  }
-
-  async function createSnapshot() {
-    const snapshotScope = currentSnapshotScope();
-    if (!snapshotScope) return;
-    setBusyAction("snapshot");
-    setError(null);
-    try {
-      const response = await apiRequest<{ ok: true; snapshot: CreatedSnapshot }>(snapshotsUrl, {
-        method: "POST",
-        body: JSON.stringify({
-          expectedRoomRevision: room.roomRevision,
-          scope: snapshotScope,
-          expiresInHours,
-        }),
-      });
-      setCreatedSnapshot(response.snapshot);
-      setSnapshots((current) => [response.snapshot, ...current.filter((item) => item.id !== response.snapshot.id)]);
-      onAnnounce("Read-only snapshot created. Copy its private link now.");
-    } catch (requestError) {
-      setError(messageFor(requestError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function copySnapshotPath(path: string) {
-    await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
-    onAnnounce("Private snapshot link copied.");
-  }
-
   async function copyLiveInvite() {
     setError(null);
     try {
@@ -279,40 +260,19 @@ export function DurabilityPanel({
     }
   }
 
-  async function revokeSnapshot(snapshotId: string) {
-    if (!window.confirm("Revoke this read-only snapshot? Its private link will stop working immediately.")) return;
-    setBusyAction(snapshotId);
-    setError(null);
-    try {
-      await apiRequest(snapshotsUrl, {
-        method: "DELETE",
-        body: JSON.stringify({ snapshotId }),
-      });
-      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
-      if (createdSnapshot?.id === snapshotId) setCreatedSnapshot(null);
-      onAnnounce("Snapshot revoked.");
-    } catch (requestError) {
-      setError(messageFor(requestError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
   const sharing = mode === "share";
   const scopePicker = (
     <section>
       <div className={styles.sectionHeading}>
         <div>
-          <strong>{sharing ? "Snapshot scope" : "Export scope"}</strong>
-          <span>{sharing ? "Choose what the frozen read-only link contains." : "Download only what you mean to export."}</span>
+          <strong>Export scope</strong>
+          <span>Download only what you mean to export.</span>
         </div>
       </div>
-      <div className={`${styles.scopeTabs} ${sharing ? styles.scopeTabsTwo : ""}`}>
+      <div className={styles.scopeTabs}>
         <button className={effectiveScope === "room" ? styles.selected : ""} onClick={() => setScope("room")}>Board</button>
         <button disabled={!diagrams.length} className={effectiveScope === "diagram" ? styles.selected : ""} onClick={() => setScope("diagram")}>Diagram</button>
-        {!sharing ? (
-          <button disabled={!validSelection.length} className={effectiveScope === "selection" ? styles.selected : ""} onClick={() => setScope("selection")}>Selection · {validSelection.length}</button>
-        ) : null}
+        <button disabled={!liveSelection.length} className={effectiveScope === "selection" ? styles.selected : ""} onClick={() => setScope("selection")}>Selection · {liveSelection.length}</button>
       </div>
       {effectiveScope === "diagram" ? (
         <label className={styles.selectField}>
@@ -329,7 +289,7 @@ export function DurabilityPanel({
     <aside className={`${styles.panel} ${sharing ? styles.sharePanel : ""}`} aria-label={sharing ? "Share board" : "Export board"}>
       <div className={styles.heading}>
         <span className={styles.headingIcon}>{sharing ? <Share2 size={17} /> : <Download size={17} />}</span>
-        <div><span>{sharing ? "Invite & snapshot" : "Portable work"}</span><strong>{sharing ? "Share board" : "Export"}</strong></div>
+        <div><span>{sharing ? "Live collaboration" : "Portable work"}</span><strong>{sharing ? "Share board" : "Export"}</strong></div>
         <button className={styles.closeButton} onClick={onClose} aria-label={sharing ? "Close share board" : "Close export"}>
           <X size={16} />
         </button>
@@ -346,54 +306,11 @@ export function DurabilityPanel({
               <button onClick={() => void copyLiveInvite()}><Copy size={15} /> Copy invite</button>
             </div>
             <p className={styles.hint}>The invite opens Jazzboard with this exact code filled in. Your friend chooses participant or spectator and joins through normal room authorization.</p>
+            <p className={styles.hint}>For a frozen visual copy, use Export → PNG. Jazzboard creates the file locally and does not store it.</p>
           </section>
         ) : null}
 
-        {sharing ? (
-          role === "participant" ? (
-            <>
-              {scopePicker}
-              <section>
-                <div className={styles.sectionHeading}>
-                  <div><strong>Share read-only</strong><span>Create an immutable private snapshot—not live room access.</span></div>
-                </div>
-                <div className={styles.snapshotCreate}>
-                  <label>
-                    <Clock3 size={14} />
-                    <select value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
-                      <option value={24}>24 hours</option>
-                      <option value={72}>3 days</option>
-                      <option value={168}>7 days</option>
-                    </select>
-                  </label>
-                  <button disabled={!currentSnapshotScope() || busyAction !== null} onClick={() => void createSnapshot()}>
-                    {busyAction === "snapshot" ? <LoaderCircle className={styles.spin} size={15} /> : <Link2 size={15} />} Create snapshot link
-                  </button>
-                </div>
-                {createdSnapshot ? (
-                  <div className={styles.freshLink} role="status">
-                    <div><strong>Copy this link now</strong><span>The secret path cannot be recovered from the snapshot list.</span></div>
-                    <button onClick={() => void copySnapshotPath(createdSnapshot.path)}><Copy size={14} /> Copy</button>
-                  </div>
-                ) : null}
-                {snapshots.length ? (
-                  <div className={styles.snapshotList}>
-                    {snapshots.map((snapshot) => (
-                      <div key={snapshot.id}>
-                        <div><strong>{snapshot.title}</strong><span>Expires {dateLabel(snapshot.expiresAt)}</span></div>
-                        <button disabled={busyAction !== null} onClick={() => void revokeSnapshot(snapshot.id)} aria-label={`Revoke ${snapshot.title}`}>
-                          {busyAction === snapshot.id ? <LoaderCircle className={styles.spin} size={14} /> : <Trash2 size={14} />}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            </>
-          ) : (
-            <p className={styles.spectatorNote}>You can copy the live room invite. Only participants can issue frozen read-only snapshot links.</p>
-          )
-        ) : (
+        {!sharing ? (
           <>
             {scopePicker}
             <section>
@@ -404,8 +321,9 @@ export function DurabilityPanel({
                 <ExportButton icon={<FileJson size={16} />} label="Semantic JSON" busy={busyAction === "semantic_json"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("semantic_json")} />
                 <ExportButton icon={<Workflow size={16} />} label="Mermaid" busy={busyAction === "mermaid"} disabled={effectiveScope !== "diagram" || busyAction !== null} onClick={() => void exportArtifact("mermaid")} />
                 <ExportButton icon={<Download size={16} />} label="SVG" busy={busyAction === "svg"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("svg")} />
-                <ExportButton icon={<ImageDown size={16} />} label="PNG" busy={busyAction === "png"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("png")} />
+                <ExportButton icon={<ImageDown size={16} />} label="PNG" busy={busyAction === "png"} disabled={!pngReady || busyAction !== null} onClick={() => void exportArtifact("png")} />
               </div>
+              {!pngObjectIds.length ? <p className={styles.hint}>PNG becomes available when this scope contains a visible canvas object.</p> : null}
               {effectiveScope !== "diagram" ? <p className={styles.hint}>Mermaid exports one explicit first-class Diagram.</p> : null}
             </section>
             {role === "participant" ? (
@@ -436,7 +354,7 @@ export function DurabilityPanel({
               <p className={styles.spectatorNote}>Spectators can download passive exports. Creating and importing reusable templates requires participant permission.</p>
             )}
           </>
-        )}
+        ) : null}
 
         {warnings.length ? <div className={styles.warning} role="status">{warnings.join(" ")}</div> : null}
         {error ? <div className={styles.error} role="alert">{error}</div> : null}

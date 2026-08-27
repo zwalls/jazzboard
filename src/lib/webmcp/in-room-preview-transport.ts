@@ -28,6 +28,8 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
         scope:
           source.kind === "objects"
             ? { kind: source.kind }
+            : source.kind === "room"
+              ? { kind: source.kind, expectedRevision: source.expectedRevision }
             : {
                 kind: source.kind,
                 diagramId: source.diagramId,

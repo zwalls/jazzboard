@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Editor } from "tldraw";
 
 import { apiRequest } from "@/lib/client/api";
-import { downloadTextFile } from "@/lib/client/download";
+import { downloadCanvasPng, downloadTextFile } from "@/lib/client/download";
+import { tldrawShapeId } from "@/lib/canvas/projection";
 import type { RoomState } from "@/lib/domain/types";
 
 import { buildArtifactUrl, DurabilityPanel } from "./DurabilityPanel";
@@ -12,11 +14,20 @@ vi.mock("@/lib/client/api", async (importOriginal) => {
   return { ...actual, apiRequest: vi.fn() };
 });
 
-vi.mock("@/lib/client/download", () => ({
-  downloadTextFile: vi.fn(),
-  downloadPngFromSvg: vi.fn(),
-  svgDownloadDimensions: vi.fn(() => ({ width: 800, height: 600 })),
-}));
+vi.mock("@/lib/client/download", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/client/download")>();
+  return {
+    ...actual,
+    downloadTextFile: vi.fn(),
+    downloadCanvasPng: vi.fn().mockResolvedValue({
+      filename: "architecture.png",
+      width: 1600,
+      height: 1200,
+      byteLength: 42,
+      warnings: [],
+    }),
+  };
+});
 
 const actor = {
   participantId: "person_1",
@@ -33,7 +44,93 @@ const room: RoomState = {
   createdAt: 1,
   updatedAt: 2,
   participants: {},
-  objects: {},
+  objects: {
+    "node-a": {
+      id: "node-a",
+      kind: "text",
+      x: 40,
+      y: 80,
+      width: 240,
+      height: 64,
+      rotation: 0,
+      zIndex: 1,
+      groupId: null,
+      diagramIds: ["auth"],
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      content: "Architecture",
+      color: "black",
+      size: "m",
+      align: "middle",
+    },
+    "node-b": {
+      id: "node-b",
+      kind: "text",
+      x: 400,
+      y: 80,
+      width: 240,
+      height: 64,
+      rotation: 0,
+      zIndex: 2,
+      groupId: null,
+      diagramIds: ["auth"],
+      revision: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      content: "Room API",
+      color: "black",
+      size: "m",
+      align: "middle",
+    },
+    edge: {
+      id: "edge",
+      kind: "connector",
+      x: 280,
+      y: 112,
+      width: 120,
+      height: 1,
+      rotation: 0,
+      zIndex: 3,
+      groupId: null,
+      diagramIds: ["auth"],
+      revision: 4,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      start: { x: 280, y: 112, objectId: "node-a" },
+      end: { x: 400, y: 112, objectId: "node-b" },
+      direction: "end",
+      label: "authorizes",
+      color: "black",
+    },
+    outside: {
+      id: "outside",
+      kind: "text",
+      x: 40,
+      y: 320,
+      width: 240,
+      height: 64,
+      rotation: 0,
+      zIndex: 4,
+      groupId: null,
+      diagramIds: [],
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      content: "Outside diagram",
+      color: "black",
+      size: "m",
+      align: "middle",
+    },
+  },
   diagrams: {
     auth: {
       id: "auth",
@@ -42,8 +139,8 @@ const room: RoomState = {
       diagramType: "flow",
       category: "security",
       tags: ["auth"],
-      memberObjectIds: [],
-      connectorIds: [],
+      memberObjectIds: ["node-a", "node-b"],
+      connectorIds: ["edge"],
       bounds: { x: 0, y: 0, width: 800, height: 600 },
       revision: 3,
       createdAt: 1,
@@ -62,13 +159,36 @@ function renderPanel(
   role: "participant" | "spectator" = "spectator",
   mode: "share" | "export" = "export",
   onAnnounce = vi.fn(),
+  options: {
+    sourceRoom?: RoomState;
+    selection?: string[];
+    editor?: Editor | null;
+  } = {},
 ) {
+  const sourceRoom = options.sourceRoom ?? room;
+  const selectedIds = [...new Set(options.selection ?? [])];
+  const shapes = Object.keys(sourceRoom.objects).map((objectId) => ({
+    id: tldrawShapeId(objectId),
+    type: sourceRoom.objects[objectId].kind === "connector" ? "arrow" : "text",
+    meta: { jazzboardId: objectId },
+  }));
+  const shapeById = new Map(shapes.map((shape) => [shape.id, shape]));
+  const defaultEditor = {
+    getCurrentPageShapesSorted: () => shapes,
+    getSelectedShapes: () => selectedIds
+      .map((objectId) => shapeById.get(tldrawShapeId(objectId)))
+      .filter(Boolean),
+    getSortedChildIdsForParent: () => [],
+    getShape: (shapeId: string) => shapeById.get(shapeId as typeof shapes[number]["id"]),
+    store: { listen: vi.fn(() => vi.fn()) },
+  } as unknown as Editor;
   return render(
     <DurabilityPanel
       mode={mode}
-      room={room}
+      room={sourceRoom}
       role={role}
-      selection={[]}
+      selection={options.selection ?? []}
+      editor={options.editor === undefined ? defaultEditor : options.editor}
       getImportOrigin={() => ({ x: 10, y: 20 })}
       acceptRoom={vi.fn()}
       onClose={vi.fn()}
@@ -132,6 +252,98 @@ describe("DurabilityPanel", () => {
     );
   });
 
+  it("downloads PNG directly from the live tldraw canvas without requesting redacted SVG", async () => {
+    const onAnnounce = vi.fn();
+    renderPanel("spectator", "export", onAnnounce);
+
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+
+    await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
+      editor: expect.anything(),
+      objectIds: ["node-a", "node-b", "edge", "outside"],
+      filename: "architecture.png",
+      signal: expect.any(AbortSignal),
+    }));
+    expect(apiRequest).not.toHaveBeenCalled();
+    expect(onAnnounce).toHaveBeenCalledWith("PNG downloaded.");
+  });
+
+  it("exports only the selected Diagram members and semantic connectors", async () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Diagram" }));
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+
+    await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
+      editor: expect.anything(),
+      objectIds: ["node-a", "node-b", "edge"],
+      filename: "authentication-request-flow.png",
+      signal: expect.any(AbortSignal),
+    }));
+  });
+
+  it("exports only the exact current selection", async () => {
+    renderPanel("spectator", "export", vi.fn(), { selection: ["outside", "node-a", "outside"] });
+
+    fireEvent.click(screen.getByRole("button", { name: /Selection/ }));
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+
+    await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
+      editor: expect.anything(),
+      objectIds: ["outside", "node-a"],
+      filename: "architecture-selection.png",
+      signal: expect.any(AbortSignal),
+    }));
+  });
+
+  it("explains why PNG is unavailable for an empty board", () => {
+    renderPanel("spectator", "export", vi.fn(), {
+      sourceRoom: { ...room, objects: {}, diagrams: {} },
+    });
+
+    expect(screen.getByRole("button", { name: "PNG" })).toBeDisabled();
+    expect(screen.getByText(/PNG becomes available when this scope contains a visible canvas object/)).toBeInTheDocument();
+  });
+
+  it("shows a PNG failure and allows a successful retry", async () => {
+    const onAnnounce = vi.fn();
+    vi.mocked(downloadCanvasPng).mockRejectedValueOnce(new Error("The image could not be rendered."));
+    renderPanel("spectator", "export", onAnnounce);
+
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The image could not be rendered.");
+
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+    await waitFor(() => expect(onAnnounce).toHaveBeenCalledWith("PNG downloaded."));
+    expect(downloadCanvasPng).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels an in-flight PNG before the panel unmounts", async () => {
+    let finishDownload!: () => void;
+    vi.mocked(downloadCanvasPng).mockImplementationOnce(() => new Promise((resolve) => {
+      finishDownload = () => resolve({
+        filename: "architecture.png",
+        width: 1600,
+        height: 1200,
+        byteLength: 42,
+        warnings: [],
+      });
+    }));
+    const onAnnounce = vi.fn();
+    const panel = renderPanel("spectator", "export", onAnnounce);
+
+    fireEvent.click(screen.getByRole("button", { name: "PNG" }));
+    await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledOnce());
+    const signal = vi.mocked(downloadCanvasPng).mock.calls[0][0].signal;
+    expect(signal?.aborted).toBe(false);
+
+    panel.unmount();
+    expect(signal?.aborted).toBe(true);
+    finishDownload();
+    await Promise.resolve();
+    expect(onAnnounce).not.toHaveBeenCalled();
+  });
+
   it("enables Diagram-only Mermaid and template workflows for participants", async () => {
     renderPanel("participant");
 
@@ -143,19 +355,19 @@ describe("DurabilityPanel", () => {
     expect(apiRequest).not.toHaveBeenCalled();
   });
 
-  it("separates live invitations and read-only snapshots from exports", async () => {
+  it("keeps live invitations separate from local exports", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });
-    vi.mocked(apiRequest).mockResolvedValue({ ok: true, snapshots: [] });
     const onAnnounce = vi.fn();
     renderPanel("participant", "share", onAnnounce);
 
     expect(screen.getByRole("complementary", { name: "Share board" })).toBeInTheDocument();
     expect(screen.getByText("Collaborate live")).toBeInTheDocument();
-    expect(screen.getByText("Share read-only")).toBeInTheDocument();
+    expect(screen.queryByText("Share read-only")).not.toBeInTheDocument();
+    expect(screen.getByText(/use Export → PNG/)).toBeInTheDocument();
     expect(screen.getByText("1234")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Semantic JSON" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Copy invite" }));
@@ -164,9 +376,6 @@ describe("DurabilityPanel", () => {
       expect.stringContaining("http://localhost:3000/#join=1234"),
     ));
     expect(onAnnounce).toHaveBeenCalledWith("Live collaboration invite copied.");
-    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith(
-      "/api/rooms/room%2Fa%20b/snapshots",
-      expect.objectContaining({ method: "GET" }),
-    ));
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 });
