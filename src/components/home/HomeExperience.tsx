@@ -288,35 +288,34 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
         onSubmit={submit}
         role="tabpanel"
       >
-        {mode === "join" ? (
-          <label className="field-group" htmlFor="room-code">
-            <span className="field-label">Room code</span>
-            <span className="code-input-wrap">
-              <input
-                aria-describedby="room-code-hint"
-                autoComplete="one-time-code"
-                className="code-input"
-                id="room-code"
-                inputMode="numeric"
-                maxLength={4}
-                name="room-code"
-                onChange={(event) => setJoinCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                pattern="[0-9]{4}"
-                placeholder="0000"
-                required
-                type="text"
-                value={joinCode}
-              />
-            </span>
-            <small className="field-hint" id="room-code-hint">
-              Ask someone in the room for its four-digit code.
-            </small>
-          </label>
-        ) : (
+        {mode === "create" ? (
           <p className="entry-form__intro">
             Create a fresh infinite canvas and share its four-digit code when you are ready.
           </p>
-        )}
+        ) : null}
+        <label className="field-group" hidden={mode !== "join"} htmlFor="room-code">
+          <span className="field-label">Room code</span>
+          <span className="code-input-wrap">
+            <input
+              aria-describedby="room-code-hint"
+              autoComplete="off"
+              className="code-input"
+              id="room-code"
+              inputMode="numeric"
+              maxLength={4}
+              name="room-code"
+              onChange={(event) => setJoinCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
+              pattern="[0-9]{4}"
+              placeholder="0000"
+              required={mode === "join"}
+              type="text"
+              value={joinCode}
+            />
+          </span>
+          <small className="field-hint" id="room-code-hint">
+            Ask someone in the room for its four-digit code.
+          </small>
+        </label>
 
         <label className="field-group" htmlFor="display-name">
           <span className="field-label">Your display name</span>
