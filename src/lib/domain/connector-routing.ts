@@ -348,6 +348,7 @@ function anchorForEndpoint(
   options: {
     respectPrecise: boolean;
     persistPrecise: boolean;
+    persistExact: boolean;
   },
 ): ConnectorEndpoint {
   if (!target) return { x: endpoint.x, y: endpoint.y, objectId: null };
@@ -366,7 +367,12 @@ function anchorForEndpoint(
     objectId: target.id,
     normalizedAnchor,
     isPrecise: supplied ? true : options.persistPrecise,
-    isExact: endpoint.isExact ?? false,
+    // A generated cardinal port is an exact outline point when an auto curve
+    // needs tldraw to preserve the authoritative bend. Without this flag,
+    // tldraw applies a second non-exact clipping pass and can collapse a
+    // positive curve back to its source even though both bindings are valid.
+    // Explicit routes still preserve the caller's binding exactness.
+    isExact: supplied ? (endpoint.isExact ?? false) : options.persistExact,
     snap: endpoint.snap ?? "none",
   };
 }
@@ -834,6 +840,7 @@ export function resolveConnectorRoute(
   ): ConnectorEndpoint => anchorForEndpoint(endpoint, target, side, lanePosition, {
     respectPrecise,
     persistPrecise: persistPrecise(kind),
+    persistExact: sourceRouting.mode === "auto" && kind === "curved",
   });
 
   const addStraight = () => {

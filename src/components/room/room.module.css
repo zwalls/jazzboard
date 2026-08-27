@@ -158,6 +158,17 @@
   color: white;
 }
 
+.shareBoardButton {
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+  font-weight: 740;
+}
+
+.shareBoardButton:hover {
+  background: #dfe2ff;
+  color: var(--brand-deep);
+}
+
 .statusPill,
 .rolePill,
 .siteToolsPill {

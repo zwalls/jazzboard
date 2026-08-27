@@ -14,6 +14,13 @@
   z-index: 440;
 }
 
+.sharePanel {
+  bottom: auto;
+  left: auto;
+  right: 16px;
+  top: 78px;
+}
+
 .heading {
   align-items: center;
   border-bottom: 1px solid #eceef3;
@@ -98,6 +105,8 @@
   padding: 3px;
 }
 
+.scopeTabsTwo { grid-template-columns: repeat(2, 1fr); }
+
 .scopeTabs button {
   background: transparent;
   border-radius: 8px;
@@ -170,6 +179,53 @@
   display: flex;
   gap: 7px;
 }
+
+.liveInvite {
+  align-items: center;
+  background: linear-gradient(145deg, #f4f5ff, #eef0ff);
+  border: 1px solid #d9dcfa;
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.liveInvite > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.liveInvite span {
+  color: #687186;
+  font-size: 8px;
+  font-weight: 730;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.liveInvite strong {
+  color: var(--brand-deep);
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  margin-top: 4px;
+}
+
+.liveInvite button {
+  align-items: center;
+  background: var(--brand);
+  border-radius: 9px;
+  color: white;
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 750;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+.liveInvite button:hover { background: var(--brand-deep); }
 
 .inlineActions button,
 .snapshotCreate button,
@@ -252,5 +308,6 @@
 
 @media (max-width: 620px) {
   .panel { bottom: 70px; left: 8px; width: calc(100vw - 16px); }
+  .sharePanel { bottom: auto; left: 8px; right: auto; top: 122px; }
   .body { max-height: calc(100dvh - 235px); }
 }

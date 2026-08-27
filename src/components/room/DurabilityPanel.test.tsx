@@ -58,16 +58,21 @@ const room: RoomState = {
   reviewProposals: [],
 };
 
-function renderPanel(role: "participant" | "spectator" = "spectator") {
+function renderPanel(
+  role: "participant" | "spectator" = "spectator",
+  mode: "share" | "export" = "export",
+  onAnnounce = vi.fn(),
+) {
   return render(
     <DurabilityPanel
+      mode={mode}
       room={room}
       role={role}
       selection={[]}
       getImportOrigin={() => ({ x: 10, y: 20 })}
       acceptRoom={vi.fn()}
       onClose={vi.fn()}
-      onAnnounce={vi.fn()}
+      onAnnounce={onAnnounce}
     />,
   );
 }
@@ -96,7 +101,7 @@ describe("DurabilityPanel", () => {
     expect(screen.getByRole("button", { name: "Semantic JSON" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Mermaid" })).toBeDisabled();
     expect(screen.queryByText("Reuse")).not.toBeInTheDocument();
-    expect(screen.queryByText("Read-only snapshot")).not.toBeInTheDocument();
+    expect(screen.queryByText("Share read-only")).not.toBeInTheDocument();
     expect(screen.getByText(/Spectators can download passive exports/)).toBeInTheDocument();
   });
 
@@ -128,14 +133,37 @@ describe("DurabilityPanel", () => {
   });
 
   it("enables Diagram-only Mermaid and template workflows for participants", async () => {
-    vi.mocked(apiRequest).mockResolvedValue({ ok: true, snapshots: [] });
     renderPanel("participant");
 
     fireEvent.click(screen.getByRole("button", { name: "Diagram" }));
 
     expect(screen.getByRole("button", { name: "Mermaid" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Save diagram template/ })).toBeEnabled();
-    expect(screen.getByText("Read-only snapshot")).toBeInTheDocument();
+    expect(screen.queryByText("Share read-only")).not.toBeInTheDocument();
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("separates live invitations and read-only snapshots from exports", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.mocked(apiRequest).mockResolvedValue({ ok: true, snapshots: [] });
+    const onAnnounce = vi.fn();
+    renderPanel("participant", "share", onAnnounce);
+
+    expect(screen.getByRole("complementary", { name: "Share board" })).toBeInTheDocument();
+    expect(screen.getByText("Collaborate live")).toBeInTheDocument();
+    expect(screen.getByText("Share read-only")).toBeInTheDocument();
+    expect(screen.getByText("1234")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Semantic JSON" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy invite" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("http://localhost:3000/#join=1234"),
+    ));
+    expect(onAnnounce).toHaveBeenCalledWith("Live collaboration invite copied.");
     await waitFor(() => expect(apiRequest).toHaveBeenCalledWith(
       "/api/rooms/room%2Fa%20b/snapshots",
       expect.objectContaining({ method: "GET" }),

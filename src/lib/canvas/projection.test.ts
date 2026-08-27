@@ -768,12 +768,14 @@ describe("bidirectional tldraw projection", () => {
         x: 260,
         y: 92,
         normalizedAnchor: { x: 1, y: 0.42 },
+        isExact: true,
       },
       end: {
         ...automatic.end,
         x: 1_330,
         y: 92,
         normalizedAnchor: { x: 0, y: 0.42 },
+        isExact: true,
       },
       routing: routing("auto", "curved", { bend: 144 }),
     };
@@ -787,10 +789,15 @@ describe("bidirectional tldraw projection", () => {
     expect(
       editor
         .getBindingsFromShape<TLArrowBinding>(arrow!.id, "arrow")
-        .map((binding) => [binding.props.terminal, binding.toId]),
+        .map((binding) => [
+          binding.props.terminal,
+          binding.toId,
+          binding.props.isPrecise,
+          binding.props.isExact,
+        ]),
     ).toEqual(expect.arrayContaining([
-      ["start", tldrawShapeId(left.id)],
-      ["end", tldrawShapeId(right.id)],
+      ["start", tldrawShapeId(left.id), true, true],
+      ["end", tldrawShapeId(right.id), true, true],
     ]));
   });
 

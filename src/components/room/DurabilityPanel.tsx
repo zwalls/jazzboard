@@ -18,11 +18,13 @@ import {
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { downloadPngFromSvg, downloadTextFile, svgDownloadDimensions } from "@/lib/client/download";
+import { buildRoomInvite } from "@/lib/client/room-invite";
 import type { Point, RoomState } from "@/lib/domain/types";
 
 import styles from "./durability-panel.module.css";
 
 export type DurabilityScope = "room" | "diagram" | "selection";
+export type DurabilityPanelMode = "share" | "export";
 type ArtifactFormat = "semantic_json" | "mermaid" | "svg" | "template";
 
 type ArtifactExport = {
@@ -88,6 +90,7 @@ function dateLabel(value: number): string {
 }
 
 export function DurabilityPanel({
+  mode,
   room,
   role,
   selection,
@@ -96,6 +99,7 @@ export function DurabilityPanel({
   onClose,
   onAnnounce,
 }: {
+  mode: DurabilityPanelMode;
   room: RoomState;
   role: "participant" | "spectator";
   selection: string[];
@@ -134,7 +138,7 @@ export function DurabilityPanel({
   const snapshotsUrl = `/api/rooms/${encodeURIComponent(room.id)}/snapshots`;
 
   useEffect(() => {
-    if (role !== "participant") return;
+    if (mode !== "share" || role !== "participant") return;
     const controller = new AbortController();
     void apiRequest<{ ok: true; snapshots: SnapshotSummary[] }>(snapshotsUrl, {
       method: "GET",
@@ -147,7 +151,7 @@ export function DurabilityPanel({
         }
       });
     return () => controller.abort();
-  }, [role, snapshotsUrl]);
+  }, [mode, role, snapshotsUrl]);
 
   function artifactUrl(format: ArtifactFormat): string {
     return buildArtifactUrl({
@@ -260,6 +264,21 @@ export function DurabilityPanel({
     onAnnounce("Private snapshot link copied.");
   }
 
+  async function copyLiveInvite() {
+    setError(null);
+    try {
+      const invite = buildRoomInvite({
+        origin: window.location.origin,
+        roomCode: room.code,
+        roomTitle: room.title,
+      });
+      await navigator.clipboard.writeText(invite.text);
+      onAnnounce("Live collaboration invite copied.");
+    } catch (copyError) {
+      setError(messageFor(copyError));
+    }
+  }
+
   async function revokeSnapshot(snapshotId: string) {
     if (!window.confirm("Revoke this read-only snapshot? Its private link will stop working immediately.")) return;
     setBusyAction(snapshotId);
@@ -279,115 +298,144 @@ export function DurabilityPanel({
     }
   }
 
+  const sharing = mode === "share";
+  const scopePicker = (
+    <section>
+      <div className={styles.sectionHeading}>
+        <div>
+          <strong>{sharing ? "Snapshot scope" : "Export scope"}</strong>
+          <span>{sharing ? "Choose what the frozen read-only link contains." : "Download only what you mean to export."}</span>
+        </div>
+      </div>
+      <div className={`${styles.scopeTabs} ${sharing ? styles.scopeTabsTwo : ""}`}>
+        <button className={effectiveScope === "room" ? styles.selected : ""} onClick={() => setScope("room")}>Board</button>
+        <button disabled={!diagrams.length} className={effectiveScope === "diagram" ? styles.selected : ""} onClick={() => setScope("diagram")}>Diagram</button>
+        {!sharing ? (
+          <button disabled={!validSelection.length} className={effectiveScope === "selection" ? styles.selected : ""} onClick={() => setScope("selection")}>Selection · {validSelection.length}</button>
+        ) : null}
+      </div>
+      {effectiveScope === "diagram" ? (
+        <label className={styles.selectField}>
+          <span>Diagram</span>
+          <select value={effectiveDiagramId} onChange={(event) => setDiagramId(event.target.value)}>
+            {diagrams.map((diagram) => <option value={diagram.id} key={diagram.id}>{diagram.title}</option>)}
+          </select>
+        </label>
+      ) : null}
+    </section>
+  );
+
   return (
-    <aside className={styles.panel} aria-label="Share and export">
+    <aside className={`${styles.panel} ${sharing ? styles.sharePanel : ""}`} aria-label={sharing ? "Share board" : "Export board"}>
       <div className={styles.heading}>
-        <span className={styles.headingIcon}><Share2 size={17} /></span>
-        <div><span>Durable work</span><strong>Share &amp; export</strong></div>
-        <button className={styles.closeButton} onClick={onClose} aria-label="Close share and export">
+        <span className={styles.headingIcon}>{sharing ? <Share2 size={17} /> : <Download size={17} />}</span>
+        <div><span>{sharing ? "Invite & snapshot" : "Portable work"}</span><strong>{sharing ? "Share board" : "Export"}</strong></div>
+        <button className={styles.closeButton} onClick={onClose} aria-label={sharing ? "Close share board" : "Close export"}>
           <X size={16} />
         </button>
       </div>
 
       <div className={styles.body}>
-        <section>
-          <div className={styles.sectionHeading}>
-            <div><strong>Choose scope</strong><span>Export only what you mean to share.</span></div>
-          </div>
-          <div className={styles.scopeTabs}>
-            <button className={effectiveScope === "room" ? styles.selected : ""} onClick={() => setScope("room")}>Board</button>
-            <button disabled={!diagrams.length} className={effectiveScope === "diagram" ? styles.selected : ""} onClick={() => setScope("diagram")}>Diagram</button>
-            <button disabled={!validSelection.length} className={effectiveScope === "selection" ? styles.selected : ""} onClick={() => setScope("selection")}>Selection · {validSelection.length}</button>
-          </div>
-          {effectiveScope === "diagram" ? (
-            <label className={styles.selectField}>
-              <span>Diagram</span>
-              <select value={effectiveDiagramId} onChange={(event) => setDiagramId(event.target.value)}>
-                {diagrams.map((diagram) => <option value={diagram.id} key={diagram.id}>{diagram.title}</option>)}
-              </select>
-            </label>
-          ) : null}
-        </section>
-
-        <section>
-          <div className={styles.sectionHeading}>
-            <div><strong>Download</strong><span>Portable, privacy-safe artifacts from semantic state.</span></div>
-          </div>
-          <div className={styles.exportGrid}>
-            <ExportButton icon={<FileJson size={16} />} label="Semantic JSON" busy={busyAction === "semantic_json"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("semantic_json")} />
-            <ExportButton icon={<Workflow size={16} />} label="Mermaid" busy={busyAction === "mermaid"} disabled={effectiveScope !== "diagram" || busyAction !== null} onClick={() => void exportArtifact("mermaid")} />
-            <ExportButton icon={<Download size={16} />} label="SVG" busy={busyAction === "svg"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("svg")} />
-            <ExportButton icon={<ImageDown size={16} />} label="PNG" busy={busyAction === "png"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("png")} />
-          </div>
-          {effectiveScope !== "diagram" ? <p className={styles.hint}>Mermaid exports one explicit first-class Diagram.</p> : null}
-        </section>
-
-        {role === "participant" ? (
+        {sharing ? (
           <section>
             <div className={styles.sectionHeading}>
-              <div><strong>Reuse</strong><span>Templates create fresh semantic IDs and preserve classifications.</span></div>
+              <div><strong>Collaborate live</strong><span>Invite someone into this live room with their own identity.</span></div>
             </div>
-            <div className={styles.inlineActions}>
-              <button disabled={effectiveScope !== "diagram" || busyAction !== null} onClick={() => void exportArtifact("template")}>
-                {busyAction === "template" ? <LoaderCircle className={styles.spin} size={15} /> : <Download size={15} />} Save diagram template
-              </button>
-              <button disabled={busyAction !== null} onClick={() => templateInput.current?.click()}>
-                {busyAction === "import" ? <LoaderCircle className={styles.spin} size={15} /> : <FileUp size={15} />} Add template here
-              </button>
-              <input
-                ref={templateInput}
-                hidden
-                type="file"
-                accept="application/json,.json"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void importTemplate(file);
-                }}
-              />
+            <div className={styles.liveInvite}>
+              <div><span>Room code</span><strong>{room.code}</strong></div>
+              <button onClick={() => void copyLiveInvite()}><Copy size={15} /> Copy invite</button>
             </div>
+            <p className={styles.hint}>The invite opens Jazzboard with this exact code filled in. Your friend chooses participant or spectator and joins through normal room authorization.</p>
           </section>
         ) : null}
 
-        {role === "participant" ? (
-          <section>
-            <div className={styles.sectionHeading}>
-              <div><strong>Read-only snapshot</strong><span>An immutable private link—not room access.</span></div>
-            </div>
-            <div className={styles.snapshotCreate}>
-              <label>
-                <Clock3 size={14} />
-                <select value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
-                  <option value={24}>24 hours</option>
-                  <option value={72}>3 days</option>
-                  <option value={168}>7 days</option>
-                </select>
-              </label>
-              <button disabled={!currentSnapshotScope() || busyAction !== null} onClick={() => void createSnapshot()}>
-                {busyAction === "snapshot" ? <LoaderCircle className={styles.spin} size={15} /> : <Link2 size={15} />} Create link
-              </button>
-            </div>
-            {effectiveScope === "selection" ? <p className={styles.hint}>Snapshots cover a board or one exact Diagram revision.</p> : null}
-            {createdSnapshot ? (
-              <div className={styles.freshLink} role="status">
-                <div><strong>Copy this link now</strong><span>The secret path cannot be recovered from the snapshot list.</span></div>
-                <button onClick={() => void copySnapshotPath(createdSnapshot.path)}><Copy size={14} /> Copy</button>
-              </div>
-            ) : null}
-            {snapshots.length ? (
-              <div className={styles.snapshotList}>
-                {snapshots.map((snapshot) => (
-                  <div key={snapshot.id}>
-                    <div><strong>{snapshot.title}</strong><span>Expires {dateLabel(snapshot.expiresAt)}</span></div>
-                    <button disabled={busyAction !== null} onClick={() => void revokeSnapshot(snapshot.id)} aria-label={`Revoke ${snapshot.title}`}>
-                      {busyAction === snapshot.id ? <LoaderCircle className={styles.spin} size={14} /> : <Trash2 size={14} />}
-                    </button>
+        {sharing ? (
+          role === "participant" ? (
+            <>
+              {scopePicker}
+              <section>
+                <div className={styles.sectionHeading}>
+                  <div><strong>Share read-only</strong><span>Create an immutable private snapshot—not live room access.</span></div>
+                </div>
+                <div className={styles.snapshotCreate}>
+                  <label>
+                    <Clock3 size={14} />
+                    <select value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
+                      <option value={24}>24 hours</option>
+                      <option value={72}>3 days</option>
+                      <option value={168}>7 days</option>
+                    </select>
+                  </label>
+                  <button disabled={!currentSnapshotScope() || busyAction !== null} onClick={() => void createSnapshot()}>
+                    {busyAction === "snapshot" ? <LoaderCircle className={styles.spin} size={15} /> : <Link2 size={15} />} Create snapshot link
+                  </button>
+                </div>
+                {createdSnapshot ? (
+                  <div className={styles.freshLink} role="status">
+                    <div><strong>Copy this link now</strong><span>The secret path cannot be recovered from the snapshot list.</span></div>
+                    <button onClick={() => void copySnapshotPath(createdSnapshot.path)}><Copy size={14} /> Copy</button>
                   </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
+                ) : null}
+                {snapshots.length ? (
+                  <div className={styles.snapshotList}>
+                    {snapshots.map((snapshot) => (
+                      <div key={snapshot.id}>
+                        <div><strong>{snapshot.title}</strong><span>Expires {dateLabel(snapshot.expiresAt)}</span></div>
+                        <button disabled={busyAction !== null} onClick={() => void revokeSnapshot(snapshot.id)} aria-label={`Revoke ${snapshot.title}`}>
+                          {busyAction === snapshot.id ? <LoaderCircle className={styles.spin} size={14} /> : <Trash2 size={14} />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            </>
+          ) : (
+            <p className={styles.spectatorNote}>You can copy the live room invite. Only participants can issue frozen read-only snapshot links.</p>
+          )
         ) : (
-          <p className={styles.spectatorNote}>Spectators can download passive exports. Creating templates, importing, and issuing share links require participant permission.</p>
+          <>
+            {scopePicker}
+            <section>
+              <div className={styles.sectionHeading}>
+                <div><strong>Download</strong><span>Portable, privacy-safe artifacts from semantic state.</span></div>
+              </div>
+              <div className={styles.exportGrid}>
+                <ExportButton icon={<FileJson size={16} />} label="Semantic JSON" busy={busyAction === "semantic_json"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("semantic_json")} />
+                <ExportButton icon={<Workflow size={16} />} label="Mermaid" busy={busyAction === "mermaid"} disabled={effectiveScope !== "diagram" || busyAction !== null} onClick={() => void exportArtifact("mermaid")} />
+                <ExportButton icon={<Download size={16} />} label="SVG" busy={busyAction === "svg"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("svg")} />
+                <ExportButton icon={<ImageDown size={16} />} label="PNG" busy={busyAction === "png"} disabled={!scopeReady || busyAction !== null} onClick={() => void exportArtifact("png")} />
+              </div>
+              {effectiveScope !== "diagram" ? <p className={styles.hint}>Mermaid exports one explicit first-class Diagram.</p> : null}
+            </section>
+            {role === "participant" ? (
+              <section>
+                <div className={styles.sectionHeading}>
+                  <div><strong>Reuse</strong><span>Templates create fresh semantic IDs and preserve classifications.</span></div>
+                </div>
+                <div className={styles.inlineActions}>
+                  <button disabled={effectiveScope !== "diagram" || busyAction !== null} onClick={() => void exportArtifact("template")}>
+                    {busyAction === "template" ? <LoaderCircle className={styles.spin} size={15} /> : <Download size={15} />} Save diagram template
+                  </button>
+                  <button disabled={busyAction !== null} onClick={() => templateInput.current?.click()}>
+                    {busyAction === "import" ? <LoaderCircle className={styles.spin} size={15} /> : <FileUp size={15} />} Add template here
+                  </button>
+                  <input
+                    ref={templateInput}
+                    hidden
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void importTemplate(file);
+                    }}
+                  />
+                </div>
+              </section>
+            ) : (
+              <p className={styles.spectatorNote}>Spectators can download passive exports. Creating and importing reusable templates requires participant permission.</p>
+            )}
+          </>
         )}
 
         {warnings.length ? <div className={styles.warning} role="status">{warnings.join(" ")}</div> : null}

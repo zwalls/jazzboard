@@ -28,6 +28,7 @@ import {
   touchRecentRoom,
   upsertRecentRoom,
 } from "@/lib/client/recent-rooms";
+import { roomInviteCodeFromHash } from "@/lib/client/room-invite";
 import type { RecentRoom, RoomRole } from "@/lib/domain/types";
 import {
   attachLandingWebMcpContext,
@@ -192,6 +193,11 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDisplayName(readDisplayName());
+      const invitedCode = roomInviteCodeFromHash(window.location.hash);
+      if (invitedCode) {
+        setMode("join");
+        setJoinCode(invitedCode);
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);

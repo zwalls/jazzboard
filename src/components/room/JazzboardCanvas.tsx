@@ -76,6 +76,12 @@ type PendingObjectSyncBatch = {
   timer: number | null;
 };
 
+type DocumentRecordChanges = {
+  added: Record<string, TLRecord>;
+  updated: Record<string, [TLRecord, TLRecord]>;
+  removed: Record<string, TLRecord>;
+};
+
 type Props = {
   room: RoomState;
   self: Participant;
@@ -1323,9 +1329,8 @@ export function JazzboardCanvas({
 
   useEffect(() => {
     if (!editor) return;
-    const stopDocument = editor.store.listen(
-      ({ changes }) => {
-        if (projectingRoomRef.current) return;
+    const processDocumentChanges = (changes: DocumentRecordChanges) => {
+      if (!projectingRoomRef.current) {
         const addedShapes = Object.values(changes.added).filter(isShape);
         const copiedShapeUpdates: Array<{ shape: TLShape; meta: JsonObject }> = [];
         for (const shape of addedShapes) {
@@ -1554,9 +1559,27 @@ export function JazzboardCanvas({
             ? `edit:${editingObjectId}`
             : undefined;
         scheduleObjectSyncBatch(changedObjectIds, batchKey);
-      },
+      }
+    };
+    const stopDocument = editor.store.listen(
+      ({ changes }) => processDocumentChanges(changes),
       { source: "user", scope: "document" },
     );
+    // tldraw is interactive before React installs this persistence effect (and
+    // before its drawing font finishes loading). Reconcile the already-visible
+    // document once after subscribing so an immediate draw or fast image
+    // upload cannot be lost merely because its store event preceded the
+    // listener. Authoritative projected shapes are filtered by the same
+    // equivalence checks as ordinary events; only unsynchronized local work is
+    // queued through the normal coordinator and debounce path.
+    const existingShapes = editor.getCurrentPageShapes();
+    if (existingShapes.length) {
+      processDocumentChanges({
+        added: Object.fromEntries(existingShapes.map((shape) => [shape.id, shape])),
+        updated: {},
+        removed: {},
+      });
+    }
     const stopSession = editor.store.listen(
       () => {
         onSelectionChange(

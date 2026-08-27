@@ -378,6 +378,10 @@ describe("deterministic route geometry", () => {
     expect(first["edge-a"].start.normalizedAnchor).not.toEqual(first["edge-b"].start.normalizedAnchor);
     expect(first["edge-b"].start.normalizedAnchor?.y).toBe(first["edge-b"].end.normalizedAnchor?.y);
     expect(first["edge-b"].routing).toMatchObject({ mode: "auto", kind: "curved", bend: 48 });
+    expect(first["edge-b"].start).toMatchObject({ isPrecise: true, isExact: true });
+    expect(first["edge-b"].end).toMatchObject({ isPrecise: true, isExact: true });
+    expect(first["edge-a"].start).toMatchObject({ isExact: false });
+    expect(first["edge-a"].end).toMatchObject({ isExact: false });
     expect(first["edge-b"].points.every((point) => point.y > first["edge-a"].points[0].y)).toBe(true);
     expect(first["edge-b"].labelBounds!.y).toBeGreaterThan(
       first["edge-a"].labelBounds!.y + first["edge-a"].labelBounds!.height,

@@ -2044,16 +2044,24 @@ test.describe("WebMCP browser acceptance", () => {
         objectId: refs.source,
         normalizedAnchor: { x: expect.any(Number), y: expect.any(Number) },
         isPrecise: expect.any(Boolean),
-        isExact: false,
+        isExact: expect.any(Boolean),
         snap: expect.stringMatching(/^(center|edge-point|edge|none)$/),
       });
       expect(connector.end).toMatchObject({
         objectId: refs.target,
         normalizedAnchor: { x: expect.any(Number), y: expect.any(Number) },
         isPrecise: expect.any(Boolean),
-        isExact: false,
+        isExact: expect.any(Boolean),
         snap: expect.stringMatching(/^(center|edge-point|edge|none)$/),
       });
+    }
+    if (autoRoute.routing.kind === "curved") {
+      expect(autoRoute.start).toMatchObject({ isPrecise: true, isExact: true });
+      expect(autoRoute.end).toMatchObject({ isPrecise: true, isExact: true });
+    }
+    for (const connector of [straightRoute, curvedRoute, elbowRoute]) {
+      expect(connector.start.isExact).toBe(false);
+      expect(connector.end.isExact).toBe(false);
     }
     for (const endpoint of [elbowRoute.start, elbowRoute.end]) {
       expect(endpoint.isPrecise).toBe(true);

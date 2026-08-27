@@ -9,7 +9,7 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Copy,
+  Download,
   Eye,
   Focus,
   History,
@@ -63,7 +63,7 @@ import { useRoom } from "@/hooks/use-room";
 import { JazzboardCanvas } from "./JazzboardCanvas";
 import { CanvasPreviewHost, type CanvasPreviewHostHandle } from "./CanvasPreviewHost";
 import { ActivityTimeline, type ActivityActorFilter } from "./ActivityTimeline";
-import { DurabilityPanel } from "./DurabilityPanel";
+import { DurabilityPanel, type DurabilityPanelMode } from "./DurabilityPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import styles from "./room.module.css";
 
@@ -136,6 +136,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [durabilityOpen, setDurabilityOpen] = useState(false);
+  const [durabilityMode, setDurabilityMode] = useState<DurabilityPanelMode>("export");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<ActivityActorFilter>("all");
   const [diagramEditor, setDiagramEditor] = useState<DiagramEditorState | null>(null);
@@ -144,7 +145,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [selection, setSelection] = useState<string[]>([]);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
-  const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [declinedSpotlight, setDeclinedSpotlight] = useState<number | null>(null);
   const [webMcpStatus, setWebMcpStatus] = useState<JazzboardWebMcpRegistrationStatus | null>(null);
@@ -347,15 +347,18 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const countdown = spotlight ? Math.max(0, Math.ceil((spotlight.autoFollowAt - now) / 1_000)) : 0;
   const followingSpotlight = spotlight?.followingParticipantIds.includes(participantId) ?? false;
   const declined = spotlight ? declinedSpotlight === spotlight.startedAt : false;
-  const roomCode = room.code;
   const diagrams = Object.values(room.diagrams ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
   const siteToolsSupported = webMcpStatus?.supported ?? false;
   const registeredToolCount = webMcpStatus?.registeredToolNames.length ?? 0;
 
-  async function copyCode() {
-    await navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_500);
+  function toggleDurability(nextMode: DurabilityPanelMode) {
+    setDurabilityOpen((open) => nextMode !== durabilityMode || !open);
+    setDurabilityMode(nextMode);
+    setOutlineOpen(false);
+    setActivityOpen(false);
+    setReviewOpen(false);
+    setPresenceOpen(false);
+    setFollowOpen(false);
   }
 
   function follow(participantIdToFollow: string, kind: ActorKind) {
@@ -499,9 +502,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             <strong>{room.title}</strong>
             <span>Room {room.code}</span>
           </div>
-          <button className={styles.iconButton} onClick={() => void copyCode()} aria-label="Copy room code" title="Copy room code">
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-          </button>
         </div>
 
         <div className={`${styles.floatingBar} ${styles.roomControls}`}>
@@ -532,6 +532,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               onClick={() => {
                 setPresenceOpen((open) => !open);
                 setFollowOpen(false);
+                setDurabilityOpen(false);
               }}
             >
               <span className={styles.avatarStack}>
@@ -553,6 +554,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               onClick={() => {
                 setFollowOpen((open) => !open);
                 setPresenceOpen(false);
+                setDurabilityOpen(false);
               }}
               aria-expanded={followOpen}
             >
@@ -585,6 +587,13 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
                     : "Spotlight"}
             </button>
           ) : null}
+          <button
+            className={`${styles.controlButton} ${styles.shareBoardButton}`}
+            onClick={() => toggleDurability("share")}
+            aria-expanded={durabilityOpen && durabilityMode === "share"}
+          >
+            <Share2 size={15} /> Share board
+          </button>
         </div>
       </header>
 
@@ -697,15 +706,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           {roomActivity.activities.some((item) => item.actor.kind === "agent") ? <span>review agent work</span> : null}
         </button>
         <button
-          onClick={() => {
-            setDurabilityOpen((open) => !open);
-            setOutlineOpen(false);
-            setActivityOpen(false);
-            setReviewOpen(false);
-          }}
-          aria-expanded={durabilityOpen}
+          onClick={() => toggleDurability("export")}
+          aria-expanded={durabilityOpen && durabilityMode === "export"}
         >
-          <Share2 size={16} /> Share &amp; export
+          <Download size={16} /> Export
         </button>
         <button
           onClick={() => {
@@ -859,6 +863,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
       {durabilityOpen ? (
         <DurabilityPanel
+          key={durabilityMode}
+          mode={durabilityMode}
           room={room}
           role={self.role}
           selection={selection}
@@ -964,7 +970,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       ) : null}
 
       <div className={styles.liveRegion} aria-live="polite">
-        {copied ? `Room code ${room.code} copied.` : diagramAnnouncement}
+        {diagramAnnouncement}
       </div>
     </main>
   );

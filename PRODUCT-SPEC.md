@@ -282,7 +282,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 | Spotlight full lifecycle and handoff | Yes | No | Yes | No mutation tool |
 | Leave current room view | Yes | No | Participant tool | UI only |
 | Upgrade spectator to participant | Human, explicit consent | No | Not needed | UI only |
-| Copy room code / open panels and dialogs | Yes | Semantic state already supplies code | Not a semantic tool | Not a semantic tool |
+| Share board / open panels and dialogs | Yes | Semantic state already supplies the exact room code | Not a semantic tool | Not a semantic tool |
 
 ## Confirmed implementation architecture
 
