@@ -880,7 +880,10 @@ test.describe("WebMCP browser acceptance", () => {
     await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("44 site tools");
+    await expect(page.getByTestId("site-tools-status")).toHaveAccessibleName(
+      "WebMCP site tools status: 44 site tools",
+    );
+    await expect(page.getByTestId("site-tools-status")).toContainText("44");
     for (const toolName of [...SHARED_ROOM_READ_TOOL_NAMES, ...PARTICIPANT_ONLY_READ_TOOL_NAMES]) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
     }
@@ -1763,8 +1766,14 @@ test.describe("WebMCP browser acceptance", () => {
         ),
       );
       await expect(spectatorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
-      await expect(spectatorPage.locator("header").getByText("spectator", { exact: true })).toBeVisible();
-      await expect(spectatorPage.getByTitle("WebMCP site tools status")).toContainText("14 non-editing tools");
+      const spectatorPeople = spectatorPage.getByRole("button", { name: "Show people in this room" });
+      await spectatorPeople.hover();
+      await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
+      await spectatorPage.mouse.move(0, 0);
+      await expect(spectatorPage.getByTestId("site-tools-status")).toHaveAccessibleName(
+        "WebMCP site tools status: 14 non-editing tools",
+      );
+      await expect(spectatorPage.getByTestId("site-tools-status")).toContainText("14");
       const spectatorMetadata = await expectRegisteredSurface(spectatorPage, SPECTATOR_ROOM_TOOL_NAMES);
       for (const toolName of SHARED_ROOM_READ_TOOL_NAMES) {
         expect(spectatorMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
@@ -2276,12 +2285,15 @@ test.describe("WebMCP browser acceptance", () => {
     test.setTimeout(90_000);
     await installWebMcpShim(page);
     const host = await createRoomFromLanding(page, "Browser Acceptance");
-    await expect(page.locator("header").getByText(/^(Live|Synced)$/)).toBeVisible({
+    await expect(page.getByTestId("connection-status")).toHaveAccessibleName(/Connection: (Live|Synced)/, {
       timeout: 15_000,
     });
 
     await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("44 site tools");
+    await expect(page.getByTestId("site-tools-status")).toHaveAccessibleName(
+      "WebMCP site tools status: 44 site tools",
+    );
+    await expect(page.getByTestId("site-tools-status")).toContainText("44");
 
     const created = await callWebMcpTool<CreateObjectData>(page, "create_text", {
       content: WEBMCP_TEXT,

@@ -24,7 +24,7 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
-  UserRound,
+  Users,
   Wifi,
   WifiOff,
   X,
@@ -132,6 +132,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
   const [followOpen, setFollowOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
+  const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | "site-tools" | null>(null);
   const [spotlightPickerOpen, setSpotlightPickerOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -308,11 +309,13 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && followTarget) updateFollowTarget(null);
+      if (event.key !== "Escape") return;
+      if (statusTooltip) setStatusTooltip(null);
+      if (followTarget) updateFollowTarget(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [followTarget, updateFollowTarget]);
+  }, [followTarget, statusTooltip, updateFollowTarget]);
 
   if (!room || !self || !participantId) {
     const notAuthorized =
@@ -354,6 +357,26 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const diagrams = Object.values(room.diagrams ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
   const siteToolsSupported = webMcpStatus?.supported ?? false;
   const registeredToolCount = webMcpStatus?.registeredToolNames.length ?? 0;
+  const participantCount = Object.keys(room.participants).length;
+  const connectionLabel = controller.connection === "live"
+    ? "Live"
+    : controller.connection === "polling"
+      ? "Synced"
+      : controller.connection === "offline"
+        ? "Offline"
+        : "Connecting";
+  const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"} in this room · Your role: ${self.role}`;
+  const siteToolsLabel = self.role === "spectator"
+    ? registeredToolCount
+      ? `${registeredToolCount} non-editing tools`
+      : siteToolsSupported
+        ? "Non-editing tools ready"
+        : "WebMCP preview"
+    : registeredToolCount
+      ? `${registeredToolCount} site tools`
+      : siteToolsSupported
+        ? "Site tools ready"
+        : "WebMCP preview";
 
   function toggleDurability(nextMode: DurabilityPanelMode) {
     setDurabilityOpen((open) => nextMode !== durabilityMode || !open);
@@ -495,50 +518,112 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       style={{ "--follow-color": followedParticipant?.color ?? "#5B5CE2" } as React.CSSProperties}
     >
       <header className={styles.roomHeader}>
-        <div className={`${styles.floatingBar} ${styles.roomControls}`}>
-          <span className={`${styles.statusPill} ${controller.connection === "offline" ? styles.offline : ""}`}>
-            {controller.connection === "offline" ? <WifiOff size={14} /> : <Wifi size={14} />}
-            {controller.connection === "live" ? "Live" : controller.connection === "offline" ? "Offline" : "Synced"}
-          </span>
-          <span className={styles.rolePill}>{self.role === "participant" ? <UserRound size={14} /> : <Eye size={14} />}{self.role}</span>
-          <span className={`${styles.siteToolsPill} ${siteToolsSupported ? styles.ready : ""}`} title="WebMCP site tools status">
-            <Bot size={14} />
-            {self.role === "spectator"
-              ? registeredToolCount
-                ? `${registeredToolCount} non-editing tools`
-                : siteToolsSupported
-                  ? "Non-editing tools ready"
-                  : "WebMCP preview"
-              : registeredToolCount
-                ? `${registeredToolCount} site tools`
-                : siteToolsSupported
-                  ? "Site tools ready"
-                  : "WebMCP preview"}
-          </span>
-          <div className={styles.popoverAnchor}>
-            <button
-              className={styles.avatarButton}
-              aria-label="Show people in this room"
-              aria-expanded={presenceOpen}
-              onClick={() => {
-                setPresenceOpen((open) => !open);
-                setFollowOpen(false);
-                setDurabilityOpen(false);
+        <div className={`${styles.floatingBar} ${styles.roomControls}`} data-testid="room-controls">
+          <div className={styles.secondaryIndicators} aria-label="Room status">
+            <span
+              aria-describedby={statusTooltip === "connection" ? "connection-status-tooltip" : undefined}
+              aria-label={`Connection: ${connectionLabel}`}
+              className={`${styles.compactIndicator} ${styles.connectionIndicator} ${
+                controller.connection === "offline"
+                  ? styles.offline
+                  : controller.connection === "connecting"
+                    ? styles.connecting
+                    : ""
+              }`}
+              data-testid="connection-status"
+              onBlur={() => setStatusTooltip(null)}
+              onFocus={() => setStatusTooltip("connection")}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setStatusTooltip(null);
+                  event.stopPropagation();
+                }
               }}
+              onMouseEnter={() => setStatusTooltip("connection")}
+              onMouseLeave={() => setStatusTooltip(null)}
+              role="status"
+              tabIndex={0}
             >
-              <span className={styles.avatarStack}>
-                {Object.values(room.participants)
-                  .slice(0, 3)
-                  .map((participant) => (
-                    <i key={participant.participantId} style={{ background: participant.color }}>
-                      {participant.displayName.slice(0, 1).toUpperCase()}
-                    </i>
-                  ))}
-              </span>
-              <span>{Object.keys(room.participants).length}</span>
-            </button>
-            {presenceOpen ? <PresencePopover room={room} selfId={participantId} /> : null}
+              {controller.connection === "offline" ? (
+                <WifiOff size={15} />
+              ) : controller.connection === "connecting" ? (
+                <RefreshCw className={styles.spin} size={15} />
+              ) : (
+                <Wifi size={15} />
+              )}
+              {statusTooltip === "connection" ? (
+                <span className={styles.compactTooltip} id="connection-status-tooltip" role="tooltip">
+                  {connectionLabel}
+                </span>
+              ) : null}
+            </span>
+            <div className={styles.popoverAnchor}>
+              <button
+                aria-describedby={statusTooltip === "people" ? "room-people-tooltip" : undefined}
+                aria-label="Show people in this room"
+                aria-expanded={presenceOpen}
+                className={styles.compactIndicator}
+                onBlur={() => setStatusTooltip(null)}
+                onClick={() => {
+                  setStatusTooltip(null);
+                  setPresenceOpen((open) => !open);
+                  setFollowOpen(false);
+                  setDurabilityOpen(false);
+                }}
+                onFocus={() => {
+                  if (!presenceOpen) setStatusTooltip("people");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setStatusTooltip(null);
+                    event.stopPropagation();
+                  }
+                }}
+                onMouseEnter={() => {
+                  if (!presenceOpen) setStatusTooltip("people");
+                }}
+                onMouseLeave={() => setStatusTooltip(null)}
+              >
+                <Users size={15} />
+                <span className={styles.indicatorCount}>{participantCount}</span>
+                {statusTooltip === "people" ? (
+                  <span className={styles.compactTooltip} id="room-people-tooltip" role="tooltip">
+                    {peopleLabel}
+                  </span>
+                ) : null}
+              </button>
+              {presenceOpen ? <PresencePopover room={room} selfId={participantId} /> : null}
+            </div>
+            <span
+              aria-describedby={statusTooltip === "site-tools" ? "site-tools-status-tooltip" : undefined}
+              aria-label={`WebMCP site tools status: ${siteToolsLabel}`}
+              className={`${styles.compactIndicator} ${styles.siteToolsIndicator} ${
+                siteToolsSupported ? styles.ready : ""
+              }`}
+              data-testid="site-tools-status"
+              onBlur={() => setStatusTooltip(null)}
+              onFocus={() => setStatusTooltip("site-tools")}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setStatusTooltip(null);
+                  event.stopPropagation();
+                }
+              }}
+              onMouseEnter={() => setStatusTooltip("site-tools")}
+              onMouseLeave={() => setStatusTooltip(null)}
+              role="status"
+              tabIndex={0}
+            >
+              <Bot size={15} />
+              {registeredToolCount ? <span className={styles.indicatorCount}>{registeredToolCount}</span> : null}
+              {statusTooltip === "site-tools" ? (
+                <span className={styles.compactTooltip} id="site-tools-status-tooltip" role="tooltip">
+                  {siteToolsLabel}
+                </span>
+              ) : null}
+            </span>
           </div>
+          <span className={styles.controlDivider} aria-hidden="true" />
           <div className={styles.popoverAnchor}>
             <button
               className={styles.controlButton}

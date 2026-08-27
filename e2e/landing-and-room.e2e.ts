@@ -22,7 +22,7 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
     const panel = document.querySelector('[data-testid="combined-left-panel"]');
     const identity = panel?.firstElementChild ?? null;
     const menu = panel?.querySelector(".tlui-menu-zone") ?? null;
-    const controls = document.querySelector("header > div");
+    const controls = document.querySelector('[data-testid="room-controls"]');
     const stylePanel = document.querySelector(".tlui-style-panel__wrapper");
     const overlaps = (first: Element, second: Element) => {
       const a = rect(first);
@@ -83,6 +83,40 @@ test.describe("landing and room entry", () => {
       await expectTopNavigationToClearCanvasChrome(page);
     }
 
+    await page.setViewportSize({ width: 1_659, height: 303 });
+    const controls = page.getByTestId("room-controls");
+    for (const indicator of [
+      controls.getByTestId("connection-status"),
+      controls.getByRole("button", { name: "Show people in this room" }),
+      controls.getByTestId("site-tools-status"),
+    ]) {
+      const box = await indicator.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeLessThanOrEqual(34);
+      expect(box!.width).toBeLessThanOrEqual(48);
+    }
+    await expect(controls.getByRole("button", { name: "Follow", exact: true })).toBeVisible();
+    await expect(controls.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
+    await expect(controls.getByRole("button", { name: "Share board", exact: true })).toBeVisible();
+
+    await controls.getByTestId("connection-status").hover();
+    await expect(page.getByRole("tooltip")).toHaveText(/^(Connecting|Live|Synced)$/);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+    await controls.getByTestId("site-tools-status").focus();
+    await expect(page.getByRole("tooltip")).toHaveText(/WebMCP preview|tools ready|site tools/);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+    const peopleButton = controls.getByRole("button", { name: "Show people in this room" });
+    await peopleButton.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Your role: participant");
+    await peopleButton.click();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(controls.getByText("In this room", { exact: true })).toBeVisible();
+    await peopleButton.click();
+
     await page.getByRole("button", { name: "Menu", exact: true }).click();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Share board", exact: true }).click();
@@ -139,7 +173,10 @@ test.describe("landing and room entry", () => {
     });
     await expect(page.getByTestId("combined-left-panel").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
     await expect(page.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
-    await expect(page.locator("header").getByText("participant", { exact: true })).toBeVisible();
+    const hostPeopleButton = page.getByRole("button", { name: "Show people in this room" });
+    await hostPeopleButton.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Your role: participant");
+    await page.mouse.move(0, 0);
 
     await page.getByRole("button", { name: "Canvas outline" }).click();
     await expect(page.getByRole("complementary", { name: "Canvas outline" }).getByText("0 objects")).toBeVisible();

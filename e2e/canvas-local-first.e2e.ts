@@ -302,7 +302,7 @@ async function keepGateClosedPastTwoSeconds(
   await expect.poll(() => counts.presence, { timeout: 2_000 }).toBeGreaterThan(0);
   await expect
     .poll(
-      async () => counts.polls > 0 || await page.getByText("Live", { exact: true }).isVisible(),
+      async () => counts.polls > 0 || await page.getByLabel("Connection: Live").isVisible(),
       { timeout: 5_500 },
     )
     .toBe(true);
