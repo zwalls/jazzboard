@@ -25,8 +25,11 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     });
 
     expect(spectator.room.id).toBe(host.room.id);
-    await expect(spectatorPage.locator("header").getByText("spectator", { exact: true })).toBeVisible();
-    await expect(spectatorPage.locator("header").getByText("WebMCP preview", { exact: true })).toBeVisible();
+    const spectatorPeople = spectatorPage.getByRole("button", { name: "Show people in this room" });
+    await spectatorPeople.hover();
+    await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
+    await spectatorPage.mouse.move(0, 0);
+    await expect(spectatorPage.getByTestId("site-tools-status")).toHaveCount(0);
     await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toBeVisible();
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toHaveCount(0);
 
@@ -52,7 +55,6 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     expect(beforeUpgrade.room.participants[spectator.participantId].agentActive).toBe(false);
 
     await spectatorPage.getByRole("button", { name: "Become a participant" }).click();
-    await expect(spectatorPage.locator("header").getByText("participant", { exact: true })).toBeVisible();
     await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toHaveCount(0);
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
 

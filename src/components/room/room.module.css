@@ -144,7 +144,6 @@
 
 .iconButton,
 .controlButton,
-.avatarButton,
 .roomPage button {
   border: 0;
   cursor: pointer;
@@ -152,7 +151,7 @@
 
 .iconButton,
 .controlButton,
-.avatarButton {
+.compactIndicator {
   align-items: center;
   background: transparent;
   border-radius: 9px;
@@ -171,7 +170,7 @@
 
 .iconButton:hover,
 .controlButton:hover,
-.avatarButton:hover {
+button.compactIndicator:hover {
   background: #f0f2f7;
   color: var(--ink);
 }
@@ -181,6 +180,17 @@
   height: 37px;
   padding: 0 10px;
   white-space: nowrap;
+}
+
+.iconControlButton {
+  flex: 0 0 37px;
+  padding: 0;
+  width: 37px;
+}
+
+.iconControlButton:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.24);
+  outline: 0;
 }
 
 .spotlightButton {
@@ -205,70 +215,124 @@
   color: var(--brand-deep);
 }
 
-.statusPill,
-.rolePill,
-.siteToolsPill {
+.secondaryIndicators {
   align-items: center;
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 10px;
-  font-weight: 700;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
+  display: flex;
+  gap: 2px;
+}
+
+.compactIndicator {
+  color: #667085;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 760;
+  gap: 4px;
+  height: 33px;
+  min-width: 33px;
+  padding: 0 7px;
+  position: relative;
   white-space: nowrap;
 }
 
-.statusPill {
-  background: var(--mint-soft);
-  color: #137861;
+.compactIndicator[role="status"] {
+  cursor: help;
 }
 
-.statusPill.offline {
-  background: #f1f2f5;
-  color: #7b8496;
+.tooltipTrigger {
+  position: relative;
 }
 
-.rolePill {
-  background: #f2f3f7;
-  color: #596376;
-  text-transform: capitalize;
+.compactIndicator:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.24);
+  outline: 0;
 }
 
-.siteToolsPill {
-  background: #fff4d7;
-  color: #8a6405;
-}
-
-.siteToolsPill.ready {
-  background: #eceeff;
-  color: #4d58cc;
-}
-
-.avatarButton {
-  gap: 6px;
-  height: 37px;
+.connectionIndicator {
+  background: transparent;
+  min-width: 25px;
   padding: 0 8px;
 }
 
-.avatarStack {
-  display: flex;
-  padding-left: 7px;
+.connectionIndicator.offline {
+  background: transparent;
 }
 
-.avatarStack i {
-  align-items: center;
-  border: 2px solid white;
+.connectionIndicator.connecting {
+  background: transparent;
+}
+
+.connectionDot {
+  background: #20a778;
   border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(32, 167, 120, 0.12);
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+
+.connectionIndicator.offline .connectionDot {
+  background: #98a2b3;
+  box-shadow: none;
+}
+
+.connectionIndicator.connecting .connectionDot {
+  background: #e7a526;
+  box-shadow: 0 0 0 3px rgba(231, 165, 38, 0.13);
+}
+
+.indicatorCount {
+  line-height: 1;
+}
+
+.controlDivider {
+  background: #e2e5ec;
+  height: 22px;
+  margin: 0 3px;
+  width: 1px;
+}
+
+.compactTooltip {
+  background: #202738;
+  border-radius: 7px;
+  box-shadow: 0 5px 16px rgba(24, 31, 48, 0.18);
   color: white;
-  display: flex;
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 760;
-  height: 25px;
-  justify-content: center;
-  margin-left: -7px;
-  width: 25px;
+  font-size: 11px;
+  font-weight: 650;
+  left: 50%;
+  line-height: 1;
+  opacity: 0;
+  padding: 7px 8px;
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% + 9px);
+  transform: translate(-50%, -3px);
+  transition: opacity 110ms ease, transform 110ms ease, visibility 110ms ease;
+  visibility: hidden;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+.tooltipTrigger:hover .compactTooltip,
+.tooltipTrigger:focus-visible .compactTooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+.tooltipTrigger[aria-expanded="true"] .compactTooltip {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.tooltipAlignEnd {
+  left: auto;
+  right: 0;
+  transform: translate(0, -3px);
+}
+
+.tooltipTrigger:hover .tooltipAlignEnd,
+.tooltipTrigger:focus-visible .tooltipAlignEnd {
+  transform: translate(0, 0);
 }
 
 .popoverAnchor {
@@ -1617,13 +1681,6 @@
   100% { box-shadow: 0 0 0 0 rgba(89, 101, 232, 0); }
 }
 
-@media (max-width: 1040px) {
-  .siteToolsPill,
-  .rolePill {
-    display: none;
-  }
-}
-
 @media (max-width: 800px) {
   .roomPage {
     --room-edge-inset: 10px;
@@ -1643,12 +1700,10 @@
 
   .roomControls {
     max-width: calc(100vw - (2 * var(--room-edge-inset)));
-    overflow-x: auto;
-    scrollbar-width: none;
   }
 
-  .statusPill,
-  .roomControls > .popoverAnchor:first-of-type {
+  .secondaryIndicators,
+  .controlDivider {
     display: none;
   }
 

@@ -83,7 +83,9 @@ test("shares the live board by private invite while keeping exports separate", a
     await invitedPage.getByRole("radio", { name: /^Spectator/i }).check();
     await invitedPage.getByRole("button", { name: "Join this Jazzboard" }).click();
     await expect(invitedPage).toHaveURL(/\/room\/room_[^/?#]+$/, { timeout: 20_000 });
-    await expect(invitedPage.locator("header").getByText("spectator", { exact: true })).toBeVisible();
+    await invitedPage.getByRole("button", { name: "Show people in this room" }).hover();
+    await expect(invitedPage.getByRole("tooltip")).toContainText("Your role: spectator");
+    await invitedPage.mouse.move(0, 0);
 
     await invitedPage.getByRole("button", { name: "Share board" }).click();
     const spectatorShare = invitedPage.getByRole("complementary", { name: "Share board" });
