@@ -1,7 +1,21 @@
 import type { Editor, TLShape, TLShapeId } from "tldraw";
 import { describe, expect, it, vi } from "vitest";
 
-import { editableShapesForTargets, flushCanvasSelectionToRoom } from "./JazzboardCanvas";
+import {
+  editableShapesForTargets,
+  flushCanvasSelectionToRoom,
+  shouldRenderLeaseDebugLabel,
+} from "./JazzboardCanvas";
+
+describe("shouldRenderLeaseDebugLabel", () => {
+  it("keeps lease-owner labels and lock icons out of the production canvas", () => {
+    expect(shouldRenderLeaseDebugLabel("production")).toBe(false);
+  });
+
+  it("retains the detailed lease label as a local development diagnostic", () => {
+    expect(shouldRenderLeaseDebugLabel("development")).toBe(true);
+  });
+});
 
 describe("editableShapesForTargets", () => {
   it("flattens nested selected groups into their semantic leaf shapes", () => {

@@ -129,6 +129,10 @@ type Props = {
   onError: (message: string, details?: unknown) => void;
 };
 
+export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) {
+  return environment !== "production";
+}
+
 export type JazzboardCanvasHandle = {
   prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
 };
@@ -2729,11 +2733,13 @@ function CanvasPresenceOverlay({ editor, room, selfId }: { editor: Editor | null
               borderColor: activeLease.actor.color,
             }}
           >
-            <span style={{ background: activeLease.actor.color }}>
-              <LockKeyhole size={11} />
-              {activeLease.actor.displayName}
-              {activeLease.actor.kind === "agent" ? "’s agent" : ""} · {activeLease.operation}
-            </span>
+            {shouldRenderLeaseDebugLabel() ? (
+              <span style={{ background: activeLease.actor.color }}>
+                <LockKeyhole size={11} />
+                {activeLease.actor.displayName}
+                {activeLease.actor.kind === "agent" ? "’s agent" : ""} · {activeLease.operation}
+              </span>
+            ) : null}
           </div>
         );
       })}

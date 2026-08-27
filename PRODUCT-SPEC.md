@@ -109,6 +109,7 @@ The shared semantic transaction path accepts authorized human and agent actors. 
 - Objects remain freely editable until a human or agent actively manipulates one.
 - Active manipulation creates a short-lived, automatically renewed lease associated with that actor and operation.
 - A compound human gesture resolves tldraw's selected outer group before movement, then acquires every persisted member and affected connector as one all-or-nothing lease cohort. The cohort renews and releases in one coordination mutation rather than producing per-object request storms.
+- Lease coordination stays unobtrusive in the production canvas: do not render lease-owner names, lock icons, or operation badges. A subtle object outline may indicate that an object is temporarily busy; local development may retain the detailed badge as a diagnostic. Server enforcement and structured busy/conflict feedback remain unchanged.
 - Other actors can continue editing unrelated objects in parallel.
 - A competing change is never queued. It fails with structured `OBJECT_BUSY` context naming the actor, actor kind, operation, expiry, and current object revision.
 - Optimistic object and diagram revisions prevent stale intent from overwriting newer state after a lease expires.
