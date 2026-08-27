@@ -1,6 +1,7 @@
 .roomPage {
   --chrome: rgba(255, 255, 255, 0.92);
   --chrome-line: rgba(201, 207, 220, 0.9);
+  --room-header-clearance: 79px;
   background: #f7f8fc;
   height: 100dvh;
   min-height: 560px;
@@ -23,6 +24,18 @@
   background-color: #f9fafc;
   background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
   background-size: 22px 22px;
+}
+
+/* Keep tldraw's top-corner controls in their own row below Jazzboard's
+   navigation instead of letting both interface layers compete for the same
+   pixels. The style panel also needs a viewport-based cap because roomPage has
+   a minimum height that can be taller than a short browser window. */
+.canvasShell :global(.tlui-layout__top) {
+  padding-top: var(--room-header-clearance);
+}
+
+.canvasShell :global(.tlui-style-panel__wrapper) {
+  max-height: calc(100dvh - var(--room-header-clearance) - 8px);
 }
 
 .roomHeader {
@@ -1554,7 +1567,7 @@
   100% { box-shadow: 0 0 0 0 rgba(89, 101, 232, 0); }
 }
 
-@media (max-width: 1020px) {
+@media (max-width: 1040px) {
   .siteToolsPill,
   .rolePill {
     display: none;
@@ -1565,7 +1578,11 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
+  .roomPage {
+    --room-header-clearance: 137px;
+  }
+
   .roomHeader {
     align-items: stretch;
     flex-direction: column;
@@ -1593,7 +1610,7 @@
   .rejoinSpotlight,
   .handoffRequest {
     max-width: calc(100vw - 20px);
-    top: 118px;
+    top: calc(var(--room-header-clearance) + 14px);
   }
 
   .spotlightInvite {

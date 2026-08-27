@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   createRoomFromLanding,
@@ -8,7 +8,73 @@ import {
   type ApiFailure,
 } from "./helpers";
 
+async function expectTopNavigationToClearCanvasChrome(page: Page) {
+  const layout = await page.evaluate(() => {
+    const rect = (element: Element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        bottom: bounds.bottom,
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+      };
+    };
+    const headerBars = [...document.querySelectorAll("header > div")].map(rect);
+    const canvasChrome = [
+      document.querySelector(".tlui-menu-zone"),
+      document.querySelector(".tlui-style-panel__wrapper"),
+    ].filter((element): element is Element => element !== null).map(rect);
+
+    return {
+      canvasChrome,
+      headerBarsOverlap:
+        headerBars.length === 2 &&
+        headerBars[0].left < headerBars[1].right &&
+        headerBars[0].right > headerBars[1].left &&
+        headerBars[0].top < headerBars[1].bottom &&
+        headerBars[0].bottom > headerBars[1].top,
+      headerBars,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+
+  expect(layout.headerBars).toHaveLength(2);
+  expect(layout.canvasChrome).toHaveLength(2);
+  expect(layout.headerBarsOverlap).toBe(false);
+
+  const headerBottom = Math.max(...layout.headerBars.map((box) => box.bottom));
+  for (const box of layout.headerBars) {
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(layout.viewportWidth);
+  }
+  for (const box of layout.canvasChrome) {
+    expect(box.top).toBeGreaterThanOrEqual(headerBottom + 10);
+    expect(box.bottom).toBeLessThanOrEqual(layout.viewportHeight);
+  }
+}
+
 test.describe("landing and room entry", () => {
+  test("keeps the top navigation clear of the canvas controls", async ({ page }) => {
+    await createRoomFromLanding(page, "Layout Tester");
+
+    for (const viewport of [
+      { width: 1_659, height: 303 },
+      { width: 1_024, height: 768 },
+      { width: 800, height: 740 },
+      { width: 801, height: 740 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expectTopNavigationToClearCanvasChrome(page);
+    }
+
+    await page.getByRole("button", { name: "Menu", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Share board", exact: true }).click();
+    await expect(page.getByRole("complementary", { name: "Share board" })).toBeVisible();
+    await page.getByRole("button", { name: "Close share board" }).click();
+  });
+
   test("renders the product entry points and protects room URLs without a guest session", async ({ browser, page }) => {
     await page.goto("/");
 
