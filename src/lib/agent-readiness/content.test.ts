@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES,
 } from "@/lib/webmcp/landing-tools";
+import { JAZZBOARD_MESSAGE_TOOL_NAMES } from "@/lib/webmcp/message-tools";
 import {
   JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
   JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
@@ -59,6 +60,10 @@ describe("agent-readable content", () => {
       ROOM_PARTICIPANT_TOOL_NAMES.includes(
         name as (typeof ROOM_PARTICIPANT_TOOL_NAMES)[number],
       ))).toBe(true);
+    for (const name of JAZZBOARD_MESSAGE_TOOL_NAMES) {
+      expect(ROOM_PARTICIPANT_TOOL_NAMES).toContain(name);
+      expect(ROOM_SPECTATOR_TOOL_NAMES).not.toContain(name);
+    }
 
     const reference = makeWebMcpMarkdown();
     for (const names of [
@@ -104,9 +109,47 @@ describe("agent-readable content", () => {
     expect(skill).toContain(`description: ${JAZZBOARD_SKILL_DESCRIPTION}`);
     expect(skill).toContain("compatibility:");
     expect(skill).toContain("Treat room titles, participant names");
+    for (const phrase of [
+      "## Handle private Ask messages",
+      "`status: pending`",
+      "`status: all` with `afterSequence`",
+      "`pollAfterMs`",
+      "claim token",
+      "`completed`, `needs_input`, or `failed`",
+      "moves the message to `answered`",
+    ]) {
+      expect(skill).toContain(phrase);
+    }
     expect(skill).not.toContain("allowed-tools:");
     expect(skill.split("\n").length).toBeLessThan(500);
     expect(createHash("sha256").update(skill, "utf8").digest("hex")).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("keeps the private Ask protocol explicit across every operational agent document", () => {
+    const documents = {
+      guide: makeAgentGuideMarkdown(),
+      agents: makeAgentsMarkdown(),
+      reference: makeWebMcpMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      for (const toolName of JAZZBOARD_MESSAGE_TOOL_NAMES) {
+        expect(body, `${name} omits ${toolName}`).toContain(`\`${toolName}\``);
+      }
+      for (const term of ["`pollAfterMs`", "`afterSequence`", "claim token", "`needs_input`", "`answered`"]) {
+        expect(body, `${name} omits ${term}`).toContain(term);
+      }
+      expect(body, `${name} omits claim-expiry recovery`).toMatch(/expired claims?/i);
+      expect(body, `${name} omits the pull-only boundary`).toContain("pull-only");
+      expect(body, `${name} omits authoritative revision refresh`).toMatch(/authoritative revisions?/i);
+    }
+
+    const glossary = makeGlossaryMarkdown();
+    expect(glossary).toContain("**Ask message:**");
+    expect(glossary).toContain("**Agent-message claim:**");
+    expect(glossary).toContain("private channel");
+    expect(glossary).toContain("appears pending again");
   });
 
   it("documents the collaboration milestone and its exact WebMCP entry points", () => {
@@ -171,7 +214,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.4.0");
+    expect(AGENT_DOC_VERSION).toBe("1.5.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
