@@ -116,7 +116,7 @@ The shared semantic transaction path accepts authorized human and agent actors. 
 
 ### 10. Persistence and private recents
 
-- Redis-backed server state is authoritative for rooms, objects, diagrams, membership, leases, Spotlight, and reconnect history.
+- Redis-backed server state is authoritative for rooms, objects, diagrams, membership, leases, and Spotlight. Reconnect establishes a fresh authorized room snapshot behind a live-event fence; Redis Stream cursors are transport checkpoints, never application-state authority.
 - The current browser stores at most eight Recent Jazzboards references for rooms it accessed. Each entry contains room ID, code, title, role, and last-opened time.
 - `list_recent_rooms` starts only from this origin's browser-local candidates, then verifies the current signed session's membership for each exact room ID before returning it. It never calls a server listing endpoint.
 - `open_recent_room` accepts only an exact locally remembered room ID and verifies the signed session's server access before navigation.
@@ -271,8 +271,8 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 ## Confirmed implementation architecture
 
 - Jazzboard is one Vercel project containing the Next.js application, server APIs, realtime endpoint, and infrastructure integrations.
-- Vercel WebSockets carry room synchronization, presence, cursors, canvas activity, view state, and reconnect events. Polling is the intentional local fallback when the native upgrade runtime is unavailable.
-- Redis from the Vercel Marketplace stores authoritative room snapshots, immutable activity, expiring private snapshots, and event history; coordinates optimistic transactions across function instances; supports reconnect replay; and provides cross-instance fanout.
+- Vercel WebSockets carry room synchronization, presence, cursors, canvas activity, view state, and compact cross-instance invalidations. Reconnect starts from one authorized authoritative snapshot, then drains only live events that raced that snapshot. Polling is the intentional fallback when the native upgrade runtime is unavailable.
+- Redis from the Vercel Marketplace stores authoritative room snapshots, immutable activity, expiring private snapshots, and bounded compact event history; coordinates optimistic transactions across function instances; and provides cross-instance fanout. Room writes and their revisioned invalidations commit atomically. Stream entries never embed complete room or private activity snapshots, and reconnect never scans global history.
 - The implementation does not deploy tldraw's sync server unchanged. Vercel Functions cannot guarantee one long-lived in-memory `TLSocketRoom` per room, so Jazzboard uses its Redis-backed authoritative semantic room service and projects state into tldraw clients.
 - Vercel Blob is the primary image store. A bounded Redis image fallback may be used when an account-level Blob limit prevents provisioning; image bytes never enter room state.
 - The server remains authoritative for membership, guest sessions, roles, permissions, agent edit policy, proposal review, object and Diagram revisions, lifecycle metadata, leases, transactions, activity guards, snapshot expiry/revocation, template instantiation, and attribution.
@@ -325,6 +325,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Production release is complete only after live browser QA calls the deployed, browser-exposed WebMCP tools against a genuinely multi-node diagram.
 - [x] The initial HTML response advertises `/llms.txt`, the landing page advertises an exact Markdown alternate, and explicit Markdown content negotiation works without changing the visual design.
 - [x] Public agent guidance derives landing, participant, spectator, and snapshot-page inventories/counts from executable constants and fails automated tests if registration drifts.
+- [x] Realtime reconnect is snapshot-first and race-safe: it never bulk-reads historical room snapshots, compact revision signals coalesce through authoritative room reads, and buffered events at or below the snapshot revision are discarded without losing newer changes.
 - [x] The complete participant registry stays within a conservative production-shaped native-host descriptor budget without merging read-only and mutation operations or weakening runtime validation.
 - [x] A valid script-free `SKILL.md` is downloadable, and the draft discovery manifest's SHA-256 digest matches its exact response bytes.
 - [x] Agent resources preserve exact-code privacy, signed-session authorization, role scope, untrusted-content handling, revisions, and leases without publishing private room/session data.

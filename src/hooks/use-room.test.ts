@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Participant, RoomState } from "@/lib/domain/types";
+import type { Participant, RoomEvent, RoomState } from "@/lib/domain/types";
 import type { RoomRealtimeOptions } from "@/lib/realtime/client";
 
 import { shouldAcceptRoomRevision, useRoom } from "./use-room";
@@ -75,6 +75,23 @@ function realtimeFor(roomId: string): RoomRealtimeOptions {
   return options as RoomRealtimeOptions;
 }
 
+function compactEvent(sequence: number): RoomEvent {
+  return {
+    id: `event-${sequence}`,
+    roomId: "room-a",
+    sequence,
+    occurredAt: sequence,
+    type: "room.updated",
+    actor: null,
+    payload: {
+      schemaVersion: 2,
+      kind: "room.invalidated",
+      roomRevision: sequence,
+      activityId: null,
+    },
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   mocks.apiRequest.mockReset();
@@ -108,6 +125,94 @@ describe("shouldAcceptRoomRevision", () => {
 });
 
 describe("useRoom request ordering", () => {
+  it("coalesces compact realtime invalidations through one authoritative refresh", async () => {
+    const pending = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    mocks.apiRequest.mockImplementationOnce(() => pending.promise);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: "1-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
+      realtime.onEvent(compactEvent(3), { cursor: "3-0", replay: false });
+    });
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        room: room("room-a", 3, ["participant-a"]),
+        participantId: "participant-a",
+      });
+      await pending.promise;
+    });
+
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    expect(result.current.room?.roomRevision).toBe(3);
+  });
+
+  it("performs one trailing refresh when a newer invalidation races the first read", async () => {
+    const first = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    const second = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    mocks.apiRequest
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: "1-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
+      realtime.onEvent(compactEvent(3), { cursor: "3-0", replay: false });
+    });
+
+    await act(async () => {
+      first.resolve({
+        ok: true,
+        room: room("room-a", 2, ["participant-a"]),
+        participantId: "participant-a",
+      });
+      await first.promise;
+    });
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve({
+        ok: true,
+        room: room("room-a", 3, ["participant-a"]),
+        participantId: "participant-a",
+      });
+      await second.promise;
+    });
+    expect(result.current.room?.roomRevision).toBe(3);
+  });
+
+  it("accepts a legacy full-state event without fetching when it covers the event revision", () => {
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    const nextRoom = room("room-a", 2, ["participant-a"]);
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: "1-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(
+        { ...compactEvent(2), payload: { room: nextRoom } },
+        { cursor: "2-0", replay: false },
+      );
+    });
+
+    expect(result.current.room?.roomRevision).toBe(2);
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
   it("never exposes the previous room while navigation invalidates its pending work", async () => {
     const oldRefresh = deferred<{ ok: true; room: RoomState; participantId: string }>();
     const nextRoom = room("room-b", 1, ["participant-b"]);

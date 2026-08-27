@@ -1,5 +1,7 @@
 import type { RoomEvent, RoomRole, RoomState } from "@/lib/domain/types";
 
+import { isCompactRoomEventPayload, isLegacyRoomEventPayload } from "./events";
+
 export const REALTIME_PROTOCOL_VERSION = 1 as const;
 export const REALTIME_MAX_CLIENT_PAYLOAD_BYTES = 32 * 1024;
 export const REALTIME_EVENT_STREAM = "jazzboard:events";
@@ -122,7 +124,9 @@ export function isRoomEvent(value: unknown): value is RoomEvent {
       "agent.activity",
       "lease.updated",
       "spotlight.updated",
-    ].includes(event.type)
+    ].includes(event.type) &&
+    (isCompactRoomEventPayload(event.payload, event.sequence) ||
+      isLegacyRoomEventPayload(event.payload, event.roomId, event.sequence))
   );
 }
 

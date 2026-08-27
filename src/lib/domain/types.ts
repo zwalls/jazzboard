@@ -359,6 +359,23 @@ export type AgentActivity = {
   toCursor?: Point | null;
 };
 
+export type CompactRoomEventPayload = {
+  schemaVersion: 2;
+  kind: "room.invalidated";
+  /** Must equal the enclosing event sequence. */
+  roomRevision: number;
+  /** Bounded reference to private activity; the stream never embeds activity snapshots. */
+  activityId: string | null;
+};
+
+export type LegacyRoomEventPayload = {
+  /** Accepted during rolling deployment and while old stream entries age out. */
+  room: RoomState;
+  activity?: RoomActivitySummary | null;
+};
+
+export type RoomEventPayload = CompactRoomEventPayload | LegacyRoomEventPayload;
+
 export type RoomEvent = {
   id: string;
   roomId: string;
@@ -372,7 +389,7 @@ export type RoomEvent = {
     | "lease.updated"
     | "spotlight.updated";
   actor: ActorRef | null;
-  payload: unknown;
+  payload: RoomEventPayload;
 };
 
 type CreateCanvasObjectBase<ObjectType extends CanvasObject> = Omit<

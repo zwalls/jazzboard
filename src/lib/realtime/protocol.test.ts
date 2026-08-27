@@ -2,13 +2,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RoomEvent } from "@/lib/domain/types";
+import type { RoomEvent, RoomState } from "@/lib/domain/types";
 
 import {
   compareStreamCursors,
+  isRoomEvent,
   parseRealtimeClientMessage,
   parseStreamCursor,
 } from "./protocol";
+import { compactRoomEvent } from "./events";
 import {
   decodeStreamEntries,
   decodeXRead,
@@ -23,7 +25,28 @@ const event: RoomEvent = {
   occurredAt: 1_000,
   type: "room.updated",
   actor: null,
-  payload: {},
+  payload: {
+    schemaVersion: 2,
+    kind: "room.invalidated",
+    roomRevision: 4,
+    activityId: null,
+  },
+};
+
+const legacyRoom: RoomState = {
+  id: "room_1",
+  code: "1234",
+  title: "Legacy room snapshot",
+  roomRevision: 4,
+  createdAt: 1,
+  updatedAt: 4,
+  participants: {},
+  objects: {},
+  diagrams: {},
+  leases: {},
+  spotlight: null,
+  agentEditPolicy: "live",
+  reviewProposals: [],
 };
 
 describe("realtime protocol", () => {
@@ -47,14 +70,58 @@ describe("realtime protocol", () => {
     expect(parseRealtimeClientMessage({ type: "canvas.mutate", command: {} })).toBeNull();
   });
 
+  it("accepts compact and legacy event payloads while rejecting inconsistent revisions", () => {
+    const legacyEvent: RoomEvent = { ...event, payload: { room: legacyRoom, activity: null } };
+    expect(isRoomEvent(event)).toBe(true);
+    expect(isRoomEvent(legacyEvent)).toBe(true);
+    expect(
+      isRoomEvent({
+        ...event,
+        payload: { ...event.payload, roomRevision: event.sequence + 1 },
+      }),
+    ).toBe(false);
+    expect(
+      isRoomEvent({
+        ...legacyEvent,
+        payload: { room: { ...legacyRoom, id: "room_other" } },
+      }),
+    ).toBe(false);
+    expect(
+      isRoomEvent({
+        ...legacyEvent,
+        payload: { room: { id: "room_1", roomRevision: 4 } },
+      }),
+    ).toBe(false);
+
+    const compact = compactRoomEvent(legacyEvent);
+    expect(compact.payload).toEqual({
+      schemaVersion: 2,
+      kind: "room.invalidated",
+      roomRevision: 4,
+      activityId: null,
+    });
+    expect(compact.payload).not.toHaveProperty("room");
+    expect(Buffer.byteLength(JSON.stringify(compact))).toBeLessThan(512);
+  });
+
   it("decodes room-store Stream records and rejects corrupt or mismatched entries", () => {
     const encoded = JSON.stringify(event);
+    const legacyEvent: RoomEvent = { ...event, payload: { room: legacyRoom } };
     expect(
       decodeStreamEntries([["100-1", ["roomId", "room_1", "data", encoded]]]),
     ).toEqual([{ cursor: "100-1", event }]);
     expect(
       decodeXRead([["jazzboard:events", [["100-1", ["roomId", "room_1", "data", encoded]]]]]),
     ).toEqual([{ cursor: "100-1", event }]);
+    expect(
+      decodeStreamEntries([
+        ["100-1", ["roomId", "room_1", "data", encoded]],
+        ["100-2", ["roomId", "room_1", "data", JSON.stringify(legacyEvent)]],
+      ]),
+    ).toEqual([
+      { cursor: "100-1", event },
+      { cursor: "100-2", event: legacyEvent },
+    ]);
     expect(decodeStreamEntries([["100-1", ["roomId", "room_other", "data", encoded]]])).toEqual([]);
     expect(decodeStreamEntries([["not-a-cursor", ["data", encoded]]])).toEqual([]);
     expect(decodeStreamEntries([["100-1", ["data", "not-json"]]])).toEqual([]);

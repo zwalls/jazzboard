@@ -5,10 +5,10 @@ import type Redis from "ioredis";
 
 import type { RoomEvent, RoomState } from "@/lib/domain/types";
 import { isDomainError } from "@/lib/domain/errors";
+import { isCompactRoomEventPayload } from "@/lib/realtime/events";
 import {
   REALTIME_EVENT_STREAM,
   REALTIME_PROTOCOL_VERSION,
-  compareStreamCursors,
   encodeRealtimeMessage,
   laterStreamCursor,
   parseRealtimeClientMessage,
@@ -16,31 +16,32 @@ import {
   type RealtimeServerMessage,
 } from "@/lib/realtime/protocol";
 import {
-  decodeStreamEntries,
   decodeXRead,
   latestCursorFromStreamEntries,
   latestCursorFromXRead,
-  type RealtimeStreamRecord,
 } from "@/lib/realtime/redis-stream";
 
 import { readAuthorizedRoom } from "./room-service";
-import { getRedisForRealtime, subscribeToLocalRoomEvents } from "./room-store";
+import { getRedisForRealtime, getRoomStore, subscribeToLocalRoomEvents } from "./room-store";
 
 const SOCKET_OPEN = 1;
 const MAX_PENDING_EVENTS = 512;
 const MAX_DELIVERED_EVENT_IDS = 1_024;
 const MAX_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024;
-const REPLAY_SCAN_LIMIT = 500;
-const MAX_REPLAY_EVENTS = 100;
-const MAX_REPLAY_BYTES = 1024 * 1024;
 const STREAM_READ_COUNT = 100;
 const STREAM_BLOCK_MS = 5_000;
+const STREAM_FENCE_ATTEMPTS = 3;
+const STREAM_FENCE_RETRY_MS = 50;
+const ROOM_RECONCILIATION_ATTEMPTS = 3;
+const ROOM_RECONCILIATION_RETRY_MS = 50;
 
 type RoomReader = (roomId: string, participantId: string) => Promise<RoomState>;
+type RoomSnapshotReader = (roomId: string) => Promise<RoomState | null>;
 type LocalSubscriber = (listener: (event: RoomEvent) => void) => () => void;
 
 export type RealtimeHubDependencies = {
   readRoom?: RoomReader;
+  readRoomSnapshot?: RoomSnapshotReader;
   subscribeLocal?: LocalSubscriber;
   getRedis?: () => Redis | null;
   createId?: () => string;
@@ -57,6 +58,11 @@ export type AttachRealtimeSocketOptions = {
 type PendingEvent = {
   event: RoomEvent;
   cursor: string | null;
+};
+
+type RoomReconciliation = {
+  signals: Map<string, PendingEvent>;
+  running: boolean;
 };
 
 type Peer = {
@@ -119,6 +125,7 @@ function queuePending(peer: Peer, event: RoomEvent, cursor: string | null): void
 
 export class RealtimeHub {
   private readonly readRoom: RoomReader;
+  private readonly readRoomSnapshot: RoomSnapshotReader;
   private readonly subscribeLocal: LocalSubscriber;
   private readonly getRedis: () => Redis | null;
   private readonly createId: () => string;
@@ -126,6 +133,7 @@ export class RealtimeHub {
   private readonly logger: Pick<Console, "error" | "warn">;
 
   private readonly peersByRoom = new Map<string, Set<Peer>>();
+  private readonly roomReconciliations = new Map<string, RoomReconciliation>();
   private unsubscribeLocal: (() => void) | null = null;
   private redis: Redis | null | undefined;
   private streamReader: Redis | null = null;
@@ -135,6 +143,8 @@ export class RealtimeHub {
 
   constructor(dependencies: RealtimeHubDependencies = {}) {
     this.readRoom = dependencies.readRoom ?? readAuthorizedRoom;
+    this.readRoomSnapshot =
+      dependencies.readRoomSnapshot ?? ((roomId) => getRoomStore().getRoom(roomId));
     this.subscribeLocal = dependencies.subscribeLocal ?? subscribeToLocalRoomEvents;
     this.getRedis = dependencies.getRedis ?? getRedisForRealtime;
     this.createId = dependencies.createId ?? randomUUID;
@@ -190,6 +200,7 @@ export class RealtimeHub {
       for (const peer of peers) peer.disposed = true;
     }
     this.peersByRoom.clear();
+    this.roomReconciliations.clear();
     this.unsubscribeLocal?.();
     this.unsubscribeLocal = null;
     this.stopStreamReader();
@@ -256,9 +267,8 @@ export class RealtimeHub {
 
     void (async () => {
       while (!peer.disposed && peer.nextSyncCursor !== undefined) {
-        const nextCursor = peer.nextSyncCursor;
         peer.nextSyncCursor = undefined;
-        await this.synchronize(peer, nextCursor);
+        await this.synchronize(peer);
       }
     })().finally(() => {
       peer.synchronizing = false;
@@ -268,7 +278,7 @@ export class RealtimeHub {
     });
   }
 
-  private async synchronize(peer: Peer, sinceCursor: string | null): Promise<void> {
+  private async synchronize(peer: Peer): Promise<void> {
     const generation = ++peer.syncGeneration;
     peer.ready = false;
 
@@ -276,14 +286,6 @@ export class RealtimeHub {
       await this.ensureStreamReader();
       const redis = this.redisClient();
       const snapshotCursor = redis ? await this.readStreamTail(redis) : null;
-      const replayCursor =
-        sinceCursor && snapshotCursor && compareStreamCursors(sinceCursor, snapshotCursor) <= 0
-          ? sinceCursor
-          : null;
-      const replay =
-        redis && replayCursor && snapshotCursor
-          ? await this.loadReplay(redis, replayCursor, snapshotCursor, peer.roomId)
-          : null;
       const room = await this.readRoom(peer.roomId, peer.participantId);
       if (peer.disposed || generation !== peer.syncGeneration) return;
 
@@ -303,24 +305,17 @@ export class RealtimeHub {
         peer.readySent = true;
       }
 
-      if (replay) {
-        for (const record of replay.records) {
-          if (peer.disposed || generation !== peer.syncGeneration) return;
-          this.send(peer, { type: "replay", cursor: record.cursor, event: record.event });
-          rememberDelivered(peer, record.event.id);
-          peer.cursor = laterStreamCursor(peer.cursor, record.cursor);
-        }
-      }
-
       peer.snapshotRevision = room.roomRevision;
-      // The Stream tail is authoritative. Never preserve a client-supplied
-      // cursor that points beyond it, or reconnect could skip valid events.
+      // A reconnect always establishes a fresh authoritative snapshot. The
+      // cursor is only a transport checkpoint; correctness never depends on
+      // replaying client history. Events racing this read were queued after the
+      // live reader fence and are reconciled by revision below.
       peer.cursor = snapshotCursor;
       this.send(peer, {
         type: "snapshot",
         cursor: peer.cursor,
         room,
-        replayTruncated: replay?.truncated ?? false,
+        replayTruncated: false,
       });
       peer.ready = true;
       this.flushPending(peer);
@@ -359,6 +354,10 @@ export class RealtimeHub {
         rememberDelivered(peer, entry.event.id);
         continue;
       }
+      if (isCompactRoomEventPayload(entry.event.payload, entry.event.sequence)) {
+        this.requestRoomReconciliation(entry.event, entry.cursor);
+        continue;
+      }
       this.deliverEvent(peer, entry.event, entry.cursor);
     }
   }
@@ -366,14 +365,29 @@ export class RealtimeHub {
   private broadcastEvent(event: RoomEvent, cursor: string | null): void {
     const peers = this.peersByRoom.get(event.roomId);
     if (!peers) return;
+    const compact = isCompactRoomEventPayload(event.payload, event.sequence);
+    let needsReconciliation = false;
     for (const peer of peers) {
       if (peer.disposed) continue;
-      if (!peer.ready) queuePending(peer, event, cursor);
-      else this.deliverEvent(peer, event, cursor);
+      if (!peer.ready) {
+        queuePending(peer, event, cursor);
+      } else if (!compact) {
+        this.deliverEvent(peer, event, cursor);
+      } else if (event.sequence <= peer.snapshotRevision || peer.delivered.has(event.id)) {
+        rememberDelivered(peer, event.id);
+        this.advancePeerCursor(peer, cursor);
+      } else {
+        needsReconciliation = true;
+      }
     }
+    if (needsReconciliation) this.requestRoomReconciliation(event, cursor);
   }
 
   private deliverEvent(peer: Peer, event: RoomEvent, cursor: string | null): void {
+    if (isCompactRoomEventPayload(event.payload, event.sequence)) {
+      this.requestRoomReconciliation(event, cursor);
+      return;
+    }
     if (peer.delivered.has(event.id)) {
       this.advancePeerCursor(peer, cursor);
       return;
@@ -389,20 +403,128 @@ export class RealtimeHub {
     peer.cursor = laterStreamCursor(peer.cursor, cursor);
   }
 
+  private requestRoomReconciliation(event: RoomEvent, cursor: string | null): void {
+    const state = this.roomReconciliations.get(event.roomId) ?? {
+      signals: new Map<string, PendingEvent>(),
+      running: false,
+    };
+    const existing = state.signals.get(event.id);
+    if (existing) existing.cursor = laterStreamCursor(existing.cursor, cursor);
+    else state.signals.set(event.id, { event, cursor });
+    this.roomReconciliations.set(event.roomId, state);
+    if (state.running) return;
+    state.running = true;
+    void this.reconcileRoom(event.roomId, state);
+  }
+
+  private async reconcileRoom(roomId: string, state: RoomReconciliation): Promise<void> {
+    try {
+      while (this.roomReconciliations.get(roomId) === state && state.signals.size > 0) {
+        if (!this.peersByRoom.get(roomId)?.size) return;
+        const targetRevision = Math.max(
+          ...[...state.signals.values()].map((entry) => entry.event.sequence),
+        );
+        const room = await this.readReconciledRoom(roomId, targetRevision);
+
+        // Peers can churn while the authoritative read is in flight. The last
+        // old peer detaching removes its Set, and a replacement peer attaches
+        // to a new Set, so never fan out through a pre-read Set reference.
+        const peers = this.peersByRoom.get(roomId);
+        if (!peers?.size) return;
+
+        const satisfied = [...state.signals.values()].filter(
+          (entry) => entry.event.sequence <= room.roomRevision,
+        );
+        const satisfiedCursor = satisfied.reduce<string | null>(
+          (latest, entry) => laterStreamCursor(latest, entry.cursor),
+          null,
+        );
+        for (const entry of satisfied) state.signals.delete(entry.event.id);
+
+        for (const peer of [...peers]) {
+          if (peer.disposed || !peer.ready) continue;
+          if (!room.participants[peer.participantId]) {
+            this.send(peer, {
+              type: "error",
+              error: {
+                code: "FORBIDDEN",
+                message: "This guest session is no longer authorized for the room.",
+              },
+              recoverable: false,
+            });
+            peer.socket.close(1008, "Room membership required");
+            this.detach(peer);
+            continue;
+          }
+
+          for (const entry of satisfied) rememberDelivered(peer, entry.event.id);
+          const nextCursor = laterStreamCursor(peer.cursor, satisfiedCursor);
+          if (room.roomRevision > peer.snapshotRevision) {
+            peer.snapshotRevision = room.roomRevision;
+            peer.cursor = nextCursor;
+            this.send(peer, {
+              type: "snapshot",
+              cursor: nextCursor,
+              room,
+              replayTruncated: false,
+            });
+          } else {
+            this.advancePeerCursor(peer, nextCursor);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error("Jazzboard realtime room reconciliation failed.", error);
+      const peers = this.peersByRoom.get(roomId);
+      for (const peer of [...(peers ?? [])]) {
+        if (peer.disposed) continue;
+        this.send(peer, {
+          type: "error",
+          error: {
+            code: "SYNC_FAILED",
+            message: "Jazzboard could not synchronize this room. Reconnect to try again.",
+          },
+          recoverable: false,
+        });
+        peer.socket.close(1011, "Room synchronization failed");
+        this.detach(peer);
+      }
+    } finally {
+      state.running = false;
+      if (state.signals.size === 0 || !this.peersByRoom.get(roomId)?.size) {
+        if (this.roomReconciliations.get(roomId) === state) {
+          this.roomReconciliations.delete(roomId);
+        }
+      }
+    }
+  }
+
+  private async readReconciledRoom(roomId: string, targetRevision: number): Promise<RoomState> {
+    let lastError: unknown = new Error("Realtime room reconciliation failed.");
+    for (let attempt = 0; attempt < ROOM_RECONCILIATION_ATTEMPTS; attempt += 1) {
+      try {
+        const room = await this.readRoomSnapshot(roomId);
+        if (room && room.roomRevision >= targetRevision) return room;
+        lastError = new Error(
+          room
+            ? `Authoritative room revision ${room.roomRevision} is behind stream revision ${targetRevision}.`
+            : "The authoritative room disappeared during realtime reconciliation.",
+        );
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt + 1 < ROOM_RECONCILIATION_ATTEMPTS) {
+        await delay(ROOM_RECONCILIATION_RETRY_MS * 2 ** attempt);
+      }
+    }
+    throw lastError;
+  }
+
   private advancePeerCursor(peer: Peer, cursor: string | null): void {
     const next = laterStreamCursor(peer.cursor, cursor);
     if (!next || next === peer.cursor) return;
     peer.cursor = next;
     this.send(peer, { type: "checkpoint", cursor: next });
-  }
-
-  private advanceAllPeerCursors(cursor: string | null): void {
-    if (!cursor) return;
-    for (const peers of this.peersByRoom.values()) {
-      for (const peer of peers) {
-        if (peer.ready && !peer.disposed) this.advancePeerCursor(peer, cursor);
-      }
-    }
   }
 
   private send(peer: Peer, message: RealtimeServerMessage): boolean {
@@ -437,16 +559,34 @@ export class RealtimeHub {
     this.streamReader = reader;
     this.readerReady = (async () => {
       try {
-        this.readerCursor = (await this.readStreamTail(redis)) ?? "0-0";
+        this.readerCursor = await this.readInitialStreamCursor(redis);
       } catch (error) {
-        this.logger.warn("Jazzboard realtime could not read the Redis Stream tail.", error);
-        this.readerCursor = "$";
+        this.logger.warn("Jazzboard realtime could not establish a Redis Stream fence.", error);
+        if (generation === this.readerGeneration && this.streamReader === reader) {
+          this.stopStreamReader();
+        }
+        throw error;
       }
       if (generation === this.readerGeneration && this.streamReader === reader) {
         void this.runStreamReader(reader, generation);
       }
     })();
     return this.readerReady;
+  }
+
+  private async readInitialStreamCursor(redis: Redis): Promise<string> {
+    let lastError: unknown = new Error("Redis Stream fence acquisition failed.");
+    for (let attempt = 0; attempt < STREAM_FENCE_ATTEMPTS; attempt += 1) {
+      try {
+        return (await this.readStreamTail(redis)) ?? "0-0";
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt + 1 < STREAM_FENCE_ATTEMPTS) {
+        await delay(STREAM_FENCE_RETRY_MS * 2 ** attempt);
+      }
+    }
+    throw lastError;
   }
 
   private stopStreamReader(): void {
@@ -477,7 +617,6 @@ export class RealtimeHub {
         }
         const batchCursor = latestCursorFromXRead(result);
         if (batchCursor) this.readerCursor = batchCursor;
-        this.advanceAllPeerCursors(batchCursor);
         retryMilliseconds = 200;
       } catch (error) {
         if (generation !== this.readerGeneration || this.streamReader !== reader || this.peerCount() === 0) return;
@@ -493,38 +632,6 @@ export class RealtimeHub {
     return latestCursorFromStreamEntries(value);
   }
 
-  private async loadReplay(
-    redis: Redis,
-    cursor: string,
-    throughCursor: string,
-    roomId: string,
-  ): Promise<{ records: RealtimeStreamRecord[]; truncated: boolean }> {
-    const value: unknown = await redis.xrange(
-      REALTIME_EVENT_STREAM,
-      `(${cursor}`,
-      throughCursor,
-      "COUNT",
-      REPLAY_SCAN_LIMIT,
-    );
-    const decoded = decodeStreamEntries(value);
-    const records: RealtimeStreamRecord[] = [];
-    let replayBytes = 0;
-    let replayTruncated = Array.isArray(value) && value.length >= REPLAY_SCAN_LIMIT;
-    for (const record of decoded) {
-      if (record.event.roomId !== roomId) continue;
-      const encodedBytes = Buffer.byteLength(JSON.stringify(record.event));
-      if (records.length >= MAX_REPLAY_EVENTS || replayBytes + encodedBytes > MAX_REPLAY_BYTES) {
-        replayTruncated = true;
-        break;
-      }
-      records.push(record);
-      replayBytes += encodedBytes;
-    }
-    return {
-      records,
-      truncated: replayTruncated,
-    };
-  }
 }
 
 declare global {

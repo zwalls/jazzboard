@@ -141,7 +141,7 @@ npm run test:e2e
 - `src/lib/webmcp`: pre-hydration landing; role-scoped semantic, activity, review, interchange, snapshot, lifecycle, transaction, layout, and Diagram tools registered through `document.modelContext.registerTool`.
 - `src/components/room`: multiplayer canvas, human/agent presence, Follow, Spotlight, spectator UX, outline, and conflict feedback.
 
-The server—not tldraw and not a browser agent—is authoritative. Redis stores room snapshots and replayable events, coordinates cross-instance optimistic transactions, and supports WebSocket fanout without assuming one long-lived tldraw sync process. Vercel Blob is the primary image store; a bounded four-megabyte, seven-day Redis fallback keeps image bytes out of room state when account-level Blob provisioning is unavailable. `/api/health` reports readiness and names `blob` as a warning while the fallback is active.
+The server—not tldraw and not a browser agent—is authoritative. Redis stores room snapshots and bounded revisioned invalidations, coordinates cross-instance optimistic transactions, and supports WebSocket fanout without assuming one long-lived tldraw sync process. Reconnect is snapshot-first: the server establishes a live-event fence, reads one authorized authoritative room, then drains only newer events that raced the read. It never scans global full-room history. Vercel Blob is the primary image store; a bounded four-megabyte, seven-day Redis fallback keeps image bytes out of room state when account-level Blob provisioning is unavailable. `/api/health` reports readiness and names `blob` as a warning while the fallback is active.
 
 Create one Vercel project from this directory and configure `.env.example`:
 

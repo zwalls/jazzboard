@@ -7,6 +7,7 @@ import { actorFor, normalizeRoomSemanticState, pruneExpiredLeases } from "@/lib/
 import { DomainError } from "@/lib/domain/errors";
 import { roomActivitySummary } from "@/lib/domain/review";
 import type { ActorRef, Participant, RoomActivity, RoomEvent, RoomRole, RoomState } from "@/lib/domain/types";
+import { compactRoomEvent } from "@/lib/realtime/events";
 
 const COLORS = ["#4F6BED", "#00A68A", "#9B51E0", "#E0528D", "#D9822B", "#00A2C7", "#E5484D"];
 const ROOM_KEY_PREFIX = "jazzboard:room:";
@@ -15,6 +16,16 @@ const ACTIVITY_KEY_PREFIX = "jazzboard:activity:";
 const EVENT_STREAM = "jazzboard:events";
 const PRESENCE_AWAY_MS = 20_000;
 export const ROOM_ACTIVITY_LIMIT = 200;
+
+const CREATE_REDIS_ROOM_SCRIPT = `
+if redis.call("EXISTS", KEYS[1]) == 1 then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[1])
+redis.call("SET", KEYS[2], ARGV[2])
+redis.call("XADD", KEYS[3], "MAXLEN", "~", 20000, "*", "roomId", ARGV[1], "data", ARGV[3])
+return 1
+`;
 
 type RoomUpdater<T> = (room: RoomState) => {
   room: RoomState;
@@ -134,6 +145,10 @@ function roomEvent(
     actor,
     payload: { room, activity: activity ? roomActivitySummary(activity) : null },
   };
+}
+
+function streamRoomEvent(event: RoomEvent): RoomEvent {
+  return compactRoomEvent(event);
 }
 
 export function subscribeToLocalRoomEvents(listener: (event: RoomEvent) => void): () => void {
@@ -293,7 +308,7 @@ function redisClient(): Redis | null {
   return globalThis.__jazzboardRedis;
 }
 
-class RedisRoomStore implements RoomStore {
+export class RedisRoomStore implements RoomStore {
   constructor(private readonly redis: Redis) {}
 
   async createRoom(input: {
@@ -302,46 +317,51 @@ class RedisRoomStore implements RoomStore {
     title: string;
   }): Promise<RoomState> {
     const roomId = `room_${randomUUID()}`;
-    let code: string | null = null;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const candidate = randomInt(0, 10_000).toString().padStart(4, "0");
-      if ((await this.redis.set(`${CODE_KEY_PREFIX}${candidate}`, roomId, "NX")) === "OK") {
-        code = candidate;
-        break;
-      }
-    }
-    if (!code) throw new Error("Unable to allocate a unique room code.");
-
     const now = Date.now();
-    const room: RoomState = {
-      id: roomId,
-      code,
-      title: input.title,
-      roomRevision: 1,
-      createdAt: now,
-      updatedAt: now,
-      participants: {
-        [input.participantId]: makeParticipant({
-          ...input,
-          role: "participant",
-          color: COLORS[0],
-          now,
-        }),
-      },
-      objects: {},
-      diagrams: {},
-      leases: {},
-      spotlight: null,
-      agentEditPolicy: "live",
-      reviewProposals: [],
-    };
-    await this.redis.set(`${ROOM_KEY_PREFIX}${room.id}`, JSON.stringify(room));
-    await this.publish(
-      room,
-      "room.snapshot",
-      actorFor(room.participants[input.participantId], "human"),
-    );
-    return room;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const code = randomInt(0, 10_000).toString().padStart(4, "0");
+      const room: RoomState = {
+        id: roomId,
+        code,
+        title: input.title,
+        roomRevision: 1,
+        createdAt: now,
+        updatedAt: now,
+        participants: {
+          [input.participantId]: makeParticipant({
+            ...input,
+            role: "participant",
+            color: COLORS[0],
+            now,
+          }),
+        },
+        objects: {},
+        diagrams: {},
+        leases: {},
+        spotlight: null,
+        agentEditPolicy: "live",
+        reviewProposals: [],
+      };
+      const event = roomEvent(
+        room,
+        "room.snapshot",
+        actorFor(room.participants[input.participantId], "human"),
+      );
+      const created = await this.redis.eval(
+        CREATE_REDIS_ROOM_SCRIPT,
+        3,
+        `${CODE_KEY_PREFIX}${code}`,
+        `${ROOM_KEY_PREFIX}${room.id}`,
+        EVENT_STREAM,
+        roomId,
+        JSON.stringify(room),
+        JSON.stringify(streamRoomEvent(event)),
+      );
+      if (Number(created) !== 1) continue;
+      publishLocal(event);
+      return room;
+    }
+    throw new Error("Unable to allocate a unique room code.");
   }
 
   async joinRoom(input: {
@@ -434,7 +454,7 @@ class RedisRoomStore implements RoomStore {
             "roomId",
             roomId,
             "data",
-            JSON.stringify(event),
+            JSON.stringify(streamRoomEvent(event)),
           );
         if (activity) {
           transaction
@@ -453,25 +473,6 @@ class RedisRoomStore implements RoomStore {
     }
   }
 
-  private async publish(
-    room: RoomState,
-    type: RoomEvent["type"],
-    actor: ActorRef | null = null,
-  ): Promise<void> {
-    const event = roomEvent(room, type, actor);
-    await this.redis.xadd(
-      EVENT_STREAM,
-      "MAXLEN",
-      "~",
-      20_000,
-      "*",
-      "roomId",
-      room.id,
-      "data",
-      JSON.stringify(event),
-    );
-    publishLocal(event);
-  }
 }
 
 export function getRoomStore(): RoomStore {

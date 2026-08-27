@@ -20,10 +20,10 @@ import type {
   SemanticTransaction,
   Viewport,
   AgentActivity,
-  RoomEvent,
 } from "@/lib/domain/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { connectRoomRealtime } from "@/lib/realtime/client";
+import { legacyRoomStateFromEvent } from "@/lib/realtime/events";
 
 export type ConnectionState = "connecting" | "live" | "polling" | "offline";
 
@@ -41,14 +41,6 @@ type ScopedValue<T> = {
   visit: RoomVisit;
   value: T;
 };
-
-function roomFromEvent(event: RoomEvent): RoomState | null {
-  if (!event.payload || typeof event.payload !== "object" || !("room" in event.payload)) return null;
-  const candidate = (event.payload as { room?: unknown }).room;
-  if (!candidate || typeof candidate !== "object") return null;
-  const room = candidate as Partial<RoomState>;
-  return typeof room.id === "string" && typeof room.roomRevision === "number" ? (candidate as RoomState) : null;
-}
 
 export function shouldAcceptRoomRevision(currentRevision: number | null, nextRevision: number): boolean {
   return currentRevision === null || nextRevision > currentRevision;
@@ -76,6 +68,11 @@ export function useRoom(roomId: string) {
   const roomVisitRef = useRef<RoomVisit | null>(roomVisit);
   const refreshGenerationRef = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const eventRefreshRef = useRef<{
+    visit: RoomVisit;
+    running: boolean;
+    targetRevision: number | null;
+  } | null>(null);
 
   const acceptRoom = useCallback((next: RoomState) => {
     const activeVisit = roomVisitRef.current;
@@ -160,6 +157,47 @@ export function useRoom(roomId: string) {
     channelRef.current?.postMessage({ type: "room.changed", roomId });
   }, [roomId, roomVisit]);
 
+  const requestEventRefresh = useCallback((targetRevision: number) => {
+    if (roomVisitRef.current !== roomVisit) return;
+    if ((roomRef.current?.roomRevision ?? -1) >= targetRevision) return;
+    let state = eventRefreshRef.current;
+    if (!state || state.visit !== roomVisit) {
+      state = { visit: roomVisit, running: false, targetRevision: null };
+      eventRefreshRef.current = state;
+    }
+    state.targetRevision = Math.max(state.targetRevision ?? -1, targetRevision);
+    if (state.running) return;
+    state.running = true;
+
+    void (async () => {
+      try {
+        // One authoritative read normally covers every signal that arrived
+        // while it was in flight. Permit one trailing read for the narrow race
+        // where a newer commit lands after that read, then let normal polling
+        // recover transient failures without a tight retry loop.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          if (roomVisitRef.current !== roomVisit || state.targetRevision === null) return;
+          const requiredRevision = state.targetRevision;
+          state.targetRevision = null;
+          try {
+            const nextRoom = await refresh();
+            const latestRequired = Math.max(requiredRevision, state.targetRevision ?? -1);
+            if (nextRoom.roomRevision < latestRequired) {
+              state.targetRevision = latestRequired;
+              continue;
+            }
+            state.targetRevision = null;
+          } catch {
+            state.targetRevision = Math.max(requiredRevision, state.targetRevision ?? -1);
+            return;
+          }
+        }
+      } finally {
+        state.running = false;
+      }
+    })();
+  }, [refresh, roomVisit]);
+
   useEffect(() => {
     let cancelled = false;
     let automaticRefreshPending = false;
@@ -202,8 +240,9 @@ export function useRoom(roomId: string) {
       },
       onEvent(event) {
         if (connectionVisit !== roomVisitRef.current) return;
-        const nextRoom = roomFromEvent(event);
+        const nextRoom = legacyRoomStateFromEvent(event);
         if (nextRoom) acceptRoom(nextRoom);
+        requestEventRefresh(event.sequence);
       },
       onStatusChange(status) {
         if (connectionVisit !== roomVisitRef.current) return;
@@ -214,7 +253,7 @@ export function useRoom(roomId: string) {
       },
     });
     return () => realtime.close();
-  }, [acceptRoom, roomId, roomVisit, setConnection]);
+  }, [acceptRoom, requestEventRefresh, roomId, roomVisit, setConnection]);
 
   const command = useCallback(
     async (canvasCommand: CanvasCommand, actorKind: ActorKind = "human") => {

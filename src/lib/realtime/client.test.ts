@@ -52,12 +52,12 @@ class FakeBrowserSocket {
   }
 }
 
-function room(): RoomState {
+function room(roomRevision = 1): RoomState {
   return {
     id: "room_1",
     code: "1234",
     title: "Realtime room",
-    roomRevision: 1,
+    roomRevision,
     createdAt: 1,
     updatedAt: 1,
     participants: {},
@@ -78,7 +78,7 @@ function event(): RoomEvent {
     occurredAt: 2,
     type: "room.updated",
     actor: null,
-    payload: { room: room() },
+    payload: { room: room(2) },
   };
 }
 
