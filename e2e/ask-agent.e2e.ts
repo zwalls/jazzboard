@@ -246,7 +246,7 @@ test("sends selected context through the private Ask inbox and exposes replies t
     await installWebMcpShim(spectatorPage);
     await spectatorPage.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(spectatorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
-    await expect(spectatorPage.locator("header").getByText("spectator", { exact: true })).toBeVisible();
+    await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toBeVisible();
     await expect.poll(() => registeredToolNames(spectatorPage), { timeout: 15_000 }).toContain("read_room_state");
     const spectatorTools = await registeredToolNames(spectatorPage);
     for (const toolName of MESSAGE_TOOL_NAMES) expect(spectatorTools).not.toContain(toolName);
