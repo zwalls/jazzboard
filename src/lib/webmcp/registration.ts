@@ -38,6 +38,10 @@ import {
   createJazzboardPreviewWebMcpTools,
   JAZZBOARD_PREVIEW_TOOL_NAMES,
 } from "./preview-tools";
+import {
+  createJazzboardMessageWebMcpTools,
+  JAZZBOARD_MESSAGE_TOOL_NAMES,
+} from "./message-tools";
 import type {
   JazzboardWebMcpBinding,
   JazzboardWebMcpDependencies,
@@ -58,6 +62,7 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_TOOL_NAMES,
   ...JAZZBOARD_PREVIEW_TOOL_NAMES,
+  ...JAZZBOARD_MESSAGE_TOOL_NAMES,
 ] as const;
 
 export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
@@ -83,6 +88,7 @@ export function createJazzboardRoomWebMcpTools(
     ...createJazzboardInterchangeWebMcpTools(binding, dependencies),
     ...createJazzboardReviewWebMcpTools(binding, dependencies),
     ...createJazzboardPreviewWebMcpTools(binding, dependencies),
+    ...createJazzboardMessageWebMcpTools(binding, dependencies),
   ];
 }
 

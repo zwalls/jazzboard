@@ -26,7 +26,8 @@ export function errorResponse(error: unknown): Response {
       error.code === "ROOM_NOT_FOUND" ||
       error.code === "OBJECT_NOT_FOUND" ||
       error.code === "DIAGRAM_NOT_FOUND" ||
-      error.code === "SNAPSHOT_NOT_FOUND"
+      error.code === "SNAPSHOT_NOT_FOUND" ||
+      error.code === "MESSAGE_NOT_FOUND"
         ? 404
         : error.code === "AUTH_REQUIRED"
           ? 401
@@ -34,7 +35,11 @@ export function errorResponse(error: unknown): Response {
             ? 403
             : error.code === "OBJECT_BUSY" ||
                 error.code === "REVISION_CONFLICT" ||
-                error.code === "IDEMPOTENCY_CONFLICT"
+                error.code === "IDEMPOTENCY_CONFLICT" ||
+                error.code === "MESSAGE_ALREADY_CLAIMED" ||
+                error.code === "MESSAGE_ALREADY_ANSWERED" ||
+                error.code === "MESSAGE_CLAIM_REQUIRED" ||
+                error.code === "MESSAGE_CLAIM_EXPIRED"
               ? 409
               : error.code === "REQUEST_TOO_LARGE" ||
                   error.code === "ROOM_CAPACITY_EXCEEDED" ||

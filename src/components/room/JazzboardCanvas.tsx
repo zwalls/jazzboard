@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Bot, LockKeyhole, MousePointer2 } from "lucide-react";
 import {
   DefaultFontFaces,
@@ -108,6 +108,10 @@ type Props = {
   onError: (message: string, details?: unknown) => void;
 };
 
+export type JazzboardCanvasHandle = {
+  prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
+};
+
 const SPECTATOR_COMPONENTS: TLComponents = {
   ActionsMenu: null,
   ContextMenu: null,
@@ -167,7 +171,7 @@ function stripCopiedJazzboardIdentity(shape: TLShape): JsonObject {
   return meta;
 }
 
-function editableShapesForTargets(editor: Editor, targets: readonly TLShape[]): TLShape[] {
+export function editableShapesForTargets(editor: Editor, targets: readonly TLShape[]): TLShape[] {
   const editable = new Map<TLShapeId, TLShape>();
   const visit = (shape: TLShape) => {
     if (shape.type !== "group") {
@@ -181,6 +185,48 @@ function editableShapesForTargets(editor: Editor, targets: readonly TLShape[]): 
   };
   targets.forEach(visit);
   return [...editable.values()];
+}
+
+export async function flushCanvasSelectionToRoom({
+  objectIds,
+  flush,
+  queueTails,
+  isUnsettled,
+  refresh,
+  isAuthoritative,
+  timeoutMs = 12_000,
+}: {
+  objectIds: string[];
+  flush(): void;
+  queueTails(): Promise<void>[];
+  isUnsettled(objectId: string): boolean;
+  refresh(): Promise<RoomState>;
+  isAuthoritative(room: RoomState, objectId: string): boolean;
+  timeoutMs?: number;
+}): Promise<RoomState> {
+  flush();
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      Promise.all(queueTails()),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("The selected canvas items are still saving. Try Ask again in a moment.")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== null) clearTimeout(timeout);
+  }
+  if (objectIds.some(isUnsettled)) {
+    throw new Error("The selected canvas items could not be saved for agent context.");
+  }
+  const room = await refresh();
+  if (objectIds.some((objectId) => !isAuthoritative(room, objectId))) {
+    throw new Error("The selected canvas items are not yet authoritative. Try Ask again.");
+  }
+  return room;
 }
 
 function boundConnectorsForTargets(editor: Editor, targets: readonly TLShape[]): TLShape[] {
@@ -209,7 +255,7 @@ function semanticOperation(editor: Editor, shape: TLShape, current: RoomState["o
   return "edit";
 }
 
-export function JazzboardCanvas({
+export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function JazzboardCanvas({
   room,
   self,
   followTarget,
@@ -224,7 +270,7 @@ export function JazzboardCanvas({
   onEditorChange,
   onExitFollow,
   onError,
-}: Props) {
+}: Props, ref) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const roomRef = useRef(room);
@@ -1583,8 +1629,7 @@ export function JazzboardCanvas({
     const stopSession = editor.store.listen(
       () => {
         onSelectionChange(
-          editor
-            .getSelectedShapes()
+          editableShapesForTargets(editor, editor.getSelectedShapes())
             .map((shape) => jazzboardMeta(shape).objectId)
             .filter((id): id is string => Boolean(id)),
         );
@@ -2177,6 +2222,76 @@ export function JazzboardCanvas({
     ],
   );
 
+  const prepareSelectionForAgentMessage = useCallback(async () => {
+    if (!editor || !mountedRef.current) {
+      throw new Error("The canvas is still starting. Try Ask again in a moment.");
+    }
+    editor.complete();
+    const keyboardBatch = keyboardInteractionBatchRef.current;
+    if (keyboardBatch) {
+      if (keyboardBatch.timer) window.clearTimeout(keyboardBatch.timer);
+      keyboardInteractionBatchRef.current = null;
+      finishInteractionsAfterFrame(
+        keyboardBatch.objectIds,
+        keyboardBatch.dependentObjectIds,
+        new Map([...keyboardBatch.objectIds].map((objectId) => [objectId, keyboardBatch.epoch])),
+      );
+    }
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    if (!mountedRef.current) throw new Error("The canvas closed before the selection could be saved.");
+
+    const selectedShapes = editableShapesForTargets(editor, editor.getSelectedShapes());
+    const drafts = new Map<string, NonNullable<ReturnType<typeof tldrawShapeToSemantic>>>();
+    for (const shape of selectedShapes) {
+      const draft = tldrawShapeToSemantic(editor, shape);
+      if (!draft) continue;
+      drafts.set(draft.id, draft);
+      const current = roomRef.current.objects[draft.id];
+      const existing = syncCoordinatorRef.current.get(draft.id);
+      if (existing?.awaitingRecovery) {
+        throw new Error(`Canvas item ${draft.id} is recovering from a save conflict. Try Ask again shortly.`);
+      }
+      if (!current || !isEquivalentTldrawProjection(current, draft)) {
+        syncCoordinatorRef.current.markDirty({
+          objectId: draft.id,
+          shapeId: String(shape.id),
+          baseRevision: current?.revision ?? null,
+          baseCreatedAt: current?.createdAt ?? null,
+        });
+      }
+      syncCoordinatorRef.current.endInteraction(draft.id);
+    }
+    const objectIds = [...drafts.keys()];
+    const authoritative = await flushCanvasSelectionToRoom({
+      objectIds,
+      flush: () => flushPendingObjectSync(objectIds),
+      queueTails: () => {
+        const tails: Promise<void>[] = [];
+        syncCoordinatorRef.current.forEach((entry) => tails.push(entry.queueTail));
+        return tails;
+      },
+      isUnsettled: (objectId) => {
+        const entry = syncCoordinatorRef.current.get(objectId);
+        return Boolean(entry && (
+          entry.interactionActive
+          || entry.dirty
+          || entry.awaitingRecovery
+          || entry.timer !== null
+          || entry.queuedTasks > 0
+        ));
+      },
+      refresh: async () => advanceRoomRef(await refresh()),
+      isAuthoritative: (nextRoom, objectId) => {
+        const object = nextRoom.objects[objectId];
+        const draft = drafts.get(objectId);
+        return Boolean(object && draft && isEquivalentTldrawProjection(object, draft));
+      },
+    });
+    return { objectIds, room: authoritative };
+  }, [advanceRoomRef, editor, finishInteractionsAfterFrame, flushPendingObjectSync, refresh]);
+
+  useImperativeHandle(ref, () => ({ prepareSelectionForAgentMessage }), [prepareSelectionForAgentMessage]);
+
   return (
     <div
       className={styles.canvasShell}
@@ -2217,7 +2332,7 @@ export function JazzboardCanvas({
       ) : null}
     </div>
   );
-}
+});
 
 function CanvasPresenceOverlay({ editor, room, selfId }: { editor: Editor | null; room: RoomState; selfId: string }) {
   const [now, setNow] = useState(() => Date.now());

@@ -142,6 +142,9 @@ describe("agent-readable content", () => {
       "list_agent_edit_proposals",
       "read_agent_edit_proposal",
       "enable_agent_review",
+      "list_agent_messages",
+      "claim_agent_message",
+      "reply_to_agent_message",
       "export_canvas_artifact",
       "create_diagram_template",
       "instantiate_diagram_template",
@@ -158,7 +161,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.3.0");
+    expect(AGENT_DOC_VERSION).toBe("1.4.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -217,6 +220,10 @@ describe("agent-readable content", () => {
     expect(corpus).toContain("upgrade a spectator");
     expect(corpus).toContain("recovering an already-issued snapshot secret");
     expect(corpus).toContain("snapshot-secret recovery is impossible for everyone");
+    expect(corpus).toContain("pull-only");
+    expect(corpus).toContain("does not wake");
+    expect(corpus).toContain("private participant");
+    expect(corpus).toContain("submission-time snapshot");
     expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
   });
 });

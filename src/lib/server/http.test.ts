@@ -42,6 +42,20 @@ describe("bounded JSON HTTP helpers", () => {
     expect(errorResponse(new DomainError("ROOM_CAPACITY_EXCEEDED", "large")).status).toBe(413);
   });
 
+  it("maps private agent-message lifecycle errors without leaking claim details", async () => {
+    expect(errorResponse(new DomainError("MESSAGE_NOT_FOUND", "missing")).status).toBe(404);
+    for (const code of [
+      "MESSAGE_ALREADY_CLAIMED",
+      "MESSAGE_ALREADY_ANSWERED",
+      "MESSAGE_CLAIM_REQUIRED",
+      "MESSAGE_CLAIM_EXPIRED",
+    ] as const) {
+      const response = errorResponse(new DomainError(code, "message conflict"));
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code } });
+    }
+  });
+
   it("treats invalid UTF-8 as invalid JSON instead of an internal failure", async () => {
     const request = new Request("https://jazzboard.test/mutate", {
       method: "POST",

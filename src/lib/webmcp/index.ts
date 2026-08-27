@@ -66,6 +66,12 @@ export {
   createJazzboardPreviewWebMcpTools,
   JAZZBOARD_PREVIEW_TOOL_NAMES,
 } from "./preview-tools";
+export {
+  createJazzboardMessageWebMcpTools,
+  JAZZBOARD_MESSAGE_MUTATION_TOOL_NAMES,
+  JAZZBOARD_MESSAGE_READ_TOOL_NAMES,
+  JAZZBOARD_MESSAGE_TOOL_NAMES,
+} from "./message-tools";
 export type {
   JazzboardToolFailure,
   JazzboardToolResult,

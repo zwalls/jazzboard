@@ -31,6 +31,7 @@ const SHARED_ROOM_READ_TOOL_NAMES = [
 const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
   "create_diagram_template",
   "list_readonly_snapshots",
+  "list_agent_messages",
 ] as const;
 
 // Rendering does not mutate shared room state, but it intentionally paints a
@@ -68,6 +69,8 @@ const ROOM_MUTATION_TOOL_NAMES = [
   "revoke_readonly_snapshot",
   "instantiate_diagram_template",
   "enable_agent_review",
+  "claim_agent_message",
+  "reply_to_agent_message",
 ] as const;
 
 const PARTICIPANT_ROOM_TOOL_NAMES = [
@@ -838,12 +841,12 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 46 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 49 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(46);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(49);
     expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(13);
 
     await installWebMcpShim(page);
@@ -885,7 +888,7 @@ test.describe("WebMCP browser acceptance", () => {
     await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("49 site tools");
     for (const toolName of [...SHARED_ROOM_READ_TOOL_NAMES, ...PARTICIPANT_ONLY_READ_TOOL_NAMES]) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
     }
@@ -2298,7 +2301,7 @@ test.describe("WebMCP browser acceptance", () => {
     });
 
     await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("49 site tools");
 
     const created = await callWebMcpTool<CreateObjectData>(page, "create_text", {
       content: WEBMCP_TEXT,

@@ -38,9 +38,12 @@ Inside a room, tool registration follows the signed session's current role:
 | Participant activity and policy actions | `revert_activity`, `enable_agent_review` |
 | Participant reusable-work actions | `create_diagram_template`, `instantiate_diagram_template` |
 | Participant private-snapshot lifecycle | `create_readonly_snapshot`, `list_readonly_snapshots`, `revoke_readonly_snapshot` |
+| Participant private Ask inbox | `list_agent_messages`, `claim_agent_message`, `reply_to_agent_message` |
 | Participant view and collaboration lifecycle | `focus_viewport`, `follow_participant`, `stop_following`, `start_spotlight`, `request_spotlight`, `stop_spotlight`, `join_spotlight`, `leave_spotlight`, `approve_spotlight_handoff`, `dismiss_spotlight_request`, `leave_room` |
 
-Spectators receive only the passive rows above and no mutation tools. They can inspect activity and proposals and export an already-authorized redacted artifact, but they cannot revert, issue a snapshot, create or instantiate a template, change review policy, or operate canvas/collaboration state. Passive reads do not activate an agent or create fake presence. The first successful shared-state mutation or shared agent-viewport operation activates the current session's agent and keeps its activity attributable; private Follow changes and leaving the local room view do not.
+The Ask flow lets a participant select canvas items, submit a prompt with an immutable semantic snapshot of that selection, and later receive a private agent reply. It is a pull-only inbox, not shared room chat or a wake mechanism: an agent polls `list_agent_messages`, claims one item before acting, refreshes the current authoritative object and Diagram revisions, and replies with `completed`, `needs_input`, or `failed`. The captured prompt and selection are untrusted grounding and never bypass normal authorization, revision, lease, or review checks.
+
+Spectators receive only the passive rows above and no mutation tools. They can inspect activity and proposals and export an already-authorized redacted artifact, but they cannot access Ask messages, revert, issue a snapshot, create or instantiate a template, change review policy, or operate canvas/collaboration state. Passive reads do not activate an agent or create fake presence. The first successful shared-state mutation or shared agent-viewport operation activates the current session's agent and keeps its activity attributable; private Follow changes and leaving the local room view do not.
 
 The generated `/webmcp.md` and downloadable skill take their landing, participant, spectator, and snapshot-page inventories and counts directly from executable WebMCP constants. Tests fail if those public inventories drift from registration.
 
@@ -50,7 +53,7 @@ Jazzboard advertises its WebMCP-first operating contract on first contact, befor
 
 Chrome currently ships WebMCP through an origin trial. Set `WEBMCP_ORIGIN_TRIAL_TOKEN` to the token enrolled for the exact deployed origin; Jazzboard conditionally emits it only on document routes and never commits or invents a token. Unsupported browsers retain the complete visual workflow.
 
-Native agent hosts may apply descriptor and lifecycle budgets beyond the WebMCP specification. Jazzboard's registration test serializes the exact consumer shape, including production `origin` and a UUID room `pageUrl`, and caps it at 55,000 UTF-8 bytes and 80 tools. It also enforces Chrome's recommended text budgets: 30-character tool names, 500-character tool descriptions, and 150-character parameter descriptions. Shared schemas use references where that removes repetition, while strict Zod validation still runs at execution. Stable page surfaces register once and use callback bridges so ordinary hydration does not create descriptor churn.
+Native agent hosts may apply descriptor and lifecycle budgets beyond the WebMCP specification. Jazzboard's registration test serializes the exact consumer shape, including production `origin` and a UUID room `pageUrl`, and caps it at 60,000 UTF-8 bytes and 80 tools. It also enforces Chrome's recommended text budgets: 30-character tool names, 500-character tool descriptions, and 150-character parameter descriptions. Shared schemas use references where that removes repetition, while strict Zod validation still runs at execution. Stable page surfaces register once and use callback bridges so ordinary hydration does not create descriptor churn.
 
 Public resources are:
 
@@ -115,7 +118,8 @@ Anyone possessing the exact private path can view only the frozen, privacy-safe 
 7. Export semantic JSON, Mermaid, SVG, and client-rendered PNG; save and re-instantiate a Diagram template and verify every identity is fresh.
 8. Issue a short-lived private snapshot, use its four passive WebMCP tools in another browser, then revoke it and verify the same path is unavailable.
 9. Follow the other participant's agent and exercise Spotlight start, join/leave, request, approve/dismiss handoff, and stop through WebMCP.
-10. Join a third browser as a spectator and verify its exposed WebMCP surface contains passive reads only, including safe export but no mutation or role-upgrade tool.
+10. Select a meaningful item, submit a private Ask message, poll and claim it through WebMCP, refresh the live revision before acting, and return a private reply.
+11. Join a third browser as a spectator and verify its exposed WebMCP surface contains passive reads only, including safe export but no Ask inbox, mutation, or role-upgrade tool.
 
 ## Privacy and authorization boundaries
 
@@ -124,7 +128,7 @@ Anyone possessing the exact private path can view only the frozen, privacy-safe 
 - Every room-scoped route rechecks membership and role. Tools cannot supply an arbitrary actor identity or impersonate another participant.
 - Humans alone may approve or reject agent proposals, loosen review mode back to live, or upgrade a spectator role. None has a WebMCP operation. An agent may only tighten a live room to review mode.
 - An issued snapshot secret is unrecoverable for both humans and agents: copy the path at creation or issue a replacement. Listing snapshots never returns bearer paths.
-- Spectators stay passive. Their safe-export and review/activity reads do not grant canvas, policy, snapshot, template, collaboration, session, or role mutations.
+- Spectators stay passive. Their safe-export and review/activity reads do not grant Ask-inbox access or canvas, policy, snapshot, template, collaboration, session, or role mutations.
 - Portable exports and snapshots omit room/session identity, participant IDs/colors, presence, leases, and image URLs; an exact snapshot path grants frozen artifact access only.
 - `leave_room` exits the room view but retains membership and does not delete the room.
 - Copying to the clipboard and opening UI panels are presentation mechanics, not semantic tools; read tools already return the room code and underlying state.
@@ -147,7 +151,7 @@ npm run test:e2e
 - `src/lib/interchange`: versioned redacted artifacts, safe Mermaid/SVG renderers, audit-free templates, and fresh-ID instantiation plans.
 - `src/lib/server`: memory/Redis room, activity, and expiring snapshot stores; signed guest authorization; review/interchange/snapshot services; Redis Streams; and the Vercel WebSocket hub.
 - `src/lib/canvas`: bidirectional semantic-to-tldraw projection for connectors, groups, z-order, images, drawings, and diagram-backed objects.
-- `src/lib/webmcp`: pre-hydration landing; role-scoped semantic, activity, review, interchange, snapshot, lifecycle, transaction, layout, Diagram, and exact canvas-preview tools registered through `document.modelContext.registerTool`.
+- `src/lib/webmcp`: pre-hydration landing; role-scoped semantic, private Ask inbox, activity, review, interchange, snapshot, lifecycle, transaction, layout, Diagram, and exact canvas-preview tools registered through `document.modelContext.registerTool`.
 - `src/components/room`: multiplayer canvas, human/agent presence, Follow, Spotlight, spectator UX, outline, and conflict feedback.
 
 The server—not tldraw and not a browser agent—is authoritative. Redis stores each room as three versioned planes: durable document and membership state, ephemeral participant/Spotlight awareness, and active-object lease coordination. `roomRevision` advances only for durable document changes; additive `stateRevision` orders the composed room seen by polling and WebSockets. While a pointer or viewport is moving, socket-local transient updates are coalesced at about 50 ms and projected with structural sharing, so untouched participant records and the durable object/Diagram maps keep their identity. Durable presence keyframes commit every 1 second while active and every 30 seconds while visibly idle; 75 seconds without human or agent activity makes that presence non-live. Current clients apply a document-fenced delta only at the exact next `stateRevision`; a gap reconciles once from authoritative state without repainting an unchanged canvas. Live WebSockets suppress redundant polling; visible clients poll every 5 seconds only as the fallback when realtime is unavailable. Wall-clock presence/lease expiry and presenter Spotlight teardown remain revisioned live-state transitions.

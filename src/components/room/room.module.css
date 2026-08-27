@@ -571,6 +571,33 @@
   color: white;
 }
 
+.askPreparationError {
+  align-items: center;
+  background: rgba(255, 245, 245, 0.98);
+  border: 1px solid #efc6c9;
+  border-radius: 9px;
+  bottom: 62px;
+  box-shadow: var(--shadow-sm);
+  color: #a43d46;
+  display: flex;
+  font-size: 9px;
+  gap: 8px;
+  left: 16px;
+  max-width: min(390px, calc(100vw - 32px));
+  padding: 8px 9px;
+  position: absolute;
+  z-index: 430;
+}
+
+.askPreparationError button {
+  align-items: center;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  margin-left: auto;
+  padding: 2px;
+}
+
 .outlinePanel {
   animation: slide-in 170ms ease-out;
   backdrop-filter: blur(20px) saturate(1.2);

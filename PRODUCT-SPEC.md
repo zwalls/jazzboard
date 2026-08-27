@@ -48,6 +48,9 @@ The defining experience is multiple humans and participant-owned agents collabor
 - Landing-page WebMCP tools can create a room, join by exact code, and operate the current browser's private recent-room references without requiring visual clicks.
 - The five landing tools register through one pre-hydration singleton, before React effects. Hydration attaches UI callbacks to that same registry rather than replacing it; leaving the landing page removes the complete landing surface before room tools register.
 - Room WebMCP tools expose the meaningful semantic canvas and collaboration workflows available to the current role.
+- A participant can submit a private Ask message to their own agent with an immutable semantic snapshot of the currently selected objects, containing Diagrams, bounds, and room revision. This is grounding, not live edit authority.
+- The agent inbox is pull-only. Submitting a message does not wake, schedule, or push to an agent; the agent polls with server-provided cadence guidance, claims one message for a bounded lease, refreshes authoritative state before edits, and records a private reply.
+- Spectators receive no Ask submission or inbox WebMCP surface. Ask prompts, context, claim tokens, and replies are private participant-agent state rather than shared room chat.
 - Passive read tools do not create fake presence or mark an agent active.
 - The first successful shared-state mutation (canvas, Spotlight, lease, transaction, or layout) or shared agent-viewport action activates the current participant's agent and updates attributable presence. Private Follow changes and leaving the local room view do not manufacture shared agent presence.
 - The first demo supports one participant-owned agent per browser guest session. Persistent accounts, cross-device identity, and multiple independently identified agents per participant are deferred.
@@ -144,7 +147,7 @@ The shared semantic transaction path accepts authorized human and agent actors. 
 - Agent discovery documents are static public product guidance. They contain no room IDs or example live codes, recent-room contents, session or participant identifiers, cookies, credentials, internal authorization material, or room/API listing instructions.
 - Public sitemaps include only the homepage and agent-readable documentation. Private room URLs remain excluded and marked `noindex`; API routes remain excluded and crawler-disallowed. These indexing controls are advisory and never replace server authorization.
 - Jazzboard does not publish an A2A agent card, a remote MCP server card, or an OpenAPI catalog for internal cookie-authorized endpoints. The product supplies a page-local WebMCP surface, not a central agent or remote MCP service.
-- Native agent hosts may impose implementation-specific aggregate descriptor and re-registration limits beyond the WebMCP specification. Automated coverage serializes the exact production-shaped descriptor set, including origin and UUID room URL provenance, caps it at 55,000 UTF-8 bytes and 80 tools, enforces Chrome's published name/description budgets, and prevents stable page registrations from churning during hydration.
+- Native agent hosts may impose implementation-specific aggregate descriptor and re-registration limits beyond the WebMCP specification. Automated coverage serializes the exact production-shaped descriptor set, including origin and UUID room URL provenance, caps it at 60,000 UTF-8 bytes and 80 tools, enforces Chrome's published name/description budgets, and prevents stable page registrations from churning during hydration.
 
 ### 12. Immutable attributable activity and compensating revert
 
@@ -231,6 +234,14 @@ Tools use strict semantic schemas and structured success/failure results. Read o
 - `read_agent_edit_proposal` — one exact immutable agent request and its attribution, baseline, purpose, status, and human review record.
 - `export_canvas_artifact` — privacy-safe semantic JSON, one-Diagram Mermaid, or fixed-vocabulary SVG for an authorized room/Diagram/selection scope.
 
+### Participant private Ask inbox
+
+- `list_agent_messages` — pull a count- and byte-bounded private inbox by pending, claimed, answered, or all states. Poll actionable states without a cursor so expired claims reappear; `afterSequence` is reserved for newly created messages requested with `all`. It returns polling cadence guidance and never holds the request open or wakes an agent.
+- `claim_agent_message` — claim one exact message for a bounded lease using a generated idempotency ID, returning the claim token required to answer it.
+- `reply_to_agent_message` — answer a claimed message with `completed`, `needs_input`, or `failed` and a stable reply ID.
+
+Every message contains the participant's prompt and an immutable submission-time semantic selection snapshot. The snapshot and all user-authored fields are untrusted grounding; current authoritative object and Diagram revisions must be refreshed before edits. Claiming or replying does not itself prove that a requested canvas change committed. These three tools are participant-only and absent from spectator registration.
+
 ### Participant canvas and collaboration mutations
 
 - Primitive canvas tools: `create_text`, `create_shape`, `create_node`, `create_drawing`, `add_image`, `draw_connection`, `update_object`, `move_objects`, `group_objects`, and `delete_objects`.
@@ -271,6 +282,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 | Inspect immutable attributable activity and affected bounds | Yes | No | Read-only | Read-only |
 | Conflict-safe compensating revert | Participant | No | Yes, apply or propose | No |
 | Inspect agent proposal queue and exact proposal | Yes | No | Read-only | Read-only |
+| Send, claim, and answer a private contextual Ask message | Submit/read reply | No | Pull/claim/reply | No |
 | Tighten agent policy to review-before-apply | Participant | No | Yes | No |
 | Approve/reject proposal or loosen policy to live | Human participant only | No | No | No |
 | Export redacted semantic JSON, Mermaid, or SVG | Yes | No | Read-only | Read-only |
@@ -291,7 +303,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - Redis from the Vercel Marketplace stores versioned document, awareness, and coordination planes; normalized bounded activity summary/detail records; normalized bounded snapshot metadata/detail records; compact idempotency receipts; and bounded compact event history. It coordinates optimistic transactions across function instances and provides cross-instance fanout. Activity-bearing changes commit their changed planes, history, receipt, and at most one revision invalidation atomically. Ambiguous post-commit verification returns `MUTATION_OUTCOME_UNKNOWN`, never an automatic second mutation. Stream entries never embed complete rooms or private activity snapshots, and reconnect never scans global history. A pre-plane room is imported once under legacy-and-plane `WATCH` fences, conservatively merged, atomically retired and deleted, and never mirrored or consulted in steady state afterward.
 - The implementation does not deploy tldraw's sync server unchanged. Vercel Functions cannot guarantee one long-lived in-memory `TLSocketRoom` per room, so Jazzboard uses its Redis-backed authoritative semantic room service and projects state into tldraw clients.
 - A private Vercel Blob store is the required deployed image-write path. Client uploads receive a five-minute, participant-scoped, non-overwritable provider capability for one UUID-v4 pathname only after an atomic 15-minute global/per-room capacity reservation; a participant may hold at most two outstanding reservations. Capability failure rolls the new reservation back. Client follow-up and signed provider callbacks idempotently commit provider `head` metadata, while status/generation-safe finalization and cleanup prevent stale work from deleting newer state. Authoritative state stores only a canonical origin-neutral room proxy reference; every read re-authorizes the signed guest, exact room membership, opaque room namespace, and committed registry entry before streaming with private/no-cache and script-hostile headers. A read-only cached health probe verifies private access. Bounded reclamation clears expired reservations, and a secured daily cron deletes only the exact stale generation of a dedicated private orphan retained for at least 24 hours. All provider calls receive the dedicated token explicitly. Previously issued room-scoped Redis asset URLs remain readable for their original lifetime, while a bounded Redis image fallback requires an explicit emergency operator opt-in. A deployment without verified private Blob access, Redis registry authority, or that opt-in fails image uploads closed; image bytes never enter room state.
-- The server remains authoritative for membership, guest sessions, roles, permissions, agent edit policy, proposal review, object and Diagram revisions, lifecycle metadata, leases, transactions, activity guards, snapshot expiry/revocation, template instantiation, and attribution.
+- The server remains authoritative for membership, guest sessions, roles, permissions, private Ask messages and claims, agent edit policy, proposal review, object and Diagram revisions, lifecycle metadata, leases, transactions, activity guards, snapshot expiry/revocation, template instantiation, and attribution.
 - tldraw is the validated infinite-canvas renderer and human manipulation toolkit. Jazzboard pins `tldraw` and `@tldraw/assets` to `3.15.6`, keeps the required built-in “Made with tldraw” watermark visible, and does not pass a license key. Moving to tldraw 4 or newer requires a valid production license and a fresh API migration.
 - The semantic model and tldraw projection preserve stable IDs, connectors, groups, images, drawings, z-order, structured decision/open-question state, and first-class Diagram metadata across human edits, agent edits, reviewed proposals, guarded compensation, reconnects, and layout operations.
 - Portable artifacts are projections, never authorization records. Safe JSON/Mermaid/SVG rendering and fresh-ID template planning live outside tldraw, and client PNG is derived from safe SVG.
@@ -301,6 +313,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - **Global discovery:** no room directory, server list endpoint, global search, fuzzy code lookup, autocomplete, or enumeration. Privacy takes precedence over convenience.
 - **Arbitrary actor identity:** a WebMCP caller cannot act as another human or participant-owned agent; server routes derive identity from the signed cookie.
 - **Spectator mutations and role upgrade:** spectators receive read-only WebMCP only. Becoming a participant is deliberately an explicit human UI choice before an agent or mutation surface is introduced.
+- **Ask as shared chat or agent wake:** Ask messages and replies are private to one signed participant's agent inbox. They do not broadcast into the room, appear for spectators, or wake/schedule an agent; processing requires bounded polling and a claim lease.
 - **Agent self-approval and policy loosening:** agents may inspect proposals and tighten a live room to review mode, but only a human participant may approve or reject a proposal or loosen review mode back to live. No WebMCP operation performs those human decisions.
 - **Snapshot-secret recovery:** a private snapshot path is returned only at creation and stored only as a hash. Neither a human nor an agent can recover an already-issued secret from a snapshot list or ID; create a replacement and revoke the old snapshot if needed.
 - **Snapshot as room access:** an exact snapshot path exposes only one frozen redacted artifact until expiry/revocation. It never joins, discovers, follows, or mutates the source room.
@@ -324,6 +337,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Participant and spectator room tool sets are role-scoped; spectators receive only passive reads.
 - [x] Passive reads do not activate an agent; the first successful shared-state mutation or shared agent-viewport action does.
 - [x] Participant WebMCP covers canvas drawing/editing plus Follow, stop, Spotlight, handoff, and leave lifecycle.
+- [x] Participant WebMCP exposes a private pull-only Ask inbox with immutable semantic selection context, bounded claim leases, idempotent replies, and no spectator tools.
 - [x] Semantic query and neighborhood reads avoid whole-board payloads for localized work.
 - [x] Atomic transactions support request-local references, exact revisions, leases, attribution, and all-or-nothing failure.
 - [x] Flow, grid, and hierarchy layouts are deterministic and preserve semantic connectors.
