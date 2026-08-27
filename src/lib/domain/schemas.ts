@@ -55,6 +55,54 @@ export const leaseOperationSchema = z.enum([
   "annotate",
 ]);
 
+const objectLeaseAcquireTargetSchema = z
+  .object({
+    objectId: z.string().min(1).max(128),
+    expectedRevision: z.number().int().positive(),
+    operation: leaseOperationSchema,
+  })
+  .strict();
+
+const objectLeaseTokenTargetSchema = z
+  .object({
+    objectId: z.string().min(1).max(128),
+    leaseId: z.string().min(1).max(128),
+  })
+  .strict();
+
+function uniqueLeaseTargets<T extends { objectId: string }>(schema: z.ZodType<T>) {
+  return z.array(schema).min(1).max(200).superRefine((targets, context) => {
+    const objectIds = targets.map((target) => target.objectId);
+    if (new Set(objectIds).size !== objectIds.length) {
+      context.addIssue({ code: "custom", message: "Lease targets must be unique." });
+    }
+  });
+}
+
+export const objectLeaseActionSchema = z.discriminatedUnion("action", [
+  objectLeaseAcquireTargetSchema.extend({ action: z.literal("acquire") }).strict(),
+  objectLeaseTokenTargetSchema.extend({ action: z.literal("renew") }).strict(),
+  objectLeaseTokenTargetSchema.extend({ action: z.literal("release") }).strict(),
+  z
+    .object({
+      action: z.literal("acquire-many"),
+      targets: uniqueLeaseTargets(objectLeaseAcquireTargetSchema),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("renew-many"),
+      targets: uniqueLeaseTargets(objectLeaseTokenTargetSchema),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("release-many"),
+      targets: uniqueLeaseTargets(objectLeaseTokenTargetSchema),
+    })
+    .strict(),
+]);
+
 const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
 
 const normalizedConnectorAnchorSchema = pointSchema.superRefine((anchor, context) => {

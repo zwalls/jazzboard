@@ -414,6 +414,60 @@ describe("room service authorization", () => {
     expect(updated.room.stateRevision).toBeGreaterThan(spotlighted.stateRevision!);
   });
 
+  it("handles a multi-object lease lifecycle in one room transaction per action", async () => {
+    const { room } = await seededRoom();
+    await runCanvasCommand({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      command: createTextCommand("batch-a"),
+    });
+    await runCanvasCommand({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      command: createTextCommand("batch-b"),
+    });
+    const baseline = await readAuthorizedRoom(room.id, "p_owner");
+
+    const acquired = await runLeaseAction({
+      action: "acquire-many",
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      targets: [
+        { objectId: "batch-a", expectedRevision: 1, operation: "move" },
+        { objectId: "batch-b", expectedRevision: 1, operation: "resize" },
+      ],
+    });
+    expect("leases" in acquired && acquired.leases).toHaveLength(2);
+    expect(acquired.room.roomRevision).toBe(baseline.roomRevision);
+    expect(acquired.room.stateRevision).toBe(baseline.stateRevision! + 1);
+
+    if (!("leases" in acquired)) throw new Error("Expected batch leases.");
+    const targets = acquired.leases.map(({ objectId, leaseId }) => ({ objectId, leaseId }));
+    vi.setSystemTime(new Date(START.getTime() + 100));
+    const renewed = await runLeaseAction({
+      action: "renew-many",
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      targets,
+    });
+    expect(renewed.room.stateRevision).toBe(acquired.room.stateRevision! + 1);
+
+    const released = await runLeaseAction({
+      action: "release-many",
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      targets,
+    });
+    expect("leases" in released && released.leases).toEqual([]);
+    expect(released.room.leases).toEqual({});
+    expect(released.room.stateRevision).toBe(renewed.room.stateRevision! + 1);
+  });
+
   it("persists liveness, lease expiry, and presenter Spotlight teardown as one revisioned transition", async () => {
     const { room } = await seededRoom();
     await runCanvasCommand({

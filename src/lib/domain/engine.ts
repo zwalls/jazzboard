@@ -28,6 +28,8 @@ import type {
   LayoutCommand,
   LeaseOperation,
   ObjectLease,
+  ObjectLeaseAcquireTarget,
+  ObjectLeaseTokenTarget,
   NodeMetadata,
   NodeMetadataInput,
   Participant,
@@ -1747,32 +1749,62 @@ export function acquireObjectLease(
   operation: LeaseOperation,
   now = Date.now(),
 ): { room: RoomState; lease: ObjectLease } {
+  const result = acquireObjectLeases(
+    source,
+    participantId,
+    actorKind,
+    [{ objectId, expectedRevision, operation }],
+    now,
+  );
+  return { room: result.room, lease: result.leases[0] };
+}
+
+function requireUniqueLeaseTargets(targets: readonly { objectId: string }[]): void {
+  if (!targets.length) {
+    throw new DomainError("INVALID_OPERATION", "A lease batch requires at least one target.");
+  }
+  const objectIds = targets.map((target) => target.objectId);
+  if (new Set(objectIds).size !== objectIds.length) {
+    throw new DomainError("INVALID_OPERATION", "Lease targets must be unique.");
+  }
+}
+
+export function acquireObjectLeases(
+  source: RoomState,
+  participantId: string,
+  actorKind: ActorKind,
+  targets: readonly ObjectLeaseAcquireTarget[],
+  now = Date.now(),
+): { room: RoomState; leases: ObjectLease[] } {
+  requireUniqueLeaseTargets(targets);
   const room = structuredClone(source);
   const participant = requireParticipant(room, participantId);
   requireMutationRole(participant, actorKind);
   const actor = actorFor(participant, actorKind);
   pruneExpiredLeases(room, now);
-  const object = getObject(room, objectId);
-  verifyLease(room, object, actor, undefined, now);
-  verifyRevision(object, expectedRevision);
-
-  const existing = room.leases[objectId];
-  const lease: ObjectLease =
-    existing && existing.actor.participantId === participantId && existing.actor.kind === actorKind
-      ? { ...existing, operation, expiresAt: now + LEASE_DURATION_MS }
+  const objects = targets.map((target) => {
+    const object = getObject(room, target.objectId);
+    verifyLease(room, object, actor, undefined, now);
+    verifyRevision(object, target.expectedRevision);
+    return object;
+  });
+  const leases = targets.map((target, index): ObjectLease => {
+    const existing = room.leases[target.objectId];
+    return existing && existing.actor.participantId === participantId && existing.actor.kind === actorKind
+      ? { ...existing, operation: target.operation, expiresAt: now + LEASE_DURATION_MS }
       : {
           leaseId: randomUUID(),
-          objectId,
+          objectId: target.objectId,
           actor,
-          operation,
-          objectRevision: object.revision,
+          operation: target.operation,
+          objectRevision: objects[index].revision,
           acquiredAt: now,
           expiresAt: now + LEASE_DURATION_MS,
         };
-
-  room.leases[objectId] = lease;
+  });
+  for (const lease of leases) room.leases[lease.objectId] = lease;
   touchCoordination(room);
-  return { room, lease };
+  return { room, leases };
 }
 
 export function renewObjectLease(
@@ -1783,25 +1815,45 @@ export function renewObjectLease(
   leaseId: string,
   now = Date.now(),
 ): { room: RoomState; lease: ObjectLease } {
+  const result = renewObjectLeases(
+    source,
+    participantId,
+    actorKind,
+    [{ objectId, leaseId }],
+    now,
+  );
+  return { room: result.room, lease: result.leases[0] };
+}
+
+export function renewObjectLeases(
+  source: RoomState,
+  participantId: string,
+  actorKind: ActorKind,
+  targets: readonly ObjectLeaseTokenTarget[],
+  now = Date.now(),
+): { room: RoomState; leases: ObjectLease[] } {
+  requireUniqueLeaseTargets(targets);
   const room = structuredClone(source);
   const participant = requireParticipant(room, participantId);
   requireMutationRole(participant, actorKind);
   pruneExpiredLeases(room, now);
-  const lease = room.leases[objectId];
-  if (
-    !lease ||
-    lease.leaseId !== leaseId ||
-    lease.actor.participantId !== participantId ||
-    lease.actor.kind !== actorKind
-  ) {
-    throw new DomainError("LEASE_NOT_FOUND", "The active-object lease is missing or belongs to another actor.", {
-      objectId,
-    });
-  }
-  const renewed = { ...lease, expiresAt: now + LEASE_DURATION_MS };
-  room.leases[objectId] = renewed;
+  const leases = targets.map((target) => {
+    const lease = room.leases[target.objectId];
+    if (
+      !lease ||
+      lease.leaseId !== target.leaseId ||
+      lease.actor.participantId !== participantId ||
+      lease.actor.kind !== actorKind
+    ) {
+      throw new DomainError("LEASE_NOT_FOUND", "The active-object lease is missing or belongs to another actor.", {
+        objectId: target.objectId,
+      });
+    }
+    return { ...lease, expiresAt: now + LEASE_DURATION_MS };
+  });
+  for (const renewed of leases) room.leases[renewed.objectId] = renewed;
   touchCoordination(room);
-  return { room, lease: renewed };
+  return { room, leases };
 }
 
 export function releaseObjectLease(
@@ -1812,22 +1864,36 @@ export function releaseObjectLease(
   leaseId: string,
   now = Date.now(),
 ): RoomState {
+  return releaseObjectLeases(source, participantId, actorKind, [{ objectId, leaseId }], now).room;
+}
+
+export function releaseObjectLeases(
+  source: RoomState,
+  participantId: string,
+  actorKind: ActorKind,
+  targets: readonly ObjectLeaseTokenTarget[],
+  now = Date.now(),
+): { room: RoomState; leases: [] } {
+  requireUniqueLeaseTargets(targets);
   const room = structuredClone(source);
   const participant = requireParticipant(room, participantId);
   requireMutationRole(participant, actorKind);
   pruneExpiredLeases(room, now);
-  const lease = room.leases[objectId];
-  if (!lease) return room;
-  if (
-    lease.leaseId !== leaseId ||
-    lease.actor.participantId !== participantId ||
-    lease.actor.kind !== actorKind
-  ) {
-    throw new DomainError("LEASE_NOT_FOUND", "The active-object lease is missing or belongs to another actor.", {
-      objectId,
-    });
-  }
-  delete room.leases[objectId];
-  touchCoordination(room);
-  return room;
+  const presentTargets = targets.filter((target) => {
+    const lease = room.leases[target.objectId];
+    if (!lease) return false;
+    if (
+      lease.leaseId !== target.leaseId ||
+      lease.actor.participantId !== participantId ||
+      lease.actor.kind !== actorKind
+    ) {
+      throw new DomainError("LEASE_NOT_FOUND", "The active-object lease is missing or belongs to another actor.", {
+        objectId: target.objectId,
+      });
+    }
+    return true;
+  });
+  for (const target of presentTargets) delete room.leases[target.objectId];
+  if (presentTargets.length) touchCoordination(room);
+  return { room, leases: [] };
 }

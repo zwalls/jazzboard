@@ -911,6 +911,33 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.expirations).toEqual([]);
   });
 
+  it("lets a document transaction outlive sustained awareness contention", async () => {
+    const { connection, state } = fakeRedis();
+    const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({
+      participantId: "p_owner",
+      displayName: "Owner",
+      title: "Contention baseline",
+    });
+    const documentKey = `jazzboard:room:v3:document:${room.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${room.id}`;
+    let conflicts = 0;
+    state.afterMget = (keys) => {
+      if (!keys.includes(documentKey) || !keys.includes(awarenessKey) || conflicts >= 8) return;
+      conflicts += 1;
+      writeFakeValue(state, awarenessKey, state.values.get(awarenessKey)!);
+    };
+
+    const updated = await store.transact(room.id, (current) => {
+      current.title = "Contention survived";
+      return { room: current, result: current.title };
+    });
+
+    expect(conflicts).toBe(8);
+    expect(updated).toBe("Contention survived");
+    expect((await store.getRoom(room.id))?.title).toBe("Contention survived");
+  });
+
   it("atomically accepts a newly introduced committed private Blob reference", async () => {
     const { connection, state } = fakeRedis();
     const store = new RedisRoomStore(connection as unknown as Redis);

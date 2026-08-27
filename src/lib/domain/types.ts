@@ -203,6 +203,25 @@ export type ObjectLease = {
   expiresAt: number;
 };
 
+export type ObjectLeaseAcquireTarget = {
+  objectId: string;
+  expectedRevision: number;
+  operation: LeaseOperation;
+};
+
+export type ObjectLeaseTokenTarget = {
+  objectId: string;
+  leaseId: string;
+};
+
+export type ObjectLeaseAction =
+  | ({ action: "acquire" } & ObjectLeaseAcquireTarget)
+  | ({ action: "renew" } & ObjectLeaseTokenTarget)
+  | ({ action: "release" } & ObjectLeaseTokenTarget)
+  | { action: "acquire-many"; targets: ObjectLeaseAcquireTarget[] }
+  | { action: "renew-many"; targets: ObjectLeaseTokenTarget[] }
+  | { action: "release-many"; targets: ObjectLeaseTokenTarget[] };
+
 export type Spotlight = {
   presenterId: string;
   target: ActorKind;

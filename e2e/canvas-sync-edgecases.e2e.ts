@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Response, type Route } from "@playwright/test";
 
 import type { RoomState } from "@/lib/domain/types";
 
@@ -15,6 +15,7 @@ import {
 const LEFT_ID = "sync-left";
 const RIGHT_ID = "sync-right";
 const CONNECTOR_ID = "sync-connector";
+const COMPLEX_GROUP_IDS = Array.from({ length: 9 }, (_, index) => `sync-group-${index + 1}`);
 
 async function seedPair(page: Page, roomId: string, includeConnector = false) {
   const response = await page.request.post(`/api/rooms/${encodeURIComponent(roomId)}/semantic`, {
@@ -33,6 +34,28 @@ async function seedPair(page: Page, roomId: string, includeConnector = false) {
               ]
             : []),
         ],
+        diagramCommands: [],
+      },
+    },
+  });
+  expect(response.ok()).toBe(true);
+}
+
+async function seedComplexGroupMembers(page: Page, roomId: string) {
+  const response = await page.request.post(`/api/rooms/${encodeURIComponent(roomId)}/semantic`, {
+    data: {
+      action: "transaction",
+      transaction: {
+        commands: COMPLEX_GROUP_IDS.map((objectId, index) => ({
+          type: "create" as const,
+          object: shapeObject(
+            objectId,
+            `Group member ${index + 1}`,
+            180 + (index % 3) * 190,
+            140 + Math.floor(index / 3) * 130,
+            index % 2 === 0 ? "blue" : "green",
+          ),
+        })),
         diagramCommands: [],
       },
     },
@@ -68,6 +91,14 @@ async function selectPair(page: Page) {
   await page.mouse.move(end.x, end.y, { steps: 5 });
   await page.mouse.up();
   await expect(page.getByText(/2 selected/i)).toBeVisible();
+}
+
+async function selectObjects(page: Page, objectIds: readonly string[]) {
+  await page.keyboard.press("Escape");
+  const first = await centerOf(page, objectIds[0]);
+  await page.mouse.click(first.x, first.y);
+  await page.keyboard.press("Control+a");
+  await expect(page.getByText(new RegExp(`${objectIds.length} selected`, "i"))).toBeVisible();
 }
 
 async function dragFrom(page: Page, objectId: string, dx: number, dy: number) {
@@ -233,6 +264,85 @@ test.describe("canvas synchronization edge cases", () => {
       .toEqual([]);
   });
 
+  test("pointer-drags a complex selected group with one atomic lease cohort", async ({ page }) => {
+    test.setTimeout(45_000);
+    const host = await createRoomViaApi(page.request, "Complex Group Mover", "Atomic group leases");
+    await seedComplexGroupMembers(page, host.room.id);
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+    await expect(renderedShape(page, COMPLEX_GROUP_IDS[0])).toBeVisible({ timeout: 20_000 });
+    await selectObjects(page, COMPLEX_GROUP_IDS);
+    await page.keyboard.press("Control+g");
+    await expect
+      .poll(async () => {
+        const objects = (await getRoom(page.request, host.room.id)).room.objects;
+        const groupIds = COMPLEX_GROUP_IDS.map((objectId) => objects[objectId]?.groupId);
+        return groupIds.every((groupId) => typeof groupId === "string") && new Set(groupIds).size === 1;
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+      .toEqual([]);
+    const baseline = (await getRoom(page.request, host.room.id)).room;
+
+    const leaseRequests: Array<{ action?: string; targets?: Array<{ objectId: string }> }> = [];
+    const failedLeaseStatuses: number[] = [];
+    const recordRequest = (request: Request) => {
+      const url = new URL(request.url());
+      if (request.method() !== "POST" || url.pathname !== `/api/rooms/${host.room.id}/leases`) return;
+      leaseRequests.push(request.postDataJSON());
+    };
+    const recordResponse = (response: Response) => {
+      const url = new URL(response.url());
+      if (url.pathname === `/api/rooms/${host.room.id}/leases` && response.status() === 409) {
+        failedLeaseStatuses.push(response.status());
+      }
+    };
+    page.on("request", recordRequest);
+    page.on("response", recordResponse);
+    try {
+      const transactionRequest = page.waitForRequest((request) =>
+        semanticTransactionRequest(request, host.room.id),
+      );
+      await dragFrom(page, COMPLEX_GROUP_IDS[4], 120, 70);
+      const transaction = (await transactionRequest).postDataJSON() as {
+        transaction: { commands: Array<{ objectId?: string }> };
+      };
+      expect(new Set(transaction.transaction.commands.map((command) => command.objectId))).toEqual(
+        new Set(COMPLEX_GROUP_IDS),
+      );
+
+      await expect
+        .poll(async () => {
+          const objects = (await getRoom(page.request, host.room.id)).room.objects;
+          return COMPLEX_GROUP_IDS.map((objectId) => objects[objectId]?.revision);
+        })
+        .toEqual(COMPLEX_GROUP_IDS.map(() => 3));
+      const moved = (await getRoom(page.request, host.room.id)).room;
+      for (const objectId of COMPLEX_GROUP_IDS) {
+        expect(Number(moved.objects[objectId].x) - Number(baseline.objects[objectId].x)).toBeCloseTo(120, 0);
+        expect(Number(moved.objects[objectId].y) - Number(baseline.objects[objectId].y)).toBeCloseTo(70, 0);
+      }
+      const acquireMany = leaseRequests.filter((request) => request.action === "acquire-many");
+      expect(acquireMany).toHaveLength(1);
+      expect(new Set(acquireMany[0].targets?.map((target) => target.objectId))).toEqual(
+        new Set(COMPLEX_GROUP_IDS),
+      );
+      expect(failedLeaseStatuses).toEqual([]);
+      await expect(page.getByText("Canvas changed elsewhere")).toHaveCount(0);
+      await expect
+        .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+        .toEqual([]);
+      const releaseMany = leaseRequests.filter((request) => request.action === "release-many");
+      expect(releaseMany).toHaveLength(1);
+      expect(new Set(releaseMany[0].targets?.map((target) => target.objectId))).toEqual(
+        new Set(COMPLEX_GROUP_IDS),
+      );
+    } finally {
+      page.off("request", recordRequest);
+      page.off("response", recordResponse);
+    }
+  });
+
   test("leases a keyboard-edited node and bound connector before debounce", async ({ browser, page }) => {
     test.setTimeout(35_000);
     const host = await createRoomViaApi(page.request, "Keyboard Mover", "Immediate keyboard leases");
@@ -292,6 +402,20 @@ test.describe("canvas synchronization edge cases", () => {
       const baseline = (await getRoom(page.request, host.room.id)).room;
 
       for (const url of mutationUrls) await page.route(url, mutationHandler);
+      const renewalRequest = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        if (
+          request.method() !== "POST" ||
+          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
+        ) {
+          return false;
+        }
+        const body = request.postDataJSON() as {
+          action?: string;
+          targets?: Array<{ objectId?: string }>;
+        };
+        return body.action === "renew-many";
+      });
       await page.keyboard.press("ArrowRight");
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases).sort())
@@ -316,6 +440,12 @@ test.describe("canvas synchronization edge cases", () => {
       });
 
       await mutationBlocked;
+      const renewal = (await renewalRequest).postDataJSON() as {
+        targets: Array<{ objectId: string }>;
+      };
+      expect(new Set(renewal.targets.map((target) => target.objectId))).toEqual(
+        new Set([LEFT_ID, CONNECTOR_ID]),
+      );
       releaseMutation();
       await expect
         .poll(async () => {
@@ -1036,8 +1166,16 @@ test.describe("canvas synchronization edge cases", () => {
       });
       const humanLeaseUrl = `**/api/rooms/${encodeURIComponent(host.room.id)}/leases`;
       await page.route(humanLeaseUrl, async (route, request) => {
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        if (body.action === "acquire" && body.objectId === RIGHT_ID) await busyGate;
+        const body = request.postDataJSON() as {
+          action?: string;
+          objectId?: string;
+          targets?: Array<{ objectId?: string }>;
+        };
+        const acquiresBusyObject =
+          (body.action === "acquire" && body.objectId === RIGHT_ID) ||
+          (body.action === "acquire-many" &&
+            body.targets?.some((target) => target.objectId === RIGHT_ID));
+        if (acquiresBusyObject) await busyGate;
         await route.continue();
       });
 

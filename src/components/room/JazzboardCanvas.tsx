@@ -50,7 +50,7 @@ import type {
   RoomPresenceDelta,
   SemanticTransaction,
 } from "@/lib/domain/types";
-import type { ConnectionState, LeaseAction } from "@/hooks/use-room";
+import type { ConnectionState, LeaseAction, LeaseBatchAction } from "@/hooks/use-room";
 import { roomStateRevision } from "@/lib/realtime/events";
 import {
   IDLE_PRESENCE_KEYFRAME_MS,
@@ -67,6 +67,7 @@ type SemanticTransactionResult = CommandResult & {
   membershipObjectIds: string[];
 };
 type LeaseResult = { lease: ObjectLease | null; room: RoomState };
+type LeaseBatchResult = { leases: ObjectLease[]; room: RoomState };
 
 type ScheduledObjectSync = {
   objectId: string;
@@ -88,6 +89,13 @@ type PendingObjectSyncBatch = {
   timer: number | null;
 };
 
+type LeaseRenewalCohort = {
+  id: number;
+  objectIds: Set<string>;
+  timer: number | null;
+  request: Promise<void> | null;
+};
+
 type DocumentRecordChanges = {
   added: Record<string, TLRecord>;
   updated: Record<string, [TLRecord, TLRecord]>;
@@ -101,6 +109,7 @@ type Props = {
   command: (command: CanvasCommand, actorKind?: ActorKind) => Promise<CommandResult>;
   semanticTransaction: (transaction: SemanticTransaction) => Promise<SemanticTransactionResult>;
   lease: (action: LeaseAction, actorKind?: ActorKind) => Promise<LeaseResult>;
+  leaseMany: (action: LeaseBatchAction, actorKind?: ActorKind) => Promise<LeaseBatchResult>;
   refresh: () => Promise<RoomState>;
   presence: (
     value: {
@@ -310,6 +319,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   command,
   semanticTransaction,
   lease,
+  leaseMany,
   refresh,
   presence,
   transientPresence,
@@ -344,6 +354,9 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   const pendingObjectSyncBatchesRef = useRef(new Map<string, PendingObjectSyncBatch>());
   const outstandingSyncBatchSequenceRef = useRef(0);
   const outstandingSyncBatchesRef = useRef(new Map<number, Set<string>>());
+  const leaseRenewalCohortSequenceRef = useRef(0);
+  const leaseRenewalCohortsRef = useRef(new Map<number, LeaseRenewalCohort>());
+  const leaseRenewalCohortByObjectRef = useRef(new Map<string, number>());
   const editingObjectIdRef = useRef<string | null>(null);
   const recoveryGroupLocksRef = useRef(new Map<TLShapeId, RecoveryGroupLock>());
   const flushFramesRef = useRef(new Set<number>());
@@ -537,6 +550,100 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     [editor],
   );
 
+  const detachLeaseRenewalCohort = useCallback((objectId: string) => {
+    const cohortId = leaseRenewalCohortByObjectRef.current.get(objectId);
+    if (cohortId === undefined) return;
+    leaseRenewalCohortByObjectRef.current.delete(objectId);
+    const cohort = leaseRenewalCohortsRef.current.get(cohortId);
+    if (!cohort) return;
+    cohort.objectIds.delete(objectId);
+    if (cohort.objectIds.size) return;
+    if (cohort.timer) window.clearInterval(cohort.timer);
+    cohort.timer = null;
+    leaseRenewalCohortsRef.current.delete(cohortId);
+  }, []);
+
+  const installLeaseRenewalCohort = useCallback(
+    (leasesByObjectId: ReadonlyMap<string, ObjectLease>) => {
+      const coordinator = syncCoordinatorRef.current;
+      const installed = new Map<
+        string,
+        { lease: ObjectLease; renewTimer: number | null }
+      >();
+      for (const [objectId, acquired] of leasesByObjectId) {
+        const entry = coordinator.get(objectId);
+        if (!entry) continue;
+        detachLeaseRenewalCohort(objectId);
+        if (entry.lease?.renewTimer) window.clearInterval(entry.lease.renewTimer);
+        const managed = { lease: acquired, renewTimer: null };
+        entry.lease = managed;
+        installed.set(objectId, managed);
+      }
+      if (!installed.size) return;
+
+      const cohort: LeaseRenewalCohort = {
+        id: ++leaseRenewalCohortSequenceRef.current,
+        objectIds: new Set(installed.keys()),
+        timer: null,
+        request: null,
+      };
+      leaseRenewalCohortsRef.current.set(cohort.id, cohort);
+      for (const objectId of cohort.objectIds) {
+        leaseRenewalCohortByObjectRef.current.set(objectId, cohort.id);
+      }
+      cohort.timer = window.setInterval(() => {
+        if (cohort.request) return;
+        const targets = [...cohort.objectIds].flatMap((objectId) => {
+          const entry = coordinator.get(objectId);
+          const managed = installed.get(objectId);
+          if (!entry || !managed || entry.lease !== managed || entry.releaseRequest) return [];
+          return [{ objectId, leaseId: managed.lease.leaseId }];
+        });
+        if (!targets.length) {
+          if (cohort.timer) window.clearInterval(cohort.timer);
+          cohort.timer = null;
+          leaseRenewalCohortsRef.current.delete(cohort.id);
+          return;
+        }
+        const request = (
+          targets.length === 1
+            ? lease({ action: "renew", ...targets[0] }).then((result) => ({
+                room: result.room,
+                leases: result.lease ? [result.lease] : [],
+              }))
+            : leaseMany({ action: "renew-many", targets })
+        )
+          .then((result) => {
+            if (!mountedRef.current) return;
+            advanceRoomRef(result.room);
+            const renewedByObjectId = new Map(result.leases.map((item) => [item.objectId, item]));
+            for (const { objectId, leaseId } of targets) {
+              const entry = coordinator.get(objectId);
+              const managed = installed.get(objectId);
+              const renewed = renewedByObjectId.get(objectId);
+              if (
+                renewed &&
+                managed &&
+                entry?.lease === managed &&
+                managed.lease.leaseId === leaseId
+              ) {
+                managed.lease = renewed;
+              }
+            }
+          })
+          .catch(() => {
+            // Renewal responses are ambiguous on transport failure. Preserve
+            // the lease identities and let the next cohort tick reconcile.
+          })
+          .finally(() => {
+            if (cohort.request === request) cohort.request = null;
+          });
+        cohort.request = request;
+      }, 1_500);
+    },
+    [advanceRoomRef, detachLeaseRenewalCohort, lease, leaseMany],
+  );
+
   const releaseLease = useCallback(
     async (objectId: string) => {
       const coordinator = syncCoordinatorRef.current;
@@ -550,6 +657,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         if (entry.leaseRequest) await entry.leaseRequest.catch(() => null);
         const active = entry.lease;
         if (!active) return;
+        detachLeaseRenewalCohort(objectId);
         if (active.renewTimer) window.clearInterval(active.renewTimer);
         active.renewTimer = null;
         try {
@@ -570,7 +678,66 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         coordinator.prune(objectId);
       }
     },
-    [advanceRoomRef, lease],
+    [advanceRoomRef, detachLeaseRenewalCohort, lease],
+  );
+
+  const releaseLeases = useCallback(
+    async (objectIds: Iterable<string>) => {
+      const coordinator = syncCoordinatorRef.current;
+      const entries = [...new Set(objectIds)].flatMap((objectId) => {
+        const entry = coordinator.cancelLeaseIntent(objectId);
+        return entry ? [entry] : [];
+      });
+      if (!entries.length) return;
+
+      const existing = entries
+        .map((entry) => entry.releaseRequest)
+        .filter((request): request is Promise<void> => Boolean(request));
+      if (existing.length) {
+        await Promise.all(existing.map((request) => request.catch(() => undefined)));
+      }
+      const releasable = entries.filter((entry) => !entry.releaseRequest);
+      if (!releasable.length) return;
+      const pendingAcquires = releasable.map((entry) => entry.leaseRequest);
+
+      const request = (async () => {
+        await Promise.all(pendingAcquires.map((pending) => pending?.catch(() => null)));
+        const targets = releasable.flatMap((entry) => {
+          const active = entry.lease;
+          if (!active) return [];
+          detachLeaseRenewalCohort(entry.objectId);
+          if (active.renewTimer) window.clearInterval(active.renewTimer);
+          active.renewTimer = null;
+          return [{ objectId: entry.objectId, leaseId: active.lease.leaseId }];
+        });
+        if (!targets.length) return;
+        try {
+          const released =
+            targets.length === 1
+              ? await lease({ action: "release", ...targets[0] })
+              : await leaseMany({ action: "release-many", targets });
+          advanceRoomRef(released.room);
+        } catch {
+          // Server leases expire quickly; a best-effort release failure must
+          // not keep an acknowledged local edit protected indefinitely.
+        } finally {
+          for (const { objectId, leaseId } of targets) {
+            const entry = coordinator.get(objectId);
+            if (entry?.lease?.lease.leaseId === leaseId) entry.lease = null;
+          }
+        }
+      })();
+      for (const entry of releasable) entry.releaseRequest = request;
+      try {
+        await request;
+      } finally {
+        for (const entry of releasable) {
+          if (entry.releaseRequest === request) entry.releaseRequest = null;
+          coordinator.prune(entry.objectId);
+        }
+      }
+    },
+    [advanceRoomRef, detachLeaseRenewalCohort, lease, leaseMany],
   );
 
   const settleObject = useCallback(
@@ -679,7 +846,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
             }
             projectAuthoritativeRoom(authoritative, new Set(recoveryIds));
             unlockRecoveryGroups(recoveryIds);
-            for (const objectId of recoveryIds) void releaseLease(objectId);
+            void releaseLeases(recoveryIds);
           })
           .catch(() => {
             if (!mountedRef.current) return;
@@ -695,7 +862,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       onError,
       projectAuthoritativeRoom,
       refresh,
-      releaseLease,
+      releaseLeases,
       unlockRecoveryGroups,
     ],
   );
@@ -705,153 +872,146 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     [recoverObjects],
   );
 
+  const acquireLeases = useCallback(
+    async (
+      requested: Iterable<{ objectId: string; operation: LeaseOperation }>,
+      mode: "latest-intent" | "ensure-ownership" = "latest-intent",
+    ): Promise<Map<string, ObjectLease>> => {
+      const coordinator = syncCoordinatorRef.current;
+      const uniqueRequests = [...new Map(
+        [...requested].map((item) => [item.objectId, item]),
+      ).values()];
+      const intents = new Map<
+        string,
+        { epoch: number } | null
+      >();
+      for (const { objectId, operation } of uniqueRequests) {
+        const current = roomRef.current.objects[objectId];
+        coordinator.getOrCreate(
+          objectId,
+          current?.revision ?? null,
+          current?.createdAt ?? null,
+        );
+        intents.set(
+          objectId,
+          mode === "latest-intent" ? coordinator.desireLease(objectId, operation) : null,
+        );
+      }
+
+      while (mountedRef.current) {
+        const candidates = uniqueRequests.flatMap(({ objectId, operation }) => {
+          const entry = coordinator.get(objectId);
+          if (!entry || entry.awaitingRecovery) return [];
+          const intent = intents.get(objectId) ?? null;
+          if (intent && !coordinator.hasLeaseIntent(entry, intent.epoch, operation)) return [];
+          if (mode === "ensure-ownership" && !entry.dirty) return [];
+          return [{ objectId, operation, entry, intent }];
+        });
+        if (!candidates.length) return new Map();
+
+        const blockers = new Set<Promise<unknown>>();
+        for (const { entry } of candidates) {
+          if (entry.releaseRequest) blockers.add(entry.releaseRequest);
+          if (entry.leaseRequest) blockers.add(entry.leaseRequest);
+        }
+        if (blockers.size) {
+          await Promise.all([...blockers].map((request) => request.catch(() => undefined)));
+          continue;
+        }
+
+        const acquired = new Map<string, ObjectLease>();
+        const targets = candidates.flatMap(({ objectId, operation, entry }) => {
+          const requestedOperation =
+            mode === "ensure-ownership"
+              ? entry.desiredLeaseOperation ?? operation
+              : operation;
+          if (
+            entry.lease &&
+            (mode === "ensure-ownership" || entry.lease.lease.operation === requestedOperation)
+          ) {
+            acquired.set(objectId, entry.lease.lease);
+            return [];
+          }
+          const current = roomRef.current.objects[objectId];
+          const expectedRevision = entry.baseRevision ?? current?.revision ?? null;
+          if (!current || expectedRevision === null) return [];
+          return [{ objectId, expectedRevision, operation: requestedOperation }];
+        });
+        if (!targets.length) return acquired;
+
+        const batchRequest = (
+          targets.length === 1
+            ? lease({ action: "acquire", ...targets[0] }).then((result) => ({
+                room: result.room,
+                leases: result.lease ? [result.lease] : [],
+              }))
+            : leaseMany({ action: "acquire-many", targets })
+        ).then((result) => {
+          advanceRoomRef(result.room);
+          return new Map(result.leases.map((item) => [item.objectId, item]));
+        });
+        const perObjectRequests = new Map<string, Promise<ObjectLease | null>>();
+        for (const target of targets) {
+          // The owning acquireLeases call propagates the batch failure once for
+          // cohort recovery. Per-object blockers are settlement barriers only;
+          // resolving them to null on failure avoids N unhandled derived
+          // rejections for a single all-or-nothing server response.
+          const request = batchRequest.then(
+            (leases) => leases.get(target.objectId) ?? null,
+            () => null,
+          );
+          perObjectRequests.set(target.objectId, request);
+          const entry = coordinator.get(target.objectId);
+          if (entry) entry.leaseRequest = request;
+        }
+
+        let batchLeases: Map<string, ObjectLease>;
+        try {
+          batchLeases = await batchRequest;
+        } finally {
+          for (const [objectId, request] of perObjectRequests) {
+            const entry = coordinator.get(objectId);
+            if (entry?.leaseRequest === request) entry.leaseRequest = null;
+          }
+        }
+        if (!mountedRef.current) {
+          const targets = [...batchLeases.values()].map((item) => ({
+            objectId: item.objectId,
+            leaseId: item.leaseId,
+          }));
+          if (targets.length) {
+            void leaseMany({ action: "release-many", targets }).catch(() => undefined);
+          }
+          return new Map();
+        }
+
+        installLeaseRenewalCohort(batchLeases);
+        for (const [objectId, value] of batchLeases) acquired.set(objectId, value);
+        for (const { objectId, operation, entry, intent } of candidates) {
+          const leaseForObject = acquired.get(objectId);
+          if (!leaseForObject || !intent) continue;
+          if (coordinator.hasLeaseIntent(entry, intent.epoch, operation)) continue;
+          if (
+            !entry.releaseRequest &&
+            (entry.desiredLeaseOperation === null || entry.awaitingRecovery)
+          ) {
+            void releaseLease(objectId);
+          }
+        }
+        return acquired;
+      }
+      return new Map();
+    },
+    [advanceRoomRef, installLeaseRenewalCohort, lease, leaseMany, releaseLease],
+  );
+
   const acquireLease = useCallback(
     async (
       objectId: string,
       operation: LeaseOperation,
       mode: "latest-intent" | "ensure-ownership" = "latest-intent",
-    ) => {
-      const coordinator = syncCoordinatorRef.current;
-      const initialObject = roomRef.current.objects[objectId];
-      const entry = coordinator.getOrCreate(
-        objectId,
-        initialObject?.revision ?? null,
-        initialObject?.createdAt ?? null,
-      );
-      // Immediate document events publish the newest human intent. An older
-      // serialized save only needs proof of ownership and must not overwrite
-      // that newer operation intent when it reaches the head of the queue.
-      const intent =
-        mode === "latest-intent" ? coordinator.desireLease(objectId, operation) : null;
-
-      while (mountedRef.current && !entry.awaitingRecovery) {
-        if (
-          intent &&
-          !coordinator.hasLeaseIntent(entry, intent.epoch, operation)
-        ) {
-          return entry.lease?.lease ?? null;
-        }
-        if (mode === "ensure-ownership" && !entry.dirty) return entry.lease?.lease ?? null;
-        if (entry.releaseRequest) {
-          await entry.releaseRequest.catch(() => undefined);
-          if (
-            intent &&
-            !coordinator.hasLeaseIntent(entry, intent.epoch, operation)
-          ) {
-            return entry.lease?.lease ?? null;
-          }
-          if (mode === "ensure-ownership" && (!entry.dirty || entry.awaitingRecovery)) {
-            return entry.lease?.lease ?? null;
-          }
-        }
-        if (
-          entry.lease &&
-          (mode === "ensure-ownership" || entry.lease.lease.operation === operation)
-        ) {
-          if (coordinator.canSettle(entry)) void releaseLease(objectId);
-          return entry.lease.lease;
-        }
-        if (entry.leaseRequest) {
-          await entry.leaseRequest;
-          if (
-            intent &&
-            !coordinator.hasLeaseIntent(entry, intent.epoch, operation)
-          ) {
-            return entry.lease?.lease ?? null;
-          }
-          continue;
-        }
-
-        const current = roomRef.current.objects[objectId];
-        const expectedRevision = entry.baseRevision ?? current?.revision ?? null;
-        if (!current || expectedRevision === null) return null;
-        const requestedOperation: LeaseOperation =
-          mode === "ensure-ownership"
-            ? entry.desiredLeaseOperation ?? operation
-            : operation;
-        const request: Promise<ObjectLease | null> = lease({
-          action: "acquire",
-          objectId,
-          expectedRevision,
-          operation: requestedOperation,
-        }).then((result) => {
-          advanceRoomRef(result.room);
-          return result.lease;
-        });
-        entry.leaseRequest = request;
-        try {
-          const acquired: ObjectLease | null = await request;
-          if (!acquired) return null;
-          if (!mountedRef.current) {
-            void lease({ action: "release", objectId, leaseId: acquired.leaseId })
-              .then((result) => advanceRoomRef(result.room))
-              .catch(() => undefined);
-            return null;
-          }
-          if (entry.lease?.renewTimer) window.clearInterval(entry.lease.renewTimer);
-          const managed: {
-            lease: ObjectLease;
-            renewTimer: number | null;
-            renewRequest: Promise<void> | null;
-          } = {
-            lease: acquired,
-            renewTimer: null,
-            renewRequest: null,
-          };
-          managed.renewTimer = window.setInterval(() => {
-            if (managed.renewRequest || entry.lease !== managed) return;
-            const renewRequest = lease({ action: "renew", objectId, leaseId: managed.lease.leaseId })
-              .then((result) => {
-                if (!mountedRef.current) return;
-                advanceRoomRef(result.room);
-                if (result.lease && entry.lease === managed) managed.lease = result.lease;
-              })
-              .catch(() => {
-                // A transport failure is ambiguous: the server may have renewed
-                // this exact lease even though its response was lost. Retain the
-                // managed identity so acknowledgement can still release it, and
-                // let the next serialized interval attempt reconcile expiry.
-              })
-              .finally(() => {
-                if (managed.renewRequest === renewRequest) managed.renewRequest = null;
-              });
-            managed.renewRequest = renewRequest;
-          }, 1_500);
-          entry.lease = managed;
-          if (
-            intent &&
-            !coordinator.hasLeaseIntent(entry, intent.epoch, requestedOperation)
-          ) {
-            // Keep a superseded same-actor lease installed: the next intent can
-            // update its operation using the server-reused lease ID. A genuine
-            // cancellation/recovery already owns releaseRequest and will drain
-            // this exact lease before any newer acquire is allowed to continue.
-            if (
-              !entry.releaseRequest &&
-              (entry.desiredLeaseOperation === null || entry.awaitingRecovery)
-            ) {
-              void releaseLease(objectId);
-            }
-            return acquired;
-          }
-        } finally {
-          if (entry.leaseRequest === request) entry.leaseRequest = null;
-        }
-
-        if (
-          entry.lease &&
-          (mode === "ensure-ownership" ||
-            (intent &&
-              coordinator.hasLeaseIntent(entry, intent.epoch, operation) &&
-              entry.lease.lease.operation === operation))
-        ) {
-          if (coordinator.canSettle(entry)) void releaseLease(objectId);
-          return entry.lease.lease;
-        }
-      }
-      return null;
-    },
-    [advanceRoomRef, lease, releaseLease],
+    ) => (await acquireLeases([{ objectId, operation }], mode)).get(objectId) ?? null,
+    [acquireLeases],
   );
 
   const syncObjectBatch = useCallback(
@@ -999,20 +1159,15 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         const leaseSnapshots = snapshots.filter(
           (snapshot): snapshot is Snapshot & { operation: LeaseOperation } => snapshot.operation !== null,
         );
-        const leaseResults = await Promise.allSettled(
-          leaseSnapshots.map((snapshot) =>
-            acquireLease(snapshot.objectId, snapshot.operation, "ensure-ownership"),
-          ),
+        const acquired = await acquireLeases(
+          leaseSnapshots.map((snapshot) => ({
+            objectId: snapshot.objectId,
+            operation: snapshot.operation,
+          })),
+          "ensure-ownership",
         );
-        const acquired = new Map<string, ObjectLease>();
-        let acquisitionError: unknown = null;
-        leaseResults.forEach((result, index) => {
-          if (result.status === "fulfilled" && result.value) acquired.set(leaseSnapshots[index].objectId, result.value);
-          else if (!acquisitionError) {
-            acquisitionError = result.status === "rejected" ? result.reason : new Error("An object lease could not be acquired.");
-          }
-        });
-        if (acquisitionError) throw acquisitionError;
+        const missingLease = leaseSnapshots.find((snapshot) => !acquired.has(snapshot.objectId));
+        if (missingLease) throw new Error(`Canvas object ${missingLease.objectId} could not be leased.`);
         if (
           scheduled.some((item) => {
             const entry = coordinator.get(item.objectId);
@@ -1115,7 +1270,14 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
             settledIds.push(snapshot.objectId);
           }
         }
-        for (const objectId of settledIds) settleObject(objectId, authoritative);
+        const releasableIds = settledIds.filter((objectId) => {
+          const entry = coordinator.get(objectId);
+          return Boolean(entry && coordinator.canSettle(entry));
+        });
+        if (releasableIds.length) {
+          projectAuthoritativeRoom(authoritative);
+          void releaseLeases(releasableIds);
+        }
       } catch (error) {
         if (!mountedRef.current) return;
         if (isCommittedOutcomeReplay(error)) {
@@ -1210,8 +1372,14 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
               );
               return;
             }
-            if (settledIds.length) projectAuthoritativeRoom(authoritative);
-            for (const objectId of settledIds) void releaseLease(objectId);
+            const releasableIds = settledIds.filter((objectId) => {
+              const entry = coordinator.get(objectId);
+              return Boolean(entry && coordinator.canSettle(entry));
+            });
+            if (releasableIds.length) {
+              projectAuthoritativeRoom(authoritative);
+              void releaseLeases(releasableIds);
+            }
             return;
           }
           return;
@@ -1220,16 +1388,15 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       }
     },
     [
-      acquireLease,
+      acquireLeases,
       advanceRoomRef,
       command,
       editor,
       recoverObjects,
       refresh,
       projectAuthoritativeRoom,
-      releaseLease,
+      releaseLeases,
       semanticTransaction,
-      settleObject,
     ],
   );
 
@@ -1638,14 +1805,10 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         if (immediateLeaseOperations.size) {
           const requests = [...immediateLeaseOperations];
           const recoveryIds = [...changedObjectIds];
-          void Promise.allSettled(
-            requests.map(([objectId, operation]) => acquireLease(objectId, operation)),
-          ).then((results) => {
-            if (!mountedRef.current) return;
-            const failed = results.find((result) => result.status === "rejected");
-            if (!failed) return;
-            recoverObjects(recoveryIds, failed.reason);
-          });
+          void acquireLeases(requests.map(([objectId, operation]) => ({ objectId, operation })))
+            .catch((error) => {
+              if (mountedRef.current) recoverObjects(recoveryIds, error);
+            });
         }
         const gestureBatch = pointerGestureBatchRef.current;
         const changedInGesture =
@@ -1719,6 +1882,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     };
   }, [
     acquireLease,
+    acquireLeases,
     editor,
     finishInteractionsAfterFrame,
     lockObjectsForRecovery,
@@ -1812,17 +1976,20 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       })
       .catch(() => undefined)
       .finally(() => {
-        for (const snapshot of snapshots) {
+        const targets = snapshots.flatMap((snapshot) => {
           const active = coordinator.get(snapshot.objectId)?.lease?.lease;
-          if (active) {
-            void lease({ action: "release", objectId: snapshot.objectId, leaseId: active.leaseId }).catch(
-              () => undefined,
-            );
-          }
+          return active
+            ? [{ objectId: snapshot.objectId, leaseId: active.leaseId }]
+            : [];
+        });
+        if (targets.length === 1) {
+          void lease({ action: "release", ...targets[0] }).catch(() => undefined);
+        } else if (targets.length > 1) {
+          void leaseMany({ action: "release-many", targets }).catch(() => undefined);
         }
       });
     return objectIds;
-  }, [command, editor, lease, semanticTransaction]);
+  }, [command, editor, lease, leaseMany, semanticTransaction]);
 
   useEffect(
     () => () => {
@@ -1854,19 +2021,27 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         complete();
       }
       reconciliationWaitersRef.current.clear();
+      for (const cohort of leaseRenewalCohortsRef.current.values()) {
+        if (cohort.timer) window.clearInterval(cohort.timer);
+        cohort.timer = null;
+      }
+      leaseRenewalCohortsRef.current.clear();
+      leaseRenewalCohortByObjectRef.current.clear();
+      const releaseTargets: Array<{ objectId: string; leaseId: string }> = [];
       syncCoordinatorRef.current.forEach((entry) => {
         if (entry.timer) window.clearTimeout(entry.timer);
         if (entry.recoveryTimer) window.clearTimeout(entry.recoveryTimer);
         if (entry.lease?.renewTimer) window.clearInterval(entry.lease.renewTimer);
         if (entry.lease && !detachedObjectIds.has(entry.objectId)) {
-          void lease({ action: "release", objectId: entry.objectId, leaseId: entry.lease.lease.leaseId }).catch(
-            () => undefined,
-          );
+          releaseTargets.push({ objectId: entry.objectId, leaseId: entry.lease.lease.leaseId });
         }
       });
+      if (releaseTargets.length) {
+        void leaseMany({ action: "release-many", targets: releaseTargets }).catch(() => undefined);
+      }
       recoveryGroupLocksRef.current.clear();
     },
-    [flushDetachedDirtyState, lease],
+    [flushDetachedDirtyState, leaseMany],
   );
 
   const currentPresenceValue = useCallback(() => {
@@ -2040,7 +2215,25 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       const hit = editor.getShapeAtPoint(point, { hitInside: true, margin: 8 });
       if (!hit) return;
       const selected = editor.getSelectedShapes();
-      const targets = selected.some((shape) => shape.id === hit.id) ? selected : [hit];
+      // Match tldraw's own pointer-selection semantics. A click inside a
+      // selected (possibly nested) group usually hits a leaf shape even though
+      // tldraw will translate the selected ancestor. Protecting only that raw
+      // leaf lets the remaining group members discover their leases after the
+      // gesture has already started and turns a single move into a request
+      // storm. Resolve the same outer shape / selected ancestor that tldraw
+      // will move so the complete semantic cohort is protected up front.
+      const selectedIds = new Set(selected.map((shape) => shape.id));
+      const outermostHit = editor.getOutermostSelectableShape(hit);
+      const selectedAncestor = editor.findShapeAncestor(
+        outermostHit,
+        (ancestor) => selectedIds.has(ancestor.id),
+      );
+      const selectionBounds = editor.getSelectionRotatedPageBounds();
+      const hitBelongsToSelection =
+        selectedIds.has(outermostHit.id) ||
+        Boolean(selectedAncestor) ||
+        (selected.length > 1 && Boolean(selectionBounds?.containsPoint(point)));
+      const targets = hitBelongsToSelection ? selected : [outermostHit];
       const directShapes = editableShapesForTargets(editor, targets);
       const dependentConnectors = boundConnectorsForTargets(editor, directShapes);
       const dependentShapeIds = new Set(dependentConnectors.map((shape) => shape.id));
@@ -2097,17 +2290,13 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       }
       if (leaseRequests.length) {
         scheduleObjectSyncBatch(gestureDependentObjectIdsRef.current, `gesture:${gestureEpoch}`);
-        void Promise.allSettled(
-          leaseRequests.map(({ objectId, operation }) => acquireLease(objectId, operation)),
-        ).then((results) => {
-          const failed = results.find((result) => result.status === "rejected");
-          if (!failed) return;
-          recoverObjects(leaseRequests.map(({ objectId }) => objectId), failed.reason);
+        void acquireLeases(leaseRequests).catch((error) => {
+          recoverObjects(leaseRequests.map(({ objectId }) => objectId), error);
         });
       }
     },
     [
-      acquireLease,
+      acquireLeases,
       editor,
       flagManualDocumentInput,
       followTarget,
@@ -2212,12 +2401,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
         });
       }
       if (!objectIds.length) return;
-      void Promise.allSettled(
-        leaseRequests.map(({ objectId, operation }) => acquireLease(objectId, operation)),
-      ).then((results) => {
-        const failed = results.find((result) => result.status === "rejected");
-        if (failed) recoverObjects(objectIds, failed.reason);
-      });
+      void acquireLeases(leaseRequests).catch((error) => recoverObjects(objectIds, error));
       const interactionObjectIds = [...new Set(objectIds)];
       const interactionKey = [...interactionObjectIds].sort().join("|");
       const previousKeyboardBatch = keyboardInteractionBatchRef.current;
@@ -2265,7 +2449,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
       };
     },
     [
-      acquireLease,
+      acquireLeases,
       editor,
       exitFollowForManualViewControl,
       finishInteractionsAfterFrame,

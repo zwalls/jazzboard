@@ -64,6 +64,16 @@ export type LeaseAction =
   | { action: "acquire"; objectId: string; expectedRevision: number; operation: LeaseOperation }
   | { action: "renew" | "release"; objectId: string; leaseId: string };
 
+export type LeaseBatchAction =
+  | {
+      action: "acquire-many";
+      targets: Array<{ objectId: string; expectedRevision: number; operation: LeaseOperation }>;
+    }
+  | {
+      action: "renew-many" | "release-many";
+      targets: Array<{ objectId: string; leaseId: string }>;
+    };
+
 type RoomResponse = { ok: true; room: RoomState; participantId?: string };
 type PresenceResponse = { ok: true; presence: RoomPresenceDelta };
 
@@ -441,6 +451,20 @@ export function useRoom(roomId: string) {
     [acceptRoom, announceChange, roomId],
   );
 
+  const leaseMany = useCallback(
+    async (leaseAction: LeaseBatchAction, actorKind: ActorKind = "human") => {
+      const endpoint = actorKind === "agent" ? "agent/leases" : "leases";
+      const response = await apiRequest<RoomResponse & { leases: ObjectLease[] }>(
+        `/api/rooms/${roomId}/${endpoint}`,
+        { method: "POST", body: JSON.stringify(leaseAction) },
+      );
+      acceptRoom(response.room);
+      announceChange();
+      return { leases: response.leases, room: response.room };
+    },
+    [acceptRoom, announceChange, roomId],
+  );
+
   const presence = useCallback(
     async (
       value: { cursor: Point | null; viewport: Viewport | null; activity?: AgentActivity | null },
@@ -524,6 +548,7 @@ export function useRoom(roomId: string) {
     refresh,
     command,
     lease,
+    leaseMany,
     presence,
     transientPresence,
     semanticTransaction,

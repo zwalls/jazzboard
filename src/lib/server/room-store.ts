@@ -93,9 +93,26 @@ const EVENT_STREAM = "jazzboard:events";
 export const PRESENCE_AWAY_MS = 75_000;
 const AWARENESS_TELEMETRY_WINDOW_MS = 60_000;
 const ROOM_CREATE_OUTCOME = "room_created";
+const ROOM_TRANSACTION_MAX_ATTEMPTS = 16;
+const ROOM_TRANSACTION_RETRY_MAX_DELAY_MS = 80;
 
 const loadedPresenceScripts = new WeakMap<Redis, Set<string>>();
 const awarenessTelemetryWindows = new Map<string, number>();
+
+function waitForRoomTransactionRetry(attempt: number): Promise<void> {
+  // Concurrent lease, presence, and document writes can otherwise retry in
+  // lockstep and repeatedly invalidate one another. Full jitter gives a
+  // contending mutation a quiet commit window while keeping the common first
+  // retry effectively immediate.
+  const ceiling = Math.min(
+    ROOM_TRANSACTION_RETRY_MAX_DELAY_MS,
+    2 ** Math.min(attempt, 6),
+  );
+  const delay = randomInt(0, ceiling + 1);
+  return delay > 0
+    ? new Promise((resolve) => setTimeout(resolve, delay))
+    : Promise.resolve();
+}
 
 const CREATE_REDIS_ROOM_SCRIPT = `
 if redis.call("EXISTS", KEYS[1]) == 1 then
@@ -2633,7 +2650,7 @@ export class RedisRoomStore implements RoomStore {
     try {
       const initial = await this.readOrMigratePlanes(connection, roomId);
       if (!initial) throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
-      for (let attempt = 0; attempt < 8; attempt += 1) {
+      for (let attempt = 0; attempt < ROOM_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
         await connection.watch(
           keys.document,
           keys.awareness,
@@ -2742,6 +2759,7 @@ export class RedisRoomStore implements RoomStore {
             throw committedMutationReplay(recovered);
           }
           if (committedReceipt) return updated.result;
+          await waitForRoomTransactionRetry(attempt);
           continue;
         }
 
@@ -2817,14 +2835,20 @@ export class RedisRoomStore implements RoomStore {
             } catch {
               throw mutationVerificationUnavailable();
             }
-            if (!recoveryReceipt) continue;
+            if (!recoveryReceipt) {
+              await waitForRoomTransactionRetry(attempt);
+              continue;
+            }
             const recovered = parseMutationReceipt(recoveryReceipt);
             if (!recovered) throw mutationVerificationUnavailable();
             assertReceiptMatches(recovered, identity);
             assertRoomReceiptTarget(recovered, roomId);
             throw committedMutationReplay(recovered);
           }
-          if (committed.status === "revision_conflict") continue;
+          if (committed.status === "revision_conflict") {
+            await waitForRoomTransactionRetry(attempt);
+            continue;
+          }
           if (committed.status === "replayed") {
             if (!identity) {
               throw new DomainError(
@@ -2895,6 +2919,7 @@ export class RedisRoomStore implements RoomStore {
           if (event) publishLocal(event);
           return updated.result;
         }
+        await waitForRoomTransactionRetry(attempt);
       }
       throw new DomainError("REVISION_CONFLICT", "The room changed too quickly; inspect the latest state and retry.");
     } finally {

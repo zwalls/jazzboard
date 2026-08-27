@@ -6,11 +6,14 @@ import { roomBlobNamespace } from "@/lib/assets/private";
 import {
   LEASE_DURATION_MS,
   acquireObjectLease,
+  acquireObjectLeases,
   applyCanvasCommand,
   normalizeRoomSemanticState,
   pruneExpiredLeases,
   releaseObjectLease,
+  releaseObjectLeases,
   renewObjectLease,
+  renewObjectLeases,
   requireMutationRole,
   requireParticipant,
 } from "./engine";
@@ -757,6 +760,100 @@ describe("object revision and atomicity rules", () => {
 });
 
 describe("active-object leases", () => {
+  it("acquires a multi-object lease batch atomically with one coordination revision", () => {
+    const source = roomWith(textObject("a"), textObject("b", { revision: 3 }));
+    const result = acquireObjectLeases(
+      source,
+      "alice",
+      "human",
+      [
+        { objectId: "a", expectedRevision: 1, operation: "move" },
+        { objectId: "b", expectedRevision: 3, operation: "resize" },
+      ],
+      START + 10,
+    );
+
+    expect(source.leases).toEqual({});
+    expect(result.leases.map((lease) => lease.objectId)).toEqual(["a", "b"]);
+    expect(result.room.leases).toMatchObject({
+      a: { operation: "move", objectRevision: 1 },
+      b: { operation: "resize", objectRevision: 3 },
+    });
+    expect(result.room.roomRevision).toBe(source.roomRevision);
+    expect(result.room.stateRevision).toBe((source.stateRevision ?? source.roomRevision) + 1);
+  });
+
+  it("applies no part of a lease batch when a later target is stale", () => {
+    const source = roomWith(textObject("a"), textObject("b", { revision: 3 }));
+    const before = structuredClone(source);
+    const error = domainError(() =>
+      acquireObjectLeases(
+        source,
+        "alice",
+        "human",
+        [
+          { objectId: "a", expectedRevision: 1, operation: "move" },
+          { objectId: "b", expectedRevision: 2, operation: "move" },
+        ],
+        START + 10,
+      ),
+    );
+
+    expect(error.code).toBe("REVISION_CONFLICT");
+    expect(source).toEqual(before);
+    expect(source.leases).toEqual({});
+  });
+
+  it("renews and releases lease batches atomically with one revision per changed batch", () => {
+    const acquired = acquireObjectLeases(
+      roomWith(textObject("a"), textObject("b")),
+      "alice",
+      "human",
+      [
+        { objectId: "a", expectedRevision: 1, operation: "move" },
+        { objectId: "b", expectedRevision: 1, operation: "move" },
+      ],
+      START + 10,
+    );
+    const targets = acquired.leases.map(({ objectId, leaseId }) => ({ objectId, leaseId }));
+    const renewed = renewObjectLeases(acquired.room, "alice", "human", targets, START + 100);
+
+    expect(renewed.leases.map((lease) => lease.expiresAt)).toEqual([
+      START + 100 + LEASE_DURATION_MS,
+      START + 100 + LEASE_DURATION_MS,
+    ]);
+    expect(renewed.room.stateRevision).toBe(acquired.room.stateRevision! + 1);
+
+    const released = releaseObjectLeases(renewed.room, "alice", "human", targets, START + 110);
+    expect(released.leases).toEqual([]);
+    expect(released.room.leases).toEqual({});
+    expect(released.room.stateRevision).toBe(renewed.room.stateRevision! + 1);
+  });
+
+  it("does not partially renew or release a batch with a wrong token", () => {
+    const acquired = acquireObjectLeases(
+      roomWith(textObject("a"), textObject("b")),
+      "alice",
+      "human",
+      [
+        { objectId: "a", expectedRevision: 1, operation: "move" },
+        { objectId: "b", expectedRevision: 1, operation: "move" },
+      ],
+      START + 10,
+    );
+    const invalidTargets = [
+      { objectId: "a", leaseId: acquired.leases[0].leaseId },
+      { objectId: "b", leaseId: "wrong-token" },
+    ];
+    const before = structuredClone(acquired.room);
+
+    expect(domainError(() => renewObjectLeases(acquired.room, "alice", "human", invalidTargets, START + 100)).code)
+      .toBe("LEASE_NOT_FOUND");
+    expect(domainError(() => releaseObjectLeases(acquired.room, "alice", "human", invalidTargets, START + 100)).code)
+      .toBe("LEASE_NOT_FOUND");
+    expect(acquired.room).toEqual(before);
+  });
+
   it("acquires a revision-bound lease with the configured expiry", () => {
     const source = roomWith(textObject("note"));
     const result = acquireObjectLease(source, "alice", "human", "note", 1, "edit", START + 10);

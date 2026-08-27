@@ -700,6 +700,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         command={controller.command}
         semanticTransaction={controller.semanticTransaction}
         lease={controller.lease}
+        leaseMany={controller.leaseMany}
         refresh={controller.refresh}
         presence={controller.presence}
         transientPresence={controller.transientPresence}

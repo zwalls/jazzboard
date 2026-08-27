@@ -2,12 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   acquireObjectLease,
+  acquireObjectLeases,
   applyActivityRevert,
   applyLayoutCommand,
   applySemanticTransaction,
   actorFor,
   releaseObjectLease,
+  releaseObjectLeases,
   renewObjectLease,
+  renewObjectLeases,
   requireMutationRole,
   requireParticipant,
 } from "@/lib/domain/engine";
@@ -32,6 +35,9 @@ import type {
   CanvasCommand,
   LayoutCommand,
   LeaseOperation,
+  ObjectLease,
+  ObjectLeaseAcquireTarget,
+  ObjectLeaseTokenTarget,
   RoomState,
   Spotlight,
   Viewport,
@@ -906,7 +912,7 @@ export async function runActivityRevert(input: {
   );
 }
 
-export async function runLeaseAction(input:
+type SingleLeaseActionInput =
   | {
       action: "acquire";
       roomId: string;
@@ -917,19 +923,65 @@ export async function runLeaseAction(input:
       operation: LeaseOperation;
     }
   | {
-      action: "renew" | "release";
+      action: "renew";
       roomId: string;
       participantId: string;
       actorKind: ActorKind;
       objectId: string;
       leaseId: string;
-    },
-): Promise<{ room: RoomState; lease: RoomState["leases"][string] | null }> {
-  return getRoomStore().transact<{ room: RoomState; lease: RoomState["leases"][string] | null }>(
+    }
+  | {
+      action: "release";
+      roomId: string;
+      participantId: string;
+      actorKind: ActorKind;
+      objectId: string;
+      leaseId: string;
+    };
+
+type BatchLeaseActionInput =
+  | {
+      action: "acquire-many";
+      roomId: string;
+      participantId: string;
+      actorKind: ActorKind;
+      targets: ObjectLeaseAcquireTarget[];
+    }
+  | {
+      action: "renew-many";
+      roomId: string;
+      participantId: string;
+      actorKind: ActorKind;
+      targets: ObjectLeaseTokenTarget[];
+    }
+  | {
+      action: "release-many";
+      roomId: string;
+      participantId: string;
+      actorKind: ActorKind;
+      targets: ObjectLeaseTokenTarget[];
+    };
+
+type LeaseActionInput = SingleLeaseActionInput | BatchLeaseActionInput;
+type SingleLeaseActionResult = { room: RoomState; lease: ObjectLease | null };
+type BatchLeaseActionResult = { room: RoomState; leases: ObjectLease[] };
+
+export function runLeaseAction(input: SingleLeaseActionInput): Promise<SingleLeaseActionResult>;
+export function runLeaseAction(input: BatchLeaseActionInput): Promise<BatchLeaseActionResult>;
+export function runLeaseAction(input: LeaseActionInput): Promise<SingleLeaseActionResult | BatchLeaseActionResult>;
+export async function runLeaseAction(
+  input: LeaseActionInput,
+): Promise<SingleLeaseActionResult | BatchLeaseActionResult> {
+  return getRoomStore().transact<
+    | { room: RoomState; lease: ObjectLease | null }
+    | { room: RoomState; leases: ObjectLease[] }
+  >(
     input.roomId,
     (room) => {
       const now = Date.now();
-      let result: { room: RoomState; lease: RoomState["leases"][string] | null };
+      let result:
+        | { room: RoomState; lease: ObjectLease | null }
+        | { room: RoomState; leases: ObjectLease[] };
       if (input.action === "acquire") {
         const acquired = acquireObjectLease(
           room,
@@ -951,7 +1003,7 @@ export async function runLeaseAction(input:
           now,
         );
         result = { room: renewed.room, lease: renewed.lease };
-      } else {
+      } else if (input.action === "release") {
         const released = releaseObjectLease(
           room,
           input.participantId,
@@ -961,6 +1013,30 @@ export async function runLeaseAction(input:
           now,
         );
         result = { room: released, lease: null };
+      } else if (input.action === "acquire-many") {
+        result = acquireObjectLeases(
+          room,
+          input.participantId,
+          input.actorKind,
+          input.targets,
+          now,
+        );
+      } else if (input.action === "renew-many") {
+        result = renewObjectLeases(
+          room,
+          input.participantId,
+          input.actorKind,
+          input.targets,
+          now,
+        );
+      } else {
+        result = releaseObjectLeases(
+          room,
+          input.participantId,
+          input.actorKind,
+          input.targets,
+          now,
+        );
       }
 
       const participant = requireParticipant(result.room, input.participantId);
