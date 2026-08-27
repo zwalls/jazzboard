@@ -2,7 +2,6 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BadgeCheck,
   Bot,
   Boxes,
@@ -496,19 +495,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       style={{ "--follow-color": followedParticipant?.color ?? "#5B5CE2" } as React.CSSProperties}
     >
       <header className={styles.roomHeader}>
-        <div className={`${styles.floatingBar} ${styles.roomIdentity}`}>
-          <Link aria-label="Back to Jazzboard home" href="/" className={styles.iconButton}>
-            <ArrowLeft size={17} />
-          </Link>
-          <span className={styles.brandMini} aria-hidden="true">
-            J
-          </span>
-          <div>
-            <strong>{room.title}</strong>
-            <span>Room {room.code}</span>
-          </div>
-        </div>
-
         <div className={`${styles.floatingBar} ${styles.roomControls}`}>
           <span className={`${styles.statusPill} ${controller.connection === "offline" ? styles.offline : ""}`}>
             {controller.connection === "offline" ? <WifiOff size={14} /> : <Wifi size={14} />}

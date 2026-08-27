@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, LockKeyhole, MousePointer2 } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Bot, LockKeyhole, MousePointer2 } from "lucide-react";
+import Link from "next/link";
 import {
+  DefaultMenuPanel,
   DefaultFontFaces,
   Tldraw,
   type Editor,
@@ -108,11 +110,47 @@ type Props = {
   onError: (message: string, details?: unknown) => void;
 };
 
+type RoomChromeContextValue = {
+  code: string;
+  editable: boolean;
+  title: string;
+};
+
+const RoomChromeContext = createContext<RoomChromeContextValue | null>(null);
+
+function JazzboardMenuPanel() {
+  const roomChrome = useContext(RoomChromeContext);
+  if (!roomChrome) return null;
+
+  return (
+    <div className={styles.combinedLeftPanel} data-testid="combined-left-panel">
+      <div className={styles.combinedRoomIdentity}>
+        <Link aria-label="Back to Jazzboard home" href="/" className={styles.iconButton}>
+          <ArrowLeft size={17} />
+        </Link>
+        <span className={styles.brandMini} aria-hidden="true">
+          J
+        </span>
+        <div>
+          <strong>{roomChrome.title}</strong>
+          <span>Room {roomChrome.code}</span>
+        </div>
+      </div>
+      {roomChrome.editable ? <DefaultMenuPanel /> : null}
+    </div>
+  );
+}
+
+const PARTICIPANT_COMPONENTS: TLComponents = {
+  MenuPanel: JazzboardMenuPanel,
+};
+
 const SPECTATOR_COMPONENTS: TLComponents = {
   ActionsMenu: null,
   ContextMenu: null,
   ImageToolbar: null,
   MainMenu: null,
+  MenuPanel: JazzboardMenuPanel,
   PageMenu: null,
   QuickActions: null,
   RichTextToolbar: null,
@@ -273,6 +311,10 @@ export function JazzboardCanvas({
         if (progress >= 100) window.setTimeout(() => setUploadProgress(null), 700);
       }),
     [room.id],
+  );
+  const roomChrome = useMemo<RoomChromeContextValue>(
+    () => ({ code: room.code, editable: self.role === "participant", title: room.title }),
+    [room.code, room.title, self.role],
   );
 
   useEffect(() => {
@@ -2190,23 +2232,25 @@ export function JazzboardCanvas({
       onWheelCapture={exitFollowForManualViewControl}
       onKeyDownCapture={handleKeyDownCapture}
     >
-      <Tldraw
-        key={self.role}
-        assets={assetStore}
-        autoFocus
-        components={self.role === "spectator" ? SPECTATOR_COMPONENTS : undefined}
-        overrides={[JAZZBOARD_UI_OVERRIDES]}
-        onMount={(mountedEditor) => {
-          mountedEditor.updateInstanceState({ isReadonly: self.role === "spectator" });
-          void mountedEditor.fonts
-            .ensureFontIsLoaded(DefaultFontFaces.tldraw_draw.normal.normal)
-            .then(() => {
-              if (mountedEditor.isDisposed) return;
-              setEditor(mountedEditor);
-              onEditorChange(mountedEditor);
-            });
-        }}
-      />
+      <RoomChromeContext.Provider value={roomChrome}>
+        <Tldraw
+          key={self.role}
+          assets={assetStore}
+          autoFocus
+          components={self.role === "spectator" ? SPECTATOR_COMPONENTS : PARTICIPANT_COMPONENTS}
+          overrides={[JAZZBOARD_UI_OVERRIDES]}
+          onMount={(mountedEditor) => {
+            mountedEditor.updateInstanceState({ isReadonly: self.role === "spectator" });
+            void mountedEditor.fonts
+              .ensureFontIsLoaded(DefaultFontFaces.tldraw_draw.normal.normal)
+              .then(() => {
+                if (mountedEditor.isDisposed) return;
+                setEditor(mountedEditor);
+                onEditorChange(mountedEditor);
+              });
+          }}
+        />
+      </RoomChromeContext.Provider>
       <CanvasPresenceOverlay editor={editor} room={room} selfId={self.participantId} />
       {uploadProgress !== null ? (
         <div className={styles.uploadProgress} role="status">

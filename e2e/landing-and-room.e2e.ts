@@ -19,38 +19,51 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
         top: bounds.top,
       };
     };
-    const headerBars = [...document.querySelectorAll("header > div")].map(rect);
-    const canvasChrome = [
-      document.querySelector(".tlui-menu-zone"),
-      document.querySelector(".tlui-style-panel__wrapper"),
-    ].filter((element): element is Element => element !== null).map(rect);
+    const panel = document.querySelector('[data-testid="combined-left-panel"]');
+    const identity = panel?.firstElementChild ?? null;
+    const menu = panel?.querySelector(".tlui-menu-zone") ?? null;
+    const controls = document.querySelector("header > div");
+    const stylePanel = document.querySelector(".tlui-style-panel__wrapper");
+    const overlaps = (first: Element, second: Element) => {
+      const a = rect(first);
+      const b = rect(second);
+      return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    };
 
     return {
-      canvasChrome,
-      headerBarsOverlap:
-        headerBars.length === 2 &&
-        headerBars[0].left < headerBars[1].right &&
-        headerBars[0].right > headerBars[1].left &&
-        headerBars[0].top < headerBars[1].bottom &&
-        headerBars[0].bottom > headerBars[1].top,
-      headerBars,
+      controls: controls ? rect(controls) : null,
+      identity: identity ? rect(identity) : null,
+      menu: menu ? rect(menu) : null,
+      panel: panel ? rect(panel) : null,
+      panelControlsOverlap: panel && controls ? overlaps(panel, controls) : null,
+      stylePanel: stylePanel ? rect(stylePanel) : null,
       viewportHeight: window.innerHeight,
       viewportWidth: window.innerWidth,
     };
   });
 
-  expect(layout.headerBars).toHaveLength(2);
-  expect(layout.canvasChrome).toHaveLength(2);
-  expect(layout.headerBarsOverlap).toBe(false);
+  expect(layout.panel).not.toBeNull();
+  expect(layout.identity).not.toBeNull();
+  expect(layout.menu).not.toBeNull();
+  expect(layout.controls).not.toBeNull();
+  expect(layout.panelControlsOverlap).toBe(false);
 
-  const headerBottom = Math.max(...layout.headerBars.map((box) => box.bottom));
-  for (const box of layout.headerBars) {
+  for (const box of [layout.panel!, layout.controls!]) {
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(layout.viewportWidth);
   }
-  for (const box of layout.canvasChrome) {
-    expect(box.top).toBeGreaterThanOrEqual(headerBottom + 10);
-    expect(box.bottom).toBeLessThanOrEqual(layout.viewportHeight);
+
+  expect(layout.identity!.left).toBeGreaterThanOrEqual(layout.panel!.left);
+  expect(layout.identity!.right).toBeLessThanOrEqual(layout.panel!.right);
+  expect(layout.menu!.left).toBeGreaterThanOrEqual(layout.panel!.left);
+  expect(layout.menu!.right).toBeLessThanOrEqual(layout.panel!.right);
+  expect(layout.menu!.top).toBeGreaterThanOrEqual(layout.identity!.bottom - 1);
+  expect(layout.menu!.bottom).toBeLessThanOrEqual(layout.panel!.bottom);
+  if (layout.stylePanel) {
+    expect(layout.stylePanel.top).toBeGreaterThanOrEqual(layout.controls!.bottom + 8);
+    expect(layout.stylePanel.bottom).toBeLessThanOrEqual(layout.viewportHeight);
+  } else {
+    expect(layout.viewportWidth).toBeLessThanOrEqual(480);
   }
 }
 
@@ -62,7 +75,9 @@ test.describe("landing and room entry", () => {
       { width: 1_659, height: 303 },
       { width: 1_024, height: 768 },
       { width: 800, height: 740 },
-      { width: 801, height: 740 },
+      { width: 721, height: 740 },
+      { width: 720, height: 800 },
+      { width: 480, height: 800 },
     ]) {
       await page.setViewportSize(viewport);
       await expectTopNavigationToClearCanvasChrome(page);
@@ -122,8 +137,8 @@ test.describe("landing and room entry", () => {
       displayName: "Maya Host",
       role: "participant",
     });
-    await expect(page.locator("header").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
-    await expect(page.locator("header").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("combined-left-panel").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
     await expect(page.locator("header").getByText("participant", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Canvas outline" }).click();
@@ -155,7 +170,7 @@ test.describe("landing and room entry", () => {
         displayName: "Devon Collaborator",
         role: "participant",
       });
-      await expect(collaboratorPage.locator("header").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+      await expect(collaboratorPage.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
       await expect(collaboratorPage.getByRole("button", { name: "Show people in this room" })).toContainText("2");
 
       const peopleButton = collaboratorPage.getByRole("button", { name: "Show people in this room" });
