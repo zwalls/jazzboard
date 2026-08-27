@@ -5,7 +5,7 @@ import type { ActorRef, RoomState } from "@/lib/domain/types";
 
 import { renderDiagramMermaid } from "./mermaid";
 import { projectJazzboardArtifact, serializeJazzboardArtifact } from "./project";
-import { parseJazzboardTemplateV1 } from "./schemas";
+import { parseJazzboardArtifactV1, parseJazzboardTemplateV1 } from "./schemas";
 import { renderJazzboardSvg } from "./svg";
 import { createJazzboardTemplate, planTemplateInstantiation } from "./templates";
 import { JazzboardInterchangeError } from "./types";
@@ -294,6 +294,113 @@ describe("Jazzboard portable interchange", () => {
     });
   });
 
+  it("preserves canonical routing and exact endpoint attachment metadata through templates", () => {
+    const room = roomFixture();
+    const source = room.objects.connector_ab;
+    if (source.kind !== "connector") throw new Error("Missing connector fixture.");
+    source.routing = {
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.35,
+      labelPosition: 0.7,
+    };
+    source.start = {
+      ...source.start,
+      normalizedAnchor: { x: 1, y: 0.25 },
+      isPrecise: true,
+      isExact: false,
+      snap: "edge",
+    };
+    source.end = {
+      ...source.end,
+      normalizedAnchor: { x: 0, y: 0.75 },
+      isPrecise: true,
+      isExact: true,
+      snap: "edge-point",
+    };
+
+    const artifact = projectJazzboardArtifact(room, { kind: "diagram", diagramId: "diagram_flow" });
+    const projected = artifact.objects.find((object) => object.id === "connector_ab");
+    expect(projected).toMatchObject({
+      kind: "connector",
+      routing: source.routing,
+      start: {
+        normalizedAnchor: { x: 1, y: 0.25 },
+        isPrecise: true,
+        isExact: false,
+        snap: "edge",
+      },
+      end: {
+        normalizedAnchor: { x: 0, y: 0.75 },
+        isPrecise: true,
+        isExact: true,
+        snap: "edge-point",
+      },
+    });
+
+    const template = createJazzboardTemplate(artifact);
+    const planned = planTemplateInstantiation(template, {
+      origin: { x: 1_000, y: 2_000 },
+      createId: (kind, sourceId) => `routed_${kind}_${sourceId}`,
+    });
+    const instantiated = planned.transaction.commands.find(
+      (command) => command.type === "create" && command.object.kind === "connector",
+    );
+    expect(instantiated).toMatchObject({
+      type: "create",
+      object: {
+        routing: source.routing,
+        start: {
+          normalizedAnchor: { x: 1, y: 0.25 },
+          isPrecise: true,
+          isExact: false,
+          snap: "edge",
+        },
+        end: {
+          normalizedAnchor: { x: 0, y: 0.75 },
+          isPrecise: true,
+          isExact: true,
+          snap: "edge-point",
+        },
+      },
+    });
+  });
+
+  it("canonicalizes pre-routing v1 artifacts and templates to legacy straight connectors", () => {
+    const artifact = projectJazzboardArtifact(roomFixture(), {
+      kind: "diagram",
+      diagramId: "diagram_flow",
+    });
+    const legacyArtifact = structuredClone(artifact) as unknown as {
+      objects: Array<{ kind: string; routing?: unknown }>;
+    };
+    for (const object of legacyArtifact.objects) {
+      if (object.kind === "connector") delete object.routing;
+    }
+
+    const parsedArtifact = parseJazzboardArtifactV1(legacyArtifact);
+    expect(parsedArtifact.objects.find((object) => object.kind === "connector")).toMatchObject({
+      routing: {
+        mode: "straight",
+        kind: "straight",
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+      },
+    });
+
+    const template = createJazzboardTemplate(artifact);
+    const legacyTemplate = structuredClone(template) as unknown as {
+      objects: Array<{ kind: string; routing?: unknown }>;
+    };
+    for (const object of legacyTemplate.objects) {
+      if (object.kind === "connector") delete object.routing;
+    }
+    expect(parseJazzboardTemplateV1(legacyTemplate).objects.find((object) => object.kind === "connector"))
+      .toMatchObject({ routing: { mode: "straight", kind: "straight" } });
+  });
+
   it("renders directive-free Mermaid using generated aliases rather than semantic IDs", () => {
     const artifact = projectJazzboardArtifact(roomFixture(), { kind: "diagram", diagramId: "diagram_flow" });
     const rendered = renderDiagramMermaid(artifact);
@@ -325,6 +432,78 @@ describe("Jazzboard portable interchange", () => {
     expect(rendered.warnings.map((warning) => warning.code)).toContain("MEDIA_NOT_EMBEDDED");
     expect(rendered.width).toBeLessThanOrEqual(800);
     expect(rendered.height).toBeLessThanOrEqual(600);
+  });
+
+  it("renders straight, curved, and elbow routes with labels and bounds resolved along each path", () => {
+    const artifact = projectJazzboardArtifact(roomFixture(), {
+      kind: "diagram",
+      diagramId: "diagram_flow",
+    });
+    const connector = artifact.objects.find((object) => object.id === "connector_ab");
+    if (!connector || connector.kind !== "connector") throw new Error("Missing connector fixture.");
+    connector.x = 0;
+    connector.y = 0;
+    connector.width = 200;
+    connector.height = 1;
+    connector.start = { x: 0, y: 0, objectId: null };
+    connector.end = { x: 200, y: 0, objectId: null };
+    connector.label = "route label";
+    artifact.objects = [connector];
+    artifact.diagrams[0].memberObjectIds = [];
+    artifact.diagrams[0].connectorIds = [connector.id];
+    artifact.diagrams[0].bounds = { x: 0, y: 0, width: 200, height: 1 };
+    artifact.bounds = { x: 0, y: 0, width: 200, height: 1 };
+
+    connector.routing = {
+      mode: "straight",
+      kind: "straight",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    };
+    const straight = renderJazzboardSvg(artifact, { padding: 0, maxWidth: 8_192, maxHeight: 8_192 });
+    expect(straight.svg).toContain('<line x1="0" y1="0" x2="200" y2="0"');
+
+    connector.routing = {
+      mode: "curved",
+      kind: "curved",
+      bend: 60,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    };
+    const curved = renderJazzboardSvg(artifact, { padding: 0, maxWidth: 8_192, maxHeight: 8_192 });
+    expect(curved.svg).toMatch(/<path d="M 0 0 A [^"]+ 200 0" fill="none"/);
+
+    connector.end = { x: 200, y: 100, objectId: null };
+    connector.height = 100;
+    connector.routing = {
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.25,
+      labelPosition: 0.75,
+    };
+    artifact.bounds = { x: 0, y: 0, width: 200, height: 100 };
+    const elbow = renderJazzboardSvg(artifact, { padding: 0, maxWidth: 8_192, maxHeight: 8_192 });
+    expect(elbow.svg).toMatch(/<path d="M 0 0 L [^"]+ L 200 100" fill="none"/);
+
+    const labelBox = elbow.svg.match(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="6"/,
+    );
+    const labelText = elbow.svg.match(/<text x="([^"]+)" y="([^"]+)"[^>]+font-size="20"/);
+    const viewBox = elbow.svg.match(/viewBox="([^"]+)"/);
+    expect(labelBox).not.toBeNull();
+    expect(labelText).not.toBeNull();
+    expect(viewBox).not.toBeNull();
+    if (!labelBox || !labelText || !viewBox) throw new Error("Missing routed label or view bounds.");
+    expect(Number(labelText[1])).not.toBe(100);
+    expect(Number(labelText[2])).toBeGreaterThan(50);
+    const [viewX, viewY, viewWidth, viewHeight] = viewBox[1].split(" ").map(Number);
+    const [, rawX, rawY, rawWidth, rawHeight] = labelBox;
+    expect(viewX).toBeLessThanOrEqual(Number(rawX));
+    expect(viewY).toBeLessThanOrEqual(Number(rawY));
+    expect(viewX + viewWidth).toBeGreaterThanOrEqual(Number(rawX) + Number(rawWidth));
+    expect(viewY + viewHeight).toBeGreaterThanOrEqual(Number(rawY) + Number(rawHeight));
   });
 
   it("wraps connector labels on a readable background and includes the full label box in view bounds", () => {
@@ -454,6 +633,36 @@ describe("Jazzboard portable interchange", () => {
     const connector = external.objects.find((object) => object.kind === "connector");
     if (connector?.kind === "connector") connector.end.objectId = "outside_template";
     expect(() => parseJazzboardTemplateV1(external)).toThrowError(
+      expect.objectContaining({ code: "TEMPLATE_INVALID" }),
+    );
+
+    const invalidRouting = structuredClone(template);
+    const routedConnector = invalidRouting.objects.find((object) => object.kind === "connector");
+    if (routedConnector?.kind === "connector") {
+      routedConnector.routing = {
+        mode: "curved",
+        kind: "straight",
+        bend: 25,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+      };
+    }
+    expect(() => parseJazzboardTemplateV1(invalidRouting)).toThrowError(
+      expect.objectContaining({ code: "TEMPLATE_INVALID" }),
+    );
+
+    const subMinimumCurve = structuredClone(template);
+    const subMinimumConnector = subMinimumCurve.objects.find((object) => object.kind === "connector");
+    if (subMinimumConnector?.kind === "connector") {
+      subMinimumConnector.routing = {
+        mode: "curved",
+        kind: "curved",
+        bend: 4,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+      };
+    }
+    expect(() => parseJazzboardTemplateV1(subMinimumCurve)).toThrowError(
       expect.objectContaining({ code: "TEMPLATE_INVALID" }),
     );
 

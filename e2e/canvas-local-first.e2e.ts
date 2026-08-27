@@ -314,8 +314,10 @@ async function keepGateClosedPastTwoSeconds(
 function framesSince(frames: VisibleFrame[], objectId: string, since: number) {
   return frames
     .filter((frame) => frame.at >= since)
-    .map((frame) => frame.shapes[objectId])
-    .filter((shape): shape is VisibleShape => shape !== null);
+    .flatMap((frame) => {
+      const shape = frame.shapes[objectId];
+      return shape ? [{ ...shape, at: frame.at }] : [];
+    });
 }
 
 test.describe("persisted canvas changes stay local-first until acknowledged", () => {
@@ -513,7 +515,12 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
       );
       expect(
         connectorRollbacks,
-        "the bound connector visibly detached or returned to its stale geometry",
+        `the bound connector visibly detached or returned to its stale geometry: ${JSON.stringify({
+          localConnector,
+          connectorRollbacks,
+          commands: delayed.commands,
+          finalConnector,
+        })}`,
       ).toEqual([]);
     } finally {
       traffic.stop();

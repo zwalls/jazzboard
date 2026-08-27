@@ -4,6 +4,7 @@ import {
   JAZZBOARD_ARTIFACT_FORMAT,
   JAZZBOARD_ARTIFACT_SCHEMA_URL,
   JAZZBOARD_ARTIFACT_VERSION,
+  LEGACY_STRAIGHT_CONNECTOR_ROUTING,
   JazzboardInterchangeError,
   type JazzboardArtifactV1,
   type JazzboardTemplateV1,
@@ -107,7 +108,52 @@ const portableShape = z
     }
   });
 
-const connectorEndpoint = point.extend({ objectId: id.nullable() }).strict();
+const connectorEndpoint = point
+  .extend({
+    objectId: id.nullable(),
+    normalizedAnchor: z
+      .object({ x: finite.min(0).max(1), y: finite.min(0).max(1) })
+      .strict()
+      .nullable()
+      .optional(),
+    isPrecise: z.boolean().nullable().optional(),
+    isExact: z.boolean().nullable().optional(),
+    snap: z.enum(["center", "edge-point", "edge", "none"]).nullable().optional(),
+  })
+  .strict();
+
+const connectorRouting = z
+  .object({
+    mode: z.enum(["auto", "straight", "curved", "elbow"]),
+    kind: z.enum(["straight", "curved", "elbow"]),
+    bend: finite.min(-10_000).max(10_000),
+    elbowMidPoint: finite.min(0).max(1),
+    labelPosition: finite.min(0).max(1),
+  })
+  .strict()
+  .superRefine((routing, context) => {
+    if (routing.mode !== "auto" && routing.mode !== routing.kind) {
+      context.addIssue({
+        code: "custom",
+        path: ["kind"],
+        message: "Explicit connector routing mode and kind must match.",
+      });
+    }
+    if (routing.kind !== "curved" && routing.bend !== 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["bend"],
+        message: "Only curved routing may carry a non-zero bend.",
+      });
+    }
+    if (routing.kind === "curved" && Math.abs(routing.bend) < 8) {
+      context.addIssue({
+        code: "custom",
+        path: ["bend"],
+        message: "Canonical curved routing bend must be at least 8 canvas units from zero.",
+      });
+    }
+  });
 
 const portableConnector = z
   .object({
@@ -118,6 +164,9 @@ const portableConnector = z
     direction: z.enum(["none", "end", "both"]),
     label: z.string().max(2_000),
     color: z.string().min(1).max(32),
+    // Optional only for backwards compatibility with artifacts emitted before
+    // routing existed. Parse helpers canonicalize omission to legacy straight.
+    routing: connectorRouting.optional(),
   })
   .strict();
 
@@ -376,6 +425,7 @@ const templateConnector = z
     direction: z.enum(["none", "end", "both"]),
     label: z.string().max(2_000),
     color: z.string().min(1).max(32),
+    routing: connectorRouting.optional(),
   })
   .strict();
 
@@ -467,6 +517,24 @@ function validationDetails(error: z.ZodError): Record<string, unknown> {
   };
 }
 
+function canonicalizeLegacyConnectorRouting<T extends { objects: Array<{ kind: string; routing?: unknown }> }>(
+  artifact: T,
+): T {
+  return {
+    ...artifact,
+    objects: artifact.objects.map((object) =>
+      object.kind === "connector"
+        ? {
+            ...object,
+            routing: object.routing
+              ? { ...(object.routing as typeof LEGACY_STRAIGHT_CONNECTOR_ROUTING) }
+              : { ...LEGACY_STRAIGHT_CONNECTOR_ROUTING },
+          }
+        : object,
+    ),
+  };
+}
+
 export function parseJazzboardArtifactV1(input: unknown): JazzboardArtifactV1 {
   const parsed = jazzboardArtifactV1Schema.safeParse(input);
   if (!parsed.success) {
@@ -476,7 +544,7 @@ export function parseJazzboardArtifactV1(input: unknown): JazzboardArtifactV1 {
       validationDetails(parsed.error),
     );
   }
-  return parsed.data as JazzboardArtifactV1;
+  return canonicalizeLegacyConnectorRouting(parsed.data) as JazzboardArtifactV1;
 }
 
 export function parseJazzboardTemplateV1(input: unknown): JazzboardTemplateV1 {
@@ -488,5 +556,5 @@ export function parseJazzboardTemplateV1(input: unknown): JazzboardTemplateV1 {
       validationDetails(parsed.error),
     );
   }
-  return parsed.data as JazzboardTemplateV1;
+  return canonicalizeLegacyConnectorRouting(parsed.data) as JazzboardTemplateV1;
 }

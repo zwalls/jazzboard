@@ -110,6 +110,24 @@ type RecentRoomsData = {
   rooms: Array<{ roomId: string; code: string; title: string; role: string }>;
 };
 
+type CanvasPointData = { x: number; y: number };
+
+type ConnectorEndpointData = CanvasPointData & {
+  objectId: string | null;
+  normalizedAnchor?: CanvasPointData | null;
+  isPrecise?: boolean | null;
+  isExact?: boolean | null;
+  snap?: "center" | "edge-point" | "edge" | "none" | null;
+};
+
+type ConnectorRoutingData = {
+  mode: "auto" | "straight" | "curved" | "elbow";
+  kind: "straight" | "curved" | "elbow";
+  bend: number;
+  elbowMidPoint: number;
+  labelPosition: number;
+};
+
 type CanvasObjectData = {
   id: string;
   kind: string;
@@ -121,8 +139,9 @@ type CanvasObjectData = {
   label?: string;
   content?: string;
   nodeType?: string | null;
-  start?: { objectId: string | null };
-  end?: { objectId: string | null };
+  start?: ConnectorEndpointData;
+  end?: ConnectorEndpointData;
+  routing?: ConnectorRoutingData;
 };
 
 type DiagramData = {
@@ -306,7 +325,11 @@ async function callNavigationTool<T>(
 }
 
 function successData<T>(result: WebMcpToolResult<T>): T {
-  if (!result.ok) throw new Error(`${result.tool} failed: ${result.error.code} ${result.error.message}`);
+  if (!result.ok) {
+    throw new Error(
+      `${result.tool} failed: ${result.error.code} ${result.error.message} ${JSON.stringify(result.error.details ?? {})}`,
+    );
+  }
   return result.data;
 }
 
@@ -316,6 +339,502 @@ function expectReadOnlySurface(metadata: ToolMetadata[], expectedNames: readonly
     expect(tool.annotations?.readOnlyHint, `${tool.name} must be truthfully read-only`).toBe(true);
     expect(tool.annotations?.untrustedContentHint, `${tool.name} returns room/session content`).toBe(true);
   }
+}
+
+function requireConnector(
+  objects: readonly CanvasObjectData[],
+  objectId: string,
+): CanvasObjectData & {
+  start: ConnectorEndpointData;
+  end: ConnectorEndpointData;
+  routing: ConnectorRoutingData;
+} {
+  const object = objects.find((candidate) => candidate.id === objectId);
+  expect(object).toMatchObject({ id: objectId, kind: "connector" });
+  if (!object?.start || !object.end || !object.routing) {
+    throw new Error(`Connector ${objectId} is missing canonical endpoint or routing metadata.`);
+  }
+  return object as CanvasObjectData & {
+    start: ConnectorEndpointData;
+    end: ConnectorEndpointData;
+    routing: ConnectorRoutingData;
+  };
+}
+
+function connectorPortDirection(anchor: CanvasPointData): CanvasPointData {
+  const candidates = [
+    { direction: { x: 1, y: 0 }, distance: Math.abs(1 - anchor.x), order: 0 },
+    { direction: { x: 0, y: 1 }, distance: Math.abs(1 - anchor.y), order: 1 },
+    { direction: { x: -1, y: 0 }, distance: Math.abs(anchor.x), order: 2 },
+    { direction: { x: 0, y: -1 }, distance: Math.abs(anchor.y), order: 3 },
+  ];
+  return candidates.sort(
+    (left, right) => left.distance - right.distance || left.order - right.order,
+  )[0].direction;
+}
+
+function elbowRoutePoints(connector: ReturnType<typeof requireConnector>): CanvasPointData[] {
+  if (!connector.start.normalizedAnchor || !connector.end.normalizedAnchor) {
+    throw new Error(`Elbow connector ${connector.id} is missing exact normalized anchors.`);
+  }
+  const startDirection = connectorPortDirection(connector.start.normalizedAnchor);
+  const endDirection = connectorPortDirection(connector.end.normalizedAnchor);
+  const startOut = {
+    x: connector.start.x + startDirection.x * 36,
+    y: connector.start.y + startDirection.y * 36,
+  };
+  const endOut = {
+    x: connector.end.x + endDirection.x * 36,
+    y: connector.end.y + endDirection.y * 36,
+  };
+  const startHorizontal = startDirection.x !== 0;
+  const endHorizontal = endDirection.x !== 0;
+  const points: CanvasPointData[] = [connector.start, startOut];
+  if (startHorizontal && endHorizontal) {
+    const laneX =
+      startOut.x + (endOut.x - startOut.x) * connector.routing.elbowMidPoint;
+    points.push({ x: laneX, y: startOut.y }, { x: laneX, y: endOut.y });
+  } else if (!startHorizontal && !endHorizontal) {
+    const laneY =
+      startOut.y + (endOut.y - startOut.y) * connector.routing.elbowMidPoint;
+    points.push({ x: startOut.x, y: laneY }, { x: endOut.x, y: laneY });
+  } else if (startHorizontal) {
+    points.push({ x: endOut.x, y: startOut.y });
+  } else {
+    points.push({ x: startOut.x, y: endOut.y });
+  }
+  points.push(endOut, connector.end);
+  return points.filter(
+    (point, index) =>
+      index === 0 || point.x !== points[index - 1].x || point.y !== points[index - 1].y,
+  );
+}
+
+function curvedRoutePoints(connector: ReturnType<typeof requireConnector>): CanvasPointData[] {
+  const start = connector.start;
+  const end = connector.end;
+  const chordLength = Math.hypot(end.x - start.x, end.y - start.y);
+  if (chordLength === 0 || Math.abs(connector.routing.bend) < 8) return [start, end];
+  const unit = { x: (end.x - start.x) / chordLength, y: (end.y - start.y) / chordLength };
+  const middle = {
+    x: (start.x + end.x) / 2 - unit.y * connector.routing.bend,
+    y: (start.y + end.y) / 2 + unit.x * connector.routing.bend,
+  };
+  const denominator =
+    2 *
+    (start.x * (end.y - middle.y) +
+      end.x * (middle.y - start.y) +
+      middle.x * (start.y - end.y));
+  if (Math.abs(denominator) < Number.EPSILON) return [start, end];
+  const startSquared = start.x * start.x + start.y * start.y;
+  const endSquared = end.x * end.x + end.y * end.y;
+  const middleSquared = middle.x * middle.x + middle.y * middle.y;
+  const center = {
+    x:
+      (startSquared * (end.y - middle.y) +
+        endSquared * (middle.y - start.y) +
+        middleSquared * (start.y - end.y)) /
+      denominator,
+    y:
+      (startSquared * (middle.x - end.x) +
+        endSquared * (start.x - middle.x) +
+        middleSquared * (end.x - start.x)) /
+      denominator,
+  };
+  const normalizeAngle = (angle: number) => ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+  const middleAngle = Math.atan2(middle.y - center.y, middle.x - center.x);
+  const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+  const counterClockwiseSweep = normalizeAngle(endAngle - startAngle);
+  const middleCounterClockwise = normalizeAngle(middleAngle - startAngle);
+  const sweep =
+    middleCounterClockwise <= counterClockwiseSweep
+      ? counterClockwiseSweep
+      : -(Math.PI * 2 - counterClockwiseSweep);
+  const radius = Math.hypot(start.x - center.x, start.y - center.y);
+  return Array.from({ length: 49 }, (_, index) => {
+    if (index === 0) return start;
+    if (index === 48) return end;
+    const angle = startAngle + sweep * (index / 48);
+    return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+  });
+}
+
+function canonicalRoutePoints(connector: ReturnType<typeof requireConnector>): CanvasPointData[] {
+  if (connector.routing.kind === "elbow") return elbowRoutePoints(connector);
+  if (connector.routing.kind === "curved") return curvedRoutePoints(connector);
+  return [connector.start, connector.end];
+}
+
+function segmentIntersectsBounds(
+  start: CanvasPointData,
+  end: CanvasPointData,
+  bounds: Pick<CanvasObjectData, "x" | "y" | "width" | "height">,
+): boolean {
+  let minimum = 0;
+  let maximum = 1;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  for (const [p, q] of [
+    [-dx, start.x - bounds.x],
+    [dx, bounds.x + bounds.width - start.x],
+    [-dy, start.y - bounds.y],
+    [dy, bounds.y + bounds.height - start.y],
+  ] as const) {
+    if (Math.abs(p) < Number.EPSILON) {
+      if (q < 0) return false;
+      continue;
+    }
+    const ratio = q / p;
+    if (p < 0) minimum = Math.max(minimum, ratio);
+    else maximum = Math.min(maximum, ratio);
+    if (minimum > maximum) return false;
+  }
+  return true;
+}
+
+function routeIntersectsBounds(
+  points: readonly CanvasPointData[],
+  bounds: Pick<CanvasObjectData, "x" | "y" | "width" | "height">,
+): boolean {
+  return points
+    .slice(1)
+    .some((point, index) => segmentIntersectsBounds(points[index], point, bounds));
+}
+
+type BrowserBounds = { x: number; y: number; width: number; height: number };
+
+type RenderedConnectorData = {
+  pathData: string;
+  pathSegments: CanvasPointData[][];
+  labelText: string;
+  labelBounds: BrowserBounds;
+};
+
+type RenderedRouteKey = "auto" | "straight" | "curved" | "elbow";
+
+function expectRenderedConnectorParity(
+  actual: RenderedConnectorData,
+  expected: RenderedConnectorData,
+  routeName: RenderedRouteKey,
+): void {
+  expect(actual.labelText, `${routeName} label text should match`).toBe(expected.labelText);
+  expect(
+    actual.pathSegments.map((segment) => segment.length),
+    `${routeName} should expose the same rendered path segments`,
+  ).toEqual(expected.pathSegments.map((segment) => segment.length));
+  const pointDeltas = actual.pathSegments.flatMap((segment, segmentIndex) =>
+    segment.map((point, pointIndex) => {
+      const reference = expected.pathSegments[segmentIndex]?.[pointIndex];
+      return reference ? Math.hypot(point.x - reference.x, point.y - reference.y) : Infinity;
+    }),
+  );
+  expect(
+    Math.max(...pointDeltas),
+    `${routeName} should render at the same page-space coordinates`,
+  ).toBeLessThanOrEqual(0.5);
+  const labelDeltas = (Object.keys(actual.labelBounds) as Array<keyof BrowserBounds>).map((key) =>
+    Math.abs(actual.labelBounds[key] - expected.labelBounds[key]),
+  );
+  expect(
+    Math.max(...labelDeltas),
+    `${routeName} label should render at the same page-space bounds`,
+  ).toBeLessThanOrEqual(0.5);
+}
+
+async function renderedShapeBounds(page: Page, objectId: string): Promise<BrowserBounds> {
+  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  await expect(shape).toBeVisible({ timeout: 15_000 });
+  return shape.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+  });
+}
+
+async function readRenderedConnector(
+  page: Page,
+  objectId: string,
+  expectedLabel: string,
+): Promise<RenderedConnectorData> {
+  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  await expect(shape).toBeVisible({ timeout: 15_000 });
+  await expect(shape.locator(".tl-arrow-label")).toContainText(expectedLabel, {
+    timeout: 15_000,
+  });
+  return shape.evaluate((element) => {
+    const visiblePaths = [
+      ...element.querySelectorAll<SVGPathElement>("svg.tl-svg-container path"),
+    ].filter((path) => !path.closest("defs, clipPath, mask"));
+    const routedPaths = visiblePaths.filter((path) => path.hasAttribute("stroke-width"));
+    const candidates = (routedPaths.length > 0 ? routedPaths : visiblePaths)
+      .map((path) => {
+        try {
+          return { path, length: path.getTotalLength() };
+        } catch {
+          return { path, length: 0 };
+        }
+      })
+      .filter(({ path, length }) => {
+        if (length <= 0 || !path.getScreenCTM()) return false;
+        const style = getComputedStyle(path);
+        return style.display !== "none" && style.visibility !== "hidden";
+      })
+      .sort((left, right) => right.length - left.length);
+    const body = candidates[0];
+    if (!body) throw new Error(`Rendered connector ${element.getAttribute("data-shape-id")} has no path.`);
+    const matrix = body.path.getScreenCTM();
+    if (!matrix) throw new Error("Rendered connector path has no screen transform.");
+    const sampleCount = Math.max(128, Math.min(384, Math.ceil(body.length / 3)));
+    const points = Array.from({ length: sampleCount + 1 }, (_, index) => {
+      const point = body.path.getPointAtLength((body.length * index) / sampleCount);
+      const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+      return { x: screenPoint.x, y: screenPoint.y };
+    });
+    const distances = points.slice(1).map((point, index) =>
+      Math.hypot(point.x - points[index].x, point.y - points[index].y),
+    );
+    const sortedDistances = [...distances].sort((left, right) => left - right);
+    const typicalDistance = sortedDistances[Math.floor(sortedDistances.length / 2)] ?? 0;
+    const discontinuityThreshold = Math.max(typicalDistance * 8, 24);
+    const pathSegments: CanvasPointData[][] = [[points[0]]];
+    for (let index = 1; index < points.length; index += 1) {
+      if (distances[index - 1] > discontinuityThreshold) pathSegments.push([]);
+      pathSegments.at(-1)!.push(points[index]);
+    }
+    const label = element.querySelector<HTMLElement>(".tl-arrow-label");
+    if (!label) throw new Error("Rendered connector is missing its arrow label.");
+    const labelGeometry = [label, ...label.querySelectorAll<HTMLElement>("*")]
+      .map((candidate) => ({ candidate, bounds: candidate.getBoundingClientRect() }))
+      .filter(({ candidate, bounds }) => {
+        const style = getComputedStyle(candidate);
+        return (
+          bounds.width > 2 &&
+          bounds.height > 2 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      })
+      .sort(
+        (left, right) =>
+          right.bounds.width * right.bounds.height - left.bounds.width * left.bounds.height,
+      )[0];
+    if (!labelGeometry) throw new Error("Rendered connector label has no visible geometry.");
+    const labelBounds = labelGeometry.bounds;
+    return {
+      pathData: body.path.getAttribute("d") ?? "",
+      pathSegments,
+      labelText: (label.textContent ?? "").replace(/\s+/g, " ").trim(),
+      labelBounds: {
+        x: labelBounds.x,
+        y: labelBounds.y,
+        width: labelBounds.width,
+        height: labelBounds.height,
+      },
+    };
+  });
+}
+
+async function waitForRenderedShapeRevision(
+  page: Page,
+  objectId: string,
+  expectedRevision: number,
+): Promise<void> {
+  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  await expect(shape).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(
+      () =>
+        shape.evaluate((element) => {
+          type ReactFiber = {
+            memoizedProps?: unknown;
+            pendingProps?: unknown;
+            dependencies?: {
+              firstContext?: {
+                memoizedValue?: unknown;
+                next?: ReactFiber["dependencies"] extends { firstContext?: infer Context }
+                  ? Context
+                  : never;
+              } | null;
+            } | null;
+            return?: ReactFiber | null;
+          };
+          const shapeId = element.getAttribute("data-shape-id");
+          const revisionFromEditor = (value: unknown): number | null => {
+            if (!shapeId || !value || typeof value !== "object") return null;
+            const candidate = value as {
+              getShape?: (id: string) => { meta?: { jazzboardRevision?: unknown } } | undefined;
+            };
+            if (typeof candidate.getShape !== "function") return null;
+            const revision = candidate.getShape(shapeId)?.meta?.jazzboardRevision;
+            return typeof revision === "number" ? revision : null;
+          };
+          const editorRevisionFromValue = (value: unknown): number | null => {
+            const direct = revisionFromEditor(value);
+            if (direct !== null || !value || typeof value !== "object") return direct;
+            for (const nested of Object.values(value as Record<string, unknown>)) {
+              const revision = revisionFromEditor(nested);
+              if (revision !== null) return revision;
+            }
+            return null;
+          };
+          const revisionFromProps = (value: unknown): number | null => {
+            if (!value || typeof value !== "object") return null;
+            const shapeValue = (value as {
+              shape?: { meta?: { jazzboardRevision?: unknown } };
+            }).shape;
+            const revision = shapeValue?.meta?.jazzboardRevision;
+            return typeof revision === "number" ? revision : null;
+          };
+          const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber$"));
+          let fiber = fiberKey
+            ? ((element as unknown as Record<string, ReactFiber>)[fiberKey] ?? null)
+            : null;
+          const revisions: number[] = [];
+          while (fiber) {
+            const editorRevision =
+              editorRevisionFromValue(fiber.memoizedProps) ??
+              editorRevisionFromValue(fiber.pendingProps);
+            if (editorRevision !== null) return editorRevision;
+            let context = fiber.dependencies?.firstContext ?? null;
+            while (context) {
+              const contextRevision = editorRevisionFromValue(context.memoizedValue);
+              if (contextRevision !== null) return contextRevision;
+              context = context.next ?? null;
+            }
+            const memoizedRevision = revisionFromProps(fiber.memoizedProps);
+            const pendingRevision = revisionFromProps(fiber.pendingProps);
+            if (memoizedRevision !== null) revisions.push(memoizedRevision);
+            if (pendingRevision !== null) revisions.push(pendingRevision);
+            fiber = fiber.return ?? null;
+          }
+          return revisions.length ? Math.max(...revisions) : null;
+        }),
+      {
+        timeout: 15_000,
+        message: `tldraw shape ${objectId} should project authoritative revision ${expectedRevision}`,
+      },
+    )
+    .toBe(expectedRevision);
+}
+
+function boundsOverlap(left: BrowserBounds, right: BrowserBounds, padding = 0): boolean {
+  return !(
+    left.x + left.width + padding <= right.x ||
+    right.x + right.width + padding <= left.x ||
+    left.y + left.height + padding <= right.y ||
+    right.y + right.height + padding <= left.y
+  );
+}
+
+function renderedRouteReadiness(
+  rendered: Record<RenderedRouteKey, RenderedConnectorData>,
+  sourceBounds: BrowserBounds,
+  blockerBounds: BrowserBounds,
+): string[] {
+  const failures: string[] = [];
+  if (!rendered.straight.pathSegments.some((points) => routeIntersectsBounds(points, blockerBounds))) {
+    failures.push("straight route has not reached the blocker");
+  }
+  if (rendered.auto.pathSegments.some((points) => routeIntersectsBounds(points, blockerBounds))) {
+    failures.push("auto route still intersects the blocker");
+  }
+  if (
+    rendered.curved.pathData === rendered.straight.pathData ||
+    rendered.elbow.pathData === rendered.straight.pathData ||
+    rendered.curved.pathData === rendered.elbow.pathData
+  ) {
+    failures.push("route kinds are not visually distinct");
+  }
+  const routes = Object.entries(rendered) as Array<[RenderedRouteKey, RenderedConnectorData]>;
+  for (const [key, route] of routes) {
+    if (route.labelBounds.width <= 80 || route.labelBounds.height > 81) {
+      failures.push(`${key} label has not completed layout`);
+    }
+    if (boundsOverlap(route.labelBounds, sourceBounds)) failures.push(`${key} label overlaps source`);
+    if (boundsOverlap(route.labelBounds, blockerBounds)) failures.push(`${key} label overlaps blocker`);
+  }
+  for (let left = 0; left < routes.length; left += 1) {
+    for (let right = left + 1; right < routes.length; right += 1) {
+      if (boundsOverlap(routes[left][1].labelBounds, routes[right][1].labelBounds, 2)) {
+        failures.push(`${routes[left][0]} and ${routes[right][0]} labels overlap`);
+      }
+    }
+  }
+  return failures;
+}
+
+async function readAndAssertRenderedRoutes(
+  page: Page,
+  refs: Record<string, string>,
+  expectedRevisions: Record<RenderedRouteKey, number>,
+): Promise<Record<RenderedRouteKey, RenderedConnectorData>> {
+  await Promise.all(
+    (["auto", "straight", "curved", "elbow"] as const).map((key) =>
+      waitForRenderedShapeRevision(page, refs[`${key}_route`], expectedRevisions[key]),
+    ),
+  );
+  const sourceBounds = await renderedShapeBounds(page, refs.source);
+  const blockerBounds = await renderedShapeBounds(page, refs.blocker);
+  const readRendered = async (): Promise<Record<RenderedRouteKey, RenderedConnectorData>> => ({
+    auto: await readRenderedConnector(page, refs.auto_route, "Obstacle-aware auto route"),
+    straight: await readRenderedConnector(page, refs.straight_route, "Intentional straight overlay"),
+    curved: await readRenderedConnector(page, refs.curved_route, "Explicit curved route"),
+    elbow: await readRenderedConnector(page, refs.elbow_route, "Explicit elbow route"),
+  });
+  await expect
+    .poll(async () => renderedRouteReadiness(await readRendered(), sourceBounds, blockerBounds), {
+      timeout: 15_000,
+      message: "tldraw should finish route and label layout without overlaps",
+    })
+    .toEqual([]);
+  const rendered = await readRendered();
+
+  expect(
+    rendered.straight.pathSegments.some((points) => routeIntersectsBounds(points, blockerBounds)),
+  ).toBe(true);
+  expect(
+    rendered.auto.pathSegments.some((points) => routeIntersectsBounds(points, blockerBounds)),
+  ).toBe(false);
+  expect(rendered.curved.pathData).not.toBe(rendered.straight.pathData);
+  expect(rendered.elbow.pathData).not.toBe(rendered.straight.pathData);
+  expect(rendered.curved.pathData).not.toBe(rendered.elbow.pathData);
+
+  const routes = Object.values(rendered);
+  const labels = routes.map(({ labelBounds }) => labelBounds);
+  for (const [index, route] of routes.entries()) {
+    const routeName = ["auto", "straight", "curved", "elbow"][index];
+    expect(route.labelText).toBe([
+      "Obstacle-aware auto route",
+      "Intentional straight overlay",
+      "Explicit curved route",
+      "Explicit elbow route",
+    ][index]);
+    expect.soft(
+      route.labelBounds.width,
+      `${routeName} label should have enough horizontal room to remain readable`,
+    ).toBeGreaterThan(80);
+    expect.soft(
+      route.labelBounds.height,
+      `${routeName} label should not collapse into more than three lines`,
+    ).toBeLessThanOrEqual(81);
+    expect.soft(
+      boundsOverlap(route.labelBounds, sourceBounds),
+      `${routeName} label should stay clear of the source node`,
+    ).toBe(false);
+    expect.soft(
+      boundsOverlap(route.labelBounds, blockerBounds),
+      `${routeName} label should stay clear of the unrelated blocker`,
+    ).toBe(false);
+  }
+  for (let left = 0; left < labels.length; left += 1) {
+    for (let right = left + 1; right < labels.length; right += 1) {
+      expect.soft(
+        boundsOverlap(labels[left], labels[right], 2),
+        `connector labels ${left} and ${right} should not overlap`,
+      ).toBe(false);
+    }
+  }
+  return rendered;
 }
 
 test.describe("WebMCP browser acceptance", () => {
@@ -1376,6 +1895,388 @@ test.describe("WebMCP browser acceptance", () => {
     } finally {
       await spectatorContext.close();
     }
+  });
+
+  test("keeps semantic connector routes clean, explicit, layout-safe, and exactly previewable", async ({
+    browser,
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await installWebMcpShim(page);
+    const host = await createRoomFromLanding(page, "Routing Acceptance");
+    await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
+
+    const created = successData(
+      await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+        operations: [
+          {
+            op: "create_node",
+            tempRef: "source",
+            label: "Request source",
+            nodeType: "component",
+            x: 120,
+            y: 240,
+            width: 220,
+            height: 120,
+          },
+          {
+            op: "create_node",
+            tempRef: "blocker",
+            label: "Unrelated service",
+            nodeType: "service",
+            x: 480,
+            y: 240,
+            width: 220,
+            height: 120,
+          },
+          {
+            op: "create_node",
+            tempRef: "target",
+            label: "Request target",
+            nodeType: "service",
+            x: 840,
+            y: 240,
+            width: 220,
+            height: 120,
+          },
+          {
+            op: "connect",
+            tempRef: "auto_route",
+            start: { tempRef: "source" },
+            end: { tempRef: "target" },
+            direction: "end",
+            label: "Obstacle-aware auto route",
+          },
+          {
+            op: "connect",
+            tempRef: "straight_route",
+            start: { tempRef: "source" },
+            end: { tempRef: "target" },
+            direction: "end",
+            label: "Intentional straight overlay",
+            routing: { mode: "straight", labelPosition: 0.2 },
+          },
+          {
+            op: "connect",
+            tempRef: "curved_route",
+            start: { tempRef: "source" },
+            end: { tempRef: "target" },
+            direction: "end",
+            label: "Explicit curved route",
+            routing: { mode: "curved", bend: -180, labelPosition: 0.5 },
+          },
+          {
+            op: "connect",
+            tempRef: "elbow_route",
+            start: { tempRef: "source" },
+            end: { tempRef: "target" },
+            direction: "end",
+            label: "Explicit elbow route",
+            routing: { mode: "elbow", elbowMidPoint: 0.72, labelPosition: 0.75 },
+          },
+          {
+            op: "create_diagram",
+            tempRef: "routing_diagram",
+            diagramId: "diagram_connector_routing_e2e",
+            title: "Connector routing acceptance",
+            description:
+              "Exercises auto obstacle avoidance while preserving explicit straight, curved, and elbow intent.",
+            diagramType: "architecture",
+            category: "routing",
+            tags: ["connectors", "routing", "obstacle-avoidance"],
+            members: [{ tempRef: "source" }, { tempRef: "blocker" }, { tempRef: "target" }],
+            connectors: [
+              { tempRef: "auto_route" },
+              { tempRef: "straight_route" },
+              { tempRef: "curved_route" },
+              { tempRef: "elbow_route" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(created.changedObjectIds).toHaveLength(7);
+    expect(created.changedDiagramIds).toEqual(["diagram_connector_routing_e2e"]);
+    const refs = created.temporaryReferences;
+    const nodeIds = [refs.source, refs.blocker, refs.target];
+    const connectorIds = [
+      refs.auto_route,
+      refs.straight_route,
+      refs.curved_route,
+      refs.elbow_route,
+    ];
+    const blocker = created.objects.find((object) => object.id === refs.blocker);
+    if (!blocker) throw new Error("The routing blocker was not returned by the transaction.");
+
+    const autoRoute = requireConnector(created.objects, refs.auto_route);
+    const straightRoute = requireConnector(created.objects, refs.straight_route);
+    const curvedRoute = requireConnector(created.objects, refs.curved_route);
+    const elbowRoute = requireConnector(created.objects, refs.elbow_route);
+    expect(autoRoute.routing).toMatchObject({ mode: "auto" });
+    expect(autoRoute.routing.kind).not.toBe("straight");
+    expect(routeIntersectsBounds(canonicalRoutePoints(autoRoute), blocker)).toBe(false);
+    expect(straightRoute.routing).toEqual({
+      mode: "straight",
+      kind: "straight",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.2,
+    });
+    expect(routeIntersectsBounds(canonicalRoutePoints(straightRoute), blocker)).toBe(true);
+    expect(curvedRoute.routing).toEqual({
+      mode: "curved",
+      kind: "curved",
+      bend: -180,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    });
+    expect(elbowRoute.routing).toEqual({
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.72,
+      labelPosition: 0.75,
+    });
+
+    for (const connector of [autoRoute, straightRoute, curvedRoute, elbowRoute]) {
+      expect(connector.start).toMatchObject({
+        objectId: refs.source,
+        normalizedAnchor: { x: expect.any(Number), y: expect.any(Number) },
+        isPrecise: expect.any(Boolean),
+        isExact: false,
+        snap: expect.stringMatching(/^(center|edge-point|edge|none)$/),
+      });
+      expect(connector.end).toMatchObject({
+        objectId: refs.target,
+        normalizedAnchor: { x: expect.any(Number), y: expect.any(Number) },
+        isPrecise: expect.any(Boolean),
+        isExact: false,
+        snap: expect.stringMatching(/^(center|edge-point|edge|none)$/),
+      });
+    }
+    for (const endpoint of [elbowRoute.start, elbowRoute.end]) {
+      expect(endpoint.isPrecise).toBe(true);
+      expect(endpoint.normalizedAnchor).toBeDefined();
+      const anchor = endpoint.normalizedAnchor!;
+      expect(Math.min(anchor.x, anchor.y, 1 - anchor.x, 1 - anchor.y)).toBe(0);
+    }
+
+    const updatedCurve = successData(
+      await callWebMcpTool<CreateObjectData>(page, "update_object", {
+        objectId: refs.curved_route,
+        expectedRevision: curvedRoute.revision,
+        operation: "connect",
+        patch: { routing: { mode: "curved", bend: -220, labelPosition: 0.4 } },
+      }),
+    );
+    expect(requireConnector(updatedCurve.objects, refs.curved_route).routing).toEqual({
+      mode: "curved",
+      kind: "curved",
+      bend: -220,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.4,
+    });
+
+    const beforeLayout = successData(
+      await callWebMcpTool<ReadDiagramData>(page, "read_diagram", {
+        diagramId: "diagram_connector_routing_e2e",
+      }),
+    );
+    successData(
+      await callWebMcpTool<LayoutData>(page, "layout_objects", {
+        layout: "grid",
+        direction: "right",
+        density: "comfortable",
+        columns: 3,
+        origin: { x: 160, y: 220 },
+        diagramId: beforeLayout.diagram.id,
+        expectedDiagramRevision: beforeLayout.diagram.revision,
+        targets: beforeLayout.objects.map((object) => ({
+          objectId: object.id,
+          expectedRevision: object.revision,
+        })),
+      }),
+    );
+
+    const afterLayout = successData(
+      await callWebMcpTool<ReadDiagramData>(page, "read_diagram", {
+        diagramId: beforeLayout.diagram.id,
+      }),
+    );
+    expect(afterLayout.diagram).toMatchObject({
+      id: "diagram_connector_routing_e2e",
+      memberObjectIds: nodeIds,
+      connectorIds,
+      lastEditedBy: { kind: "agent" },
+    });
+    const routedAfterLayout = {
+      auto: requireConnector(afterLayout.connectors, refs.auto_route),
+      straight: requireConnector(afterLayout.connectors, refs.straight_route),
+      curved: requireConnector(afterLayout.connectors, refs.curved_route),
+      elbow: requireConnector(afterLayout.connectors, refs.elbow_route),
+    };
+    expect(routedAfterLayout.auto.routing.mode).toBe("auto");
+    expect(routedAfterLayout.straight.routing).toMatchObject({
+      mode: "straight",
+      kind: "straight",
+      labelPosition: 0.2,
+    });
+    expect(routedAfterLayout.curved.routing).toMatchObject({
+      mode: "curved",
+      kind: "curved",
+      bend: -220,
+      labelPosition: 0.4,
+    });
+    expect(routedAfterLayout.elbow.routing).toMatchObject({
+      mode: "elbow",
+      kind: "elbow",
+      elbowMidPoint: 0.72,
+      labelPosition: 0.75,
+    });
+    const blockerAfterLayout = afterLayout.objects.find((object) => object.id === refs.blocker);
+    if (!blockerAfterLayout) throw new Error("The laid-out routing blocker is missing.");
+    expect(
+      routeIntersectsBounds(canonicalRoutePoints(routedAfterLayout.auto), blockerAfterLayout),
+    ).toBe(false);
+    expect(
+      routeIntersectsBounds(canonicalRoutePoints(routedAfterLayout.straight), blockerAfterLayout),
+    ).toBe(true);
+
+    const expectedRenderedRevisions = {
+      auto: routedAfterLayout.auto.revision,
+      straight: routedAfterLayout.straight.revision,
+      curved: routedAfterLayout.curved.revision,
+      elbow: routedAfterLayout.elbow.revision,
+    };
+    const hostRendering = await readAndAssertRenderedRoutes(
+      page,
+      refs,
+      expectedRenderedRevisions,
+    );
+
+    const collaboratorContext = await browser.newContext({ baseURL: new URL(page.url()).origin });
+    try {
+      const collaboratorPage = await collaboratorContext.newPage();
+      await installWebMcpShim(collaboratorPage);
+      await collaboratorPage.goto("/");
+      await expectRegisteredSurface(collaboratorPage, LANDING_WEBMCP_TOOL_NAMES);
+      successData(
+        await callNavigationTool<LandingRoomData>(
+          collaboratorPage,
+          "join_room",
+          { code: host.room.code, displayName: "Routing Collaborator", role: "participant" },
+          /\/room\/room_[^/?#]+$/,
+        ),
+      );
+      await expect(collaboratorPage.getByTestId("jazzboard-canvas")).toBeVisible({
+        timeout: 20_000,
+      });
+      await expectRegisteredSurface(collaboratorPage, PARTICIPANT_ROOM_TOOL_NAMES);
+
+      const collaboratorDiagram = successData(
+        await callWebMcpTool<ReadDiagramData>(collaboratorPage, "read_diagram", {
+          diagramId: afterLayout.diagram.id,
+        }),
+      );
+      expect(collaboratorDiagram.diagram.revision).toBe(afterLayout.diagram.revision);
+      for (const [key, objectId] of [
+        ["auto", refs.auto_route],
+        ["straight", refs.straight_route],
+        ["curved", refs.curved_route],
+        ["elbow", refs.elbow_route],
+      ] as const) {
+        expect(requireConnector(collaboratorDiagram.connectors, objectId).routing).toEqual(
+          routedAfterLayout[key].routing,
+        );
+      }
+
+      const collaboratorRendering = await readAndAssertRenderedRoutes(
+        collaboratorPage,
+        refs,
+        expectedRenderedRevisions,
+      );
+      for (const key of ["auto", "straight", "curved", "elbow"] as const) {
+        // Bound arrows may use different local SVG origins after one client
+        // moves nodes optimistically and another projects the authoritative
+        // result from scratch. Compare their transformed, page-space paths;
+        // raw `d` coordinates are an internal representation and can differ
+        // by the inverse container translation while rendering identically.
+        expectRenderedConnectorParity(collaboratorRendering[key], hostRendering[key], key);
+      }
+    } finally {
+      await collaboratorContext.close();
+    }
+
+    const preview = successData(
+      await callWebMcpTool<CanvasPreviewData>(page, "render_canvas_preview", {
+        scope: {
+          kind: "diagram",
+          diagramId: afterLayout.diagram.id,
+          expectedRevision: afterLayout.diagram.revision,
+        },
+        maxWidth: 1_100,
+        maxHeight: 600,
+      }),
+    );
+    const revisionByObjectId = new Map(
+      [...afterLayout.objects, ...afterLayout.connectors].map((object) => [
+        object.id,
+        object.revision,
+      ]),
+    );
+    expect(preview).toMatchObject({
+      previewId: expect.stringMatching(/^preview_/),
+      screenshotClip: {
+        coordinateSpace: "viewport-css-pixels",
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+      mimeType: "image/png",
+      scope: {
+        kind: "diagram",
+        diagramId: afterLayout.diagram.id,
+        expectedRevision: afterLayout.diagram.revision,
+      },
+      sourceRevisions: {
+        diagramRevision: afterLayout.diagram.revision,
+        objects: expect.arrayContaining(
+          [...nodeIds, ...connectorIds].map((objectId) => ({
+            objectId,
+            revision: revisionByObjectId.get(objectId),
+          })),
+        ),
+      },
+    });
+    expect(preview.byteLength).toBeGreaterThan(0);
+    const previewDialog = page.getByRole("dialog", { name: "Canvas preview" });
+    const previewImage = previewDialog.getByAltText("Exact rendered Jazzboard canvas preview");
+    await expect(previewImage).toBeVisible();
+    const imageBounds = await previewImage.boundingBox();
+    expect(imageBounds).not.toBeNull();
+    expect(imageBounds!.x).toBeCloseTo(preview.screenshotClip.x, 1);
+    expect(imageBounds!.y).toBeCloseTo(preview.screenshotClip.y, 1);
+    expect(imageBounds!.width).toBeCloseTo(preview.screenshotClip.width, 1);
+    expect(imageBounds!.height).toBeCloseTo(preview.screenshotClip.height, 1);
+    const exactPreviewPng = await page.screenshot({
+      type: "png",
+      clip: preview.screenshotClip,
+    });
+    expect(exactPreviewPng.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    expect(exactPreviewPng.length).toBeGreaterThan(512);
+    await previewDialog.getByRole("button", { name: "Dismiss canvas preview" }).click();
+
+    const authoritative = await getRoom(page.request, host.room.id);
+    expect(authoritative.room.diagrams[afterLayout.diagram.id]).toMatchObject({
+      id: afterLayout.diagram.id,
+      revision: afterLayout.diagram.revision,
+      connectorIds,
+    });
+    expect(Object.keys(authoritative.room.leases)).toEqual([]);
   });
 
   test("shares agent text, a human freehand gesture, and a picked PNG through authoritative room state", async ({

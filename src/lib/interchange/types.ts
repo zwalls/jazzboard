@@ -85,6 +85,31 @@ export type PortableShapeObject = PortableCanvasObjectBase & {
 
 export type PortableConnectorEndpoint = Point & {
   objectId: string | null;
+  normalizedAnchor?: Point | null;
+  isPrecise?: boolean | null;
+  isExact?: boolean | null;
+  snap?: "center" | "edge-point" | "edge" | "none" | null;
+};
+
+/**
+ * Portable copy of the connector's canonical routing state. `mode` retains
+ * author intent while `kind` records the concrete geometry to render.
+ */
+export type PortableConnectorRouting = {
+  mode: "auto" | "straight" | "curved" | "elbow";
+  kind: "straight" | "curved" | "elbow";
+  bend: number;
+  elbowMidPoint: number;
+  labelPosition: number;
+};
+
+/** A v1 connector without routing predates routed arrows and was straight. */
+export const LEGACY_STRAIGHT_CONNECTOR_ROUTING: PortableConnectorRouting = {
+  mode: "straight",
+  kind: "straight",
+  bend: 0,
+  elbowMidPoint: 0.5,
+  labelPosition: 0.5,
 };
 
 export type PortableConnectorObject = PortableCanvasObjectBase & {
@@ -94,6 +119,8 @@ export type PortableConnectorObject = PortableCanvasObjectBase & {
   direction: "none" | "end" | "both";
   label: string;
   color: string;
+  /** Optional only for backwards compatibility with pre-routing v1 artifacts. */
+  routing?: PortableConnectorRouting;
 };
 
 export type PortableImageObject = PortableCanvasObjectBase & {
@@ -179,7 +206,10 @@ export type TemplateShapeObject = TemplateCanvasObjectBase &
   >;
 
 export type TemplateConnectorObject = TemplateCanvasObjectBase &
-  Pick<PortableConnectorObject, "kind" | "start" | "end" | "direction" | "label" | "color">;
+  Pick<
+    PortableConnectorObject,
+    "kind" | "start" | "end" | "direction" | "label" | "color" | "routing"
+  >;
 
 export type TemplateDrawObject = TemplateCanvasObjectBase &
   Pick<PortableDrawObject, "kind" | "points" | "color" | "size">;

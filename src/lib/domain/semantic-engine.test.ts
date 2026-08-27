@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BULK_CONNECTOR_ROUTING_THRESHOLD,
   applyLayoutCommand,
   applySemanticTransaction,
   normalizeRoomSemanticState,
 } from "./engine";
 import { DomainError } from "./errors";
+import {
+  connectorRouteBounds,
+  normalizeConnectorRouting,
+  resolveConnectorRoutes,
+} from "./connector-routing";
 import { connectorLabelBounds } from "./layout";
 import type {
   ActorRef,
@@ -132,6 +138,23 @@ function room(objects: CanvasObject[], diagrams: Diagram[] = []): RoomState {
   });
 }
 
+function persistAuthoritativeConnectorRoutes(source: RoomState): RoomState {
+  const routes = resolveConnectorRoutes(source);
+  for (const object of Object.values(source.objects)) {
+    if (object.kind !== "connector") continue;
+    const route = routes[object.id];
+    if (!route) continue;
+    Object.assign(object, {
+      ...connectorRouteBounds(route.points, 0),
+      rotation: 0,
+      start: route.start,
+      end: route.end,
+      routing: route.routing,
+    });
+  }
+  return normalizeRoomSemanticState(source);
+}
+
 function captureDomainError(run: () => unknown): DomainError {
   try {
     run();
@@ -209,6 +232,207 @@ describe("atomic semantic transactions", () => {
     expect(error).toMatchObject({ code: "OBJECT_BUSY", details: { objectId: "edge", operation: "connect" } });
     expect(source).toEqual(before);
     expect(source.participants.alice.agentActive).toBe(false);
+  });
+
+  it("reroutes an auto connector around an unrelated blocker and revisions it exactly once", () => {
+    const edge = connector("edge", "source", "target");
+    if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+    edge.routing = {
+      mode: "auto",
+      kind: "straight",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    };
+    const source = persistAuthoritativeConnectorRoutes(
+      room(
+        [node("source", 0, 100), node("blocker", 250, 100), node("target", 500, 100), edge],
+        [diagram(["source", "blocker", "target"], ["edge"])],
+      ),
+    );
+    expect(source.objects.edge).toMatchObject({
+      revision: 1,
+      routing: { mode: "auto", kind: "elbow" },
+    });
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          {
+            type: "move",
+            targets: [{ objectId: "blocker", expectedRevision: 1, x: 250, y: 400 }],
+          },
+        ],
+        diagramCommands: [],
+      },
+      NOW + 110,
+    );
+
+    expect(result.room.objects.edge).toMatchObject({
+      revision: 2,
+      routing: { mode: "auto", kind: "straight" },
+      start: { objectId: "source", x: 200, y: 150 },
+      end: { objectId: "target", x: 500, y: 150 },
+      lastEditedBy: actor(alice, "agent"),
+    });
+    expect(result.changedObjectIds).toEqual(expect.arrayContaining(["blocker", "edge"]));
+    expect(result.room.diagrams?.["diagram-main"]).toMatchObject({
+      revision: 2,
+      lastEditedBy: actor(alice, "agent"),
+    });
+  });
+
+  it("rolls back a blocker move when its derived auto-route change is foreign-leased", () => {
+    const edge = connector("edge", "source", "target");
+    if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+    edge.routing = {
+      mode: "auto",
+      kind: "straight",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    };
+    const source = persistAuthoritativeConnectorRoutes(
+      room(
+        [node("source", 0, 100), node("blocker", 250, 100), node("target", 500, 100), edge],
+        [diagram(["source", "blocker", "target"], ["edge"])],
+      ),
+    );
+    source.leases.edge = {
+      leaseId: "bob-auto-route-lease",
+      objectId: "edge",
+      actor: actor(bob),
+      operation: "connect",
+      objectRevision: 1,
+      acquiredAt: NOW,
+      expiresAt: NOW + 4_000,
+    };
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(
+        source,
+        "alice",
+        "agent",
+        {
+          commands: [
+            {
+              type: "move",
+              targets: [{ objectId: "blocker", expectedRevision: 1, x: 250, y: 400 }],
+            },
+          ],
+          diagramCommands: [],
+        },
+        NOW + 120,
+      ),
+    );
+
+    expect(error).toMatchObject({ code: "OBJECT_BUSY", details: { objectId: "edge" } });
+    expect(source).toEqual(before);
+  });
+
+  it("never reroutes persisted canonical connector geometry during read normalization", () => {
+    const edge = connector("edge", "source", "target");
+    if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+    edge.routing = {
+      mode: "auto",
+      kind: "straight",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+    };
+    const source = persistAuthoritativeConnectorRoutes(
+      room(
+        [node("source", 0, 100), node("blocker", 250, 100), node("target", 500, 100), edge],
+        [diagram(["source", "blocker", "target"], ["edge"])],
+      ),
+    );
+    expect(source.objects.edge).toMatchObject({ routing: { mode: "auto", kind: "elbow" } });
+    source.objects.blocker = { ...source.objects.blocker, y: 500 } as CanvasObject;
+    const persistedConnector = structuredClone(source.objects.edge);
+
+    const normalized = normalizeRoomSemanticState(source);
+
+    expect(normalized.objects.edge).toEqual(persistedConnector);
+    expect(normalized.diagrams["diagram-main"].bounds.height).toBeGreaterThan(1);
+  });
+
+  it("uses bounded authoritative routing without making a high-fanout hub immovable", () => {
+    const connectors = Array.from(
+      { length: BULK_CONNECTOR_ROUTING_THRESHOLD + 1 },
+      (_, index) => connector(`edge-${index}`, "source", "target"),
+    );
+    const source = room([node("source", 0, 0), node("target", 500, 0), ...connectors]);
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "human",
+      {
+        commands: [
+          {
+            type: "move",
+            targets: [{ objectId: "source", expectedRevision: 1, x: 50, y: 50 }],
+          },
+        ],
+        diagramCommands: [],
+      },
+      NOW + 130,
+    );
+
+    expect(result.room.objects.source).toMatchObject({ revision: 2, x: 50, y: 50 });
+    for (const connectorObject of connectors) {
+      expect(result.room.objects[connectorObject.id]).toMatchObject({
+        revision: 2,
+        start: { objectId: "source" },
+        end: { objectId: "target" },
+      });
+    }
+  });
+
+  it("does not reroute connectors for Diagram metadata-only edits", () => {
+    const edge = connector("edge", "source", "target");
+    if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+    edge.routing = normalizeConnectorRouting({ mode: "auto" });
+    const source = persistAuthoritativeConnectorRoutes(
+      room(
+        [node("source", 0, 0), node("target", 500, 0), edge],
+        [diagram(["source", "target"], ["edge"])],
+      ),
+    );
+    const beforeConnector = structuredClone(source.objects.edge);
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [],
+        diagramCommands: [
+          {
+            type: "diagram.update",
+            diagramId: "diagram-main",
+            expectedRevision: 1,
+            patch: {
+              title: "Renamed architecture",
+              description: "Metadata changed without changing routing scope.",
+              tags: ["renamed"],
+            },
+          },
+        ],
+      },
+      NOW + 140,
+    );
+
+    expect(result.room.objects.edge).toEqual(beforeConnector);
+    expect(result.changedObjectIds).not.toContain("edge");
+    expect(result.room.diagrams["diagram-main"]).toMatchObject({
+      revision: 2,
+      title: "Renamed architecture",
+      tags: ["renamed"],
+    });
   });
 
   it("creates explicitly classified nodes and a first-class diagram in one commit", () => {

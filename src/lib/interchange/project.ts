@@ -1,3 +1,8 @@
+import {
+  normalizeConnectorRouting,
+  resolveConnectorRoutes,
+  type ResolvedConnectorRoute,
+} from "@/lib/domain/connector-routing";
 import type { ActorRef, CanvasBounds, CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
 import { parseJazzboardArtifactV1 } from "./schemas";
@@ -53,13 +58,30 @@ export function sortArtifactWarnings(
 }
 
 export function boundsForPortableObjects(
-  objects: readonly Pick<PortableCanvasObject | TemplateCanvasObject, "x" | "y" | "width" | "height">[],
+  objects: ReadonlyArray<{
+    id?: string;
+    kind?: PortableCanvasObject["kind"] | TemplateCanvasObject["kind"];
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>,
+  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>> = {},
 ): CanvasBounds {
   if (!objects.length) return { ...EMPTY_BOUNDS };
-  const minX = Math.min(...objects.map((object) => object.x));
-  const minY = Math.min(...objects.map((object) => object.y));
-  const maxX = Math.max(...objects.map((object) => object.x + object.width));
-  const maxY = Math.max(...objects.map((object) => object.y + object.height));
+  const allBounds = objects.map((object) => {
+    const route = object.kind === "connector" && object.id ? connectorRoutes[object.id] : undefined;
+    return route?.bounds ?? {
+      x: object.x,
+      y: object.y,
+      width: object.width,
+      height: object.height,
+    };
+  });
+  const minX = Math.min(...allBounds.map((bounds) => bounds.x));
+  const minY = Math.min(...allBounds.map((bounds) => bounds.y));
+  const maxX = Math.max(...allBounds.map((bounds) => bounds.x + bounds.width));
+  const maxY = Math.max(...allBounds.map((bounds) => bounds.y + bounds.height));
   return {
     x: minX,
     y: minY,
@@ -139,11 +161,30 @@ function portableNodeMetadata(object: CanvasObject): PortableNodeMetadata | null
 function endpoint(
   connectorId: string,
   terminal: "start" | "end",
-  value: { x: number; y: number; objectId: string | null },
+  value: {
+    x: number;
+    y: number;
+    objectId: string | null;
+    normalizedAnchor?: { x: number; y: number } | null;
+    isPrecise?: boolean | null;
+    isExact?: boolean | null;
+    snap?: "center" | "edge-point" | "edge" | "none" | null;
+  },
   includedIds: ReadonlySet<string>,
   warnings: JazzboardArtifactWarning[],
   diagramId: string | null,
 ) {
+  const portableValue = {
+    x: value.x,
+    y: value.y,
+    objectId: value.objectId,
+    ...(value.normalizedAnchor !== undefined
+      ? { normalizedAnchor: value.normalizedAnchor ? { ...value.normalizedAnchor } : null }
+      : {}),
+    ...(value.isPrecise !== undefined ? { isPrecise: value.isPrecise } : {}),
+    ...(value.isExact !== undefined ? { isExact: value.isExact } : {}),
+    ...(value.snap !== undefined ? { snap: value.snap } : {}),
+  };
   if (value.objectId && !includedIds.has(value.objectId)) {
     warnings.push({
       code: "EXTERNAL_CONNECTOR_ENDPOINT_OMITTED",
@@ -151,9 +192,13 @@ function endpoint(
       objectId: connectorId,
       diagramId,
     });
-    return { x: value.x, y: value.y, objectId: null };
+    return { ...portableValue, objectId: null };
   }
-  return { x: value.x, y: value.y, objectId: value.objectId };
+  return portableValue;
+}
+
+function connectorRouting(object: Extract<CanvasObject, { kind: "connector" }>) {
+  return { ...normalizeConnectorRouting(object.routing) };
 }
 
 function portableObject(
@@ -194,6 +239,7 @@ function portableObject(
       direction: object.direction,
       label: object.label,
       color: object.color,
+      routing: connectorRouting(object),
     };
   }
   if (object.kind === "image") {
@@ -229,6 +275,7 @@ function portableDiagram(
   diagram: Diagram,
   includedIds: ReadonlySet<string>,
   objects: readonly PortableCanvasObject[],
+  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>,
   warnings: JazzboardArtifactWarning[],
 ): PortableDiagram {
   const memberObjectIds = uniqueSorted(
@@ -260,7 +307,10 @@ function portableDiagram(
     tags: uniqueSorted(diagram.tags),
     memberObjectIds,
     connectorIds,
-    bounds: boundsForPortableObjects(objects.filter((object) => memberSet.has(object.id))),
+    bounds: boundsForPortableObjects(
+      objects.filter((object) => memberSet.has(object.id)),
+      connectorRoutes,
+    ),
     revision: diagram.revision,
     createdAt: diagram.createdAt,
     updatedAt: diagram.updatedAt,
@@ -325,6 +375,7 @@ export function projectJazzboardArtifact(
   const objects = selected.ids
     .map((objectId) => portableObject(room.objects[objectId], includedIds, warnings, contextDiagramId))
     .sort(compareObjects);
+  const connectorRoutes = resolveConnectorRoutes(room);
 
   const roomDiagrams = Object.values(room.diagrams ?? {});
   const diagrams = (
@@ -336,7 +387,7 @@ export function projectJazzboardArtifact(
             [...diagram.memberObjectIds, ...diagram.connectorIds].some((objectId) => includedIds.has(objectId)),
           )
   )
-    .map((diagram) => portableDiagram(room, diagram, includedIds, objects, warnings))
+    .map((diagram) => portableDiagram(room, diagram, includedIds, objects, connectorRoutes, warnings))
     .sort((left, right) => left.id.localeCompare(right.id));
 
   const kind = scope.kind === "room" ? "board" : scope.kind;
@@ -357,7 +408,7 @@ export function projectJazzboardArtifact(
       diagramId: selected.diagram?.id ?? null,
       diagramRevision: selected.diagram?.revision ?? null,
     },
-    bounds: boundsForPortableObjects(objects),
+    bounds: boundsForPortableObjects(objects, connectorRoutes),
     objects,
     diagrams,
     warnings: sortArtifactWarnings(warnings),

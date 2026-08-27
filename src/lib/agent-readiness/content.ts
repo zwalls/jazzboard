@@ -19,10 +19,10 @@ import { JAZZBOARD_SNAPSHOT_ROOM_TOOL_NAMES } from "@/lib/webmcp/snapshot-room-t
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 export const JAZZBOARD_ORIGIN = "https://jazzboard-rho.vercel.app";
-export const AGENT_DOC_VERSION = "1.2.0";
+export const AGENT_DOC_VERSION = "1.3.0";
 export const AGENT_DOC_LAST_UPDATED = "2026-08-27";
 export const JAZZBOARD_SKILL_DESCRIPTION =
-  "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, laying out, visually checking, reviewing, reverting, exporting, templating, or privately snapshotting its semantic canvas and diagrams; or managing Follow and Spotlight without visual browser automation.";
+  "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, routing connectors, laying out, visually checking, reviewing, reverting, exporting, templating, or privately snapshotting its semantic canvas and diagrams; or managing Follow and Spotlight without visual browser automation.";
 
 /** Public readiness documents consume the executable registration inventories directly. */
 export const LANDING_TOOL_NAMES = JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES;
@@ -122,7 +122,7 @@ export function makeHomepageMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "## Semantic canvas",
     "",
-    "Agents read stable object and Diagram IDs, explicit node classifications, exact geometry, semantic connector relationships, revisions, and attribution. Decision nodes carry structured proposed/accepted/rejected/superseded status, owner, and resolution; open questions carry open/answered/deferred/closed status, owner, and resolution. Efficient operations include bounded queries, neighborhood reads, comfortable label-aware layout, all-or-nothing transactions with temporary references, and exact revision-guarded tldraw previews for visual checking.",
+    "Agents read stable object and Diagram IDs, explicit node classifications, exact geometry, semantic connector relationships and routing, revisions, and attribution. They can create rectangle, ellipse, and diamond shapes plus text, freehand drawings, accessible images, and semantic connectors. New agent connectors default to obstacle-aware auto routing; explicit straight, curved, and elbow paths remain available for deliberate composition, while authoritative reads expose precise endpoint anchors created through the visual canvas. Decision nodes carry structured proposed/accepted/rejected/superseded status, owner, and resolution; open questions carry open/answered/deferred/closed status, owner, and resolution. Efficient operations include bounded queries, neighborhood reads, comfortable label-aware layout, all-or-nothing transactions with temporary references, and exact revision-guarded tldraw previews for visual checking.",
     "",
     "## Traceable agent work",
     "",
@@ -196,9 +196,13 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "Use `apply_canvas_transaction` for a coherent multi-node change. It can create and update nodes, shapes, text, connectors, and diagrams atomically; temporary references let connectors and diagram membership target objects created earlier in the same call. Add at most one `auto_layout` operation to arrange node, shape, or text temporary references—and optionally a new Diagram temporary reference—inside that same all-or-nothing commit. Existing objects use the separate revision- and lease-checked `layout_objects` tool. Any invalid reference, stale revision, active lease conflict, permission failure, or membership error rejects the whole transaction.",
     "",
-    "Use `layout_objects` for deterministic flow, grid, or hierarchy layout. `comfortable` density is the default and expands individual corridors to keep connector labels readable; `compact` is an explicit tighter minimum. Numeric gaps are caller minima, not a request to clip labels. The operation preserves object IDs and semantic connector attachments and updates label-aware Diagram bounds.",
+    "Use `layout_objects` for deterministic flow, grid, or hierarchy layout. `comfortable` density is the default and expands individual corridors to keep connector labels readable; `compact` is an explicit tighter minimum. Numeric gaps are caller minima, not a request to clip labels. Auto-layout preserves object IDs and semantic connector relationships, chooses cardinal endpoint ports, obstacle-aware elbow corridors, and stable lane offsets, and updates route- and label-aware Diagram bounds.",
     "",
-    "Automatic layout is opt-in. To draw a character, stack cards, overlay annotations, or otherwise preserve deliberate overlap, provide exact `x` and `y` coordinates and omit `auto_layout`/`layout_objects`. A new object cannot be both explicitly positioned and targeted by transaction `auto_layout`; split those intentions instead of asking Jazzboard to guess.",
+    "New connectors created by an agent default to obstacle-aware `auto` routing. The server deterministically resolves that intent to a concrete `straight`, `curved`, or `elbow` path using unrelated node bounds, readable label space, endpoint ports, crossings, and lane separation. The returned connector retains both `routing.mode` (the caller's intent) and `routing.kind` (the concrete rendered route), so read the authoritative result rather than predicting the chosen path.",
+    "",
+    "Use an explicit `straight`, `curved`, or `elbow` routing mode when the composition requires a particular path. `curved` requires a signed `bend`; `elbow` accepts an `elbowMidPoint` from 0 to 1; every mode may set `labelPosition` from 0 to 1. Semantic reads report endpoint `normalizedAnchor`, `isPrecise`, `isExact`, and `snap` metadata so an agent can understand the authoritative attachment ports. Human-authored tldraw port edits round-trip and promote an automatic route to an explicit route; agent mutations control route intent through the routing fields. Updating an existing connector still requires its exact revision and any active lease, including inside a transaction.",
+    "",
+    "Automatic layout and connector route selection are independent: layout is opt-in, while a new agent connector defaults to `auto` unless its routing mode is explicit. To draw a character, stack cards, overlay annotations, route through a deliberate overlap, or otherwise preserve exact composition, provide exact `x` and `y` coordinates, omit `auto_layout`/`layout_objects`, and choose an explicit connector route where needed. A new object cannot be both explicitly positioned and targeted by transaction `auto_layout`; split those intentions instead of asking Jazzboard to guess.",
     "",
     "Use explicit node types (`service`, `component`, `requirement`, `decision`, or `open_question`); never infer classification from color or shape.",
     "",
@@ -218,9 +222,9 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "## Export, reuse, and snapshot",
     "",
-    "`export_canvas_artifact` returns an authorized board, Diagram, or exact selection as privacy-safe semantic JSON or fixed-vocabulary SVG; it returns one exact Diagram as directive-free Mermaid. Portable attribution contains display name and human/agent kind, never participant IDs or colors. Room codes, sessions, presence, leases, private image URLs, and out-of-scope connector IDs are omitted; image geometry becomes a placeholder with warnings. PNG is not a server or WebMCP format: the visual client rasterizes the safe SVG locally.",
+    "`export_canvas_artifact` returns an authorized board, Diagram, or exact selection as privacy-safe semantic JSON or fixed-vocabulary SVG; it returns one exact Diagram as directive-free Mermaid. Connector routing and endpoint anchors remain authoritative through Diagram membership, activity and review flows, guarded reverts, reusable templates, and room projection. Semantic JSON preserves the canonical route metadata, while SVG and tldraw previews render it; Mermaid intentionally preserves topology rather than visual route geometry. Portable attribution contains display name and human/agent kind, never participant IDs or colors. Room codes, sessions, presence, leases, private image URLs, and out-of-scope connector IDs are omitted; image geometry becomes a placeholder with warnings. PNG is not a server or WebMCP format: the visual client rasterizes the safe SVG locally.",
     "",
-    "`render_canvas_preview` is a separate participant-only visual verification operation, not an export or shared mutation. Supply exact object IDs with current revisions, or one exact Diagram ID and revision. Jazzboard renders the authoritative tldraw projection into a bounded temporary PNG surface containing only that scope, then returns `screenshotClip` in viewport CSS pixels. Capture that exact clip before `expiresAt`, inspect the resulting image, and dismiss it when finished. Current WebMCP serializes tool results as JSON rather than native image content, so the screenshot step is required; never try to open a returned Blob URL, and never infer a viewport, selection, or “last created” scope.",
+    "`render_canvas_preview` is a separate participant-only visual verification operation, not an export or shared mutation. Supply exact object IDs with current revisions, or one exact Diagram ID and revision. Jazzboard renders the authoritative tldraw projection into a bounded temporary PNG surface containing only that scope, then returns `screenshotClip` in viewport CSS pixels. Capture that exact clip before `expiresAt`; after creating, laying out, or rerouting a diagram, inspect connector clearance, crossings, arrow endpoints, and label readability before reporting success, then dismiss the preview. Current WebMCP serializes tool results as JSON rather than native image content, so the screenshot step is required; never try to open a returned Blob URL, and never infer a viewport, selection, or “last created” scope.",
     "",
     "`create_diagram_template` converts one authorized Diagram into an audit-free, create-only template. Images are rejected rather than copied. `instantiate_diagram_template` requires the exact room revision, plans an atomic transaction at the requested origin, replaces every object, Diagram, and group identity with a fresh ID, returns the ID map, and follows the room's live-or-review policy.",
     "",
@@ -293,6 +297,12 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "Semantic JSON, directive-free Mermaid, and fixed-vocabulary SVG are server export formats. The visual client can produce PNG by rasterizing the safe SVG locally; PNG is intentionally absent from WebMCP export schemas. The participant-only `render_canvas_preview` tool instead renders an exact revision-guarded tldraw scope into a temporary in-room surface and returns a viewport screenshot clip for immediate visual inspection; it does not persist or export that image. Reusable Diagram templates strip source-room audit state and instantiate with fresh IDs through the same live-or-review gate. Snapshot creation returns its high-entropy path once; no tool can recover it later.",
     "",
+    "## Connector routing contract",
+    "",
+    "Agent-created connectors default to obstacle-aware `auto` routing. The authoritative result keeps the `auto` intent and a deterministic concrete `straight`, `curved`, or `elbow` route selected from node bounds, cardinal ports, label clearance, crossings, and stable lane offsets. `draw_connection`, `update_object`, and connector operations inside `apply_canvas_transaction` accept explicit routing controls; existing-connector changes remain revision- and lease-checked.",
+    "",
+    "Use explicit `straight`, `curved` with a signed `bend`, or `elbow` with an optional `elbowMidPoint` when visual intent must override obstacle avoidance. `labelPosition` controls route-relative label placement. Semantic reads expose endpoint `normalizedAnchor`, `isPrecise`, `isExact`, and `snap` fields for authoritative hand-authored attachment ports; tldraw edits preserve them and promote auto routes to explicit routes. Exact object coordinates and explicit routes preserve deliberate overlap instead of being silently normalized to auto. Diagram state, activity/review/revert, templates, semantic JSON, and tldraw previews retain routing and endpoint metadata. Fixed-vocabulary SVG renders resolved route geometry and labels; Mermaid remains topology-only.",
+    "",
     "## Efficient operation map",
     "",
     "| Intent | Preferred tool |",
@@ -307,6 +317,8 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "| Inspect review mode or a pending exact request | `list_agent_edit_proposals` / `read_agent_edit_proposal` |",
     "| Tighten future agent edits to human review | `enable_agent_review` |",
     "| Create and comfortably arrange a coherent multi-node diagram atomically | `apply_canvas_transaction` with one `auto_layout` operation |",
+    "| Draw an obstacle-aware connection | `draw_connection` with omitted routing or `routing.mode: auto` |",
+    "| Hand-author connector curvature, elbows, or label position | `draw_connection` or revision-checked `update_object` with explicit routing |",
     "| Create only a diagram container around known objects | `create_diagram` |",
     "| Change diagram metadata or membership | `edit_diagram` |",
     "| Arrange known revision-checked objects | `layout_objects` |",
@@ -397,6 +409,8 @@ export function makeGlossaryMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "- **Revision:** A monotonically updated version used to prevent stale edits from overwriting newer state.",
     "- **Active-object lease:** A short-lived lock for an object currently manipulated by a human or agent. It blocks competing edits only for that object.",
     "- **Temporary reference:** A request-local name used inside one atomic transaction to connect or group objects created earlier in that call. It is resolved to a stable ID and is never stored as a shared alias.",
+    "- **Connector routing:** Authoritative connector intent and its concrete tldraw-compatible path. Agent-created connectors default to obstacle-aware `auto`; explicit `straight`, `curved`, or `elbow` modes preserve deliberate visual intent.",
+    "- **Endpoint anchor:** An optional normalized point and binding policy on a connector endpoint. Precise anchors preserve a hand-authored attachment port instead of asking auto routing to choose one.",
     "- **Activity:** An immutable attributable record of one committed canvas change, including intent/summary, affected semantic IDs and bounds, and exact post-state guards. Private before/after snapshots remain server-side.",
     "- **Compensating revert:** A new forward mutation that restores one activity's prior semantic state only when every revision, absence, lease, and relationship guard still holds. It never rewinds history.",
     "- **Agent edit policy:** The server-authoritative `live` or `review` mode. Review mode stores an exact agent request as a proposal until a human participant approves or rejects it.",
@@ -438,7 +452,7 @@ export function makeAgentsMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "## Usage",
     "",
-    `On the landing page, call \`create_room\` or \`join_room\` with the exact user-supplied code. In a room, start with a bounded semantic read, preserve exact revisions, and inspect whether an agent mutation was applied live or returned a proposal for human review. Use activity guards for compensating reverts; use redacted exports, fresh-ID templates, and expiring snapshots for durable work. A spectator has only the ${ROOM_SPECTATOR_TOOL_NAMES.length} passive tools registered by the executable spectator surface. Never search for rooms or infer permissions from documentation; the registered live tools and server responses are authoritative.`,
+    `On the landing page, call \`create_room\` or \`join_room\` with the exact user-supplied code. In a room, start with a bounded semantic read, preserve exact revisions, and inspect whether an agent mutation was applied live or returned a proposal for human review. New connectors default to obstacle-aware auto routing; choose explicit straight, curved, or elbow routing only when the composition requires it, then visually verify the exact revision-guarded scope. Semantic reads expose the resolved endpoint ports, including any human-authored attachment edits. Use activity guards for compensating reverts; use redacted exports, fresh-ID templates, and expiring snapshots for durable work. A spectator has only the ${ROOM_SPECTATOR_TOOL_NAMES.length} passive tools registered by the executable spectator surface. Never search for rooms or infer permissions from documentation; the registered live tools and server responses are authoritative.`,
     "",
     "## Reference",
     "",
@@ -470,7 +484,7 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "4. On the landing page, use `create_room` or `join_room`. Join only with the exact four-digit code supplied by the user.",
     `5. Rediscover tools after navigation. The current executable inventories contain ${ROOM_PARTICIPANT_TOOL_NAMES.length} participant-room tools, ${ROOM_SPECTATOR_TOOL_NAMES.length} passive spectator-room tools, and ${SNAPSHOT_TOOL_NAMES.length} read-only snapshot-page tools.`,
     "6. Ground edits with `query_objects`, `find_diagrams`, `read_diagram`, `read_neighborhood`, `read_selection`, or `read_room_state` as narrowly as possible. Read decision/open-question lifecycle metadata as structured state.",
-    "7. Use exact current revisions. Use `apply_canvas_transaction` for coherent multi-object changes and `layout_objects` for deterministic flow, grid, or hierarchy layout.",
+    "7. Use exact current revisions. Use `apply_canvas_transaction` for coherent multi-object changes and `layout_objects` for deterministic flow, grid, or hierarchy layout. Agent connectors default to obstacle-aware `auto` routing.",
     "8. Inspect whether a mutation was applied or proposed. Only a human may approve/reject a proposal or loosen review mode to live.",
     "9. Verify returned stable IDs, relationships, revisions, Diagram bounds, activity, and attribution. Use guarded compensation instead of assuming an activity can still be reverted.",
     "",
@@ -495,6 +509,10 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "- Read attributable history with `list_activity` and `read_activity`; use every returned post-state guard with `revert_activity`.",
     "- Inspect review work with `list_agent_edit_proposals` and `read_agent_edit_proposal`; never claim a proposal changed the canvas.",
     "- Build multiple related nodes/connectors atomically with `apply_canvas_transaction` and request-local temporary references.",
+    "- Let `auto` choose cardinal ports, readable elbow corridors, and stable lane offsets for architecture diagrams. Use explicit `straight`, signed-`bend` `curved`, or `elbow` routing only for deliberate visual intent.",
+    "- Read endpoint `normalizedAnchor`, `isPrecise`, `isExact`, and `snap` metadata to understand hand-authored ports. Human tldraw edits preserve those ports; explicit route modes and exact object coordinates keep deliberate overlap, so omit auto-layout when exact composition matters.",
+    "- After creating, laying out, or rerouting a diagram, call `render_canvas_preview` for exact object or Diagram revisions and inspect the returned screenshot clip for clearance, crossings, endpoints, and readable labels.",
+    "- Routing and endpoint metadata survive Diagram membership, review and activity history, guarded reverts, templates, semantic JSON, and tldraw previews. SVG renders resolved route geometry and labels; Mermaid preserves topology rather than visual routing.",
     "- Preserve explicit node types. Never infer `service`, `component`, `requirement`, `decision`, or `open_question` from style.",
     "- Read `read_collaboration_state` before Follow or Spotlight transitions.",
     "- Use `export_canvas_artifact` for semantic JSON, Mermaid, or SVG; use Diagram templates for reusable structure with fresh IDs.",

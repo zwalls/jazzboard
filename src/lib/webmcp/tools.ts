@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { parseRoomAssetProxyReference } from "@/lib/assets/policy";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
-import { nodeMetadataInputSchema } from "@/lib/domain/schemas";
+import { normalizeConnectorRouting } from "@/lib/domain/connector-routing";
+import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
   AgentEditProposalSummary,
   CanvasCommand,
@@ -18,6 +19,7 @@ import type {
 } from "@/lib/domain/types";
 import { applyPresenceDelta, roomStateRevision } from "@/lib/realtime/events";
 
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type {
   JazzboardToolFailure,
   JazzboardToolResult,
@@ -178,6 +180,7 @@ const drawConnectionInputSchema = z
     direction: z.enum(["none", "end", "both"]).optional(),
     label: z.string().max(2_000).optional(),
     color: colorSchema.optional(),
+    routing: connectorRoutingInputSchema.optional(),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
   })
   .strict();
@@ -206,6 +209,7 @@ const objectPatchSchema = z
     stroke: colorSchema.optional(),
     start: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
     end: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
+    routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     url: agentImageUrlSchema.optional(),
     assetId: z.string().max(512).nullable().optional(),
@@ -320,28 +324,27 @@ const ACTIVITY_METADATA_PROPERTIES = {
 } as const;
 
 const NODE_METADATA_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    kind: { enum: ["decision", "open_question"] },
+    status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
+    owner: { anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }] },
+    resolution: { anyOf: [{ type: "string", minLength: 1, maxLength: 10_000 }, { type: "null" }] },
+  },
+  required: ["kind"],
+  additionalProperties: false,
   oneOf: [
     {
-      type: "object",
       properties: {
         kind: { const: "decision" },
         status: { enum: ["proposed", "accepted", "rejected", "superseded"] },
-        owner: { anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }] },
-        resolution: { anyOf: [{ type: "string", minLength: 1, maxLength: 10_000 }, { type: "null" }] },
       },
-      required: ["kind"],
-      additionalProperties: false,
     },
     {
-      type: "object",
       properties: {
         kind: { const: "open_question" },
         status: { enum: ["open", "answered", "deferred", "closed"] },
-        owner: { anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }] },
-        resolution: { anyOf: [{ type: "string", minLength: 1, maxLength: 10_000 }, { type: "null" }] },
       },
-      required: ["kind"],
-      additionalProperties: false,
     },
   ],
 } as const;
@@ -921,30 +924,40 @@ export function createJazzboardWebMcpTools(
       name: "draw_connection",
       title: "Connect semantic canvas objects",
       description:
-        "Create a directional or undirected connector between semantic object IDs or canvas-world points. Prefer object IDs so connections remain meaningful as nodes move.",
+        "Connect object IDs or points. Auto avoids node bounds; straight, signed-bend curved, and elbow routes are explicit.",
       inputSchema: {
         type: "object",
         properties: {
-          start: {
-            oneOf: [
-              { type: "object", properties: { objectId: ID }, required: ["objectId"], additionalProperties: false },
-              { type: "object", properties: { x: COORDINATE, y: COORDINATE }, required: ["x", "y"], additionalProperties: false },
-            ],
-          },
-          end: {
-            oneOf: [
-              { type: "object", properties: { objectId: ID }, required: ["objectId"], additionalProperties: false },
-              { type: "object", properties: { x: COORDINATE, y: COORDINATE }, required: ["x", "y"], additionalProperties: false },
-            ],
-          },
+          start: { $ref: "#/$defs/endpoint" },
+          end: { $ref: "#/$defs/endpoint" },
           direction: { enum: ["none", "end", "both"] },
           label: { type: "string", maxLength: 2_000 },
           color: { type: "string", minLength: 1, maxLength: 32 },
+          routing: { $ref: "#/$defs/routing" },
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["start", "end"],
         additionalProperties: false,
+        $defs: {
+          endpoint: {
+            oneOf: [
+              {
+                type: "object",
+                properties: { objectId: ID },
+                required: ["objectId"],
+                additionalProperties: false,
+              },
+              {
+                type: "object",
+                properties: { x: COORDINATE, y: COORDINATE },
+                required: ["x", "y"],
+                additionalProperties: false,
+              },
+            ],
+          },
+          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
+        },
       },
       schema: drawConnectionInputSchema,
       annotations: { untrustedContentHint: true },
@@ -967,6 +980,7 @@ export function createJazzboardWebMcpTools(
               groupId: null,
               start,
               end,
+              routing: normalizeConnectorRouting(input.routing ?? { mode: "auto" }),
               direction: input.direction ?? "end",
               label: input.label ?? "",
               color: input.color ?? "black",
@@ -981,7 +995,7 @@ export function createJazzboardWebMcpTools(
       name: "update_object",
       title: "Update a semantic canvas object",
       description:
-        "Update semantic content, style, geometry, image metadata, or connector endpoints. The exact expectedRevision is mandatory; active-object conflicts return structured OBJECT_BUSY details and are never queued.",
+        "Revision- and lease-checked object edit, including explicit connector routing. Busy edits return OBJECT_BUSY.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1011,19 +1025,10 @@ export function createJazzboardWebMcpTools(
               label: { type: "string", maxLength: 10_000 },
               fill: { type: "string", minLength: 1, maxLength: 32 },
               stroke: { type: "string", minLength: 1, maxLength: 32 },
-              start: {
-                type: "object",
-                properties: { x: COORDINATE, y: COORDINATE, objectId: { anyOf: [ID, { type: "null" }] } },
-                required: ["x", "y", "objectId"],
-                additionalProperties: false,
-              },
-              end: {
-                type: "object",
-                properties: { x: COORDINATE, y: COORDINATE, objectId: { anyOf: [ID, { type: "null" }] } },
-                required: ["x", "y", "objectId"],
-                additionalProperties: false,
-              },
+              start: { $ref: "#/$defs/connectorEndpoint" },
+              end: { $ref: "#/$defs/connectorEndpoint" },
               direction: { enum: ["none", "end", "both"] },
+              routing: { $ref: "#/$defs/routing" },
               url: AGENT_IMAGE_URL_SCHEMA,
               assetId: { anyOf: [{ type: "string", maxLength: 512 }, { type: "null" }] },
               alt: { type: "string", maxLength: 2_000 },
@@ -1048,10 +1053,29 @@ export function createJazzboardWebMcpTools(
         },
         required: ["objectId", "expectedRevision", "patch"],
         additionalProperties: false,
+        $defs: {
+          connectorEndpoint: {
+            type: "object",
+            properties: {
+              x: COORDINATE,
+              y: COORDINATE,
+              objectId: { anyOf: [ID, { type: "null" }] },
+            },
+            required: ["x", "y", "objectId"],
+            additionalProperties: false,
+          },
+          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
+        },
       },
       schema: updateObjectInputSchema,
       annotations: { untrustedContentHint: true },
       execute(input, signal) {
+        const patch = {
+          ...input.patch,
+          ...(input.patch.routing
+            ? { routing: normalizeConnectorRouting(input.patch.routing) }
+            : {}),
+        } as ObjectPatch;
         return dispatch(
           {
             type: "update",
@@ -1059,7 +1083,7 @@ export function createJazzboardWebMcpTools(
             expectedRevision: input.expectedRevision,
             leaseId: input.leaseId,
             operation: input.operation ?? "edit",
-            patch: input.patch as ObjectPatch,
+            patch,
           },
           signal,
           activityMetadata(input),

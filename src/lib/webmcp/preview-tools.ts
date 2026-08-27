@@ -233,7 +233,7 @@ export function createJazzboardPreviewWebMcpTools(
       name: "render_canvas_preview",
       title: "Render an exact Jazzboard canvas preview",
       description:
-        "Render exact object revisions or one exact Diagram revision into a temporary in-room PNG surface. Then take a browser screenshot using the returned viewport clip before expiry. Explicit scope is required; viewport, room-wide, selection, and last-created inference are unavailable.",
+        "Render exact object or Diagram revisions into a temporary PNG. Screenshot the returned viewport clip before expiry; explicit scope is required.",
       inputSchema: {
         type: "object",
         properties: {

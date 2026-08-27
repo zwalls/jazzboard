@@ -14,6 +14,7 @@ import {
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 import {
+  AGENT_DOC_VERSION,
   JAZZBOARD_SKILL_DESCRIPTION,
   LANDING_TOOL_NAMES,
   ROOM_PARTICIPANT_ONLY_TOOL_NAMES,
@@ -154,6 +155,48 @@ describe("agent-readable content", () => {
     ]) {
       expect(corpus).toContain(`\`${toolName}\``);
     }
+  });
+
+  it("documents authoritative connector routing and visual verification", () => {
+    expect(AGENT_DOC_VERSION).toBe("1.3.0");
+
+    const guide = makeAgentGuideMarkdown();
+    const reference = makeWebMcpMarkdown();
+    const skill = makeSkillMarkdown();
+    const corpus = [
+      makeHomepageMarkdown(),
+      guide,
+      reference,
+      makeGlossaryMarkdown(),
+      makeAgentsMarkdown(),
+      skill,
+    ].join("\n");
+
+    for (const phrase of [
+      "obstacle-aware `auto` routing",
+      "cardinal ports",
+      "elbow corridors",
+      "lane offsets",
+      "`straight`",
+      "`curved`",
+      "`elbow`",
+      "`normalizedAnchor`",
+      "`isPrecise`",
+      "`isExact`",
+      "`snap`",
+      "deliberate overlap",
+      "Diagram membership",
+      "`render_canvas_preview`",
+    ]) {
+      expect(corpus).toContain(phrase);
+    }
+
+    expect(guide).toContain("`routing.mode`");
+    expect(guide).toContain("`routing.kind`");
+    expect(guide).toContain("after creating, laying out, or rerouting a diagram");
+    expect(reference).toContain("Mermaid remains topology-only");
+    expect(skill).toContain("Routing and endpoint metadata survive Diagram membership");
+    expect(skill).toContain("SVG renders resolved route geometry and labels");
   });
 
   it("states the privacy and runtime-authority boundaries across detailed guidance", () => {

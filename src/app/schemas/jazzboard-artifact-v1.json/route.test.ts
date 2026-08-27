@@ -10,6 +10,19 @@ import {
 
 import { GET, OPTIONS } from "./route";
 
+function objectsWithRoutingSchema(value: unknown): Array<Record<string, unknown>> {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const properties = record.properties;
+  const current = properties && typeof properties === "object" && "routing" in properties
+    ? [record]
+    : [];
+  return [
+    ...current,
+    ...Object.values(record).flatMap((entry) => objectsWithRoutingSchema(entry)),
+  ];
+}
+
 describe("public Jazzboard artifact schema", () => {
   it("serves the stable v1 JSON Schema with public, sniff-safe headers", async () => {
     const response = GET();
@@ -28,9 +41,16 @@ describe("public Jazzboard artifact schema", () => {
     const encoded = JSON.stringify(schema);
     expect(encoded).toContain(JAZZBOARD_ARTIFACT_FORMAT);
     expect(encoded).toContain(String(JAZZBOARD_ARTIFACT_VERSION));
+    expect(encoded).toContain('"routing"');
     expect(encoded).toContain("private_or_external_source_omitted");
     expect(encoded).not.toContain('"url"');
     expect(encoded).not.toContain("participantId");
+
+    const connectorSchemas = objectsWithRoutingSchema(schema);
+    expect(connectorSchemas.length).toBeGreaterThan(0);
+    for (const connectorSchema of connectorSchemas) {
+      expect(connectorSchema.required ?? []).not.toContain("routing");
+    }
   });
 
   it("allows cross-origin agents to discover only GET and OPTIONS", () => {

@@ -11,6 +11,7 @@ import {
   JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
   JAZZBOARD_SEMANTIC_TOOL_NAMES,
 } from "./semantic-tools";
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type { JazzboardToolResult, JazzboardWebMcpBinding, JazzboardWebMcpContext, WebMcpRequest } from "./types";
 
 const NOW = 5_000_000;
@@ -241,6 +242,7 @@ describe("role-scoped semantic tool registration", () => {
     }
 
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
+    expect(transactionSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
     const connectionRequired = operationSchema(transactionSchema, "connect").required ?? [];
     expect(connectionRequired).toEqual(expect.arrayContaining(["op", "tempRef", "start", "end"]));
     for (const field of ["direction", "label", "color"]) expect(connectionRequired).not.toContain(field);
@@ -296,6 +298,7 @@ describe("role-scoped semantic tool registration", () => {
       stroke: "black",
       start: { x: 10, y: 20, objectId: null },
       end: { x: 30, y: 40, objectId: "db" },
+      routing: { mode: "elbow", elbowMidPoint: 0.35, labelPosition: 0.62 },
       direction: "both",
       alt: "Accessible description",
       locked: true,
@@ -314,31 +317,34 @@ describe("role-scoped semantic tool registration", () => {
     });
     expect(patchSchema?.properties?.content).toMatchObject({ type: "string", maxLength: 20_000 });
     expect(patchSchema?.properties?.start).toEqual({ $ref: "#/$defs/connectorEndpoint" });
+    expect(patchSchema?.properties?.routing).toEqual({ $ref: "#/$defs/routing" });
     expect(patchSchema?.properties?.nodeMetadata?.anyOf).toEqual([
       { $ref: "#/$defs/nodeMetadata" },
       { type: "null" },
     ]);
-    const metadataVariants = transactionSchema.$defs?.nodeMetadata?.oneOf ?? [];
-    for (const [kind, unresolvedStatus, resolvedStatuses] of [
-      ["decision", "proposed", ["accepted", "rejected", "superseded"]],
-      ["open_question", "open", ["answered", "deferred", "closed"]],
+    const metadataSchema = transactionSchema.$defs?.nodeMetadata;
+    const metadataVariants = metadataSchema?.oneOf ?? [];
+    expect(metadataSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+    });
+    for (const [kind, resolvedStatuses] of [
+      ["decision", ["accepted", "rejected", "superseded"]],
+      ["open_question", ["answered", "deferred", "closed"]],
     ] as const) {
       const variant = metadataVariants.find((candidate) => candidate.properties?.kind?.const === kind);
-      expect(variant).toMatchObject({ additionalProperties: false, required: ["kind"] });
-      expect(variant?.allOf).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          if: { properties: { status: { const: unresolvedStatus } } },
-          then: { properties: { resolution: { type: "null" } } },
-        }),
-        expect.objectContaining({
-          if: {
-            required: ["status"],
-            properties: { status: { enum: [...resolvedStatuses] } },
-          },
-          then: expect.objectContaining({ required: ["resolution"] }),
-        }),
-      ]));
+      expect(variant?.properties?.status).toMatchObject({
+        enum: expect.arrayContaining([...resolvedStatuses]),
+      });
     }
+    expect(metadataSchema?.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        if: expect.objectContaining({ properties: { status: { enum: ["proposed", "open"] } } }),
+        then: { properties: { resolution: { type: "null" } } },
+      }),
+      expect.objectContaining({ then: expect.objectContaining({ required: ["resolution"] }) }),
+    ]));
 
     const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
@@ -347,7 +353,16 @@ describe("role-scoped semantic tool registration", () => {
     const requestBody = JSON.parse(String(
       ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
     ));
-    expect(requestBody.transaction.commands[0].patch).toEqual(acceptedPatch);
+    expect(requestBody.transaction.commands[0].patch).toEqual({
+      ...acceptedPatch,
+      routing: {
+        mode: "elbow",
+        kind: "elbow",
+        bend: 0,
+        elbowMidPoint: 0.35,
+        labelPosition: 0.62,
+      },
+    });
 
     const rejected = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: { surprise: true } }],

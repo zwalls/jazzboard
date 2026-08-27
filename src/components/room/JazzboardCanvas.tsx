@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, LockKeyhole, MousePointer2 } from "lucide-react";
 import {
+  DefaultFontFaces,
   Tldraw,
   type Editor,
   type TLComponents,
@@ -473,7 +474,13 @@ export function JazzboardCanvas({
       const coordinator = syncCoordinatorRef.current;
       const entry = coordinator.get(objectId);
       if (!entry || !coordinator.canSettle(entry)) return;
-      projectAuthoritativeRoom(authoritativeRoom ?? roomRef.current, new Set([objectId]));
+      // A successful acknowledgement always advances an object's revision (or
+      // confirms an already-equivalent no-op), so normal incremental
+      // projection is sufficient. Reserve forced projection for deliberate
+      // rollback/recovery; forcing an acknowledged bound connector can
+      // transiently apply its target movement twice before tldraw settles the
+      // binding.
+      projectAuthoritativeRoom(authoritativeRoom ?? roomRef.current);
       void releaseLease(objectId);
     },
     [projectAuthoritativeRoom, releaseLease],
@@ -2167,10 +2174,14 @@ export function JazzboardCanvas({
         components={self.role === "spectator" ? SPECTATOR_COMPONENTS : undefined}
         overrides={[JAZZBOARD_UI_OVERRIDES]}
         onMount={(mountedEditor) => {
-          setEditor(mountedEditor);
-          onEditorChange(mountedEditor);
           mountedEditor.updateInstanceState({ isReadonly: self.role === "spectator" });
-          projectRoomIntoTldraw(mountedEditor, room);
+          void mountedEditor.fonts
+            .ensureFontIsLoaded(DefaultFontFaces.tldraw_draw.normal.normal)
+            .then(() => {
+              if (mountedEditor.isDisposed) return;
+              setEditor(mountedEditor);
+              onEditorChange(mountedEditor);
+            });
         }}
       />
       <CanvasPresenceOverlay editor={editor} room={room} selfId={self.participantId} />

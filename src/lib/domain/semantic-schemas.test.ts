@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  connectorRoutingInputSchema,
+  connectorRoutingSchema,
   diagramCommandSchema,
   layoutCommandSchema,
   semanticTransactionSchema,
@@ -53,6 +55,39 @@ describe("semantic transaction schemas", () => {
         diagramId: "system",
         expectedRevision: 1,
         patch: {},
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("connector routing schemas", () => {
+  it("accepts compact routing intent and canonical resolved routing", () => {
+    expect(connectorRoutingInputSchema.parse({ mode: "auto", labelPosition: 0.42 })).toEqual({
+      mode: "auto",
+      labelPosition: 0.42,
+    });
+    expect(
+      connectorRoutingSchema.parse({
+        mode: "auto",
+        kind: "elbow",
+        bend: 0,
+        elbowMidPoint: 0.35,
+        labelPosition: 0.42,
+      }),
+    ).toMatchObject({ mode: "auto", kind: "elbow" });
+  });
+
+  it("rejects ambiguous or internally inconsistent route controls", () => {
+    expect(connectorRoutingInputSchema.safeParse({ mode: "curved" }).success).toBe(false);
+    expect(connectorRoutingInputSchema.safeParse({ mode: "straight", bend: 48 }).success).toBe(false);
+    expect(connectorRoutingInputSchema.safeParse({ mode: "auto", elbowMidPoint: 0.2 }).success).toBe(false);
+    expect(
+      connectorRoutingSchema.safeParse({
+        mode: "straight",
+        kind: "curved",
+        bend: 48,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
       }).success,
     ).toBe(false);
   });

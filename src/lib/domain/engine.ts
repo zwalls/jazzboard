@@ -2,10 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import { DomainError } from "./errors";
 import {
-  connectorLabelBounds,
   connectorLabelPrimaryClearance,
   minimumLayoutGaps,
 } from "./layout";
+import {
+  CONNECTOR_ROUTING_BOUNDED_MAX_CANDIDATES,
+  CONNECTOR_ROUTING_LIMITS,
+  CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
+  connectorRouteBounds,
+  materializeConnectorRoutes,
+  normalizeConnectorRouting,
+  resolveAffectedConnectorRoutes,
+  type ResolvedConnectorRoute,
+} from "./connector-routing";
 import { MAX_ROOM_REVIEW_PROPOSALS } from "./review";
 import type {
   ActorKind,
@@ -175,7 +184,7 @@ const COMMON_PATCH_FIELDS = new Set(["x", "y", "width", "height", "rotation", "z
 const KIND_PATCH_FIELDS: Record<CanvasObject["kind"], ReadonlySet<string>> = {
   text: new Set(["content", "color", "size", "align"]),
   shape: new Set(["shape", "nodeType", "nodeMetadata", "label", "fill", "stroke"]),
-  connector: new Set(["start", "end", "direction", "label", "color"]),
+  connector: new Set(["start", "end", "routing", "direction", "label", "color"]),
   image: new Set(["url", "assetId", "alt", "mimeType", "sourceUrl", "locked"]),
   draw: new Set(["points", "color", "size"]),
 };
@@ -281,65 +290,56 @@ function validatePatchForObject(object: CanvasObject, patch: Record<string, unkn
 
 const EMPTY_BOUNDS: CanvasBounds = { x: 0, y: 0, width: 1, height: 1 };
 
+export const BULK_CONNECTOR_ROUTING_THRESHOLD = CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT;
+export const BULK_CONNECTOR_MAX_CANDIDATES = CONNECTOR_ROUTING_BOUNDED_MAX_CANDIDATES;
+
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const expected = new Set(left);
+  return right.every((value) => expected.has(value));
 }
 
 function samePoint(left: { x: number; y: number }, right: { x: number; y: number }): boolean {
   return left.x === right.x && left.y === right.y;
 }
 
-function centerOf(object: CanvasObject): { x: number; y: number } {
-  return { x: object.x + object.width / 2, y: object.y + object.height / 2 };
-}
-
-function edgePoint(
-  object: CanvasObject,
-  toward: { x: number; y: number },
-): { x: number; y: number } {
-  const center = centerOf(object);
-  const dx = toward.x - center.x;
-  const dy = toward.y - center.y;
-  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return center;
-  const halfWidth = Math.max(object.width / 2, 1);
-  const halfHeight = Math.max(object.height / 2, 1);
-  const scale = 1 / Math.max(Math.abs(dx) / halfWidth, Math.abs(dy) / halfHeight);
-  return { x: center.x + dx * scale, y: center.y + dy * scale };
-}
-
-function resolvedConnectorGeometry(room: RoomState, connector: Extract<CanvasObject, { kind: "connector" }>) {
-  const startObject = connector.start.objectId ? room.objects[connector.start.objectId] : undefined;
-  const endObject = connector.end.objectId ? room.objects[connector.end.objectId] : undefined;
-  const startFallback = { x: connector.start.x, y: connector.start.y };
-  const endFallback = { x: connector.end.x, y: connector.end.y };
-  const startToward = endObject ? centerOf(endObject) : endFallback;
-  const endToward = startObject ? centerOf(startObject) : startFallback;
-  const start = startObject ? edgePoint(startObject, startToward) : startFallback;
-  const end = endObject ? edgePoint(endObject, endToward) : endFallback;
+function connectorGeometry(route: ResolvedConnectorRoute) {
+  const bounds = connectorRouteBounds(route.points, 0);
   return {
-    x: Math.min(start.x, end.x),
-    y: Math.min(start.y, end.y),
-    width: Math.max(Math.abs(end.x - start.x), 1),
-    height: Math.max(Math.abs(end.y - start.y), 1),
-    rotation: startObject || endObject ? 0 : connector.rotation,
-    start: { ...start, objectId: startObject ? startObject.id : null },
-    end: { ...end, objectId: endObject ? endObject.id : null },
+    ...bounds,
+    rotation: 0,
+    start: route.start,
+    end: route.end,
+    routing: route.routing,
   };
 }
 
-function boundsFor(room: RoomState, objectIds: readonly string[]): CanvasBounds {
+function boundsFor(
+  room: RoomState,
+  objectIds: readonly string[],
+  resolvedRoutes?: Record<string, ResolvedConnectorRoute>,
+): CanvasBounds {
   const objects = unique(objectIds).flatMap((id) => room.objects[id] ?? []);
   if (!objects.length) return { ...EMPTY_BOUNDS };
-  const bounds = objects.flatMap((object) => {
-    const objectBounds = {
+  const bounds = objects.map((object) => {
+    if (object.kind === "connector") {
+      return resolvedRoutes?.[object.id]?.bounds ?? {
+        x: object.x,
+        y: object.y,
+        width: object.width,
+        height: object.height,
+      };
+    }
+    return {
       x: object.x,
       y: object.y,
       width: object.width,
       height: object.height,
     };
-    if (object.kind !== "connector") return [objectBounds];
-    const labelBounds = connectorLabelBounds(object.label, object.start, object.end);
-    return labelBounds ? [objectBounds, labelBounds] : [objectBounds];
   });
   const minX = Math.min(...bounds.map((bound) => bound.x));
   const minY = Math.min(...bounds.map((bound) => bound.y));
@@ -351,6 +351,289 @@ function boundsFor(room: RoomState, objectIds: readonly string[]): CanvasBounds 
     width: Math.max(maxX - minX, 1),
     height: Math.max(maxY - minY, 1),
   };
+}
+
+function unionCanvasBounds(left: CanvasBounds, right: CanvasBounds): CanvasBounds {
+  const minX = Math.min(left.x, right.x);
+  const minY = Math.min(left.y, right.y);
+  const maxX = Math.max(left.x + left.width, right.x + right.width);
+  const maxY = Math.max(left.y + left.height, right.y + right.height);
+  return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+}
+
+function expandCanvasBounds(bounds: CanvasBounds, padding: number): CanvasBounds {
+  return {
+    x: bounds.x - padding,
+    y: bounds.y - padding,
+    width: bounds.width + padding * 2,
+    height: bounds.height + padding * 2,
+  };
+}
+
+function canvasBoundsIntersect(left: CanvasBounds, right: CanvasBounds): boolean {
+  return !(
+    left.x + left.width < right.x ||
+    right.x + right.width < left.x ||
+    left.y + left.height < right.y ||
+    right.y + right.height < left.y
+  );
+}
+
+function routedObjectBounds(object: CanvasObject): CanvasBounds {
+  const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
+  const cosine = Math.cos(object.rotation);
+  const sine = Math.sin(object.rotation);
+  const corners = [
+    { x: object.x, y: object.y },
+    { x: object.x + object.width, y: object.y },
+    { x: object.x + object.width, y: object.y + object.height },
+    { x: object.x, y: object.y + object.height },
+  ].map((point) => {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return {
+      x: center.x + dx * cosine - dy * sine,
+      y: center.y + dx * sine + dy * cosine,
+    };
+  });
+  const minX = Math.min(...corners.map((point) => point.x));
+  const minY = Math.min(...corners.map((point) => point.y));
+  const maxX = Math.max(...corners.map((point) => point.x));
+  const maxY = Math.max(...corners.map((point) => point.y));
+  return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
+}
+
+function objectGeometryChanged(before: CanvasObject | undefined, after: CanvasObject | undefined): boolean {
+  if (!before || !after) return before !== after;
+  return (
+    before.x !== after.x ||
+    before.y !== after.y ||
+    before.width !== after.width ||
+    before.height !== after.height ||
+    before.rotation !== after.rotation
+  );
+}
+
+function connectorPairKey(connector: Extract<CanvasObject, { kind: "connector" }>): string {
+  const endpointKey = (endpoint: typeof connector.start): string => endpoint.objectId
+    ? `object:${endpoint.objectId}`
+    : `point:${Math.round(endpoint.x * 1_000) / 1_000},${Math.round(endpoint.y * 1_000) / 1_000}`;
+  const start = endpointKey(connector.start);
+  const end = endpointKey(connector.end);
+  return start <= end ? `${start}\u0000${end}` : `${end}\u0000${start}`;
+}
+
+function connectorRouteInputChanged(
+  before: CanvasObject | undefined,
+  after: CanvasObject | undefined,
+): boolean {
+  if (before?.kind !== "connector" || after?.kind !== "connector") {
+    return before?.kind === "connector" || after?.kind === "connector";
+  }
+  return (
+    objectGeometryChanged(before, after) ||
+    before.label !== after.label ||
+    JSON.stringify(before.start) !== JSON.stringify(after.start) ||
+    JSON.stringify(before.end) !== JSON.stringify(after.end) ||
+    JSON.stringify(normalizeConnectorRouting(before.routing)) !==
+      JSON.stringify(normalizeConnectorRouting(after.routing))
+  );
+}
+
+function connectorSeesObject(
+  room: RoomState,
+  connectorId: string,
+  objectId: string,
+): boolean {
+  const scopes = Object.values(room.diagrams ?? {}).filter((diagram) =>
+    diagram.connectorIds.includes(connectorId),
+  );
+  return scopes.length === 0 || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
+}
+
+function connectorInfluenceBounds(
+  room: RoomState,
+  connector: Extract<CanvasObject, { kind: "connector" }>,
+  route: ResolvedConnectorRoute | undefined,
+): CanvasBounds {
+  let bounds = route?.bounds ?? {
+    x: connector.x,
+    y: connector.y,
+    width: connector.width,
+    height: connector.height,
+  };
+  for (const objectId of [connector.start.objectId, connector.end.objectId]) {
+    const target = objectId ? room.objects[objectId] : undefined;
+    if (target) bounds = unionCanvasBounds(bounds, routedObjectBounds(target));
+  }
+  return expandCanvasBounds(bounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding);
+}
+
+function affectedConnectorIds(
+  baseline: RoomState,
+  room: RoomState,
+  touchedObjectIds: ReadonlySet<string>,
+  touchedDiagramIds: ReadonlySet<string>,
+): Set<string> {
+  const baselineRoutes = materializeConnectorRoutes(baseline);
+  const currentRoutes = materializeConnectorRoutes(room);
+  const currentConnectors = Object.values(room.objects)
+    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
+    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
+  const affected = new Set<string>();
+  const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
+    objectGeometryChanged(baseline.objects[objectId], room.objects[objectId]),
+  ));
+  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
+    baseline.objects[objectId]?.kind === "shape" || room.objects[objectId]?.kind === "shape",
+  );
+  const scopeChangedDiagramIds = new Set(
+    [...touchedDiagramIds].filter((diagramId) => {
+      const before = baseline.diagrams?.[diagramId];
+      const after = room.diagrams?.[diagramId];
+      return (
+        !before ||
+        !after ||
+        !sameIdSet(before.memberObjectIds, after.memberObjectIds) ||
+        !sameIdSet(before.connectorIds, after.connectorIds)
+      );
+    }),
+  );
+
+  for (const connector of currentConnectors) {
+    if (
+      touchedObjectIds.has(connector.id) &&
+      connectorRouteInputChanged(baseline.objects[connector.id], connector)
+    ) {
+      affected.add(connector.id);
+    }
+    if (
+      changedGeometryIds.has(connector.start.objectId ?? "") ||
+      changedGeometryIds.has(connector.end.objectId ?? "")
+    ) {
+      affected.add(connector.id);
+    }
+    if (connector.routing?.mode !== "auto") continue;
+    if ([...scopeChangedDiagramIds].some((diagramId) =>
+      baseline.diagrams?.[diagramId]?.connectorIds.includes(connector.id) ||
+      room.diagrams?.[diagramId]?.connectorIds.includes(connector.id),
+    )) {
+      affected.add(connector.id);
+      continue;
+    }
+    const routeBounds = currentRoutes[connector.id]?.bounds;
+    if (!routeBounds) continue;
+    for (const objectId of changedObstacleIds) {
+      if (
+        !connectorSeesObject(baseline, connector.id, objectId) &&
+        !connectorSeesObject(room, connector.id, objectId)
+      ) {
+        continue;
+      }
+      const before = baseline.objects[objectId];
+      const after = room.objects[objectId];
+      const impactBounds = before && after
+        ? unionCanvasBounds(routedObjectBounds(before), routedObjectBounds(after))
+        : routedObjectBounds((before ?? after)!);
+      const priorRouteBounds = baselineRoutes[connector.id]?.bounds ?? routeBounds;
+      if (
+        canvasBoundsIntersect(priorRouteBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding)) ||
+        canvasBoundsIntersect(routeBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding))
+      ) {
+        affected.add(connector.id);
+        break;
+      }
+    }
+  }
+
+  // A create/delete or endpoint edit can change stable parallel-lane indexes.
+  const affectedPairKeys = new Set<string>();
+  for (const objectId of touchedObjectIds) {
+    const before = baseline.objects[objectId];
+    const after = room.objects[objectId];
+    const beforePair = before?.kind === "connector" ? connectorPairKey(before) : null;
+    const afterPair = after?.kind === "connector" ? connectorPairKey(after) : null;
+    if (beforePair !== afterPair) {
+      if (beforePair) affectedPairKeys.add(beforePair);
+      if (afterPair) affectedPairKeys.add(afterPair);
+    }
+  }
+  for (const connector of currentConnectors) {
+    if (affectedPairKeys.has(connectorPairKey(connector))) affected.add(connector.id);
+  }
+
+  // Crossing scores are ordered. Only later auto routes whose influence region
+  // overlaps a changed route can depend on that changed route.
+  const queue: Array<{
+    connectorId: string;
+    order: number;
+    bounds: CanvasBounds;
+    endpointObjectIds: ReadonlySet<string>;
+  }> = [];
+  for (const connectorId of affected) {
+    const connector = room.objects[connectorId];
+    if (connector?.kind !== "connector") continue;
+    const before = baseline.objects[connectorId];
+    const currentBounds = connectorInfluenceBounds(room, connector, currentRoutes[connectorId]);
+    const bounds = before?.kind === "connector"
+      ? unionCanvasBounds(
+          currentBounds,
+          connectorInfluenceBounds(baseline, before, baselineRoutes[connectorId]),
+        )
+      : currentBounds;
+    queue.push({
+      connectorId,
+      order: order.get(connectorId) ?? -1,
+      bounds,
+      endpointObjectIds: new Set(
+        [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
+      ),
+    });
+  }
+  for (const objectId of touchedObjectIds) {
+    const deleted = baseline.objects[objectId];
+    if (deleted?.kind !== "connector" || room.objects[objectId]) continue;
+    const firstLaterIndex = currentConnectors.findIndex((connector) =>
+      connector.createdAt > deleted.createdAt ||
+      (connector.createdAt === deleted.createdAt && connector.id.localeCompare(deleted.id) > 0),
+    );
+    queue.push({
+      connectorId: deleted.id,
+      order: (firstLaterIndex < 0 ? currentConnectors.length : firstLaterIndex) - 1,
+      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoutes[deleted.id]),
+      endpointObjectIds: new Set(
+        [deleted.start.objectId, deleted.end.objectId].filter((id): id is string => Boolean(id)),
+      ),
+    });
+  }
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const impact = queue[queueIndex];
+    for (const connector of currentConnectors) {
+      if (
+        affected.has(connector.id) ||
+        connector.routing?.mode !== "auto" ||
+        (order.get(connector.id) ?? -1) <= impact.order ||
+        [connector.start.objectId, connector.end.objectId].some(
+          (objectId) => objectId && impact.endpointObjectIds.has(objectId),
+        )
+      ) {
+        continue;
+      }
+      const candidateBounds = connectorInfluenceBounds(room, connector, currentRoutes[connector.id]);
+      if (!canvasBoundsIntersect(impact.bounds, candidateBounds)) continue;
+      affected.add(connector.id);
+      queue.push({
+        connectorId: connector.id,
+        order: order.get(connector.id) ?? -1,
+        bounds: candidateBounds,
+        endpointObjectIds: new Set(
+          [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
+        ),
+      });
+    }
+  }
+  return affected;
 }
 
 function diagramComparable(diagram: Diagram) {
@@ -368,7 +651,7 @@ function diagramComparable(diagram: Diagram) {
 
 function connectorGeometryChanged(
   connector: Extract<CanvasObject, { kind: "connector" }>,
-  geometry: ReturnType<typeof resolvedConnectorGeometry>,
+  geometry: ReturnType<typeof connectorGeometry>,
 ): boolean {
   return (
     connector.x !== geometry.x ||
@@ -379,7 +662,10 @@ function connectorGeometryChanged(
     connector.start.objectId !== geometry.start.objectId ||
     connector.end.objectId !== geometry.end.objectId ||
     !samePoint(connector.start, geometry.start) ||
-    !samePoint(connector.end, geometry.end)
+    !samePoint(connector.end, geometry.end) ||
+    JSON.stringify(connector.start) !== JSON.stringify(geometry.start) ||
+    JSON.stringify(connector.end) !== JSON.stringify(geometry.end) ||
+    JSON.stringify(normalizeConnectorRouting(connector.routing)) !== JSON.stringify(geometry.routing)
   );
 }
 
@@ -417,14 +703,15 @@ export function normalizeRoomSemanticState(room: RoomState): RoomState {
       } else {
         object.nodeMetadata = defaultNodeMetadata(object.nodeType);
       }
+    } else if (object.kind === "connector") {
+      object.routing = normalizeConnectorRouting(object.routing);
     }
   }
 
-  for (const connector of Object.values(room.objects)) {
-    if (connector.kind !== "connector") continue;
-    const geometry = resolvedConnectorGeometry(room, connector);
-    Object.assign(connector, geometry);
-  }
+  // Reads only materialize the canonical persisted route. Obstacle-aware
+  // resolution belongs to a revision-checked mutation; doing it here made
+  // polling both quadratic and capable of silently rewriting route geometry.
+  const materializedRoutes = materializeConnectorRoutes(room);
 
   for (const diagram of Object.values(room.diagrams)) {
     diagram.tags = unique(diagram.tags ?? []);
@@ -434,7 +721,7 @@ export function normalizeRoomSemanticState(room: RoomState): RoomState {
     diagram.connectorIds = unique(diagram.connectorIds ?? []).filter(
       (id) => room.objects[id]?.kind === "connector",
     );
-    diagram.bounds = boundsFor(room, [...diagram.memberObjectIds, ...diagram.connectorIds]);
+    diagram.bounds = boundsFor(room, [...diagram.memberObjectIds, ...diagram.connectorIds], materializedRoutes);
     for (const objectId of [...diagram.memberObjectIds, ...diagram.connectorIds]) {
       const object = room.objects[objectId];
       if (object) object.diagramIds.push(diagram.id);
@@ -553,6 +840,9 @@ function applyObjectCommandMutable(
               }),
             }
           : {}),
+        ...(command.object.kind === "connector"
+          ? { routing: normalizeConnectorRouting(command.object.routing) }
+          : {}),
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -589,6 +879,14 @@ function applyObjectCommandMutable(
             previous: object.nodeMetadata ?? null,
             now,
           }),
+        };
+      }
+      if (object.kind === "connector" && "routing" in patch) {
+        patch = {
+          ...patch,
+          routing: normalizeConnectorRouting(
+            patch.routing as Parameters<typeof normalizeConnectorRouting>[0],
+          ),
         };
       }
       const updated = updateObject(object, patch, actor, now);
@@ -749,9 +1047,25 @@ export function applySemanticTransaction(
 
   // Bound connector geometry is authoritative server state. Implicit changes
   // honor active-object leases and receive the same actor attribution.
+  const connectorIdsToResolve = affectedConnectorIds(
+    baseline,
+    room,
+    touchedObjectIds,
+    touchedDiagramIds,
+  );
+  const resolvedRoutes = resolveAffectedConnectorRoutes(
+    room,
+    connectorIdsToResolve,
+    connectorIdsToResolve.size > BULK_CONNECTOR_ROUTING_THRESHOLD
+      ? { resolutionMode: "bounded", maxCandidates: BULK_CONNECTOR_MAX_CANDIDATES }
+      : undefined,
+  );
   for (const object of Object.values(room.objects)) {
     if (object.kind !== "connector") continue;
-    const geometry = resolvedConnectorGeometry(room, object);
+    if (!connectorIdsToResolve.has(object.id)) continue;
+    const route = resolvedRoutes[object.id];
+    if (!route) continue;
+    const geometry = connectorGeometry(route);
     if (!connectorGeometryChanged(object, geometry)) continue;
     const wasExplicitlyTouched = touchedObjectIds.has(object.id);
     if (!wasExplicitlyTouched && baseline.objects[object.id]) verifyLease(room, object, actor, undefined, now);
@@ -793,7 +1107,7 @@ export function applySemanticTransaction(
       );
     }
     diagram.tags = unique(diagram.tags);
-    diagram.bounds = boundsFor(room, [...diagram.memberObjectIds, ...diagram.connectorIds]);
+    diagram.bounds = boundsFor(room, [...diagram.memberObjectIds, ...diagram.connectorIds], resolvedRoutes);
     const before = baselineDiagrams[diagram.id];
     if (!before) {
       touchedDiagramIds.add(diagram.id);

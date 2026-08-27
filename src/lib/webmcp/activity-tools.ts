@@ -170,7 +170,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "list_activity",
       title: "List recent room activity",
       description:
-        "List newest-first authorized activity summaries (maximum 100), filtered by actor, object, Diagram, or revision cursor. Returns semantic IDs, attribution, intent, bounds, and exact post-state guards, never private before/after state.",
+        "List authorized activity summaries by actor, object, Diagram, or revision cursor, including exact post-state guards.",
       schema: listActivityInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -194,7 +194,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "read_activity",
       title: "Read one room activity",
       description:
-        "Read one authorized activity by stable ID, including actor and intent, affected objects and Diagrams, highlight bounds, and the exact post-state guards required for safe revert.",
+        "Read one activity by stable ID with attribution, intent, affected object and Diagram IDs, bounds, and the exact guards required for a safe revert.",
       schema: readActivityInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -214,7 +214,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "revert_activity",
       title: "Safely revert one room activity",
       description:
-        "Forward-compensate one activity without rewriting history. Supply every guard from read_activity. Fails atomically on stale or recreated entities, foreign leases, or later dependencies. Live mode creates agent-attributed revisions; review mode returns outcome `proposed` without canvas changes.",
+        "Compensate one activity without rewriting history. Supply every read_activity guard; conflicts fail atomically and review mode returns `proposed`.",
       schema: revertActivityInput,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {

@@ -18,7 +18,7 @@ import {
 } from "tldraw";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ActorRef, CanvasObject, RoomState } from "@/lib/domain/types";
+import type { ActorRef, CanvasObject, ConnectorRouting, RoomState } from "@/lib/domain/types";
 
 import {
   isEquivalentTldrawProjection,
@@ -98,7 +98,12 @@ function node(id: string, x: number, zIndex: number): CanvasObject {
   };
 }
 
-function connector(id: string, startId: string, endId: string, zIndex: number): CanvasObject {
+function connector(
+  id: string,
+  startId: string,
+  endId: string,
+  zIndex: number,
+): Extract<CanvasObject, { kind: "connector" }> {
   return {
     ...common(id, zIndex),
     kind: "connector",
@@ -111,6 +116,20 @@ function connector(id: string, startId: string, endId: string, zIndex: number): 
     direction: "end",
     label: id,
     color: "black",
+  };
+}
+
+function routing(
+  mode: ConnectorRouting["mode"],
+  kind: ConnectorRouting["kind"],
+  values: Partial<Omit<ConnectorRouting, "mode" | "kind">> = {},
+): ConnectorRouting {
+  return {
+    mode,
+    kind,
+    bend: values.bend ?? 0,
+    elbowMidPoint: values.elbowMidPoint ?? 0.5,
+    labelPosition: values.labelPosition ?? 0.5,
   };
 }
 
@@ -648,6 +667,462 @@ describe("bidirectional tldraw projection", () => {
     expect(editor.getShape(tldrawShapeId(groupedB.id))?.parentId).toBe(recoveredGroup?.id);
   });
 
+  it("round-trips every canonical connector routing mode through tldraw arrow props", () => {
+    const editor = createEditor();
+    const left = node("routing-left", 0, 0);
+    const right = node("routing-right", 420, 1);
+    const cases: Array<{
+      object: CanvasObject;
+      nativeKind: TLArrowShape["props"]["kind"];
+    }> = [
+      {
+        object: {
+          ...connector("route-straight", left.id, right.id, 2),
+          routing: routing("straight", "straight", { labelPosition: 0.3 }),
+        },
+        nativeKind: "arc",
+      },
+      {
+        object: {
+          ...connector("route-curved", left.id, right.id, 3),
+          routing: routing("curved", "curved", { bend: 64, labelPosition: 0.4 }),
+        },
+        nativeKind: "arc",
+      },
+      {
+        object: {
+          ...connector("route-elbow", left.id, right.id, 4),
+          routing: routing("elbow", "elbow", { elbowMidPoint: 0.65, labelPosition: 0.6 }),
+        },
+        nativeKind: "elbow",
+      },
+      {
+        object: {
+          ...connector("route-auto", left.id, right.id, 5),
+          routing: routing("auto", "elbow", { elbowMidPoint: 0.35, labelPosition: 0.7 }),
+        },
+        nativeKind: "elbow",
+      },
+    ];
+
+    projectRoomIntoTldraw(editor, roomWith(left, right, ...cases.map(({ object }) => object)));
+
+    for (const { object, nativeKind } of cases) {
+      if (object.kind !== "connector" || !object.routing) throw new Error("Expected routed connector.");
+      const arrow = editor.getShape<TLArrowShape>(tldrawShapeId(object.id));
+      expect(arrow?.props).toMatchObject({
+        kind: nativeKind,
+        bend: object.routing.bend,
+        elbowMidPoint: object.routing.elbowMidPoint,
+        labelPosition: object.routing.labelPosition,
+      });
+      const draft = arrow ? tldrawShapeToSemantic(editor, arrow) : null;
+      expect(draft).toMatchObject({ kind: "connector", routing: object.routing });
+      expect(draft && isEquivalentTldrawProjection(object, draft)).toBe(true);
+    }
+  });
+
+  it("projects an implicitly rerouted bound connector after its nodes move", () => {
+    const editor = createEditor();
+    const left = node("reroute-left", 120, 0);
+    const right = node("reroute-right", 840, 1);
+    const automatic = {
+      ...connector("reroute-arrow", left.id, right.id, 2),
+      x: 170,
+      y: 100,
+      width: 720,
+      height: 36,
+      start: {
+        x: 170,
+        y: 100,
+        objectId: left.id,
+        normalizedAnchor: { x: 0.5, y: 1 },
+        isPrecise: true,
+        isExact: false,
+        snap: "none" as const,
+      },
+      end: {
+        x: 890,
+        y: 100,
+        objectId: right.id,
+        normalizedAnchor: { x: 0.5, y: 1 },
+        isPrecise: true,
+        isExact: false,
+        snap: "none" as const,
+      },
+      routing: routing("auto", "elbow", { elbowMidPoint: 0.5 }),
+    };
+    projectRoomIntoTldraw(editor, roomWith(left, right, automatic));
+
+    const movedLeft = { ...left, x: 160, revision: 2 };
+    const movedRight = { ...right, x: 1_330, revision: 2 };
+    const rerouted = {
+      ...automatic,
+      revision: 2,
+      x: 260,
+      y: 50,
+      width: 1_070,
+      height: 144,
+      start: {
+        ...automatic.start,
+        x: 260,
+        y: 92,
+        normalizedAnchor: { x: 1, y: 0.42 },
+      },
+      end: {
+        ...automatic.end,
+        x: 1_330,
+        y: 92,
+        normalizedAnchor: { x: 0, y: 0.42 },
+      },
+      routing: routing("auto", "curved", { bend: 144 }),
+    };
+    const updatedRoom = roomWith(movedLeft, movedRight, rerouted);
+    updatedRoom.roomRevision = 2;
+    projectRoomIntoTldraw(editor, updatedRoom);
+
+    const arrow = editor.getShape<TLArrowShape>(tldrawShapeId(automatic.id));
+    expect(arrow?.meta).toMatchObject({ jazzboardRevision: 2 });
+    expect(arrow?.props).toMatchObject({ kind: "arc", bend: 144, labelPosition: 0.5 });
+    expect(
+      editor
+        .getBindingsFromShape<TLArrowBinding>(arrow!.id, "arrow")
+        .map((binding) => [binding.props.terminal, binding.toId]),
+    ).toEqual(expect.arrayContaining([
+      ["start", tldrawShapeId(left.id)],
+      ["end", tldrawShapeId(right.id)],
+    ]));
+  });
+
+  it("preserves auto-routing intent through label placement until a human changes route geometry", () => {
+    const editor = createEditor();
+    const left = node("auto-left", 0, 0);
+    const right = node("auto-right", 420, 1);
+    const automatic: CanvasObject = {
+      ...connector("auto-arrow", left.id, right.id, 2),
+      routing: routing("auto", "elbow", { elbowMidPoint: 0.4, labelPosition: 0.55 }),
+    };
+    const room = roomWith(left, right, automatic);
+    projectRoomIntoTldraw(editor, room);
+
+    const arrowId = tldrawShapeId(automatic.id);
+    const originalRecord = editor.getShape<TLArrowShape>(arrowId);
+    const originalDraft = originalRecord ? tldrawShapeToSemantic(editor, originalRecord) : null;
+    expect(originalDraft).toMatchObject({
+      routing: {
+        mode: "auto",
+        kind: "elbow",
+        elbowMidPoint: 0.4,
+        labelPosition: 0.55,
+      },
+    });
+    expect(originalDraft && isEquivalentTldrawProjection(automatic, originalDraft)).toBe(true);
+
+    projectRoomIntoTldraw(editor, { ...room, roomRevision: 2, updatedAt: 2 });
+    expect(editor.getShape(arrowId)).toBe(originalRecord);
+
+    editor.updateShape<TLArrowShape>({
+      id: arrowId,
+      type: "arrow",
+      props: { labelPosition: 0.72 },
+    });
+    const labelOnlyEdit = tldrawShapeToSemantic(editor, editor.getShape(arrowId)!);
+    expect(labelOnlyEdit).toMatchObject({
+      routing: {
+        mode: "auto",
+        kind: "elbow",
+        elbowMidPoint: 0.4,
+        labelPosition: 0.72,
+      },
+    });
+    expect(labelOnlyEdit && isEquivalentTldrawProjection(automatic, labelOnlyEdit)).toBe(false);
+
+    projectRoomIntoTldraw(editor, room, { forceObjectIds: new Set([automatic.id]) });
+
+    editor.updateShape<TLArrowShape>({
+      id: arrowId,
+      type: "arrow",
+      props: { kind: "arc", bend: 72, labelPosition: 0.65 },
+    });
+    const manuallyCurved = tldrawShapeToSemantic(editor, editor.getShape(arrowId)!);
+    expect(manuallyCurved).toMatchObject({
+      routing: {
+        mode: "curved",
+        kind: "curved",
+        bend: 72,
+        labelPosition: 0.65,
+      },
+    });
+    expect(manuallyCurved && isEquivalentTldrawProjection(automatic, manuallyCurved)).toBe(false);
+
+    projectRoomIntoTldraw(editor, room, { forceObjectIds: new Set([automatic.id]) });
+    editor.updateShape<TLArrowShape>({
+      id: arrowId,
+      type: "arrow",
+      props: { elbowMidPoint: 0.75 },
+    });
+    const manuallyElbowed = tldrawShapeToSemantic(editor, editor.getShape(arrowId)!);
+    expect(manuallyElbowed).toMatchObject({
+      routing: { mode: "elbow", kind: "elbow", elbowMidPoint: 0.75 },
+    });
+    expect(manuallyElbowed && isEquivalentTldrawProjection(automatic, manuallyElbowed)).toBe(false);
+  });
+
+  it("promotes auto routing when a human changes only an endpoint binding", () => {
+    const editor = createEditor();
+    const left = node("auto-anchor-left", 0, 0);
+    const right = node("auto-anchor-right", 420, 1);
+    const automatic: CanvasObject = {
+      ...connector("auto-anchor-arrow", left.id, right.id, 2),
+      routing: routing("auto", "elbow", { elbowMidPoint: 0.35, labelPosition: 0.6 }),
+    };
+    projectRoomIntoTldraw(editor, roomWith(left, right, automatic));
+
+    const arrowId = tldrawShapeId(automatic.id);
+    const arrowBefore = editor.getShape<TLArrowShape>(arrowId);
+    if (!arrowBefore) throw new Error("Expected an auto-routed arrow.");
+    const unchanged = tldrawShapeToSemantic(editor, arrowBefore);
+    expect(unchanged).toMatchObject({
+      routing: { mode: "auto", kind: "elbow", elbowMidPoint: 0.35, labelPosition: 0.6 },
+    });
+    expect(unchanged && isEquivalentTldrawProjection(automatic, unchanged)).toBe(true);
+
+    const startBinding = editor
+      .getBindingsFromShape<TLArrowBinding>(arrowId, "arrow")
+      .find((binding) => binding.props.terminal === "start");
+    if (!startBinding) throw new Error("Expected an auto-routed start binding.");
+    editor.updateBinding({
+      id: startBinding.id,
+      type: "arrow",
+      props: {
+        normalizedAnchor: { x: 1, y: 0.2 },
+        isPrecise: true,
+      },
+    });
+
+    const arrowAfter = editor.getShape<TLArrowShape>(arrowId);
+    if (!arrowAfter) throw new Error("Expected the edited auto-routed arrow.");
+    expect(arrowAfter.props).toMatchObject({
+      kind: arrowBefore.props.kind,
+      bend: arrowBefore.props.bend,
+      elbowMidPoint: arrowBefore.props.elbowMidPoint,
+      labelPosition: arrowBefore.props.labelPosition,
+    });
+    const anchorEdit = tldrawShapeToSemantic(editor, arrowAfter);
+    expect(anchorEdit).toMatchObject({
+      routing: { mode: "elbow", kind: "elbow", elbowMidPoint: 0.35, labelPosition: 0.6 },
+      start: {
+        objectId: left.id,
+        normalizedAnchor: { x: 1, y: 0.2 },
+        isPrecise: true,
+      },
+    });
+    expect(anchorEdit && isEquivalentTldrawProjection(automatic, anchorEdit)).toBe(false);
+  });
+
+  it("preserves auto routing when tldraw remaps bindings for a duplicated subgraph", () => {
+    const editor = createEditor();
+    const left = node("copy-auto-left", 0, 0);
+    const right = node("copy-auto-right", 420, 1);
+    const automatic: CanvasObject = {
+      ...connector("copy-auto-arrow", left.id, right.id, 2),
+      routing: routing("auto", "elbow", { elbowMidPoint: 0.4, labelPosition: 0.6 }),
+    };
+    const originalIds = [left.id, right.id, automatic.id].map(tldrawShapeId);
+    projectRoomIntoTldraw(editor, roomWith(left, right, automatic));
+
+    editor.duplicateShapes(originalIds, { x: 0, y: 220 });
+    const copies = editor
+      .getCurrentPageShapes()
+      .filter((shape) => !originalIds.includes(shape.id));
+    expect(copies).toHaveLength(3);
+    for (const shape of copies) {
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        meta: {
+          ...shape.meta,
+          jazzboardId: null,
+          jazzboardRevision: null,
+          jazzboardCreatedAt: null,
+          jazzboardKind: null,
+          jazzboardGroupId: null,
+        },
+      });
+    }
+
+    const copiedArrow = copies.find((shape): shape is TLArrowShape => shape.type === "arrow");
+    if (!copiedArrow) throw new Error("Expected a duplicated auto-routed arrow.");
+    const copied = tldrawShapeToSemantic(editor, editor.getShape(copiedArrow.id)!);
+    if (!copied || copied.kind !== "connector") throw new Error("Expected a semantic connector copy.");
+    expect(copied).toMatchObject({
+      routing: { mode: "auto", kind: "elbow", elbowMidPoint: 0.4, labelPosition: 0.6 },
+    });
+    expect(copied.start.objectId).not.toBe(left.id);
+    expect(copied.end.objectId).not.toBe(right.id);
+  });
+
+  it("round-trips exact endpoint binding anchors and detects anchor-only edits", () => {
+    const editor = createEditor();
+    const left = node("anchor-left", 0, 0);
+    const right = node("anchor-right", 420, 1);
+    const anchored: CanvasObject = {
+      ...connector("anchored-arrow", left.id, right.id, 2),
+      routing: routing("elbow", "elbow", { elbowMidPoint: 0.6 }),
+      start: {
+        x: 100,
+        y: 25,
+        objectId: left.id,
+        normalizedAnchor: { x: 1, y: 0.25 },
+        isPrecise: true,
+        isExact: true,
+        snap: "edge-point",
+      },
+      end: {
+        x: 420,
+        y: 75,
+        objectId: right.id,
+        normalizedAnchor: { x: 0, y: 0.75 },
+        isPrecise: true,
+        isExact: false,
+        snap: "edge",
+      },
+    };
+    projectRoomIntoTldraw(editor, roomWith(left, right, anchored));
+
+    const arrowId = tldrawShapeId(anchored.id);
+    const bindings = editor.getBindingsFromShape<TLArrowBinding>(arrowId, "arrow");
+    expect(bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toId: tldrawShapeId(left.id),
+          props: {
+            terminal: "start",
+            normalizedAnchor: { x: 1, y: 0.25 },
+            isPrecise: true,
+            isExact: true,
+            snap: "edge-point",
+          },
+        }),
+        expect.objectContaining({
+          toId: tldrawShapeId(right.id),
+          props: {
+            terminal: "end",
+            normalizedAnchor: { x: 0, y: 0.75 },
+            isPrecise: true,
+            isExact: false,
+            snap: "edge",
+          },
+        }),
+      ]),
+    );
+
+    const projected = tldrawShapeToSemantic(editor, editor.getShape(arrowId)!);
+    expect(projected).toMatchObject({ start: anchored.start, end: anchored.end });
+    expect(projected && isEquivalentTldrawProjection(anchored, projected)).toBe(true);
+
+    const startBinding = bindings.find((binding) => binding.props.terminal === "start");
+    if (!startBinding) throw new Error("Expected a start binding.");
+    editor.updateBinding({
+      id: startBinding.id,
+      type: "arrow",
+      props: {
+        normalizedAnchor: { x: 0.8, y: 0.9 },
+        isPrecise: true,
+        isExact: false,
+        snap: "center",
+      },
+    });
+    const anchorEdit = tldrawShapeToSemantic(editor, editor.getShape(arrowId)!);
+    expect(anchorEdit).toMatchObject({
+      start: {
+        objectId: left.id,
+        normalizedAnchor: { x: 0.8, y: 0.9 },
+        isPrecise: true,
+        isExact: false,
+        snap: "center",
+      },
+    });
+    expect(anchorEdit && isEquivalentTldrawProjection(anchored, anchorEdit)).toBe(false);
+  });
+
+  it("keeps local route and anchor edits protected even when forced, then applies authority", () => {
+    const editor = createEditor();
+    const left = node("protected-left", 0, 0);
+    const right = node("protected-right", 420, 1);
+    const initial: CanvasObject = {
+      ...connector("protected-arrow", left.id, right.id, 2),
+      routing: routing("curved", "curved", { bend: 48 }),
+      start: {
+        x: 100,
+        y: 50,
+        objectId: left.id,
+        normalizedAnchor: { x: 1, y: 0.5 },
+        isPrecise: true,
+        isExact: false,
+        snap: "none",
+      },
+    };
+    projectRoomIntoTldraw(editor, roomWith(left, right, initial));
+
+    const arrowId = tldrawShapeId(initial.id);
+    editor.updateShape<TLArrowShape>({
+      id: arrowId,
+      type: "arrow",
+      props: { kind: "arc", bend: 96, labelPosition: 0.7 },
+    });
+    const startBinding = editor
+      .getBindingsFromShape<TLArrowBinding>(arrowId, "arrow")
+      .find((binding) => binding.props.terminal === "start");
+    if (!startBinding) throw new Error("Expected a start binding.");
+    editor.updateBinding({
+      id: startBinding.id,
+      type: "arrow",
+      props: { normalizedAnchor: { x: 0.9, y: 0.2 }, isPrecise: true },
+    });
+
+    const authoritative: CanvasObject = {
+      ...initial,
+      revision: 2,
+      routing: routing("elbow", "elbow", { elbowMidPoint: 0.25, labelPosition: 0.4 }),
+      start: {
+        ...initial.start,
+        normalizedAnchor: { x: 1, y: 0.8 },
+        isExact: true,
+        snap: "edge-point",
+      },
+    };
+    const updatedRoom = { ...roomWith(left, right, authoritative), roomRevision: 2 };
+    projectRoomIntoTldraw(editor, updatedRoom, {
+      protectedObjectIds: new Set([initial.id]),
+      forceObjectIds: new Set([initial.id]),
+    });
+    expect(editor.getShape<TLArrowShape>(arrowId)?.props).toMatchObject({
+      kind: "arc",
+      bend: 96,
+      labelPosition: 0.7,
+    });
+    expect(editor.getBinding(startBinding.id)?.props).toMatchObject({
+      normalizedAnchor: { x: 0.9, y: 0.2 },
+      isExact: false,
+    });
+
+    projectRoomIntoTldraw(editor, updatedRoom, {
+      forceObjectIds: new Set([initial.id]),
+    });
+    expect(editor.getShape<TLArrowShape>(arrowId)?.props).toMatchObject({
+      kind: "elbow",
+      elbowMidPoint: 0.25,
+      labelPosition: 0.4,
+    });
+    expect(editor.getBinding(startBinding.id)?.props).toMatchObject({
+      normalizedAnchor: { x: 1, y: 0.8 },
+      isPrecise: true,
+      isExact: true,
+      snap: "edge-point",
+    });
+  });
+
   it("leaves locally changed connector bindings and groups alone on a room-only update", () => {
     const editor = createEditor();
     const groupedA = { ...node("grouped-a", 0, 0), groupId: "cluster" };
@@ -849,6 +1324,53 @@ describe("bidirectional tldraw projection", () => {
       }),
     ).toBe(false);
     expect(isEquivalentTldrawProjection(unbound, { ...unbound, zIndex: unbound.zIndex + 1 })).toBe(false);
+  });
+
+  it("acknowledges an equivalent dependent connector revision without repainting its local geometry", () => {
+    const editor = createEditor();
+    const left = node("ack-left", 0, 0);
+    const right = node("ack-right", 300, 1);
+    const arrow = connector("ack-arrow", left.id, right.id, 2);
+    projectRoomIntoTldraw(editor, roomWith(left, right, arrow));
+
+    editor.updateShape<TLGeoShape>({
+      id: tldrawShapeId(left.id),
+      type: "geo",
+      x: 140,
+      y: 80,
+    });
+    const arrowId = tldrawShapeId(arrow.id);
+    const localArrow = editor.getShape<TLArrowShape>(arrowId);
+    expect(localArrow).toBeDefined();
+    const localRecordGeometry = localArrow
+      ? { x: localArrow.x, y: localArrow.y, rotation: localArrow.rotation, props: localArrow.props }
+      : null;
+
+    const movedLeft: CanvasObject = { ...left, x: 140, y: 80, revision: 2 };
+    const rerouted: CanvasObject = {
+      ...arrow,
+      revision: 2,
+      x: 240,
+      y: 130,
+      width: 60,
+      height: 80,
+      start: { ...arrow.start, x: 240, y: 130 },
+      end: { ...arrow.end, x: 300, y: 50 },
+    };
+    const acknowledgedRoom = roomWith(movedLeft, right, rerouted);
+    acknowledgedRoom.roomRevision = 2;
+    projectRoomIntoTldraw(editor, acknowledgedRoom);
+
+    const acknowledgedArrow = editor.getShape<TLArrowShape>(arrowId);
+    expect(acknowledgedArrow?.meta).toMatchObject({ jazzboardRevision: 2 });
+    expect(acknowledgedArrow && {
+      x: acknowledgedArrow.x,
+      y: acknowledgedArrow.y,
+      rotation: acknowledgedArrow.rotation,
+      props: acknowledgedArrow.props,
+    }).toEqual(localRecordGeometry);
+    const draft = acknowledgedArrow ? tldrawShapeToSemantic(editor, acknowledgedArrow) : null;
+    expect(draft && isEquivalentTldrawProjection(rerouted, draft)).toBe(true);
   });
 
   it("creates v3 arrow bindings after all targets exist and reconciles changed endpoints", () => {

@@ -21,7 +21,28 @@ import {
   type TLTextShape,
 } from "tldraw";
 
-import type { CanvasObject, CreateCanvasObject, DiagramNodeType, RoomState } from "@/lib/domain/types";
+import {
+  connectorEndpointBindingDefaults,
+  normalizeConnectorRouting,
+} from "@/lib/domain/connector-routing";
+import type {
+  CanvasObject,
+  ConnectorEndpoint,
+  ConnectorRouting,
+  ConnectorRoutingKind,
+  DiagramNodeType,
+  CreateCanvasObject,
+  RoomState,
+} from "@/lib/domain/types";
+
+type JazzboardBindingMeta = JsonObject & {
+  objectId: string | null;
+  normalizedAnchorX: number;
+  normalizedAnchorY: number;
+  isPrecise: boolean;
+  isExact: boolean;
+  snap: string;
+};
 
 type JazzboardMeta = JsonObject & {
   jazzboardId?: string;
@@ -39,6 +60,14 @@ type JazzboardMeta = JsonObject & {
   jazzboardTextSize?: TLDefaultSizeStyle;
   jazzboardTextScale?: number;
   jazzboardNodeType?: DiagramNodeType | null;
+  /** The authoritative auto-routing resolution projected into tldraw props. */
+  jazzboardRoutingMode?: string;
+  jazzboardRoutingKind?: string;
+  jazzboardRoutingBend?: number;
+  jazzboardRoutingElbowMidPoint?: number;
+  jazzboardRoutingLabelPosition?: number;
+  jazzboardStartBinding?: JazzboardBindingMeta;
+  jazzboardEndBinding?: JazzboardBindingMeta;
 };
 
 const TLDRAW_COLORS = new Set([
@@ -100,6 +129,18 @@ function objectEdgePoint(
   return { x: center.x + dx * scale, y: center.y + dy * scale };
 }
 
+function bindingMetaForEndpoint(endpoint: ConnectorEndpoint): JazzboardBindingMeta {
+  const binding = connectorEndpointBindingDefaults(endpoint);
+  return {
+    objectId: endpoint.objectId,
+    normalizedAnchorX: binding.normalizedAnchor.x,
+    normalizedAnchorY: binding.normalizedAnchor.y,
+    isPrecise: binding.isPrecise,
+    isExact: binding.isExact,
+    snap: binding.snap,
+  };
+}
+
 function metaFor(object: CanvasObject): JazzboardMeta {
   const meta: JazzboardMeta = {
     jazzboardId: object.id,
@@ -118,6 +159,15 @@ function metaFor(object: CanvasObject): JazzboardMeta {
     meta.jazzboardTextHeight = object.height;
     meta.jazzboardTextSize = size(object.size);
     meta.jazzboardTextScale = 1;
+  } else if (object.kind === "connector") {
+    const routing = normalizeConnectorRouting(object.routing);
+    meta.jazzboardRoutingMode = routing.mode;
+    meta.jazzboardRoutingKind = routing.kind;
+    meta.jazzboardRoutingBend = routing.bend;
+    meta.jazzboardRoutingElbowMidPoint = routing.elbowMidPoint;
+    meta.jazzboardRoutingLabelPosition = routing.labelPosition;
+    meta.jazzboardStartBinding = bindingMetaForEndpoint(object.start);
+    meta.jazzboardEndBinding = bindingMetaForEndpoint(object.end);
   }
   return meta;
 }
@@ -141,6 +191,114 @@ function rotatePoint(point: { x: number; y: number }, rotation: number) {
     x: point.x * cosine - point.y * sine,
     y: point.x * sine + point.y * cosine,
   };
+}
+
+function nativeArrowKind(kind: ConnectorRoutingKind): TLArrowShape["props"]["kind"] {
+  return kind === "elbow" ? "elbow" : "arc";
+}
+
+function connectorBindingProps(
+  endpoint: ConnectorEndpoint,
+  terminal: "start" | "end",
+): TLArrowBinding["props"] {
+  const props = connectorEndpointBindingDefaults(endpoint);
+  return {
+    terminal,
+    normalizedAnchor: { ...props.normalizedAnchor },
+    isExact: props.isExact,
+    isPrecise: props.isPrecise,
+    snap: props.snap,
+  };
+}
+
+function metaRouting(meta: JazzboardMeta): ConnectorRouting | null {
+  if (
+    meta.jazzboardRoutingMode !== "auto" ||
+    (meta.jazzboardRoutingKind !== "straight" &&
+      meta.jazzboardRoutingKind !== "curved" &&
+      meta.jazzboardRoutingKind !== "elbow") ||
+    typeof meta.jazzboardRoutingBend !== "number" ||
+    typeof meta.jazzboardRoutingElbowMidPoint !== "number" ||
+    typeof meta.jazzboardRoutingLabelPosition !== "number"
+  ) {
+    return null;
+  }
+  return {
+    mode: "auto",
+    kind: meta.jazzboardRoutingKind,
+    bend: meta.jazzboardRoutingBend,
+    elbowMidPoint: meta.jazzboardRoutingElbowMidPoint,
+    labelPosition: meta.jazzboardRoutingLabelPosition,
+  };
+}
+
+function routeGeometryPropsMatch(
+  arrow: TLArrowShape,
+  routing: ConnectorRouting,
+): boolean {
+  const epsilon = 0.001;
+  return (
+    arrow.props.kind === nativeArrowKind(routing.kind) &&
+    Math.abs(arrow.props.bend - routing.bend) <= epsilon &&
+    Math.abs(arrow.props.elbowMidPoint - routing.elbowMidPoint) <= epsilon
+  );
+}
+
+function bindingMatchesMeta(
+  editor: Editor,
+  binding: TLArrowBinding | undefined,
+  expected: JazzboardBindingMeta | undefined,
+): boolean {
+  if (!expected) return false;
+  if (expected.objectId === null) return binding === undefined;
+  if (!binding) return false;
+  const target = editor.getShape(binding.toId);
+  if (!target) return false;
+  return (
+    semanticId(target) === expected.objectId &&
+    Math.abs(binding.props.normalizedAnchor.x - expected.normalizedAnchorX) <= 0.001 &&
+    Math.abs(binding.props.normalizedAnchor.y - expected.normalizedAnchorY) <= 0.001 &&
+    binding.props.isPrecise === expected.isPrecise &&
+    binding.props.isExact === expected.isExact &&
+    binding.props.snap === expected.snap
+  );
+}
+
+function semanticRoutingForArrow(
+  editor: Editor,
+  arrow: TLArrowShape,
+  startBinding: TLArrowBinding | undefined,
+  endBinding: TLArrowBinding | undefined,
+): ConnectorRouting {
+  const meta = arrow.meta as JazzboardMeta;
+  const autoRouting = metaRouting(meta);
+  const isUncommittedCopy = typeof meta.jazzboardId !== "string";
+  if (
+    autoRouting &&
+    routeGeometryPropsMatch(arrow, autoRouting) &&
+    (isUncommittedCopy ||
+      (bindingMatchesMeta(editor, startBinding, meta.jazzboardStartBinding) &&
+        bindingMatchesMeta(editor, endBinding, meta.jazzboardEndBinding)))
+  ) {
+    // tldraw remaps binding targets when duplicating a whole subgraph. The
+    // copied arrow intentionally retains its auto-routing snapshot but has no
+    // authoritative Jazzboard identity yet, so the old endpoint IDs must not
+    // turn that fresh copy into an explicit route before its first save.
+    return { ...autoRouting, labelPosition: arrow.props.labelPosition };
+  }
+
+  const kind: ConnectorRoutingKind =
+    arrow.props.kind === "elbow"
+      ? "elbow"
+      : Math.abs(arrow.props.bend) <= 0.001
+        ? "straight"
+        : "curved";
+  return normalizeConnectorRouting({
+    mode: kind,
+    bend: arrow.props.bend,
+    elbowMidPoint: arrow.props.elbowMidPoint,
+    labelPosition: arrow.props.labelPosition,
+  });
 }
 
 function semanticToShape(room: RoomState, object: CanvasObject): TLShapePartial {
@@ -183,6 +341,7 @@ function semanticToShape(room: RoomState, object: CanvasObject): TLShapePartial 
     };
   }
   if (object.kind === "connector") {
+    const routing = normalizeConnectorRouting(object.routing);
     const startObject = room.objects[object.start.objectId ?? ""];
     const endObject = room.objects[object.end.objectId ?? ""];
     const startCenter = objectCenter(startObject, object.start);
@@ -201,6 +360,10 @@ function semanticToShape(room: RoomState, object: CanvasObject): TLShapePartial 
       props: {
         start: { x: 0, y: 0 },
         end: localEnd,
+        kind: nativeArrowKind(routing.kind),
+        bend: routing.bend,
+        elbowMidPoint: routing.elbowMidPoint,
+        labelPosition: routing.labelPosition,
         text: object.label,
         color: color(object.color),
         arrowheadStart: object.direction === "both" ? "arrow" : "none",
@@ -274,13 +437,7 @@ function reconcileConnectorBindings(editor: Editor, object: CanvasObject): void 
       continue;
     }
 
-    const props: TLArrowBinding["props"] = {
-      terminal,
-      normalizedAnchor: { x: 0.5, y: 0.5 },
-      isExact: false,
-      isPrecise: false,
-      snap: "none",
-    };
+    const props = connectorBindingProps(endpoint, terminal);
     if (existing.length > 1) editor.deleteBindings(existing.slice(1));
     if (existing[0]) {
       const current = existing[0];
@@ -309,6 +466,51 @@ export interface ProjectionOptions {
 
 const EMPTY_OBJECT_IDS: ReadonlySet<string> = new Set<string>();
 const deferredGroupReconciliations = new WeakMap<Editor, Set<string>>();
+const connectorLabelRefreshEpochs = new WeakMap<Editor, Map<string, number>>();
+
+function scheduleConnectorLabelRefresh(
+  editor: Editor,
+  object: Extract<CanvasObject, { kind: "connector" }>,
+): void {
+  if (!object.label) return;
+  const view = editor.getContainer().ownerDocument.defaultView;
+  if (!view) return;
+  let epochs = connectorLabelRefreshEpochs.get(editor);
+  if (!epochs) {
+    epochs = new Map<string, number>();
+    connectorLabelRefreshEpochs.set(editor, epochs);
+  }
+  const epoch = (epochs.get(object.id) ?? 0) + 1;
+  epochs.set(object.id, epoch);
+  const shapeId = tldrawShapeId(object.id);
+  const sentinel = `${object.label}\u200b`;
+  const stillCurrent = (arrow: TLShape | undefined) =>
+    !editor.isDisposed &&
+    epochs?.get(object.id) === epoch &&
+    arrow?.type === "arrow" &&
+    projectedRevision(arrow) === object.revision &&
+    projectedCreatedAt(arrow) === object.createdAt;
+
+  view.requestAnimationFrame(() => {
+    const arrow = editor.getShape<TLArrowShape>(shapeId);
+    if (!stillCurrent(arrow) || arrow?.type !== "arrow" || arrow.props.text !== object.label) return;
+    editor.store.mergeRemoteChanges(() => {
+      editor.updateShape({ id: arrow.id, type: "arrow", props: { text: sentinel } });
+    });
+    const staged = editor.getShape<TLArrowShape>(shapeId);
+    if (staged?.type === "arrow") editor.getShapeGeometry(staged);
+
+    view.requestAnimationFrame(() => {
+      const current = editor.getShape<TLArrowShape>(shapeId);
+      if (!stillCurrent(current) || current?.type !== "arrow" || current.props.text !== sentinel) return;
+      editor.store.mergeRemoteChanges(() => {
+        editor.updateShape({ id: current.id, type: "arrow", props: { text: object.label } });
+      });
+      const restored = editor.getShape<TLArrowShape>(shapeId);
+      if (restored?.type === "arrow") editor.getShapeGeometry(restored);
+    });
+  });
+}
 
 function isLegacyProtectionSet(
   options: ProjectionOptions | ReadonlySet<string>,
@@ -482,6 +684,30 @@ export function projectRoomIntoTldraw(
           continue;
         }
 
+        if (
+          existing?.type === "arrow" &&
+          object.kind === "connector" &&
+          !forceObjectIds.has(object.id)
+        ) {
+          const localDraft = tldrawShapeToSemantic(editor, existing);
+          if (localDraft && isEquivalentTldrawProjection(object, localDraft)) {
+            // Moving a bound target makes tldraw resolve the connector's
+            // visible terminals immediately. The server then advances that
+            // connector's revision as a dependent reroute. Reapplying its
+            // page-space base geometry here would count the target delta a
+            // second time for one paint frame before tldraw normalizes the
+            // binding. When the semantic connector is already equivalent,
+            // acknowledge authority through metadata only and leave those
+            // correct local pixels untouched.
+            editor.updateShape({
+              id: existing.id,
+              type: "arrow",
+              meta: { ...(existing.meta as JazzboardMeta), ...metaFor(object) },
+            });
+            continue;
+          }
+        }
+
         let partial = semanticToShape(room, object);
         let parent = parentShape(editor, existing);
         const currentGroupId = semanticGroupIdForShape(parent);
@@ -525,6 +751,17 @@ export function projectRoomIntoTldraw(
       // semantic z-order does not guarantee that connectors follow targets.
       for (const object of Object.values(room.objects)) {
         if (projectedObjectIds.has(object.id)) reconcileConnectorBindings(editor, object);
+      }
+      for (const object of Object.values(room.objects)) {
+        if (projectedObjectIds.has(object.id) && object.kind === "connector") {
+          // tldraw's arrow-label size cache is keyed by the arrow record, not
+          // its binding records. Rebinding can therefore retain a measurement
+          // taken against an intermediate, near-zero route. Refresh the label
+          // across two paint frames after both terminals are authoritative;
+          // the zero-width suffix is visually inert and the epoch/revision
+          // guards prevent a late refresh from overwriting a newer edit.
+          scheduleConnectorLabelRefresh(editor, object);
+        }
       }
 
       const stale = editor
@@ -771,11 +1008,27 @@ export function tldrawShapeToSemantic(editor: Editor, shape: TLShape): CreateCan
     });
     const start = pageTransform.applyToPoint(terminals.start);
     const end = pageTransform.applyToPoint(terminals.end);
+    const endpoint = (
+      point: { x: number; y: number },
+      binding: TLArrowBinding | undefined,
+    ): ConnectorEndpoint => ({
+      ...point,
+      objectId: targetId(binding?.toId),
+      ...(binding
+        ? {
+            normalizedAnchor: { ...binding.props.normalizedAnchor },
+            isPrecise: binding.props.isPrecise,
+            isExact: binding.props.isExact,
+            snap: binding.props.snap,
+          }
+        : {}),
+    });
     return {
       ...base,
       kind: "connector",
-      start: { ...start, objectId: targetId(startBinding?.toId) },
-      end: { ...end, objectId: targetId(endBinding?.toId) },
+      start: endpoint(start, startBinding),
+      end: endpoint(end, endBinding),
+      routing: semanticRoutingForArrow(editor, arrowShape, startBinding, endBinding),
       direction:
         arrowShape.props.arrowheadStart !== "none"
           ? "both"
@@ -844,6 +1097,32 @@ function sameProjectedPoint(left: { x: number; y: number }, right: { x: number; 
   return sameProjectedNumber(left.x, right.x) && sameProjectedNumber(left.y, right.y);
 }
 
+function sameProjectedRouting(
+  current: Extract<CanvasObject, { kind: "connector" }>["routing"],
+  draft: Extract<CreateCanvasObject, { kind: "connector" }>["routing"],
+): boolean {
+  const left = normalizeConnectorRouting(current);
+  const right = normalizeConnectorRouting(draft);
+  return (
+    left.mode === right.mode &&
+    left.kind === right.kind &&
+    sameProjectedNumber(left.bend, right.bend) &&
+    sameProjectedNumber(left.elbowMidPoint, right.elbowMidPoint) &&
+    sameProjectedNumber(left.labelPosition, right.labelPosition)
+  );
+}
+
+function sameProjectedBinding(left: ConnectorEndpoint, right: ConnectorEndpoint): boolean {
+  const leftProps = connectorEndpointBindingDefaults(left);
+  const rightProps = connectorEndpointBindingDefaults(right);
+  return (
+    sameProjectedPoint(leftProps.normalizedAnchor, rightProps.normalizedAnchor) &&
+    leftProps.isPrecise === rightProps.isPrecise &&
+    leftProps.isExact === rightProps.isExact &&
+    leftProps.snap === rightProps.snap
+  );
+}
+
 function sameProjectedBase(current: CanvasObject, draft: CreateCanvasObject): boolean {
   return (
     current.id === draft.id &&
@@ -879,13 +1158,15 @@ export function isEquivalentTldrawProjection(current: CanvasObject, draft: Creat
       projected: typeof draft.start,
     ) =>
       authoritative.objectId === projected.objectId &&
-      (authoritative.objectId !== null || sameProjectedPoint(authoritative, projected));
+      (authoritative.objectId !== null || sameProjectedPoint(authoritative, projected)) &&
+      sameProjectedBinding(authoritative, projected);
 
     return (
       (hasBoundEndpoint || current.zIndex === draft.zIndex) &&
       current.groupId === draft.groupId &&
       sameEndpoint(current.start, draft.start) &&
       sameEndpoint(current.end, draft.end) &&
+      sameProjectedRouting(current.routing, draft.routing) &&
       current.direction === draft.direction &&
       current.label === draft.label &&
       current.color === draft.color

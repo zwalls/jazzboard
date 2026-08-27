@@ -6,6 +6,7 @@ import {
   JAZZBOARD_ARTIFACT_FORMAT,
   JAZZBOARD_ARTIFACT_SCHEMA_URL,
   JAZZBOARD_ARTIFACT_VERSION,
+  LEGACY_STRAIGHT_CONNECTOR_ROUTING,
   JazzboardInterchangeError,
   type JazzboardArtifactV1,
   type JazzboardArtifactWarning,
@@ -109,6 +110,7 @@ function stripObject(
     direction: object.direction,
     label: object.label,
     color: object.color,
+    routing: { ...(object.routing ?? LEGACY_STRAIGHT_CONNECTOR_ROUTING) },
   };
 }
 
@@ -257,15 +259,36 @@ function createObject(
       x: object.start.x + dx,
       y: object.start.y + dy,
       objectId: object.start.objectId ? objectIds.get(object.start.objectId)! : null,
+      ...(object.start.normalizedAnchor !== undefined
+        ? {
+            normalizedAnchor: object.start.normalizedAnchor
+              ? { ...object.start.normalizedAnchor }
+              : null,
+          }
+        : {}),
+      ...(object.start.isPrecise !== undefined ? { isPrecise: object.start.isPrecise } : {}),
+      ...(object.start.isExact !== undefined ? { isExact: object.start.isExact } : {}),
+      ...(object.start.snap !== undefined ? { snap: object.start.snap } : {}),
     },
     end: {
       x: object.end.x + dx,
       y: object.end.y + dy,
       objectId: object.end.objectId ? objectIds.get(object.end.objectId)! : null,
+      ...(object.end.normalizedAnchor !== undefined
+        ? {
+            normalizedAnchor: object.end.normalizedAnchor
+              ? { ...object.end.normalizedAnchor }
+              : null,
+          }
+        : {}),
+      ...(object.end.isPrecise !== undefined ? { isPrecise: object.end.isPrecise } : {}),
+      ...(object.end.isExact !== undefined ? { isExact: object.end.isExact } : {}),
+      ...(object.end.snap !== undefined ? { snap: object.end.snap } : {}),
     },
     direction: object.direction,
     label: object.label,
     color: object.color,
+    routing: { ...(object.routing ?? LEGACY_STRAIGHT_CONNECTOR_ROUTING) },
   };
 }
 

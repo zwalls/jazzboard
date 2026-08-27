@@ -10,7 +10,8 @@ import {
   DEFAULT_AUTOMATIC_LAYOUT_VIEWPORT_PADDING,
   layoutDensityDefaults,
 } from "@/lib/domain/layout";
-import { nodeMetadataInputSchema } from "@/lib/domain/schemas";
+import { normalizeConnectorRouting } from "@/lib/domain/connector-routing";
+import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
   AgentEditProposalSummary,
   CanvasCommand,
@@ -26,6 +27,7 @@ import type {
   Viewport,
 } from "@/lib/domain/types";
 
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type {
   JazzboardToolFailure,
   JazzboardToolResult,
@@ -99,6 +101,7 @@ const objectPatch = z
     stroke: z.string().min(1).max(32).optional(),
     start: point.extend({ objectId: id.nullable() }).strict().optional(),
     end: point.extend({ objectId: id.nullable() }).strict().optional(),
+    routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     alt: z.string().max(2_000).optional(),
     locked: z.boolean().optional(),
@@ -150,6 +153,7 @@ const connectOperation = z
     direction: z.enum(["none", "end", "both"]).default("end"),
     label: z.string().max(2_000).default(""),
     color: z.string().min(1).max(32).default("black"),
+    routing: connectorRoutingInputSchema.default({ mode: "auto" }),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
   })
   .strict();
@@ -308,6 +312,7 @@ const TRANSACTION_PATCH_INPUT_SCHEMA = {
     stroke: { type: "string", minLength: 1, maxLength: 32 },
     start: { $ref: "#/$defs/connectorEndpoint" },
     end: { $ref: "#/$defs/connectorEndpoint" },
+    routing: { $ref: "#/$defs/routing" },
     direction: { enum: ["none", "end", "both"] },
     alt: { type: "string", maxLength: 2_000 },
     locked: { type: "boolean" },
@@ -353,6 +358,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           align: { enum: ["start", "middle", "end"] },
           start: { $ref: "#/$defs/endpoint" },
           end: { $ref: "#/$defs/endpoint" },
+          routing: { $ref: "#/$defs/routing" },
           direction: { enum: ["none", "end", "both"] },
           diagramId: { $ref: "#/$defs/id" },
           title: { type: "string", minLength: 1, maxLength: 160 },
@@ -460,64 +466,48 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         { $ref: "#/$defs/point" },
       ],
     },
+    routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
     nodeType: {
       enum: ["service", "component", "requirement", "decision", "open_question"],
     },
     nodeMetadata: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: {
+        kind: { enum: ["decision", "open_question"] },
+        status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
+        owner: { $ref: "#/$defs/nodeOwner" },
+        resolution: { $ref: "#/$defs/nodeResolution" },
+      },
       oneOf: [
         {
-          type: "object",
-          additionalProperties: false,
-          required: ["kind"],
           properties: {
             kind: { const: "decision" },
             status: { enum: ["proposed", "accepted", "rejected", "superseded"] },
-            owner: { $ref: "#/$defs/nodeOwner" },
-            resolution: { $ref: "#/$defs/nodeResolution" },
           },
-          allOf: [
-            {
-              if: { properties: { status: { const: "proposed" } } },
-              then: { properties: { resolution: { type: "null" } } },
-            },
-            {
-              if: {
-                required: ["status"],
-                properties: { status: { enum: ["accepted", "rejected", "superseded"] } },
-              },
-              then: {
-                required: ["resolution"],
-                properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
-              },
-            },
-          ],
         },
         {
-          type: "object",
-          additionalProperties: false,
-          required: ["kind"],
           properties: {
             kind: { const: "open_question" },
             status: { enum: ["open", "answered", "deferred", "closed"] },
-            owner: { $ref: "#/$defs/nodeOwner" },
-            resolution: { $ref: "#/$defs/nodeResolution" },
           },
-          allOf: [
-            {
-              if: { properties: { status: { const: "open" } } },
-              then: { properties: { resolution: { type: "null" } } },
-            },
-            {
-              if: {
-                required: ["status"],
-                properties: { status: { enum: ["answered", "deferred", "closed"] } },
-              },
-              then: {
-                required: ["resolution"],
-                properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
-              },
-            },
-          ],
+        },
+      ],
+      allOf: [
+        {
+          if: { properties: { status: { enum: ["proposed", "open"] } }, required: ["status"] },
+          then: { properties: { resolution: { type: "null" } } },
+        },
+        {
+          if: {
+            properties: { status: { enum: ["accepted", "rejected", "superseded", "answered", "deferred", "closed"] } },
+            required: ["status"],
+          },
+          then: {
+            required: ["resolution"],
+            properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
+          },
         },
       ],
     },
@@ -985,7 +975,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "query_objects",
       title: "Query semantic canvas objects",
       description:
-        "Find bounded authoritative objects by content, kind, node classification, group, Diagram, relationship, or canvas region without unrelated room content.",
+        "Find bounded objects by content, kind, node type, group, Diagram, relationship, or canvas region.",
       schema: queryInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1030,7 +1020,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "read_neighborhood",
       title: "Read an object relationship neighborhood",
       description:
-        "Read a bounded semantic subgraph around exact object IDs, traversing authoritative connector relationships for a limited number of hops and optionally adding peers from the same first-class Diagram containers.",
+        "Read a bounded connector subgraph around exact object IDs, with optional peers from their Diagrams.",
       schema: neighborhoodInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1113,7 +1103,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "find_diagrams",
       title: "Find first-class diagrams",
       description:
-        "Find authoritative Diagram containers by title, description, explicit type, category, tags, or member object ID. Results contain metadata and bounds, not unrelated canvas objects.",
+        "Find Diagrams by metadata or member ID without returning unrelated canvas objects.",
       schema: findDiagramsInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1146,7 +1136,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "read_diagram",
       title: "Read a diagram by semantic ID",
       description:
-        "Read one authoritative Diagram record by stable ID and optionally include exactly its member objects and semantic connectors with current revisions and server-computed bounds.",
+        "Read one Diagram by stable ID, optionally with its exact members and connectors.",
       schema: readDiagramInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1164,7 +1154,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "describe_diagram",
       title: "Describe a diagram's semantic structure",
       description:
-        "Return a compact structural description of one Diagram: classified node counts, member summaries, relationship endpoints, metadata, bounds, and current revisions.",
+        "Summarize one Diagram's nodes, relationships, metadata, bounds, and revisions.",
       schema: describeDiagramInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1208,6 +1198,9 @@ export function createJazzboardSemanticWebMcpTools(
             connectorId: connector.id,
             label: connector.label,
             direction: connector.direction,
+            routing: normalizeConnectorRouting(connector.routing),
+            start: connector.start,
+            end: connector.end,
             startObjectId: connector.start.objectId,
             endObjectId: connector.end.objectId,
             revision: connector.revision,
@@ -1224,7 +1217,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply an atomic semantic canvas transaction",
       description:
-        "Atomically create or update semantic objects and Diagrams. Temporary refs connect new objects; optional auto_layout arranges new refs. Omit layout to preserve explicit coordinates and overlap.",
+        "Atomically create or update objects and Diagrams with temporary refs. Connectors default to auto; routing and optional layout remain all-or-nothing.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -1371,7 +1364,11 @@ export function createJazzboardSemanticWebMcpTools(
           if (target.kind === "connector") {
             throw new SemanticToolError("INVALID_OPERATION", "Connectors cannot target another connector.", { objectId });
           }
-          return { objectId, x: target.x + target.width / 2, y: target.y + target.height / 2 };
+          return {
+            objectId,
+            x: target.x + target.width / 2,
+            y: target.y + target.height / 2,
+          };
         };
 
         for (const operation of deferredConnections) {
@@ -1390,6 +1387,7 @@ export function createJazzboardSemanticWebMcpTools(
             groupId: null,
             start,
             end,
+            routing: normalizeConnectorRouting(operation.routing),
             direction: operation.direction,
             label: operation.label,
             color: operation.color,
@@ -1398,13 +1396,19 @@ export function createJazzboardSemanticWebMcpTools(
           geometry.set(objectId, { id: objectId, kind: "connector", x: object.x, y: object.y, width: object.width, height: object.height });
         }
         for (const operation of deferredUpdates) {
+          const patch = {
+            ...operation.patch,
+            ...(operation.patch.routing
+              ? { routing: normalizeConnectorRouting(operation.patch.routing) }
+              : {}),
+          } as ObjectPatch;
           commands.push({
             type: "update",
             objectId: operation.objectId,
             expectedRevision: operation.expectedRevision,
             leaseId: operation.leaseId,
             operation: operation.operation,
-            patch: operation.patch as ObjectPatch,
+            patch,
           });
         }
         for (const operation of deferredDiagrams) {
@@ -1490,7 +1494,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "layout_objects",
       title: "Arrange semantic objects deterministically",
       description:
-        "Arrange revision-checked objects as a comfortable or compact flow, grid, or connector-derived hierarchy. Leases, connector geometry and labels, Diagram bounds, and revisions remain authoritative.",
+        "Arrange revision-checked objects as a flow, grid, or hierarchy; auto routes avoid nodes while explicit routes persist.",
       schema: layoutInput,
       inputSchema: LAYOUT_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -1555,7 +1559,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "edit_diagram",
       title: "Edit a diagram by semantic ID and revision",
       description:
-        "Revision-check and atomically edit Diagram metadata or membership. The server maintains reverse membership and bounds; stale revisions cause no change.",
+        "Revision-check and atomically edit Diagram metadata or membership; stale revisions change nothing.",
       schema: editDiagramInput,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {

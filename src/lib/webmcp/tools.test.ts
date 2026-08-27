@@ -10,6 +10,7 @@ import {
   JAZZBOARD_WEBMCP_READ_TOOL_NAMES,
   JAZZBOARD_WEBMCP_TOOL_NAMES,
 } from "./tools";
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type {
   JazzboardToolResult,
   JazzboardWebMcpBinding,
@@ -181,6 +182,20 @@ describe("Jazzboard semantic WebMCP surface", () => {
     expect(tools.map((tool) => tool.name)).toEqual(JAZZBOARD_WEBMCP_READ_TOOL_NAMES);
     expect(tools.every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
     expect(tools.every((tool) => tool.annotations?.untrustedContentHint)).toBe(true);
+  });
+
+  it("advertises the same strict routing contract for create and update", () => {
+    const fixture = contextFixture();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context));
+    const drawSchema = toolByName(tools, "draw_connection").inputSchema as unknown as {
+      $defs?: Record<string, unknown>;
+    };
+    const updateSchema = toolByName(tools, "update_object").inputSchema as unknown as {
+      $defs?: Record<string, unknown>;
+    };
+
+    expect(drawSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
+    expect(updateSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
   });
 });
 
@@ -635,8 +650,49 @@ describe("semantic mutation handlers", () => {
           kind: "connector",
           start: { objectId: "service-a", x: 200, y: 250 },
           end: { objectId: "service-b", x: 600, y: 450 },
+          routing: {
+            mode: "auto",
+            kind: "straight",
+            bend: 0,
+            elbowMidPoint: 0.5,
+            labelPosition: 0.5,
+          },
           direction: "both",
           label: "events",
+        },
+      },
+    });
+  });
+
+  it("exposes explicit connector routing through revision-safe mutations", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
+
+    const result = await execute(toolByName(tools, "update_object"), {
+      objectId: "connector-a",
+      expectedRevision: 4,
+      operation: "connect",
+      patch: {
+        routing: { mode: "curved", bend: -72, labelPosition: 0.4 },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toMatchObject({
+      command: {
+        type: "update",
+        objectId: "connector-a",
+        expectedRevision: 4,
+        operation: "connect",
+        patch: {
+          routing: {
+            mode: "curved",
+            kind: "curved",
+            bend: -72,
+            elbowMidPoint: 0.5,
+            labelPosition: 0.4,
+          },
         },
       },
     });

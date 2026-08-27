@@ -1,4 +1,11 @@
-import { connectorLabelBounds, connectorLabelMetrics } from "@/lib/domain/layout";
+import {
+  connectorLabelBoundsForRoute,
+  normalizeConnectorRouting,
+  resolveConnectorRoutes,
+  type ResolvedConnectorRoute,
+} from "@/lib/domain/connector-routing";
+import { connectorLabelMetrics } from "@/lib/domain/layout";
+import type { RoomState } from "@/lib/domain/types";
 
 import { parseJazzboardArtifactV1 } from "./schemas";
 import { sortArtifactWarnings } from "./project";
@@ -83,8 +90,13 @@ function rotatedPoint(point: Coordinate, angle: number, origin: Coordinate): Coo
   };
 }
 
-function geometryPoints(object: ArtifactObject): Coordinate[] {
-  if (object.kind === "connector") return [object.start, object.end];
+function geometryPoints(
+  object: ArtifactObject,
+  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>,
+): Coordinate[] {
+  if (object.kind === "connector") {
+    return connectorRoutes[object.id]?.points ?? [object.start, object.end];
+  }
   if (object.kind === "draw") {
     return object.points.map((point) => {
       const rotated = rotatedPoint(point, object.rotation, { x: 0, y: 0 });
@@ -98,6 +110,38 @@ function geometryPoints(object: ArtifactObject): Coordinate[] {
     { x: object.x + object.width, y: object.y + object.height },
     { x: object.x, y: object.y + object.height },
   ].map((point) => rotatedPoint(point, object.rotation, center));
+}
+
+/**
+ * Freeze auto intent to its persisted concrete kind while rendering. This
+ * prevents a scoped export from changing just because unrelated obstacles
+ * were intentionally omitted from the portable artifact.
+ */
+function resolvedArtifactConnectorRoutes(
+  artifact: JazzboardArtifactV1,
+): Record<string, ResolvedConnectorRoute> {
+  const objects = Object.fromEntries(
+    artifact.objects.map((object, index) => {
+      if (object.kind !== "connector") return [object.id, object];
+      const routing = normalizeConnectorRouting(object.routing);
+      return [
+        object.id,
+        {
+          ...object,
+          createdAt: "createdAt" in object ? object.createdAt : index,
+          start: object.start.isPrecise && object.start.normalizedAnchor
+            ? object.start
+            : { ...object.start, objectId: null },
+          end: object.end.isPrecise && object.end.normalizedAnchor
+            ? object.end
+            : { ...object.end, objectId: null },
+          routing: { ...routing, mode: routing.kind },
+        },
+      ];
+    }),
+  );
+  const diagrams = Object.fromEntries(artifact.diagrams.map((diagram) => [diagram.id, diagram]));
+  return resolveConnectorRoutes({ objects, diagrams } as unknown as Pick<RoomState, "objects" | "diagrams">);
 }
 
 function wrapConnectorLine(value: string, maxGraphemes: number): string[] {
@@ -138,7 +182,7 @@ function wrapConnectorLine(value: string, maxGraphemes: number): string[] {
   return lines;
 }
 
-function connectorLabelLayout(object: ConnectorObject) {
+function connectorLabelLayout(object: ConnectorObject, route: ResolvedConnectorRoute) {
   const metrics = connectorLabelMetrics(object.label);
   if (!metrics.normalizedLines.length) return null;
   const maxGraphemes = Math.max(
@@ -146,11 +190,15 @@ function connectorLabelLayout(object: ConnectorObject) {
     Math.floor((metrics.width - CONNECTOR_LABEL_TOTAL_INSET) / CONNECTOR_LABEL_GRAPHEME_WIDTH),
   );
   const lines = metrics.normalizedLines.flatMap((line) => wrapConnectorLine(line, maxGraphemes));
-  const bounds = connectorLabelBounds(object.label, object.start, object.end)!;
+  const bounds = route.labelBounds ?? connectorLabelBoundsForRoute(
+    object.label,
+    route.points,
+    route.routing.labelPosition,
+  )!;
   const width = bounds.width;
   const height = bounds.height;
-  const centerX = (object.start.x + object.end.x) / 2;
-  const centerY = (object.start.y + object.end.y) / 2;
+  const centerX = route.labelPoint.x;
+  const centerY = route.labelPoint.y;
   return {
     x: bounds.x,
     y: bounds.y,
@@ -164,20 +212,25 @@ function connectorLabelLayout(object: ConnectorObject) {
   };
 }
 
-function renderBounds(artifact: JazzboardArtifactV1, padding: number) {
+function renderBounds(
+  artifact: JazzboardArtifactV1,
+  padding: number,
+  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>,
+) {
   let minX = artifact.bounds.x;
   let minY = artifact.bounds.y;
   let maxX = artifact.bounds.x + artifact.bounds.width;
   let maxY = artifact.bounds.y + artifact.bounds.height;
   for (const object of artifact.objects) {
-    for (const point of geometryPoints(object)) {
+    for (const point of geometryPoints(object, connectorRoutes)) {
       minX = Math.min(minX, point.x);
       minY = Math.min(minY, point.y);
       maxX = Math.max(maxX, point.x);
       maxY = Math.max(maxY, point.y);
     }
     if (object.kind === "connector") {
-      const label = connectorLabelLayout(object);
+      const route = connectorRoutes[object.id];
+      const label = route ? connectorLabelLayout(object, route) : null;
       if (label) {
         minX = Math.min(minX, label.x);
         minY = Math.min(minY, label.y);
@@ -275,13 +328,28 @@ function renderShape(object: Extract<ArtifactObject, { kind: "shape" }>): string
   return `<g${rotation(object)}>${geometry}${label}</g>`;
 }
 
-function renderConnector(object: ConnectorObject): string {
+function routePath(points: readonly Coordinate[]): string {
+  return points.map((point, index) => `${index ? "L" : "M"} ${number(point.x)} ${number(point.y)}`).join(" ");
+}
+
+function renderConnector(object: ConnectorObject, route: ResolvedConnectorRoute): string {
   const stroke = color(object.color, "#1d1d1d");
   const markerStart = object.direction === "both" ? ' marker-start="url(#jazzboard-arrow-start)"' : "";
   const markerEnd = object.direction === "none" ? "" : ' marker-end="url(#jazzboard-arrow-end)"';
-  const line = `<line x1="${number(object.start.x)}" y1="${number(object.start.y)}" x2="${number(object.end.x)}" y2="${number(object.end.y)}" stroke="${stroke}" stroke-width="2" stroke-linecap="round"${markerStart}${markerEnd}/>`;
-  const label = connectorLabelLayout(object);
-  if (!label) return line;
+  const strokeAttributes = `stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${markerStart}${markerEnd}`;
+  let geometry: string;
+  if (route.routing.kind === "straight") {
+    geometry = `<line x1="${number(route.start.x)}" y1="${number(route.start.y)}" x2="${number(route.end.x)}" y2="${number(route.end.y)}" ${strokeAttributes}/>`;
+  } else if (route.routing.kind === "curved" && route.arc) {
+    const largeArc = Math.abs(route.arc.sweepAngle) > Math.PI ? 1 : 0;
+    const sweep = route.arc.sweepAngle >= 0 ? 1 : 0;
+    const path = `M ${number(route.start.x)} ${number(route.start.y)} A ${number(route.arc.radius)} ${number(route.arc.radius)} 0 ${largeArc} ${sweep} ${number(route.end.x)} ${number(route.end.y)}`;
+    geometry = `<path d="${path}" fill="none" ${strokeAttributes}/>`;
+  } else {
+    geometry = `<path d="${routePath(route.points)}" fill="none" ${strokeAttributes}/>`;
+  }
+  const label = connectorLabelLayout(object, route);
+  if (!label) return geometry;
   const background = `<rect x="${number(label.x)}" y="${number(label.y)}" width="${number(label.width)}" height="${number(label.height)}" rx="6" fill="#ffffff" stroke="#d7dce3" stroke-width="1"/>`;
   const text = textLines(
     label.lines,
@@ -292,7 +360,7 @@ function renderConnector(object: ConnectorObject): string {
     stroke,
     CONNECTOR_LABEL_FONT_SIZE,
   );
-  return `${line}<g>${background}${text}</g>`;
+  return `${geometry}<g>${background}${text}</g>`;
 }
 
 function renderImage(object: Extract<ArtifactObject, { kind: "image" }>): string {
@@ -311,12 +379,19 @@ function renderDraw(object: Extract<ArtifactObject, { kind: "draw" }>): string {
   return `<polyline points="${points}" transform="${localRotation(object)}" fill="none" stroke="${color(object.color, "#e03131")}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
-function renderObject(object: ArtifactObject): string {
+function renderObject(
+  object: ArtifactObject,
+  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>,
+): string {
   if (object.kind === "text") return renderText(object);
   if (object.kind === "shape") return renderShape(object);
-  if (object.kind === "connector") return renderConnector(object);
+  if (object.kind === "connector") {
+    const route = connectorRoutes[object.id];
+    if (route) return renderConnector(object, route);
+  }
   if (object.kind === "image") return renderImage(object);
-  return renderDraw(object);
+  if (object.kind === "draw") return renderDraw(object);
+  return "";
 }
 
 /**
@@ -331,7 +406,8 @@ export function renderJazzboardSvg(
   const padding = boundedOption(options.padding, 48, 0, 512);
   const maxWidth = boundedOption(options.maxWidth, 4_096, 1, 8_192);
   const maxHeight = boundedOption(options.maxHeight, 4_096, 1, 8_192);
-  const view = renderBounds(artifact, padding);
+  const connectorRoutes = resolvedArtifactConnectorRoutes(artifact);
+  const view = renderBounds(artifact, padding, connectorRoutes);
   const scale = Math.min(1, maxWidth / view.width, maxHeight / view.height);
   const width = Math.max(1, Math.ceil(view.width * scale));
   const height = Math.max(1, Math.ceil(view.height * scale));
@@ -350,7 +426,7 @@ export function renderJazzboardSvg(
   }
   const objects = [...artifact.objects]
     .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id))
-    .map(renderObject)
+    .map((object) => renderObject(object, connectorRoutes))
     .join("");
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${number(view.x)} ${number(view.y)} ${number(view.width)} ${number(view.height)}" role="img" aria-labelledby="jazzboard-title jazzboard-description">`,

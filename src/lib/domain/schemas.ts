@@ -57,6 +57,67 @@ export const leaseOperationSchema = z.enum([
 
 const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
 
+const normalizedConnectorAnchorSchema = pointSchema.superRefine((anchor, context) => {
+  if (anchor.x < 0 || anchor.x > 1) {
+    context.addIssue({ code: "custom", path: ["x"], message: "Connector anchor x must be between 0 and 1." });
+  }
+  if (anchor.y < 0 || anchor.y > 1) {
+    context.addIssue({ code: "custom", path: ["y"], message: "Connector anchor y must be between 0 and 1." });
+  }
+});
+
+export const connectorEndpointSchema = pointSchema.extend({
+  objectId: z.string().min(1).max(128).nullable().default(null),
+  normalizedAnchor: normalizedConnectorAnchorSchema.nullable().optional(),
+  isPrecise: z.boolean().nullable().optional(),
+  isExact: z.boolean().nullable().optional(),
+  snap: z.enum(["center", "edge-point", "edge", "none"]).nullable().optional(),
+});
+
+export const connectorRoutingInputSchema = z
+  .object({
+    mode: z.enum(["auto", "straight", "curved", "elbow"]),
+    bend: z.number().finite().min(-10_000).max(10_000).optional(),
+    elbowMidPoint: z.number().finite().min(0).max(1).optional(),
+    labelPosition: z.number().finite().min(0).max(1).optional(),
+  })
+  .strict()
+  .superRefine((routing, context) => {
+    if (routing.mode === "curved" && routing.bend === undefined) {
+      context.addIssue({ code: "custom", path: ["bend"], message: "Curved routing requires a signed bend." });
+    }
+    if (routing.mode === "curved" && routing.bend !== undefined && Math.abs(routing.bend) < 8) {
+      context.addIssue({ code: "custom", path: ["bend"], message: "Curved routing bend must be at least 8 canvas units from zero." });
+    }
+    if (routing.mode !== "curved" && routing.bend !== undefined) {
+      context.addIssue({ code: "custom", path: ["bend"], message: "Only curved routing accepts bend." });
+    }
+    if (routing.mode !== "elbow" && routing.elbowMidPoint !== undefined) {
+      context.addIssue({ code: "custom", path: ["elbowMidPoint"], message: "Only elbow routing accepts elbowMidPoint." });
+    }
+  });
+
+export const connectorRoutingSchema = z
+  .object({
+    mode: z.enum(["auto", "straight", "curved", "elbow"]),
+    kind: z.enum(["straight", "curved", "elbow"]),
+    bend: z.number().finite().min(-10_000).max(10_000),
+    elbowMidPoint: z.number().finite().min(0).max(1),
+    labelPosition: z.number().finite().min(0).max(1),
+  })
+  .strict()
+  .superRefine((routing, context) => {
+    if (routing.mode !== "auto" && routing.kind !== routing.mode) {
+      context.addIssue({ code: "custom", path: ["kind"], message: "Explicit routing mode and kind must match." });
+    }
+    if (routing.kind !== "curved" && routing.bend !== 0) {
+      context.addIssue({ code: "custom", path: ["bend"], message: "Only curved routing may carry a non-zero bend." });
+    }
+    if (routing.kind === "curved" && Math.abs(routing.bend) < 8) {
+      context.addIssue({ code: "custom", path: ["bend"], message: "Canonical curved routing bend must be at least 8 canvas units from zero." });
+    }
+  });
+
 const baseObjectSchema = z.object({
   id: z.string().min(1).max(128),
   x: z.number().finite(),
@@ -87,8 +148,9 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   }),
   baseObjectSchema.extend({
     kind: z.literal("connector"),
-    start: pointSchema.extend({ objectId: z.string().min(1).max(128).nullable().default(null) }),
-    end: pointSchema.extend({ objectId: z.string().min(1).max(128).nullable().default(null) }),
+    start: connectorEndpointSchema,
+    end: connectorEndpointSchema,
+    routing: connectorRoutingSchema.optional(),
     direction: z.enum(["none", "end", "both"]).default("end"),
     label: z.string().max(2_000).default(""),
     color: z.string().min(1).max(32).default("black"),
@@ -138,8 +200,9 @@ const patchSchema = z
     label: z.string().max(10_000).optional(),
     fill: z.string().min(1).max(32).optional(),
     stroke: z.string().min(1).max(32).optional(),
-    start: pointSchema.extend({ objectId: z.string().nullable() }).optional(),
-    end: pointSchema.extend({ objectId: z.string().nullable() }).optional(),
+    start: connectorEndpointSchema.optional(),
+    end: connectorEndpointSchema.optional(),
+    routing: connectorRoutingSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     url: z.string().max(8_192).refine(isCanvasImageUrl, "Use an HTTP(S) URL or a Jazzboard room asset reference.").optional(),
     assetId: z.string().max(512).nullable().optional(),
