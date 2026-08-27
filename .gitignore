@@ -9,3 +9,4 @@ tsconfig.tsbuildinfo
 .vercel/
 *.log
 .vercel
+.env*.local

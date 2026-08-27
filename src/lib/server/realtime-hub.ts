@@ -3,9 +3,16 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket, WebSocketData } from "@vercel/functions";
 import type Redis from "ioredis";
 
-import type { RoomEvent, RoomState } from "@/lib/domain/types";
+import type { RoomEvent, RoomRole, RoomState } from "@/lib/domain/types";
 import { isDomainError } from "@/lib/domain/errors";
-import { isCompactRoomEventPayload } from "@/lib/realtime/events";
+import {
+  isCompactRoomEventPayload,
+  isPresenceDeltaRoomEventPayload,
+  requiresLegacyRoomReconciliation,
+  roomEventDocumentRevision,
+  roomEventStateRevision,
+  roomStateRevision,
+} from "@/lib/realtime/events";
 import {
   REALTIME_EVENT_STREAM,
   REALTIME_PROTOCOL_VERSION,
@@ -29,7 +36,8 @@ const MAX_PENDING_EVENTS = 512;
 const MAX_DELIVERED_EVENT_IDS = 1_024;
 const MAX_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024;
 const STREAM_READ_COUNT = 100;
-const STREAM_BLOCK_MS = 5_000;
+const STREAM_BLOCK_MS = 30_000;
+const TRANSIENT_PRESENCE_MIN_INTERVAL_MS = 40;
 const STREAM_FENCE_ATTEMPTS = 3;
 const STREAM_FENCE_RETRY_MS = 50;
 const ROOM_RECONCILIATION_ATTEMPTS = 3;
@@ -53,6 +61,8 @@ export type AttachRealtimeSocketOptions = {
   roomId: string;
   participantId: string;
   cursor?: string | null;
+  /** Explicitly negotiated by current clients. Omission is retained as true for direct/test adapters. */
+  supportsPresenceDelta?: boolean;
 };
 
 type PendingEvent = {
@@ -70,11 +80,14 @@ type Peer = {
   socket: WebSocket;
   roomId: string;
   participantId: string;
+  supportsPresenceDelta: boolean;
+  role: RoomRole | null;
   ready: boolean;
   readySent: boolean;
   disposed: boolean;
   cursor: string | null;
-  snapshotRevision: number;
+  snapshotStateRevision: number;
+  snapshotDocumentRevision: number;
   syncGeneration: number;
   synchronizing: boolean;
   nextSyncCursor: string | null | undefined;
@@ -82,6 +95,8 @@ type Peer = {
   pending: Map<string, PendingEvent>;
   deliveredOrder: string[];
   delivered: Set<string>;
+  lastTransientAt: number;
+  lastTransientSequence: number;
 };
 
 function socketDataToText(data: WebSocketData | unknown): string | null {
@@ -163,11 +178,14 @@ export class RealtimeHub {
       socket,
       roomId: options.roomId,
       participantId: options.participantId,
+      supportsPresenceDelta: options.supportsPresenceDelta ?? true,
+      role: null,
       ready: false,
       readySent: false,
       disposed: false,
       cursor: parseStreamCursor(options.cursor),
-      snapshotRevision: -1,
+      snapshotStateRevision: -1,
+      snapshotDocumentRevision: -1,
       syncGeneration: 0,
       synchronizing: false,
       nextSyncCursor: undefined,
@@ -175,6 +193,8 @@ export class RealtimeHub {
       pending: new Map(),
       deliveredOrder: [],
       delivered: new Set(),
+      lastTransientAt: -Infinity,
+      lastTransientSequence: -1,
     };
 
     const onMessage = (data: WebSocketData) => this.handleMessage(peer, data);
@@ -256,7 +276,47 @@ export class RealtimeHub {
       return;
     }
 
+    if (message.type === "presence.transient") {
+      this.relayTransientPresence(peer, message);
+      return;
+    }
+
     this.requestSynchronization(peer, parseStreamCursor(message.cursor) ?? peer.cursor);
+  }
+
+  private relayTransientPresence(
+    source: Peer,
+    message: Extract<ReturnType<typeof parseRealtimeClientMessage>, { type: "presence.transient" }>,
+  ): void {
+    if (
+      source.disposed ||
+      !source.ready ||
+      (source.role !== "participant" && source.role !== "spectator") ||
+      message.clientSequence <= source.lastTransientSequence
+    ) {
+      return;
+    }
+    source.lastTransientSequence = message.clientSequence;
+    const now = this.now();
+    if (now - source.lastTransientAt < TRANSIENT_PRESENCE_MIN_INTERVAL_MS) return;
+    source.lastTransientAt = now;
+
+    const peers = this.peersByRoom.get(source.roomId);
+    if (!peers) return;
+    for (const peer of peers) {
+      if (peer === source || peer.disposed || !peer.ready) continue;
+      this.send(peer, {
+        type: "presence.transient",
+        roomId: source.roomId,
+        participantId: source.participantId,
+        connectionId: source.id,
+        clientSequence: message.clientSequence,
+        clientTime: message.clientTime,
+        serverTime: now,
+        cursor: message.cursor,
+        viewport: message.viewport,
+      });
+    }
   }
 
   private requestSynchronization(peer: Peer, cursor: string | null): void {
@@ -291,6 +351,7 @@ export class RealtimeHub {
 
       const participant = room.participants[peer.participantId];
       if (!participant) throw new Error("Membership disappeared during realtime synchronization.");
+      peer.role = participant.role;
 
       if (!peer.readySent) {
         this.send(peer, {
@@ -305,7 +366,8 @@ export class RealtimeHub {
         peer.readySent = true;
       }
 
-      peer.snapshotRevision = room.roomRevision;
+      peer.snapshotStateRevision = roomStateRevision(room);
+      peer.snapshotDocumentRevision = room.roomRevision;
       // A reconnect always establishes a fresh authoritative snapshot. The
       // cursor is only a transport checkpoint; correctness never depends on
       // replaying client history. Events racing this read were queued after the
@@ -349,7 +411,7 @@ export class RealtimeHub {
     peer.pendingOrder = [];
 
     for (const entry of pending) {
-      if (entry.event.sequence <= peer.snapshotRevision) {
+      if (this.peerCoversEvent(peer, entry.event)) {
         this.advancePeerCursor(peer, entry.cursor);
         rememberDelivered(peer, entry.event.id);
         continue;
@@ -373,7 +435,7 @@ export class RealtimeHub {
         queuePending(peer, event, cursor);
       } else if (!compact) {
         this.deliverEvent(peer, event, cursor);
-      } else if (event.sequence <= peer.snapshotRevision || peer.delivered.has(event.id)) {
+      } else if (this.peerCoversEvent(peer, event) || peer.delivered.has(event.id)) {
         rememberDelivered(peer, event.id);
         this.advancePeerCursor(peer, cursor);
       } else {
@@ -392,15 +454,74 @@ export class RealtimeHub {
       this.advancePeerCursor(peer, cursor);
       return;
     }
-    if (event.sequence <= peer.snapshotRevision) {
+    if (this.peerCoversEvent(peer, event)) {
       rememberDelivered(peer, event.id);
       this.advancePeerCursor(peer, cursor);
       return;
     }
+    if (!peer.supportsPresenceDelta) {
+      // Protocol-v1 clients compare only roomRevision. Never send them a split
+      // revision event they could silently ignore; reconcile and translate the
+      // authoritative room into a monotonic aggregate-revision snapshot.
+      this.requestRoomReconciliation(event, cursor);
+      return;
+    }
+    const eventStateRevision = roomEventStateRevision(event);
+    const eventDocumentRevision = roomEventDocumentRevision(event);
+    if (
+      isPresenceDeltaRoomEventPayload(event.payload, event.roomId, event.sequence) &&
+      (eventDocumentRevision !== peer.snapshotDocumentRevision ||
+        eventStateRevision !== peer.snapshotStateRevision + 1)
+    ) {
+      // A presence delta is intentionally non-cumulative. It is safe only on
+      // the exact preceding aggregate state and durable document generation.
+      // Legacy peers did not negotiate this contract and receive an aggregate
+      // compatibility snapshot instead.
+      this.requestRoomReconciliation(event, cursor);
+      return;
+    }
+    if (
+      eventStateRevision === null ||
+      eventStateRevision < peer.snapshotStateRevision ||
+      eventDocumentRevision < peer.snapshotDocumentRevision
+    ) {
+      // A rolling v2 full-state event has only a document watermark. Re-read
+      // the composed room rather than allowing its stale embedded awareness to
+      // replace a newer v3 snapshot.
+      this.requestRoomReconciliation(event, cursor);
+      return;
+    }
     this.send(peer, { type: "event", cursor, event });
     rememberDelivered(peer, event.id);
-    peer.snapshotRevision = Math.max(peer.snapshotRevision, event.sequence);
+    peer.snapshotStateRevision = Math.max(
+      peer.snapshotStateRevision,
+      eventStateRevision,
+    );
+    peer.snapshotDocumentRevision = Math.max(
+      peer.snapshotDocumentRevision,
+      eventDocumentRevision,
+    );
     peer.cursor = laterStreamCursor(peer.cursor, cursor);
+  }
+
+  private peerCoversEvent(peer: Peer, event: RoomEvent): boolean {
+    // The single watermark emitted by a pre-plane writer is ambiguous. Always
+    // let the store compare its durable fingerprint once, even when newer v3
+    // awareness has already moved the peer beyond the legacy sequence.
+    if (requiresLegacyRoomReconciliation(event)) return false;
+    const eventStateRevision = roomEventStateRevision(event);
+    return (
+      peer.snapshotDocumentRevision >= roomEventDocumentRevision(event) &&
+      (eventStateRevision === null || peer.snapshotStateRevision >= eventStateRevision)
+    );
+  }
+
+  private roomCoversEvent(room: RoomState, event: RoomEvent): boolean {
+    const eventStateRevision = roomEventStateRevision(event);
+    return (
+      room.roomRevision >= roomEventDocumentRevision(event) &&
+      (eventStateRevision === null || roomStateRevision(room) >= eventStateRevision)
+    );
   }
 
   private requestRoomReconciliation(event: RoomEvent, cursor: string | null): void {
@@ -421,10 +542,20 @@ export class RealtimeHub {
     try {
       while (this.roomReconciliations.get(roomId) === state && state.signals.size > 0) {
         if (!this.peersByRoom.get(roomId)?.size) return;
-        const targetRevision = Math.max(
-          ...[...state.signals.values()].map((entry) => entry.event.sequence),
+        const signals = [...state.signals.values()];
+        const targetStateRevision = Math.max(
+          -1,
+          ...signals.map((entry) => roomEventStateRevision(entry.event) ?? -1),
         );
-        const room = await this.readReconciledRoom(roomId, targetRevision);
+        const targetDocumentRevision = Math.max(
+          -1,
+          ...signals.map((entry) => roomEventDocumentRevision(entry.event)),
+        );
+        const room = await this.readReconciledRoom(
+          roomId,
+          targetStateRevision,
+          targetDocumentRevision,
+        );
 
         // Peers can churn while the authoritative read is in flight. The last
         // old peer detaching removes its Set, and a replacement peer attaches
@@ -432,8 +563,8 @@ export class RealtimeHub {
         const peers = this.peersByRoom.get(roomId);
         if (!peers?.size) return;
 
-        const satisfied = [...state.signals.values()].filter(
-          (entry) => entry.event.sequence <= room.roomRevision,
+        const satisfied = [...state.signals.values()].filter((entry) =>
+          this.roomCoversEvent(room, entry.event),
         );
         const satisfiedCursor = satisfied.reduce<string | null>(
           (latest, entry) => laterStreamCursor(latest, entry.cursor),
@@ -456,11 +587,16 @@ export class RealtimeHub {
             this.detach(peer);
             continue;
           }
+          peer.role = room.participants[peer.participantId].role;
 
           for (const entry of satisfied) rememberDelivered(peer, entry.event.id);
           const nextCursor = laterStreamCursor(peer.cursor, satisfiedCursor);
-          if (room.roomRevision > peer.snapshotRevision) {
-            peer.snapshotRevision = room.roomRevision;
+          if (
+            roomStateRevision(room) > peer.snapshotStateRevision ||
+            room.roomRevision > peer.snapshotDocumentRevision
+          ) {
+            peer.snapshotStateRevision = roomStateRevision(room);
+            peer.snapshotDocumentRevision = room.roomRevision;
             peer.cursor = nextCursor;
             this.send(peer, {
               type: "snapshot",
@@ -499,15 +635,25 @@ export class RealtimeHub {
     }
   }
 
-  private async readReconciledRoom(roomId: string, targetRevision: number): Promise<RoomState> {
+  private async readReconciledRoom(
+    roomId: string,
+    targetStateRevision: number,
+    targetDocumentRevision: number,
+  ): Promise<RoomState> {
     let lastError: unknown = new Error("Realtime room reconciliation failed.");
     for (let attempt = 0; attempt < ROOM_RECONCILIATION_ATTEMPTS; attempt += 1) {
       try {
         const room = await this.readRoomSnapshot(roomId);
-        if (room && room.roomRevision >= targetRevision) return room;
+        if (
+          room &&
+          roomStateRevision(room) >= targetStateRevision &&
+          room.roomRevision >= targetDocumentRevision
+        ) {
+          return room;
+        }
         lastError = new Error(
           room
-            ? `Authoritative room revision ${room.roomRevision} is behind stream revision ${targetRevision}.`
+            ? `Authoritative room state/document revisions ${roomStateRevision(room)}/${room.roomRevision} are behind stream revisions ${targetStateRevision}/${targetDocumentRevision}.`
             : "The authoritative room disappeared during realtime reconciliation.",
         );
       } catch (error) {

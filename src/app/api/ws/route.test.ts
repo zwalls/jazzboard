@@ -39,7 +39,7 @@ describe("GET /api/ws", () => {
   });
 
   it("authorizes cookie membership before upgrade and synchronously attaches the socket", async () => {
-    const request = new Request("https://jazzboard.example/api/ws?roomId=room_1&cursor=50-2", {
+    const request = new Request("https://jazzboard.example/api/ws?roomId=room_1&cursor=50-2&capabilities=presence-delta-v1", {
       headers: { cookie: "jazzboard_guest=signed", origin: "https://jazzboard.example" },
     });
 
@@ -52,9 +52,25 @@ describe("GET /api/ws", () => {
     );
     expect(mocks.attach).toHaveBeenCalledWith(
       {},
-      { roomId: "room_1", participantId: "p_1", cursor: "50-2" },
+      { roomId: "room_1", participantId: "p_1", cursor: "50-2", supportsPresenceDelta: true },
     );
     expect(mocks.upgrade).toHaveBeenCalledWith(expect.any(Function), { maxPayload: 32 * 1024 });
+  });
+
+  it("fails closed before upgrade when a stale client does not negotiate split-state deltas", async () => {
+    const response = await GET(
+      new Request("https://jazzboard.example/api/ws?roomId=room_1", {
+        headers: { origin: "https://jazzboard.example" },
+      }),
+    );
+
+    expect(response.status).toBe(426);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: { code: "CLIENT_UPGRADE_REQUIRED" },
+    });
+    expect(mocks.readAuthorizedRoom).not.toHaveBeenCalled();
+    expect(mocks.upgrade).not.toHaveBeenCalled();
   });
 
   it("rejects a missing guest cookie without attempting an upgrade", async () => {
@@ -72,7 +88,7 @@ describe("GET /api/ws", () => {
 
   it("rejects cross-origin cookie-bearing upgrade attempts", async () => {
     const response = await GET(
-      new Request("https://jazzboard.example/api/ws?roomId=room_1", {
+      new Request("https://jazzboard.example/api/ws?roomId=room_1&capabilities=presence-delta-v1", {
         headers: { origin: "https://malicious.example" },
       }),
     );
@@ -87,7 +103,7 @@ describe("GET /api/ws", () => {
       new DomainError("FORBIDDEN", "This guest session is not a member of the room."),
     );
     const forbidden = await GET(
-      new Request("https://jazzboard.example/api/ws?roomId=room_1", {
+      new Request("https://jazzboard.example/api/ws?roomId=room_1&capabilities=presence-delta-v1", {
         headers: { origin: "https://jazzboard.example" },
       }),
     );

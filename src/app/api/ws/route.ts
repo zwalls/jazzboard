@@ -1,7 +1,11 @@
 import { experimental_upgradeWebSocket } from "@vercel/functions";
 
 import { DomainError } from "@/lib/domain/errors";
-import { REALTIME_MAX_CLIENT_PAYLOAD_BYTES, parseStreamCursor } from "@/lib/realtime/protocol";
+import {
+  REALTIME_MAX_CLIENT_PAYLOAD_BYTES,
+  REALTIME_PRESENCE_DELTA_CAPABILITY,
+  parseStreamCursor,
+} from "@/lib/realtime/protocol";
 import { errorResponse } from "@/lib/server/http";
 import { readAuthorizedRoom } from "@/lib/server/room-service";
 import { getRealtimeHub } from "@/lib/server/realtime-hub";
@@ -52,6 +56,19 @@ export async function GET(request: Request): Promise<Response> {
     if (suppliedCursor && !cursor) {
       throw new DomainError("INVALID_OPERATION", "The realtime resume cursor is invalid.");
     }
+    const capabilities = new Set(
+      (url.searchParams.get("capabilities") ?? "")
+        .split(",")
+        .map((capability) => capability.trim())
+        .filter(Boolean),
+    );
+    const supportsPresenceDelta = capabilities.has(REALTIME_PRESENCE_DELTA_CAPABILITY);
+    if (!supportsPresenceDelta) {
+      throw new DomainError(
+        "CLIENT_UPGRADE_REQUIRED",
+        "This Jazzboard tab must be refreshed before it can safely synchronize live state.",
+      );
+    }
 
     // Reject unauthenticated/non-member requests before upgrading the HTTP socket.
     await readAuthorizedRoom(roomId, participantId);
@@ -60,7 +77,12 @@ export async function GET(request: Request): Promise<Response> {
       (socket) => {
         // This callback intentionally remains synchronous. RealtimeHub attaches
         // message/close/error handlers before it starts any asynchronous work.
-        getRealtimeHub().attach(socket, { roomId, participantId, cursor });
+        getRealtimeHub().attach(socket, {
+          roomId,
+          participantId,
+          cursor,
+          supportsPresenceDelta,
+        });
       },
       { maxPayload: REALTIME_MAX_CLIENT_PAYLOAD_BYTES },
     );

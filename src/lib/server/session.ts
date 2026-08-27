@@ -1,5 +1,13 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { DomainError } from "@/lib/domain/errors";
+import {
+  GUEST_BOOTSTRAP_HEADER,
+  parseGuestBootstrapToken,
+} from "@/lib/guest-bootstrap";
+
+import { parseIdempotencyKey } from "./idempotency";
+
 const COOKIE_NAME = "jazzboard_guest";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
@@ -23,6 +31,16 @@ function sessionSecret(): string {
 
 function signature(payload: string): string {
   return createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+}
+
+/** Deterministic server-only derivation for replay-safe private capabilities. */
+export function deriveSessionSecretValue(purpose: string, payload: string): string {
+  if (!/^[a-z][a-z0-9_.:-]{0,63}$/.test(purpose)) {
+    throw new Error("Session-secret derivation purpose is invalid.");
+  }
+  return createHmac("sha256", sessionSecret())
+    .update(`jazzboard:${purpose}:v1\0${payload}`)
+    .digest("base64url");
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -69,7 +87,32 @@ export function getOrCreateGuestSession(request: Request): {
   const existing = parseGuestParticipantId(request);
   if (existing) return { participantId: existing, setCookie: null };
 
-  const participantId = `p_${randomBytes(18).toString("base64url")}`;
+  const bootstrapHeader = request.headers.get(GUEST_BOOTSTRAP_HEADER);
+  let participantId: string;
+  if (bootstrapHeader !== null) {
+    const bootstrap = parseGuestBootstrapToken(bootstrapHeader);
+    if (!bootstrap) {
+      throw new DomainError(
+        "INVALID_GUEST_BOOTSTRAP",
+        "The guest-session bootstrap proof is malformed or expired. Reload Jazzboard and try again.",
+      );
+    }
+    const idempotencyKey = parseIdempotencyKey(request.headers.get("idempotency-key"));
+    if (!idempotencyKey) {
+      throw new DomainError(
+        "INVALID_GUEST_BOOTSTRAP",
+        "A guest-session bootstrap proof requires an Idempotency-Key.",
+      );
+    }
+    participantId = `p_${deriveSessionSecretValue(
+      "guest-bootstrap",
+      `${bootstrap.token}\0${idempotencyKey}`,
+    ).slice(0, 24)}`;
+  } else {
+    // Compatibility for an older page kept open across a rolling deployment.
+    // Current Jazzboard clients always send the retry-stable bootstrap proof.
+    participantId = `p_${randomBytes(18).toString("base64url")}`;
+  }
   const payload = `${participantId}~${Date.now()}`;
   const token = `${payload}.${signature(payload)}`;
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";

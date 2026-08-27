@@ -5,7 +5,7 @@ import {
   revertActivityBodySchema,
 } from "@/lib/domain/schemas";
 import type { ActorKind } from "@/lib/domain/types";
-import { errorResponse, json } from "@/lib/server/http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
 import {
   listRoomActivities,
   readRoomActivity,
@@ -68,12 +68,20 @@ export async function handleActivityMutation(
     const participantId = requireGuestParticipantId(request);
     const { roomId, activityId: rawActivityId } = await context.params;
     const activityId = activityPathIdSchema.parse(rawActivityId);
-    const body = revertActivityBodySchema.parse(await request.json());
-    const result = await runActivityRevert({
-      roomId,
+    const body = revertActivityBodySchema.parse(await readJsonBody(request));
+    const result = await runMutationRequest({
+      request,
       participantId,
+      roomId,
+      operation: "room.activity.revert",
       actorKind,
-      revert: { activityId, ...body },
+      parsedBody: { activityId, ...body },
+      execute: () => runActivityRevert({
+        roomId,
+        participantId,
+        actorKind,
+        revert: { activityId, ...body },
+      }),
     });
     return json({ ok: true, ...result });
   } catch (error) {

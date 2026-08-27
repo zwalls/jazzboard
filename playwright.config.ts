@@ -30,6 +30,16 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: true,
         timeout: 120_000,
+        // Local browser regressions must never inherit linked production
+        // storage credentials from .env.local. The application deliberately
+        // falls back to its isolated in-memory stores outside Vercel.
+        env: {
+          ...process.env,
+          REDIS_URL: "",
+          JAZZBOARD_PRIVATE_READ_WRITE_TOKEN: "",
+          BLOB_READ_WRITE_TOKEN: "",
+          VERCEL: "",
+        },
       },
   projects: [
     {

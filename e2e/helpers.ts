@@ -1,5 +1,10 @@
 import { expect, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 
+import {
+  CLIENT_CAPABILITIES_HEADER,
+  SPLIT_STATE_CLIENT_CAPABILITY,
+} from "../src/lib/realtime/protocol";
+
 export type ParticipantState = {
   participantId: string;
   displayName: string;
@@ -141,7 +146,9 @@ export async function joinRoomViaApi(
 }
 
 export async function getRoom(request: APIRequestContext, roomId: string): Promise<RoomResponse> {
-  const response = await request.get(`/api/rooms/${encodeURIComponent(roomId)}`);
+  const response = await request.get(`/api/rooms/${encodeURIComponent(roomId)}`, {
+    headers: { [CLIENT_CAPABILITIES_HEADER]: SPLIT_STATE_CLIENT_CAPABILITY },
+  });
   return jsonBody<RoomResponse>(response);
 }
 

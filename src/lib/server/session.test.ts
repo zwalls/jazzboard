@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createGuestBootstrapToken, GUEST_BOOTSTRAP_HEADER } from "@/lib/guest-bootstrap";
+
 import {
   getOrCreateGuestSession,
   parseGuestParticipantId,
@@ -45,6 +47,93 @@ describe("guest sessions", () => {
       participantId: first.participantId,
       setCookie: null,
     });
+  });
+
+  it("derives the same signed guest identity for an ambiguous bootstrap retry", () => {
+    const bootstrap = createGuestBootstrapToken(START.getTime(), (bytes) => {
+      bytes.fill(0x42);
+      return bytes;
+    });
+    const headers = {
+      [GUEST_BOOTSTRAP_HEADER]: bootstrap,
+      "idempotency-key": "landing-create-0001",
+    };
+
+    const first = getOrCreateGuestSession(
+      new Request("https://jazzboard.example/api/rooms", { method: "POST", headers }),
+    );
+    const retry = getOrCreateGuestSession(
+      new Request("https://jazzboard.example/api/rooms", { method: "POST", headers }),
+    );
+
+    expect(retry.participantId).toBe(first.participantId);
+    expect(first.participantId).toMatch(/^p_[A-Za-z0-9_-]{24}$/);
+    expect(
+      parseGuestParticipantId(
+        new Request("https://jazzboard.example/", { headers: { cookie: cookieHeader(retry.setCookie) } }),
+      ),
+    ).toBe(first.participantId);
+  });
+
+  it("binds the bootstrap identity to its logical idempotency key", () => {
+    const bootstrap = createGuestBootstrapToken(START.getTime(), (bytes) => {
+      bytes.fill(0x24);
+      return bytes;
+    });
+    const session = (idempotencyKey: string) => getOrCreateGuestSession(
+      new Request("https://jazzboard.example/api/rooms", {
+        method: "POST",
+        headers: {
+          [GUEST_BOOTSTRAP_HEADER]: bootstrap,
+          "idempotency-key": idempotencyKey,
+        },
+      }),
+    );
+
+    expect(session("landing-create-0001").participantId).not.toBe(
+      session("landing-create-0002").participantId,
+    );
+  });
+
+  it("keeps an established signed session authoritative over bootstrap headers", () => {
+    const established = getOrCreateGuestSession(new Request("https://jazzboard.example/api/rooms"));
+    const authenticated = getOrCreateGuestSession(
+      new Request("https://jazzboard.example/api/rooms", {
+        method: "POST",
+        headers: {
+          cookie: cookieHeader(established.setCookie),
+          [GUEST_BOOTSTRAP_HEADER]: "malformed-and-must-be-ignored",
+        },
+      }),
+    );
+
+    expect(authenticated).toEqual({ participantId: established.participantId, setCookie: null });
+  });
+
+  it("rejects malformed or expired bootstrap proofs before issuing authorization", () => {
+    const request = (bootstrap: string, idempotencyKey = "landing-create-0001") =>
+      new Request("https://jazzboard.example/api/rooms", {
+        method: "POST",
+        headers: {
+          [GUEST_BOOTSTRAP_HEADER]: bootstrap,
+          "idempotency-key": idempotencyKey,
+        },
+      });
+
+    expect(() => getOrCreateGuestSession(request("guessable"))).toThrowError(
+      expect.objectContaining({ code: "INVALID_GUEST_BOOTSTRAP" }),
+    );
+    const expired = createGuestBootstrapToken(
+      START.getTime() - 10 * 60 * 1_000 - 1,
+      (bytes) => bytes,
+    );
+    expect(() => getOrCreateGuestSession(request(expired))).toThrowError(
+      expect.objectContaining({ code: "INVALID_GUEST_BOOTSTRAP" }),
+    );
+    const fresh = createGuestBootstrapToken(START.getTime(), (bytes) => bytes);
+    expect(() => getOrCreateGuestSession(request(fresh, "short"))).toThrowError(
+      expect.objectContaining({ code: "INVALID_IDEMPOTENCY_KEY" }),
+    );
   });
 
   it("rejects tampered and expired cookies", () => {

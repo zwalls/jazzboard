@@ -145,6 +145,23 @@ describe("semantic object schemas", () => {
     expect(
       createCanvasObjectSchema.safeParse({ ...baseObject, kind: "image", url: "not a URL" }).success,
     ).toBe(false);
+    expect(
+      createCanvasObjectSchema.safeParse({
+        ...baseObject,
+        kind: "image",
+        url: "/api/rooms/room_private/assets?pathname=jazzboard%2Fopaque%2Fimage.png",
+      }).success,
+    ).toBe(true);
+    expect(
+      createCanvasObjectSchema.safeParse({
+        ...baseObject,
+        kind: "image",
+        url: "/api/rooms/room_private/assets?pathname=a&assetId=b",
+      }).success,
+    ).toBe(false);
+    expect(
+      createCanvasObjectSchema.safeParse({ ...baseObject, kind: "image", url: "javascript:alert(1)" }).success,
+    ).toBe(false);
   });
 
   it("validates lifecycle metadata without accepting server-managed timestamps", () => {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isCanvasImageUrl } from "@/lib/assets/policy";
+
 export const roomRoleSchema = z.enum(["participant", "spectator"]);
 export const actorKindSchema = z.enum(["human", "agent"]);
 export const diagramNodeTypeSchema = z.enum(["service", "component", "requirement", "decision", "open_question"]);
@@ -93,7 +95,7 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   }),
   baseObjectSchema.extend({
     kind: z.literal("image"),
-    url: z.string().url().max(8_192),
+    url: z.string().max(8_192).refine(isCanvasImageUrl, "Use an HTTP(S) URL or a Jazzboard room asset reference."),
     assetId: z.string().max(512).nullable().default(null),
     alt: z.string().max(2_000).default(""),
     mimeType: z.string().max(128).default("image/*"),
@@ -139,7 +141,7 @@ const patchSchema = z
     start: pointSchema.extend({ objectId: z.string().nullable() }).optional(),
     end: pointSchema.extend({ objectId: z.string().nullable() }).optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
-    url: z.string().url().max(8_192).optional(),
+    url: z.string().max(8_192).refine(isCanvasImageUrl, "Use an HTTP(S) URL or a Jazzboard room asset reference.").optional(),
     assetId: z.string().max(512).nullable().optional(),
     alt: z.string().max(2_000).optional(),
     mimeType: z.string().max(128).optional(),

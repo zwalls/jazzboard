@@ -39,6 +39,23 @@ export type Participant = {
   agent: PresenceTarget;
 };
 
+/**
+ * Bounded high-frequency awareness update. The durable document revision is
+ * included as a fence: clients only patch a delta onto the exact document
+ * generation it describes and otherwise request an authoritative snapshot.
+ */
+export type RoomPresenceDelta = {
+  roomId: string;
+  stateRevision: number;
+  roomRevision: number;
+  participantId: string;
+  actorKind: ActorKind;
+  lastSeenAt: number;
+  connected: boolean;
+  agentActive: boolean;
+  presence: PresenceTarget;
+};
+
 export type ObjectKind = "text" | "shape" | "connector" | "image" | "draw";
 export type DiagramNodeType = "service" | "component" | "requirement" | "decision" | "open_question";
 export type DiagramType = "architecture" | "flow" | "hierarchy" | "system_context" | "process" | "custom";
@@ -218,6 +235,12 @@ export type RoomState = {
   id: string;
   code: string;
   title: string;
+  /**
+   * Monotonic revision for the complete composed room state. Document,
+   * awareness, and coordination-plane changes advance this value.
+   */
+  stateRevision?: number;
+  /** Durable semantic document revision used by public conflict checks. */
   roomRevision: number;
   createdAt: number;
   updatedAt: number;
@@ -359,13 +382,35 @@ export type AgentActivity = {
   toCursor?: Point | null;
 };
 
-export type CompactRoomEventPayload = {
+/** Compact invalidation written by the snapshot-first v2 stream protocol. */
+export type CompactRoomEventPayloadV2 = {
   schemaVersion: 2;
   kind: "room.invalidated";
-  /** Must equal the enclosing event sequence. */
+  /** Must equal the enclosing event sequence for v2 writers. */
   roomRevision: number;
   /** Bounded reference to private activity; the stream never embeds activity snapshots. */
   activityId: string | null;
+};
+
+/**
+ * Compact invalidation for split document, awareness, and coordination state.
+ * The enclosing event sequence is the aggregate state revision; roomRevision
+ * remains the durable semantic document revision.
+ */
+export type CompactRoomEventPayload = {
+  schemaVersion: 3;
+  kind: "room.invalidated";
+  /** Must equal the enclosing event sequence. */
+  stateRevision: number;
+  roomRevision: number;
+  /** Bounded reference to private activity; the stream never embeds activity snapshots. */
+  activityId: string | null;
+};
+
+/** Directly applicable, bounded awareness transport; never contains canvas state. */
+export type PresenceDeltaRoomEventPayload = Omit<RoomPresenceDelta, "roomId"> & {
+  schemaVersion: 4;
+  kind: "presence.delta";
 };
 
 export type LegacyRoomEventPayload = {
@@ -374,11 +419,16 @@ export type LegacyRoomEventPayload = {
   activity?: RoomActivitySummary | null;
 };
 
-export type RoomEventPayload = CompactRoomEventPayload | LegacyRoomEventPayload;
+export type RoomEventPayload =
+  | CompactRoomEventPayload
+  | CompactRoomEventPayloadV2
+  | PresenceDeltaRoomEventPayload
+  | LegacyRoomEventPayload;
 
 export type RoomEvent = {
   id: string;
   roomId: string;
+  /** Aggregate RoomState.stateRevision, not the durable document revision. */
   sequence: number;
   occurredAt: number;
   type:

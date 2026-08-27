@@ -1,6 +1,13 @@
 import { upload } from "@vercel/blob/client";
 import type { TLAssetStore } from "tldraw";
 
+import {
+  blobAssetPathname,
+  isSupportedImageMimeType,
+  privateAssetProxyPath,
+  type AssetStorageMode,
+} from "@/lib/assets/policy";
+
 import { apiRequest } from "./api";
 
 export function createJazzboardAssetStore(
@@ -11,13 +18,19 @@ export function createJazzboardAssetStore(
     async upload(_asset, file, abortSignal) {
       const config = await apiRequest<{
         ok: true;
-        mode: "vercel-blob" | "redis-fallback" | "local-memory";
+        mode: AssetStorageMode;
         maximumSizeInBytes: number;
-      }>(`/api/rooms/${roomId}/assets`);
+        uploadNamespace?: string;
+      }>(`/api/rooms/${encodeURIComponent(roomId)}/assets`);
+      if (config.mode === "unavailable") {
+        throw new Error("Image uploads are temporarily unavailable.");
+      }
       if (file.size > config.maximumSizeInBytes) {
         throw new Error(`Images must be smaller than ${Math.round(config.maximumSizeInBytes / 1024 / 1024)} MB.`);
       }
-      if (!file.type.startsWith("image/")) throw new Error("Jazzboard accepts image files only.");
+      if (!isSupportedImageMimeType(file.type)) {
+        throw new Error("Jazzboard accepts JPEG, PNG, WebP, and GIF images only.");
+      }
 
       if (config.mode !== "vercel-blob") {
         onProgress?.(15);
@@ -41,14 +54,39 @@ export function createJazzboardAssetStore(
         return { src: result.url, meta: { storage: config.mode, assetId: result.assetId } };
       }
 
-      const blob = await upload(`jazzboard/${roomId}/${file.name}`, file, {
-        access: "public",
-        handleUploadUrl: `/api/rooms/${roomId}/assets`,
-        multipart: file.size > 5 * 1024 * 1024,
-        abortSignal,
-        onUploadProgress: ({ percentage }) => onProgress?.(percentage),
-      });
-      return { src: blob.url, meta: { storage: "vercel-blob", pathname: blob.pathname } };
+      if (!config.uploadNamespace) {
+        throw new Error("Private image storage is not configured for this room.");
+      }
+      const blob = await upload(
+        blobAssetPathname(config.uploadNamespace, `${crypto.randomUUID()}-${file.name}`),
+        file,
+        {
+          access: "private",
+          contentType: file.type,
+          handleUploadUrl: `/api/rooms/${encodeURIComponent(roomId)}/assets`,
+          multipart: file.size > 5 * 1024 * 1024,
+          abortSignal,
+          onUploadProgress: ({ percentage }) => onProgress?.(percentage),
+        },
+      );
+      await apiRequest<{ ok: true }>(
+        `/api/rooms/${encodeURIComponent(roomId)}/assets`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            type: "jazzboard.asset-finalize",
+            payload: { pathname: blob.pathname },
+          }),
+          signal: abortSignal,
+        },
+      );
+      onProgress?.(100);
+      return {
+        // Persist an origin-neutral, room-scoped proxy reference so guests on
+        // every Jazzboard alias resolve it against their own authorized origin.
+        src: privateAssetProxyPath(roomId, blob.pathname),
+        meta: { storage: "vercel-blob-private", pathname: blob.pathname },
+      };
     },
     resolve(asset) {
       return "src" in asset.props ? asset.props.src : null;

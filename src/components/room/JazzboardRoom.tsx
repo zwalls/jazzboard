@@ -631,6 +631,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         lease={controller.lease}
         refresh={controller.refresh}
         presence={controller.presence}
+        transientPresence={controller.transientPresence}
+        connection={controller.connection}
         onSelectionChange={setSelection}
         onEditorChange={setEditor}
         onExitFollow={() => {

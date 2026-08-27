@@ -4,12 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Participant, RoomEvent, RoomState } from "@/lib/domain/types";
 import type { RoomRealtimeOptions } from "@/lib/realtime/client";
 
-import { shouldAcceptRoomRevision, useRoom } from "./use-room";
+import {
+  applyTransientHumanPresence,
+  shouldAcceptRoomRevision,
+  useRoom,
+} from "./use-room";
 
 const mocks = vi.hoisted(() => ({
   apiRequest: vi.fn(),
   realtimeOptions: [] as unknown[],
   realtimeClose: vi.fn(),
+  realtimeRequestSync: vi.fn(),
+  realtimePublishTransient: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/client/api", () => ({
@@ -20,7 +26,11 @@ vi.mock("@/lib/client/api", () => ({
 vi.mock("@/lib/realtime/client", () => ({
   connectRoomRealtime: vi.fn((options: unknown) => {
     mocks.realtimeOptions.push(options);
-    return { close: mocks.realtimeClose };
+    return {
+      close: mocks.realtimeClose,
+      requestSync: mocks.realtimeRequestSync,
+      publishTransientPresence: mocks.realtimePublishTransient,
+    };
   }),
 }));
 
@@ -39,11 +49,17 @@ function participant(participantId: string): Participant {
   };
 }
 
-function room(id: string, roomRevision: number, participantIds: string[] = []): RoomState {
+function room(
+  id: string,
+  roomRevision: number,
+  participantIds: string[] = [],
+  stateRevision = roomRevision,
+): RoomState {
   return {
     id,
     code: id,
-    title: `${id} revision ${roomRevision}`,
+    title: `${id} document ${roomRevision} state ${stateRevision}`,
+    stateRevision,
     roomRevision,
     createdAt: 1,
     updatedAt: roomRevision,
@@ -75,7 +91,7 @@ function realtimeFor(roomId: string): RoomRealtimeOptions {
   return options as RoomRealtimeOptions;
 }
 
-function compactEvent(sequence: number): RoomEvent {
+function compactEvent(sequence: number, roomRevision = sequence): RoomEvent {
   return {
     id: `event-${sequence}`,
     roomId: "room-a",
@@ -84,10 +100,39 @@ function compactEvent(sequence: number): RoomEvent {
     type: "room.updated",
     actor: null,
     payload: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       kind: "room.invalidated",
-      roomRevision: sequence,
+      stateRevision: sequence,
+      roomRevision,
       activityId: null,
+    },
+  };
+}
+
+function presenceEvent(sequence: number, roomRevision: number, participantId = "participant-a"): RoomEvent {
+  return {
+    id: `presence-${sequence}`,
+    roomId: "room-a",
+    sequence,
+    occurredAt: sequence,
+    type: "presence.updated",
+    actor: null,
+    payload: {
+      schemaVersion: 4,
+      kind: "presence.delta",
+      stateRevision: sequence,
+      roomRevision,
+      participantId,
+      actorKind: "human",
+      lastSeenAt: sequence,
+      connected: true,
+      agentActive: false,
+      presence: {
+        cursor: { x: 25, y: 35 },
+        viewport: null,
+        lastSeenAt: sequence,
+        activity: null,
+      },
     },
   };
 }
@@ -97,6 +142,8 @@ beforeEach(() => {
   mocks.apiRequest.mockReset();
   mocks.realtimeOptions.length = 0;
   mocks.realtimeClose.mockReset();
+  mocks.realtimeRequestSync.mockReset();
+  mocks.realtimePublishTransient.mockClear();
   vi.stubGlobal("BroadcastChannel", undefined);
 });
 
@@ -124,7 +171,289 @@ describe("shouldAcceptRoomRevision", () => {
   });
 });
 
+describe("applyTransientHumanPresence", () => {
+  it("structurally shares durable canvas state and untouched participants", () => {
+    const current = room("room-a", 3, ["participant-a", "participant-b"]);
+    const objects = current.objects;
+    const diagrams = current.diagrams;
+    const untouched = current.participants["participant-b"];
+
+    const projected = applyTransientHumanPresence(
+      current,
+      "participant-a",
+      { x: 12, y: 34 },
+      { x: 1, y: 2, zoom: 1.5, width: 800, height: 600 },
+    );
+
+    expect(projected).not.toBe(current);
+    expect(projected.objects).toBe(objects);
+    expect(projected.diagrams).toBe(diagrams);
+    expect(projected.participants["participant-b"]).toBe(untouched);
+    expect(projected.participants["participant-a"]).not.toBe(
+      current.participants["participant-a"],
+    );
+    expect(projected.participants["participant-a"].human.cursor).toEqual({ x: 12, y: 34 });
+    expect(current.participants["participant-a"].human.cursor).toBeNull();
+  });
+});
+
 describe("useRoom request ordering", () => {
+  it("projects newer transient motion without advancing state and resists older durable keyframes", () => {
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a", "participant-b"], 1), {
+        cursor: null,
+        replayTruncated: false,
+      });
+      realtime.onTransientPresence?.({
+        participantId: "participant-b",
+        connectionId: "connection-b",
+        clientSequence: 1,
+        clientTime: 9,
+        serverTime: 10,
+        cursor: { x: 100, y: 200 },
+        viewport: null,
+      });
+      realtime.onEvent(presenceEvent(2, 1, "participant-b"), {
+        cursor: null,
+        replay: false,
+      });
+    });
+
+    expect(result.current.room).toMatchObject({
+      stateRevision: 2,
+      participants: {
+        "participant-b": { human: { cursor: { x: 100, y: 200 } } },
+      },
+    });
+    expect(result.current.transientPresence({ cursor: null, viewport: null })).toBe(true);
+    expect(mocks.realtimePublishTransient).toHaveBeenCalledWith({
+      cursor: null,
+      viewport: null,
+    });
+
+    const durable = presenceEvent(3, 1, "participant-b");
+    if ("presence" in durable.payload) {
+      durable.payload.lastSeenAt = 11;
+      durable.payload.presence.lastSeenAt = 11;
+      durable.payload.presence.cursor = { x: 25, y: 35 };
+    }
+    act(() => realtime.onEvent(durable, { cursor: null, replay: false }));
+    expect(result.current.room).toMatchObject({
+      stateRevision: 3,
+      participants: {
+        "participant-b": { human: { cursor: { x: 25, y: 35 }, lastSeenAt: 11 } },
+      },
+    });
+  });
+
+  it("accepts awareness-only state while preserving the document revision", () => {
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 4, ["participant-a"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+      realtime.onSnapshot(room("room-a", 4, ["participant-a"], 11), {
+        cursor: "11-0",
+        replayTruncated: false,
+      });
+    });
+
+    expect(result.current.room).toMatchObject({ roomRevision: 4, stateRevision: 11 });
+  });
+
+  it("patches realtime presence directly without fetching or replacing canvas state", () => {
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    const initial = room("room-a", 4, ["participant-a"], 10);
+    initial.objects = {
+      note: {
+        id: "note",
+        kind: "text",
+        x: 1,
+        y: 2,
+        width: 100,
+        height: 50,
+        rotation: 0,
+        zIndex: 0,
+        revision: 1,
+        groupId: null,
+        diagramIds: [],
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: { participantId: "participant-a", displayName: "A", color: "blue", kind: "human" },
+        lastEditedBy: { participantId: "participant-a", displayName: "A", color: "blue", kind: "human" },
+        content: "Stable",
+        color: "black",
+        size: "m",
+        align: "start",
+      },
+    };
+
+    act(() => {
+      realtime.onSnapshot(initial, { cursor: "10-0", replayTruncated: false });
+      realtime.onEvent(presenceEvent(11, 4), { cursor: "11-0", replay: false });
+    });
+
+    expect(result.current.room).toMatchObject({
+      roomRevision: 4,
+      stateRevision: 11,
+      participants: { "participant-a": { human: { cursor: { x: 25, y: 35 } } } },
+    });
+    expect(result.current.room?.objects).toBe(initial.objects);
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("uses the bounded presence response and patches it client-side", async () => {
+    mocks.apiRequest.mockResolvedValueOnce({
+      ok: true,
+      presence: {
+        roomId: "room-a",
+        stateRevision: 11,
+        roomRevision: 4,
+        participantId: "participant-a",
+        actorKind: "human",
+        lastSeenAt: 11,
+        connected: true,
+        agentActive: false,
+        presence: {
+          cursor: { x: 25, y: 35 },
+          viewport: null,
+          lastSeenAt: 11,
+          activity: null,
+        },
+      },
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    act(() => {
+      realtimeFor("room-a").onSnapshot(room("room-a", 4, ["participant-a"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+    });
+
+    await act(async () => {
+      await result.current.presence({ cursor: { x: 25, y: 35 }, viewport: null });
+    });
+
+    expect(mocks.apiRequest).toHaveBeenCalledWith(
+      "/api/rooms/room-a/presence",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "x-jazzboard-presence-protocol": "delta-v1" },
+      }),
+    );
+    expect(result.current.room).toMatchObject({
+      stateRevision: 11,
+      participants: { "participant-a": { human: { cursor: { x: 25, y: 35 } } } },
+    });
+  });
+
+  it("refreshes when a presence delta fences a document generation the client missed", async () => {
+    const pending = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    mocks.apiRequest.mockImplementationOnce(() => pending.promise);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      realtime.onSnapshot(room("room-a", 4, ["participant-a"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(presenceEvent(12, 5), { cursor: "12-0", replay: false });
+    });
+    expect(mocks.apiRequest).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        room: room("room-a", 5, ["participant-a"], 12),
+        participantId: "participant-a",
+      });
+      await pending.promise;
+    });
+    expect(result.current.room).toMatchObject({ roomRevision: 5, stateRevision: 12 });
+  });
+
+  it("refreshes once when a non-cumulative presence delta skips an awareness revision", async () => {
+    const pending = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    mocks.apiRequest.mockImplementationOnce(() => pending.promise);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      realtime.onSnapshot(room("room-a", 4, ["participant-a"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(presenceEvent(12, 4), { cursor: "12-0", replay: false });
+    });
+    expect(mocks.apiRequest).toHaveBeenCalledOnce();
+    expect(result.current.room).toMatchObject({ stateRevision: 10 });
+
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        room: room("room-a", 4, ["participant-a"], 12),
+        participantId: "participant-a",
+      });
+      await pending.promise;
+    });
+    expect(result.current.room).toMatchObject({ roomRevision: 4, stateRevision: 12 });
+    expect(mocks.apiRequest).toHaveBeenCalledOnce();
+  });
+
+  it("applies exact consecutive deltas from interleaved participants without a read", () => {
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      realtime.onSnapshot(room("room-a", 4, ["participant-a", "participant-b"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(presenceEvent(11, 4, "participant-a"), { cursor: "11-0", replay: false });
+      realtime.onEvent(presenceEvent(12, 4, "participant-b"), { cursor: "12-0", replay: false });
+    });
+
+    expect(result.current.room).toMatchObject({
+      stateRevision: 12,
+      participants: {
+        "participant-a": { human: { lastSeenAt: 11 } },
+        "participant-b": { human: { lastSeenAt: 12 } },
+      },
+    });
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a state-only compact invalidation without requiring a document revision", async () => {
+    const pending = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    mocks.apiRequest.mockImplementationOnce(() => pending.promise);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 4, ["participant-a"], 10), {
+        cursor: "10-0",
+        replayTruncated: false,
+      });
+      realtime.onEvent(compactEvent(11, 4), { cursor: "11-0", replay: false });
+    });
+
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        room: room("room-a", 4, ["participant-a"], 11),
+        participantId: "participant-a",
+      });
+      await pending.promise;
+    });
+
+    expect(result.current.room).toMatchObject({ roomRevision: 4, stateRevision: 11 });
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("coalesces compact realtime invalidations through one authoritative refresh", async () => {
     const pending = deferred<{ ok: true; room: RoomState; participantId: string }>();
     mocks.apiRequest.mockImplementationOnce(() => pending.promise);
@@ -414,7 +743,7 @@ describe("useRoom request ordering", () => {
       realtimeFor("room-a").onStatusChange?.("connected");
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_500);
+      await vi.advanceTimersByTimeAsync(12_500);
     });
     expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
     expect(result.current.connection).toBe("live");

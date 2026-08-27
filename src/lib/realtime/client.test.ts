@@ -82,6 +82,34 @@ function event(): RoomEvent {
   };
 }
 
+function presenceEvent(): RoomEvent {
+  return {
+    id: "presence_3",
+    roomId: "room_1",
+    sequence: 3,
+    occurredAt: 3,
+    type: "presence.updated",
+    actor: null,
+    payload: {
+      schemaVersion: 4,
+      kind: "presence.delta",
+      stateRevision: 3,
+      roomRevision: 2,
+      participantId: "p_1",
+      actorKind: "human",
+      lastSeenAt: 3,
+      connected: true,
+      agentActive: false,
+      presence: {
+        cursor: { x: 1, y: 2 },
+        viewport: null,
+        lastSeenAt: 3,
+        activity: null,
+      },
+    },
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -114,6 +142,7 @@ describe("connectRoomRealtime", () => {
     expect(connection.getStatus()).toBe("connecting");
     expect(new URL(sockets[0].url).protocol).toBe("wss:");
     expect(new URL(sockets[0].url).searchParams.get("roomId")).toBe("room_1");
+    expect(new URL(sockets[0].url).searchParams.get("capabilities")).toBe("presence-delta-v1");
 
     sockets[0].open();
     sockets[0].serverMessage({
@@ -128,11 +157,13 @@ describe("connectRoomRealtime", () => {
     sockets[0].serverMessage({ type: "snapshot", room: room(), cursor: "10-0", replayTruncated: false });
     sockets[0].serverMessage({ type: "event", event: event(), cursor: "11-0" });
     sockets[0].serverMessage({ type: "event", event: event(), cursor: "11-0" });
+    sockets[0].serverMessage({ type: "event", event: presenceEvent(), cursor: "11-1" });
     sockets[0].serverMessage({ type: "checkpoint", cursor: "12-0" });
 
     expect(statuses).toEqual(["connecting", "connected"]);
     expect(snapshots).toHaveLength(1);
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
+    expect(events[1].payload).toMatchObject({ kind: "presence.delta", stateRevision: 3 });
     expect(connection.getCursor()).toBe("12-0");
 
     sockets[0].serverClose();
@@ -164,6 +195,54 @@ describe("connectRoomRealtime", () => {
       type: "sync.request",
       cursor: "20-4",
     });
+    connection.close();
+  });
+
+  it("publishes and receives lossy transient presence without a room-state event", () => {
+    const socket = new FakeBrowserSocket("ws://jazzboard.test/api/ws");
+    const received: unknown[] = [];
+    const connection = connectRoomRealtime({
+      roomId: "room_1",
+      url: "ws://jazzboard.test/api/ws",
+      onSnapshot: vi.fn(),
+      onEvent: vi.fn(),
+      onTransientPresence: (presence) => received.push(presence),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    });
+    expect(connection.publishTransientPresence({ cursor: null, viewport: null })).toBe(false);
+    socket.open();
+    expect(connection.publishTransientPresence({
+      cursor: { x: 4, y: 5 },
+      viewport: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
+    })).toBe(true);
+    expect(socket.sent.map((message) => JSON.parse(message))).toContainEqual({
+      type: "presence.transient",
+      clientSequence: 1,
+      clientTime: expect.any(Number),
+      cursor: { x: 4, y: 5 },
+      viewport: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
+    });
+
+    socket.serverMessage({
+      type: "presence.transient",
+      roomId: "room_1",
+      participantId: "p_2",
+      connectionId: "connection_2",
+      clientSequence: 3,
+      clientTime: 100,
+      serverTime: 105,
+      cursor: { x: 9, y: 10 },
+      viewport: null,
+    });
+    expect(received).toEqual([{
+      participantId: "p_2",
+      connectionId: "connection_2",
+      clientSequence: 3,
+      clientTime: 100,
+      serverTime: 105,
+      cursor: { x: 9, y: 10 },
+      viewport: null,
+    }]);
     connection.close();
   });
 

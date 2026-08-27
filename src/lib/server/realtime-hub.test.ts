@@ -32,13 +32,14 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-function room(revision = 1): RoomState {
+function room(stateRevision = 1, roomRevision = stateRevision): RoomState {
   const now = 1_000;
   return {
     id: "room_1",
     code: "1234",
     title: "Realtime room",
-    roomRevision: revision,
+    stateRevision,
+    roomRevision,
     createdAt: now,
     updatedAt: now,
     participants: {
@@ -64,7 +65,12 @@ function room(revision = 1): RoomState {
   };
 }
 
-function event(id: string, sequence: number, roomId = "room_1"): RoomEvent {
+function event(
+  id: string,
+  sequence: number,
+  roomId = "room_1",
+  roomRevision = sequence,
+): RoomEvent {
   return {
     id,
     roomId,
@@ -72,12 +78,45 @@ function event(id: string, sequence: number, roomId = "room_1"): RoomEvent {
     occurredAt: 1_000 + sequence,
     type: "room.updated",
     actor: null,
-    payload: { room: room(sequence) },
+    payload: { room: room(sequence, roomRevision) },
   };
 }
 
-function compactEvent(id: string, sequence: number, roomId = "room_1"): RoomEvent {
-  return compactRoomEvent(event(id, sequence, roomId));
+function compactEvent(
+  id: string,
+  sequence: number,
+  roomId = "room_1",
+  roomRevision = sequence,
+): RoomEvent {
+  return compactRoomEvent(event(id, sequence, roomId, roomRevision));
+}
+
+function presenceEvent(sequence: number, roomRevision: number): RoomEvent {
+  return {
+    id: `presence_${sequence}`,
+    roomId: "room_1",
+    sequence,
+    occurredAt: 1_000 + sequence,
+    type: "presence.updated",
+    actor: null,
+    payload: {
+      schemaVersion: 4,
+      kind: "presence.delta",
+      stateRevision: sequence,
+      roomRevision,
+      participantId: "p_1",
+      actorKind: "human",
+      lastSeenAt: 1_000 + sequence,
+      connected: true,
+      agentActive: false,
+      presence: {
+        cursor: { x: sequence, y: sequence + 1 },
+        viewport: null,
+        lastSeenAt: 1_000 + sequence,
+        activity: null,
+      },
+    },
+  };
 }
 
 function streamEntry(cursor: string, roomEvent: RoomEvent): [string, string[]] {
@@ -123,6 +162,207 @@ describe("RealtimeHub", () => {
     socket.emit("close");
     publishLocal!(event("event_3", 3));
     expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(1);
+    hub.dispose();
+  });
+
+  it("fans out coalesced human transient presence locally, including for spectators", async () => {
+    const sharedRoom = room();
+    sharedRoom.participants.p_2 = {
+      ...structuredClone(sharedRoom.participants.p_1),
+      participantId: "p_2",
+      displayName: "Spectator",
+      role: "spectator",
+    };
+    let now = 2_000;
+    let id = 0;
+    const readRoom = vi.fn(async () => structuredClone(sharedRoom));
+    const readRoomSnapshot = vi.fn(async () => structuredClone(sharedRoom));
+    const hub = new RealtimeHub({
+      readRoom,
+      readRoomSnapshot,
+      subscribeLocal: () => vi.fn(),
+      getRedis: () => null,
+      createId: () => `connection_${++id}`,
+      now: () => now,
+    });
+    const participant = new FakeSocket();
+    const spectator = new FakeSocket();
+    hub.attach(participant as unknown as WebSocket, {
+      roomId: "room_1",
+      participantId: "p_1",
+    });
+    hub.attach(spectator as unknown as WebSocket, {
+      roomId: "room_1",
+      participantId: "p_2",
+    });
+    await vi.waitFor(() => {
+      expect(participant.messages().some((message) => message.type === "snapshot")).toBe(true);
+      expect(spectator.messages().some((message) => message.type === "snapshot")).toBe(true);
+    });
+
+    spectator.emit("message", Buffer.from(JSON.stringify({
+      type: "presence.transient",
+      clientSequence: 1,
+      clientTime: 1_990,
+      cursor: { x: 10, y: 20 },
+      viewport: null,
+    })));
+    spectator.emit("message", Buffer.from(JSON.stringify({
+      type: "presence.transient",
+      clientSequence: 2,
+      clientTime: 1_991,
+      cursor: { x: 11, y: 21 },
+      viewport: null,
+    })));
+
+    expect(participant.messages().filter((message) => message.type === "presence.transient"))
+      .toEqual([{
+        type: "presence.transient",
+        roomId: "room_1",
+        participantId: "p_2",
+        connectionId: "connection_2",
+        clientSequence: 1,
+        clientTime: 1_990,
+        serverTime: 2_000,
+        cursor: { x: 10, y: 20 },
+        viewport: null,
+      }]);
+    expect(spectator.messages().some((message) => message.type === "presence.transient")).toBe(false);
+
+    now += 40;
+    spectator.emit("message", Buffer.from(JSON.stringify({
+      type: "presence.transient",
+      clientSequence: 3,
+      clientTime: 2_030,
+      cursor: { x: 12, y: 22 },
+      viewport: null,
+    })));
+    expect(participant.messages().filter((message) => message.type === "presence.transient"))
+      .toHaveLength(2);
+    expect(readRoomSnapshot).not.toHaveBeenCalled();
+    hub.dispose();
+  });
+
+  it("delivers a same-document presence delta without an authoritative room read", async () => {
+    let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
+    const readRoomSnapshot = vi.fn(async () => room(11, 4));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: (listener) => {
+        publishLocal = listener;
+        return vi.fn();
+      },
+      getRedis: () => null,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+    await vi.waitFor(() =>
+      expect(socket.messages().map((message) => message.type)).toEqual(["ready", "snapshot"]),
+    );
+
+    publishLocal!(presenceEvent(11, 4));
+
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "event",
+      event: { payload: { kind: "presence.delta", stateRevision: 11, roomRevision: 4 } },
+    });
+    expect(readRoomSnapshot).not.toHaveBeenCalled();
+    hub.dispose();
+  });
+
+  it("reconciles instead of applying a presence delta across a missing document generation", async () => {
+    let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
+    const readRoomSnapshot = vi.fn(async () => room(12, 5));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: (listener) => {
+        publishLocal = listener;
+        return vi.fn();
+      },
+      getRedis: () => null,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+    await vi.waitFor(() =>
+      expect(socket.messages().map((message) => message.type)).toEqual(["ready", "snapshot"]),
+    );
+
+    publishLocal!(presenceEvent(12, 5));
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(0);
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    hub.dispose();
+  });
+
+  it("reconciles instead of delivering a non-cumulative presence delta across a state gap", async () => {
+    let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
+    const readRoomSnapshot = vi.fn(async () => room(12, 4));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: (listener) => {
+        publishLocal = listener;
+        return vi.fn();
+      },
+      getRedis: () => null,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+    await vi.waitFor(() =>
+      expect(socket.messages().map((message) => message.type)).toEqual(["ready", "snapshot"]),
+    );
+
+    publishLocal!(presenceEvent(12, 4));
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(0);
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    hub.dispose();
+  });
+
+  it("coalesces interleaved Spotlight, lease, and presence gaps into one authoritative snapshot", async () => {
+    let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
+    let resolveSnapshot!: (value: RoomState) => void;
+    const snapshot = new Promise<RoomState>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    const readRoomSnapshot = vi.fn(() => snapshot);
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: (listener) => {
+        publishLocal = listener;
+        return vi.fn();
+      },
+      getRedis: () => null,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+    await vi.waitFor(() =>
+      expect(socket.messages().map((message) => message.type)).toEqual(["ready", "snapshot"]),
+    );
+
+    publishLocal!({ ...compactEvent("spotlight_11", 11, "room_1", 4), type: "spotlight.updated" });
+    publishLocal!({ ...compactEvent("lease_12", 12, "room_1", 4), type: "lease.updated" });
+    publishLocal!(presenceEvent(13, 4));
+    resolveSnapshot(room(13, 4));
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(0);
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "snapshot",
+      room: { stateRevision: 13, roomRevision: 4 },
+    });
     hub.dispose();
   });
 
@@ -199,7 +439,7 @@ describe("RealtimeHub", () => {
       "COUNT",
       100,
       "BLOCK",
-      5_000,
+      30_000,
       "STREAMS",
       "jazzboard:events",
       "10-0",
@@ -278,7 +518,7 @@ describe("RealtimeHub", () => {
       "COUNT",
       100,
       "BLOCK",
-      5_000,
+      30_000,
       "STREAMS",
       "jazzboard:events",
       "10-0",
@@ -449,6 +689,162 @@ describe("RealtimeHub", () => {
       room: { roomRevision: 11 },
     });
     expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(0);
+    hub.dispose();
+  });
+
+  it("reconciles a newer state revision when the document revision is unchanged", async () => {
+    const tailEvent = compactEvent("event_10", 10, "room_other", 4);
+    const signal = compactEvent("event_11", 11, "room_1", 4);
+    const xreadResolvers: Array<(value: unknown) => void> = [];
+    const reader = {
+      xread: vi.fn(
+        () =>
+          new Promise<unknown>((resolve) => {
+            xreadResolvers.push(resolve);
+          }),
+      ),
+      disconnect: vi.fn(() => {
+        for (const resolve of xreadResolvers.splice(0)) resolve(null);
+      }),
+    };
+    const redis = {
+      duplicate: vi.fn(() => reader),
+      xrevrange: vi.fn(async () => [streamEntry("10-0", tailEvent)]),
+    } as unknown as Redis;
+    const readRoomSnapshot = vi.fn(async () => room(11, 4));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: () => vi.fn(),
+      getRedis: () => redis,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+
+    await vi.waitFor(() => expect(xreadResolvers).toHaveLength(1));
+    xreadResolvers.shift()!([["jazzboard:events", [streamEntry("11-0", signal)]]]);
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "snapshot",
+      cursor: "11-0",
+      room: { stateRevision: 11, roomRevision: 4 },
+    });
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    hub.dispose();
+  });
+
+  it("authoritatively reconciles a lower rolling v2 watermark after newer v3 awareness", async () => {
+    const tailEvent = compactEvent("event_100", 100, "room_other", 4);
+    const v2Signal: RoomEvent = {
+      id: "event_legacy_5",
+      roomId: "room_1",
+      sequence: 5,
+      occurredAt: 2_000,
+      type: "room.updated",
+      actor: null,
+      payload: {
+        schemaVersion: 2,
+        kind: "room.invalidated",
+        roomRevision: 5,
+        activityId: null,
+      },
+    };
+    const xreadResolvers: Array<(value: unknown) => void> = [];
+    const reader = {
+      xread: vi.fn(
+        () =>
+          new Promise<unknown>((resolve) => {
+            xreadResolvers.push(resolve);
+          }),
+      ),
+      disconnect: vi.fn(() => {
+        for (const resolve of xreadResolvers.splice(0)) resolve(null);
+      }),
+    };
+    const redis = {
+      duplicate: vi.fn(() => reader),
+      xrevrange: vi.fn(async () => [streamEntry("100-0", tailEvent)]),
+    } as unknown as Redis;
+    // The store classifies a changed legacy fingerprint as one new durable
+    // revision and advances aggregate state beyond the hot-path awareness.
+    const readRoomSnapshot = vi.fn(async () => room(101, 5));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(100, 4),
+      readRoomSnapshot,
+      subscribeLocal: () => vi.fn(),
+      getRedis: () => redis,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+
+    await vi.waitFor(() => expect(xreadResolvers).toHaveLength(1));
+    xreadResolvers.shift()!([["jazzboard:events", [streamEntry("101-0", v2Signal)]]]);
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "snapshot",
+      room: { stateRevision: 101, roomRevision: 5 },
+    });
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    hub.dispose();
+  });
+
+  it("reconciles a pre-plane full-room event by aggregate state without inventing a document revision", async () => {
+    const tailEvent = compactEvent("event_100", 100, "room_other", 4);
+    const legacySnapshot = room(11, 11);
+    delete (legacySnapshot as { stateRevision?: number }).stateRevision;
+    const legacySignal: RoomEvent = {
+      id: "event_old_presence_11",
+      roomId: "room_1",
+      sequence: 11,
+      occurredAt: 2_000,
+      type: "presence.updated",
+      actor: null,
+      payload: { room: legacySnapshot, activity: null },
+    };
+    const xreadResolvers: Array<(value: unknown) => void> = [];
+    const reader = {
+      xread: vi.fn(
+        () =>
+          new Promise<unknown>((resolve) => {
+            xreadResolvers.push(resolve);
+          }),
+      ),
+      disconnect: vi.fn(() => {
+        for (const resolve of xreadResolvers.splice(0)) resolve(null);
+      }),
+    };
+    const redis = {
+      duplicate: vi.fn(() => reader),
+      xrevrange: vi.fn(async () => [streamEntry("100-0", tailEvent)]),
+    } as unknown as Redis;
+    const readRoomSnapshot = vi.fn(async () => room(11, 4));
+    const hub = new RealtimeHub({
+      readRoom: async () => room(10, 4),
+      readRoomSnapshot,
+      subscribeLocal: () => vi.fn(),
+      getRedis: () => redis,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+
+    await vi.waitFor(() => expect(xreadResolvers).toHaveLength(1));
+    xreadResolvers.shift()!([["jazzboard:events", [streamEntry("101-0", legacySignal)]]]);
+
+    await vi.waitFor(() =>
+      expect(socket.messages().filter((message) => message.type === "snapshot")).toHaveLength(2),
+    );
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "snapshot",
+      room: { stateRevision: 11, roomRevision: 4 },
+    });
+    expect(readRoomSnapshot).toHaveBeenCalledOnce();
+    expect(socket.closes).toEqual([]);
     hub.dispose();
   });
 

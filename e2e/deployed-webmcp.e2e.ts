@@ -1252,6 +1252,10 @@ test.describe("WebMCP browser acceptance", () => {
       mimeType: "image/png",
       createdBy: { kind: "human", participantId: host.participantId },
     });
+    expect(String(image?.url)).toMatch(
+      new RegExp(`^/api/rooms/${host.room.id}/assets\\?(?:pathname|assetId)=`),
+    );
+    expect(String(image?.url)).not.toContain("blob.vercel-storage.com");
     const storedImage = await page.request.get(String(image?.url));
     expect(storedImage.status()).toBe(200);
     expect(storedImage.headers()["content-type"]).toBe("image/png");

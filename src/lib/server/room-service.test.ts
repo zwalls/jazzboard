@@ -17,7 +17,11 @@ import {
   updatePresence,
   upgradeMembership,
 } from "./room-service";
-import { getRoomStore, subscribeToLocalRoomEvents } from "./room-store";
+import {
+  getRoomStore,
+  PRESENCE_AWAY_MS,
+  subscribeToLocalRoomEvents,
+} from "./room-store";
 
 const START = new Date("2026-08-25T12:00:00.000Z");
 
@@ -172,11 +176,14 @@ describe("room service authorization", () => {
       viewport: null,
       activity: null,
     });
-    expect(observing.participants.p_spectator).toMatchObject({
-      role: "spectator",
+    expect(observing).toMatchObject({
+      participantId: "p_spectator",
+      actorKind: "human",
       agentActive: false,
-      human: { cursor: { x: 5, y: 10 } },
+      presence: { cursor: { x: 5, y: 10 } },
     });
+    expect((await readAuthorizedRoom(room.id, "p_spectator")).participants.p_spectator.role)
+      .toBe("spectator");
 
     await upgradeMembership(room.id, "p_spectator");
     const allowed = await runCanvasCommand({
@@ -344,6 +351,123 @@ describe("room service authorization", () => {
     expect((await readAuthorizedRoom(room.id, "p_owner")).objects.note).toMatchObject({
       revision: 2,
       content: "Current",
+    });
+  });
+
+  it("keeps awareness and coordination churn out of the durable document revision", async () => {
+    const { room } = await seededRoom();
+    const created = await runCanvasCommand({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      command: createTextCommand("plane-note"),
+    });
+    const durableRevision = created.room.roomRevision;
+    const initialStateRevision = created.room.stateRevision!;
+
+    const present = await updatePresence({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      cursor: { x: 33, y: 44 },
+      viewport: null,
+      activity: null,
+    });
+    expect(present.roomRevision).toBe(durableRevision);
+    expect(present.stateRevision).toBeGreaterThan(initialStateRevision);
+
+    const leased = await runLeaseAction({
+      action: "acquire",
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      objectId: "plane-note",
+      expectedRevision: 1,
+      operation: "move",
+    });
+    expect(leased.room.roomRevision).toBe(durableRevision);
+    expect(leased.room.stateRevision).toBeGreaterThan(present.stateRevision!);
+
+    const spotlighted = await updateSpotlight({
+      roomId: room.id,
+      participantId: "p_owner",
+      action: "start",
+      target: "human",
+    });
+    expect(spotlighted.roomRevision).toBe(durableRevision);
+    expect(spotlighted.stateRevision).toBeGreaterThan(leased.room.stateRevision!);
+
+    const updated = await runCanvasCommand({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      command: {
+        type: "update",
+        objectId: "plane-note",
+        expectedRevision: 1,
+        leaseId: leased.lease!.leaseId,
+        operation: "edit",
+        patch: { content: "Durable edit" },
+      },
+    });
+    expect(updated.room.roomRevision).toBe(durableRevision + 1);
+    expect(updated.room.stateRevision).toBeGreaterThan(spotlighted.stateRevision!);
+  });
+
+  it("persists liveness, lease expiry, and presenter Spotlight teardown as one revisioned transition", async () => {
+    const { room } = await seededRoom();
+    await runCanvasCommand({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      command: createTextCommand("expiring-note"),
+    });
+    await runLeaseAction({
+      action: "acquire",
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "human",
+      objectId: "expiring-note",
+      expectedRevision: 1,
+      operation: "move",
+    });
+    const spotlighted = await updateSpotlight({
+      roomId: room.id,
+      participantId: "p_owner",
+      action: "start",
+      target: "human",
+    });
+    const durableRevision = spotlighted.roomRevision;
+    const stateRevision = spotlighted.stateRevision!;
+    const events: RoomEvent[] = [];
+    const unsubscribe = subscribeToLocalRoomEvents((event) => events.push(event));
+
+    vi.setSystemTime(START.getTime() + Math.max(LEASE_DURATION_MS, PRESENCE_AWAY_MS) + 1);
+    const expired = await readAuthorizedRoom(room.id, "p_owner");
+    const stable = await readAuthorizedRoom(room.id, "p_owner");
+    unsubscribe();
+
+    expect(expired).toMatchObject({
+      roomRevision: durableRevision,
+      stateRevision: stateRevision + 1,
+      participants: {
+        p_owner: { connected: false },
+        p_spectator: { connected: false },
+      },
+      leases: {},
+      spotlight: null,
+    });
+    expect(stable.stateRevision).toBe(expired.stateRevision);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      sequence: stateRevision + 1,
+      type: "spotlight.updated",
+      payload: {
+        schemaVersion: 3,
+        kind: "room.invalidated",
+        stateRevision: stateRevision + 1,
+        roomRevision: durableRevision,
+      },
     });
   });
 

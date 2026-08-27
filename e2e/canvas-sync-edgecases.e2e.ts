@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 
+import type { RoomState } from "@/lib/domain/types";
+
 import {
   connectorObject,
   createRoomViaApi,
@@ -86,6 +88,115 @@ function semanticTransactionRequest(request: Request, roomId: string) {
 }
 
 test.describe("canvas synchronization edge cases", () => {
+  test("acknowledges a verified replay without rolling back a newer local generation", async ({ page }) => {
+    test.setTimeout(45_000);
+    const host = await createRoomViaApi(page.request, "Replay Mover", "Replay reconciliation");
+    await seedPair(page, host.room.id);
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+    await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+    const baseline = (await getRoom(page.request, host.room.id)).room;
+
+    let releaseReplay!: () => void;
+    const replayGate = new Promise<void>((resolve) => {
+      releaseReplay = resolve;
+    });
+    let markFirstCommitted!: () => void;
+    const firstCommitted = new Promise<void>((resolve) => {
+      markFirstCommitted = resolve;
+    });
+    let firstCommand = true;
+    const commandUrl = `**/api/rooms/${encodeURIComponent(host.room.id)}/commands`;
+    const commandHandler = async (route: Route, request: Request) => {
+      if (request.method() !== "POST" || !firstCommand) {
+        await route.continue();
+        return;
+      }
+      firstCommand = false;
+      const upstream = await route.fetch();
+      const payload = (await upstream.json()) as { room: RoomState };
+      markFirstCommitted();
+      await replayGate;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: {
+            code: "MUTATION_OUTCOME_UNKNOWN",
+            message: "The exact mutation already committed.",
+            details: {
+              replayed: true,
+              committedRoomRevision: payload.room.roomRevision,
+            },
+          },
+        }),
+      });
+    };
+    await page.route(commandUrl, commandHandler);
+
+    let holdRefresh = false;
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let markRefreshHeld!: () => void;
+    const refreshHeld = new Promise<void>((resolve) => {
+      markRefreshHeld = resolve;
+    });
+    let refreshWasHeld = false;
+    const roomUrl = `**/api/rooms/${encodeURIComponent(host.room.id)}`;
+    const roomHandler = async (route: Route, request: Request) => {
+      if (request.method() === "GET" && holdRefresh) {
+        if (!refreshWasHeld) {
+          refreshWasHeld = true;
+          markRefreshHeld();
+        }
+        await refreshGate;
+      }
+      await route.continue();
+    };
+    await page.route(roomUrl, roomHandler);
+
+    try {
+      await dragFrom(page, LEFT_ID, 65, 20);
+      await firstCommitted;
+      const afterFirst = await centerOf(page, LEFT_ID);
+
+      // Generation N+1 is rendered while generation N's committed response is
+      // still ambiguous and its serialized queue task remains in flight.
+      await dragFrom(page, LEFT_ID, 90, 45);
+      const afterSecond = await centerOf(page, LEFT_ID);
+      expect(afterSecond.x - afterFirst.x).toBeGreaterThan(70);
+
+      holdRefresh = true;
+      releaseReplay();
+      await refreshHeld;
+      await page.waitForTimeout(500);
+      const whileReconciling = await centerOf(page, LEFT_ID);
+      expect(whileReconciling.x).toBeCloseTo(afterSecond.x, 0);
+      expect(whileReconciling.y).toBeCloseTo(afterSecond.y, 0);
+      expect(Object.keys((await getRoom(page.request, host.room.id)).room.leases)).toContain(LEFT_ID);
+
+      holdRefresh = false;
+      releaseRefresh();
+      await expect
+        .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision)
+        .toBe(3);
+      const committed = (await getRoom(page.request, host.room.id)).room;
+      expect(Number(committed.objects[LEFT_ID].x) - Number(baseline.objects[LEFT_ID].x)).toBeCloseTo(155, 0);
+      expect(Number(committed.objects[LEFT_ID].y) - Number(baseline.objects[LEFT_ID].y)).toBeCloseTo(65, 0);
+      await expect
+        .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+        .toEqual([]);
+      await expect(page.getByText("The exact mutation already committed.")).toHaveCount(0);
+    } finally {
+      releaseReplay();
+      releaseRefresh();
+      await page.unroute(commandUrl, commandHandler).catch(() => undefined);
+      await page.unroute(roomUrl, roomHandler).catch(() => undefined);
+    }
+  });
+
   test("saves a multi-selection move as one atomic semantic transaction", async ({ page }) => {
     const host = await createRoomViaApi(page.request, "Batch Mover", "Atomic multi-move");
     await seedPair(page, host.room.id);

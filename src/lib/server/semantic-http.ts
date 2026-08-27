@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { activityMutationMetadataSchema, layoutCommandSchema, semanticTransactionSchema } from "@/lib/domain/schemas";
 import type { ActorKind } from "@/lib/domain/types";
-import { errorResponse, json } from "@/lib/server/http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
 import { runLayoutCommand, runSemanticTransaction } from "@/lib/server/room-service";
 import { requireGuestParticipantId } from "@/lib/server/session";
 
@@ -30,10 +30,18 @@ export async function handleSemanticRequest(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = semanticRequestSchema.parse(await request.json());
-    const result = body.action === "transaction"
-      ? await runSemanticTransaction({ roomId, participantId, actorKind, transaction: body.transaction, metadata: body.metadata })
-      : await runLayoutCommand({ roomId, participantId, actorKind, layout: body.layout, metadata: body.metadata });
+    const body = semanticRequestSchema.parse(await readJsonBody(request));
+    const result = await runMutationRequest({
+      request,
+      participantId,
+      roomId,
+      operation: body.action === "transaction" ? "room.semantic.transaction" : "room.semantic.layout",
+      actorKind,
+      parsedBody: body,
+      execute: () => body.action === "transaction"
+        ? runSemanticTransaction({ roomId, participantId, actorKind, transaction: body.transaction, metadata: body.metadata })
+        : runLayoutCommand({ roomId, participantId, actorKind, layout: body.layout, metadata: body.metadata }),
+    });
     return json({ ok: true, ...result });
   } catch (error) {
     return errorResponse(error);

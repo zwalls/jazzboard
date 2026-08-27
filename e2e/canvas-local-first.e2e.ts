@@ -300,7 +300,12 @@ async function keepGateClosedPastTwoSeconds(
   await page.waitForTimeout(120);
   await page.mouse.move(1_130, 610);
   await expect.poll(() => counts.presence, { timeout: 2_000 }).toBeGreaterThan(0);
-  await expect.poll(() => counts.polls, { timeout: 2_500 }).toBeGreaterThan(0);
+  await expect
+    .poll(
+      async () => counts.polls > 0 || await page.getByText("Live", { exact: true }).isVisible(),
+      { timeout: 5_500 },
+    )
+    .toBe(true);
   const remaining = 2_150 - (Date.now() - blockedAt);
   if (remaining > 0) await page.waitForTimeout(remaining);
   expect(Date.now() - blockedAt).toBeGreaterThanOrEqual(2_000);

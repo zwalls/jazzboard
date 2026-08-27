@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DomainError } from "@/lib/domain/errors";
+import { DEFAULT_JSON_REQUEST_BYTES } from "@/lib/server/capacity";
+import { currentMutationContext } from "@/lib/server/mutation-context";
 
 const mocks = vi.hoisted(() => ({
   consumeJoinAttempt: vi.fn(),
@@ -56,7 +58,7 @@ describe("room create and exact-code join route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session");
+    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session", null);
     expect(mocks.joinRoom).toHaveBeenCalledWith({
       participantId: "p_signed-session",
       code: "0042",
@@ -153,6 +155,59 @@ describe("room create and exact-code join route", () => {
       title: "Design",
     });
     expect(mocks.consumeJoinAttempt).not.toHaveBeenCalled();
+  });
+
+  it("binds a caller idempotency key to the authenticated room-creation mutation", async () => {
+    let observed = null as ReturnType<typeof currentMutationContext>;
+    mocks.createRoom.mockImplementation(async () => {
+      observed = currentMutationContext();
+      return { id: "room_created", code: "1234" };
+    });
+
+    const response = await POST(request(
+      { action: "create", displayName: "Ada", title: "Design" },
+      { "idempotency-key": "create-room-route-0001" },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(observed).toMatchObject({
+      operation: "room.create",
+      actorKind: "human",
+      idempotency: {
+        namespace: "room.create",
+        actorKind: "human",
+      },
+    });
+  });
+
+  it("deduplicates join-rate accounting by the keyed canonical request", async () => {
+    const response = await POST(request(
+      { action: "join", code: "0042", displayName: "Ada", role: "participant" },
+      { "idempotency-key": "landing-join-route-0001" },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session", {
+      idempotencyKey: "landing-join-route-0001",
+      requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it("rejects oversized JSON before a room mutation runs", async () => {
+    const response = await POST(request({
+      action: "create",
+      displayName: "Ada",
+      title: "Design",
+      padding: "x".repeat(DEFAULT_JSON_REQUEST_BYTES),
+    }));
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: { code: "REQUEST_TOO_LARGE" },
+    });
+    expect(mocks.createRoom).not.toHaveBeenCalled();
+    expect(mocks.joinRoom).not.toHaveBeenCalled();
   });
 
   it.each([{}, { action: "search", codePrefix: "00" }, { action: "CREATE" }])(

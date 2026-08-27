@@ -1,8 +1,15 @@
-import type { RoomEvent, RoomRole, RoomState } from "@/lib/domain/types";
+import type { Point, RoomEvent, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
 
-import { isCompactRoomEventPayload, isLegacyRoomEventPayload } from "./events";
+import {
+  isCompactRoomEventPayload,
+  isLegacyRoomEventPayload,
+  isPresenceDeltaRoomEventPayload,
+} from "./events";
 
 export const REALTIME_PROTOCOL_VERSION = 1 as const;
+export const REALTIME_PRESENCE_DELTA_CAPABILITY = "presence-delta-v1" as const;
+export const SPLIT_STATE_CLIENT_CAPABILITY = "split-state-v1" as const;
+export const CLIENT_CAPABILITIES_HEADER = "x-jazzboard-client-capabilities" as const;
 export const REALTIME_MAX_CLIENT_PAYLOAD_BYTES = 32 * 1024;
 export const REALTIME_EVENT_STREAM = "jazzboard:events";
 
@@ -17,7 +24,14 @@ export type RealtimeConnectionStatus =
 
 export type RealtimeClientMessage =
   | { type: "ping"; clientTime?: number }
-  | { type: "sync.request"; cursor?: string };
+  | { type: "sync.request"; cursor?: string }
+  | {
+      type: "presence.transient";
+      clientSequence: number;
+      clientTime: number;
+      cursor: Point | null;
+      viewport: Viewport | null;
+    };
 
 export type RealtimeServerMessage =
   | {
@@ -53,6 +67,17 @@ export type RealtimeServerMessage =
       type: "pong";
       clientTime: number | null;
       serverTime: number;
+    }
+  | {
+      type: "presence.transient";
+      roomId: string;
+      participantId: string;
+      connectionId: string;
+      clientSequence: number;
+      clientTime: number;
+      serverTime: number;
+      cursor: Point | null;
+      viewport: Viewport | null;
     }
   | {
       type: "error";
@@ -102,7 +127,56 @@ export function parseRealtimeClientMessage(value: unknown): RealtimeClientMessag
     };
   }
 
+  if (message.type === "presence.transient") {
+    if (
+      !validSequence(message.clientSequence) ||
+      typeof message.clientTime !== "number" ||
+      !Number.isFinite(message.clientTime) ||
+      !nullablePoint(message.cursor) ||
+      !nullableViewport(message.viewport)
+    ) {
+      return null;
+    }
+    return message as RealtimeClientMessage;
+  }
+
   return null;
+}
+
+function validSequence(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function point(value: unknown): value is Point {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.x === "number" &&
+    Number.isFinite(candidate.x) &&
+    typeof candidate.y === "number" &&
+    Number.isFinite(candidate.y)
+  );
+}
+
+function nullablePoint(value: unknown): value is Point | null {
+  return value === null || point(value);
+}
+
+function nullableViewport(value: unknown): value is Viewport | null {
+  if (value === null) return true;
+  if (!point(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.zoom === "number" &&
+    Number.isFinite(candidate.zoom) &&
+    candidate.zoom > 0 &&
+    typeof candidate.width === "number" &&
+    Number.isFinite(candidate.width) &&
+    candidate.width > 0 &&
+    typeof candidate.height === "number" &&
+    Number.isFinite(candidate.height) &&
+    candidate.height > 0
+  );
 }
 
 export function isRoomEvent(value: unknown): value is RoomEvent {
@@ -126,6 +200,7 @@ export function isRoomEvent(value: unknown): value is RoomEvent {
       "spotlight.updated",
     ].includes(event.type) &&
     (isCompactRoomEventPayload(event.payload, event.sequence) ||
+      isPresenceDeltaRoomEventPayload(event.payload, String(event.roomId), event.sequence) ||
       isLegacyRoomEventPayload(event.payload, event.roomId, event.sequence))
   );
 }
@@ -171,6 +246,22 @@ export function parseRealtimeServerMessage(value: unknown): RealtimeServerMessag
       if (
         (message.clientTime !== null && typeof message.clientTime !== "number") ||
         typeof message.serverTime !== "number"
+      ) {
+        return null;
+      }
+      return message as RealtimeServerMessage;
+    case "presence.transient":
+      if (
+        typeof message.roomId !== "string" ||
+        typeof message.participantId !== "string" ||
+        typeof message.connectionId !== "string" ||
+        !validSequence(message.clientSequence) ||
+        typeof message.clientTime !== "number" ||
+        !Number.isFinite(message.clientTime) ||
+        typeof message.serverTime !== "number" ||
+        !Number.isFinite(message.serverTime) ||
+        !nullablePoint(message.cursor) ||
+        !nullableViewport(message.viewport)
       ) {
         return null;
       }

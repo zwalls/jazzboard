@@ -2,6 +2,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { currentMutationContext } from "@/lib/server/mutation-context";
+
 const mocks = vi.hoisted(() => ({
   requireGuestParticipantId: vi.fn(),
   runSemanticTransaction: vi.fn(),
@@ -21,10 +23,10 @@ import { POST as postHumanSemantic } from "./route";
 
 const context = { params: Promise.resolve({ roomId: "room_semantic" }) };
 
-function request(body: unknown): Request {
+function request(body: unknown, headers?: HeadersInit): Request {
   return new Request("https://jazzboard.example/api/rooms/room_semantic/semantic", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie: "jazzboard_guest=signed" },
+    headers: { "content-type": "application/json", cookie: "jazzboard_guest=signed", ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -85,6 +87,32 @@ describe("semantic mutation route authorization", () => {
         primaryGap: 160,
         secondaryGap: 100,
       }),
+    });
+  });
+
+  it("exposes route-selected actor and semantic operation to the mutation store context", async () => {
+    let observed = null as ReturnType<typeof currentMutationContext>;
+    mocks.runSemanticTransaction.mockImplementation(async () => {
+      observed = currentMutationContext();
+      return { room: { id: "room_semantic" }, changedObjectIds: ["note"] };
+    });
+
+    const response = await postHumanSemantic(
+      request(
+        { action: "transaction", transaction },
+        { "idempotency-key": "semantic-route-0001" },
+      ),
+      context,
+    );
+
+    expect(response.status).toBe(200);
+    expect(observed).toMatchObject({
+      operation: "room.semantic.transaction",
+      actorKind: "human",
+      idempotency: {
+        namespace: "room.semantic.transaction",
+        actorKind: "human",
+      },
     });
   });
 

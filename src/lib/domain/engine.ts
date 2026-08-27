@@ -24,6 +24,12 @@ import type {
   RoomState,
   SemanticTransaction,
 } from "./types";
+import { roomBlobNamespace } from "@/lib/assets/private";
+import {
+  canonicalRoomAssetProxyPath,
+  isRoomBlobPathname,
+  parseRoomAssetProxyReference,
+} from "@/lib/assets/policy";
 
 export const LEASE_DURATION_MS = 4_000;
 
@@ -120,7 +126,12 @@ function verifyLease(
 
 function touchRoom(room: RoomState, now: number): void {
   room.roomRevision += 1;
+  room.stateRevision = (room.stateRevision ?? room.roomRevision - 1) + 1;
   room.updatedAt = now;
+}
+
+function touchCoordination(room: RoomState): void {
+  room.stateRevision = (room.stateRevision ?? room.roomRevision) + 1;
 }
 
 function updateObject(object: CanvasObject, patch: Record<string, unknown>, actor: ActorRef, now: number): CanvasObject {
@@ -135,6 +146,24 @@ function updateObject(object: CanvasObject, patch: Record<string, unknown>, acto
     updatedAt: now,
     lastEditedBy: actor,
   } as CanvasObject;
+}
+
+function validateImageReference(room: RoomState, object: CanvasObject): void {
+  if (object.kind !== "image") return;
+  const reference = parseRoomAssetProxyReference(object.url);
+  if (!reference) return;
+  if (
+    reference.roomId !== room.id ||
+    (reference.pathname !== null &&
+      !isRoomBlobPathname(roomBlobNamespace(room.id), reference.pathname))
+  ) {
+    throw new DomainError(
+      "INVALID_OPERATION",
+      "A room image must use this room's authenticated asset reference.",
+      { objectId: object.id },
+    );
+  }
+  object.url = canonicalRoomAssetProxyPath(reference);
 }
 
 const COMMON_PATCH_FIELDS = new Set(["x", "y", "width", "height", "rotation", "zIndex", "groupId"]);
@@ -343,6 +372,7 @@ function connectorGeometryChanged(
  * The caller must pass a private room copy because this function mutates it.
  */
 export function normalizeRoomSemanticState(room: RoomState): RoomState {
+  room.stateRevision = Math.max(room.stateRevision ?? room.roomRevision, room.roomRevision);
   room.diagrams ??= {};
   room.agentEditPolicy = room.agentEditPolicy === "review" ? "review" : "live";
   room.reviewProposals = Array.isArray(room.reviewProposals)
@@ -514,6 +544,7 @@ function applyObjectCommandMutable(
         lastEditedBy: actor,
       } as CanvasObject;
       validateConnectorReferences(room, object);
+      validateImageReference(room, object);
       room.objects[object.id] = object;
       break;
     }
@@ -546,6 +577,7 @@ function applyObjectCommandMutable(
       }
       const updated = updateObject(object, patch, actor, now);
       validateConnectorReferences(room, updated);
+      validateImageReference(room, updated);
       room.objects[object.id] = updated;
       break;
     }
@@ -1281,7 +1313,7 @@ export function acquireObjectLease(
         };
 
   room.leases[objectId] = lease;
-  touchRoom(room, now);
+  touchCoordination(room);
   return { room, lease };
 }
 
@@ -1310,7 +1342,7 @@ export function renewObjectLease(
   }
   const renewed = { ...lease, expiresAt: now + LEASE_DURATION_MS };
   room.leases[objectId] = renewed;
-  touchRoom(room, now);
+  touchCoordination(room);
   return { room, lease: renewed };
 }
 
@@ -1338,6 +1370,6 @@ export function releaseObjectLease(
     });
   }
   delete room.leases[objectId];
-  touchRoom(room, now);
+  touchCoordination(room);
   return room;
 }

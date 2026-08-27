@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { JazzboardLogo } from "@/components/brand/JazzboardLogo";
+import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
   persistDisplayName,
   readDisplayName,
@@ -57,16 +58,6 @@ type AuthorizedRecentRoomResponse = {
   };
 };
 
-type FailedRoomResponse = {
-  ok: false;
-  error?: {
-    code?: string;
-    message?: string;
-  };
-};
-
-type RoomResponse = SuccessfulRoomResponse | FailedRoomResponse;
-
 function formatLastOpened(timestamp: number): string {
   const elapsed = Date.now() - timestamp;
   const minutes = Math.max(0, Math.floor(elapsed / 60_000));
@@ -84,27 +75,15 @@ function roleLabel(role: RoomRole): string {
 }
 
 async function postRoom(body: Record<string, unknown>): Promise<SuccessfulRoomResponse> {
-  let response: Response;
   try {
-    response = await fetch("/api/rooms", {
+    return await apiRequest<SuccessfulRoomResponse>("/api/rooms", {
       method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof JazzboardApiError) throw error;
     throw new Error("Jazzboard could not reach the room service. Check your connection and try again.");
   }
-
-  const payload = (await response.json().catch(() => null)) as RoomResponse | null;
-  if (!response.ok || !payload || !payload.ok) {
-    throw new Error(
-      payload && !payload.ok && payload.error?.message
-        ? payload.error.message
-        : "Jazzboard could not complete that request. Please try again.",
-    );
-  }
-  return payload;
 }
 
 async function readAuthorizedRecentRooms(signal: AbortSignal): Promise<RecentRoom[]> {
@@ -112,13 +91,10 @@ async function readAuthorizedRecentRooms(signal: AbortSignal): Promise<RecentRoo
   const verified = await Promise.all(
     candidates.map(async (candidate): Promise<RecentRoom | null> => {
       try {
-        const response = await fetch(`/api/rooms/${encodeURIComponent(candidate.roomId)}`, {
-          cache: "no-store",
-          credentials: "same-origin",
-          signal,
-        });
-        if (!response.ok) return null;
-        const payload = (await response.json()) as AuthorizedRecentRoomResponse;
+        const payload = await apiRequest<AuthorizedRecentRoomResponse>(
+          `/api/rooms/${encodeURIComponent(candidate.roomId)}`,
+          { signal },
+        );
         const role = payload.room.participants[payload.participantId]?.role;
         if (
           payload.ok !== true ||

@@ -26,6 +26,7 @@ import {
   runSemanticTransaction,
   type CanvasMutationOutcome,
 } from "./room-service";
+import { getRoomStore } from "./room-store";
 
 export const JAZZBOARD_ARTIFACT_EXPORT_FORMATS = [
   "semantic_json",
@@ -174,16 +175,11 @@ export async function instantiateAuthorizedRoomTemplate(
   const room = await readAuthorizedRoom(input.roomId, input.participantId);
   const participant = requireParticipant(room, input.participantId);
   requireMutationRole(participant, input.actorKind);
-  if (room.roomRevision !== input.expectedRoomRevision) {
-    throw new DomainError(
-      "REVISION_CONFLICT",
-      `Room revision changed from ${input.expectedRoomRevision} to ${room.roomRevision}.`,
-      {
-        expectedRevision: input.expectedRoomRevision,
-        currentRevision: room.roomRevision,
-      },
-    );
-  }
+  // Template planning happens before the authoritative room transaction so it
+  // can reserve fresh IDs. Check a verified receipt first: otherwise a retry of
+  // an already-committed template could fail its now-stale revision or collide
+  // with its own generated IDs before the store gets a chance to identify it.
+  await getRoomStore().assertMutationNotReplayed(input.roomId);
 
   try {
     const reservedIds = new Set<string>([

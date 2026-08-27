@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { createCanvasObject, createRoomViaApi, joinRoomViaApi, jsonBody, shapeObject, type RoomResponse } from "./helpers";
+import { createCanvasObject, createRoomViaApi, joinRoomViaApi, jsonBody, shapeObject } from "./helpers";
 
 test("follows a live agent viewport and enters or leaves agent Spotlight immediately", async ({ browser, page }) => {
   test.setTimeout(60_000);
@@ -27,6 +27,7 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
     const presenceResponse = await collaboratorContext.request.post(
       `/api/rooms/${encodeURIComponent(host.room.id)}/agent/presence`,
       {
+        headers: { "x-jazzboard-presence-protocol": "delta-v1" },
         data: {
           cursor: { x: 1_910, y: 680 },
           viewport: { x: 1_500, y: 380, width: 820, height: 620, zoom: 1 },
@@ -34,7 +35,25 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
         },
       },
     );
-    await jsonBody<RoomResponse>(presenceResponse);
+    const presence = await jsonBody<{
+      ok: true;
+      presence: {
+        roomId: string;
+        roomRevision: number;
+        stateRevision: number;
+        participantId: string;
+        actorKind: "agent";
+      };
+    }>(presenceResponse);
+    expect(presence).toMatchObject({
+      ok: true,
+      presence: {
+        roomId: host.room.id,
+        participantId: collaborator.participantId,
+        actorKind: "agent",
+      },
+    });
+    expect(JSON.stringify(presence).length).toBeLessThan(2_048);
 
     await page.getByRole("button", { name: /^Follow/ }).click();
     const followAgent = page.getByRole("button", { name: "Follow Blair Builder's agent" });

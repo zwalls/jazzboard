@@ -1,10 +1,11 @@
-import type { RoomEvent, RoomState } from "@/lib/domain/types";
+import type { Point, RoomEvent, RoomState, Viewport } from "@/lib/domain/types";
 
 import {
   encodeRealtimeMessage,
   laterStreamCursor,
   parseRealtimeServerMessage,
   parseStreamCursor,
+  REALTIME_PRESENCE_DELTA_CAPABILITY,
   type RealtimeConnectionStatus,
 } from "./protocol";
 
@@ -31,6 +32,15 @@ export type RoomRealtimeOptions = {
   url?: string;
   onSnapshot: (room: RoomState, metadata: RealtimeSnapshotMetadata) => void;
   onEvent: (event: RoomEvent, metadata: RealtimeEventMetadata) => void;
+  onTransientPresence?: (presence: {
+    participantId: string;
+    connectionId: string;
+    clientSequence: number;
+    clientTime: number;
+    serverTime: number;
+    cursor: Point | null;
+    viewport: Viewport | null;
+  }) => void;
   onStatusChange?: (status: RealtimeConnectionStatus) => void;
   onError?: (error: Error) => void;
   minReconnectMs?: number;
@@ -46,6 +56,10 @@ export type RoomRealtimeConnection = {
   requestSync: () => void;
   getCursor: () => string | null;
   getStatus: () => RealtimeConnectionStatus;
+  publishTransientPresence: (presence: {
+    cursor: Point | null;
+    viewport: Viewport | null;
+  }) => boolean;
 };
 
 function reportCallbackError(error: unknown): void {
@@ -80,6 +94,7 @@ function buildRealtimeUrl(options: RoomRealtimeOptions, cursor: string | null): 
   if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
 
   url.searchParams.set("roomId", options.roomId);
+  url.searchParams.set("capabilities", REALTIME_PRESENCE_DELTA_CAPABILITY);
   if (cursor) url.searchParams.set("cursor", cursor);
   else url.searchParams.delete("cursor");
   return url.toString();
@@ -91,6 +106,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
   let status: RealtimeConnectionStatus = "closed";
   let cursor = parseStreamCursor(options.initialCursor);
   let reconnectAttempt = 0;
+  let transientSequence = 0;
   let generation = 0;
   let lastServerMessageAt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -227,6 +243,21 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
         return;
       case "pong":
         return;
+      case "presence.transient":
+        if (message.roomId !== options.roomId) {
+          rejectMismatchedRoom();
+          return;
+        }
+        invokeSafely(options.onTransientPresence, {
+          participantId: message.participantId,
+          connectionId: message.connectionId,
+          clientSequence: message.clientSequence,
+          clientTime: message.clientTime,
+          serverTime: message.serverTime,
+          cursor: message.cursor,
+          viewport: message.viewport,
+        });
+        return;
     }
   }
 
@@ -321,12 +352,34 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
     }
   }
 
+  function publishTransientPresence(presence: {
+    cursor: Point | null;
+    viewport: Viewport | null;
+  }): boolean {
+    if (socket?.readyState !== SOCKET_OPEN) return false;
+    try {
+      socket.send(
+        encodeRealtimeMessage({
+          type: "presence.transient",
+          clientSequence: ++transientSequence,
+          clientTime: Date.now(),
+          cursor: presence.cursor,
+          viewport: presence.viewport,
+        }),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   openSocket();
 
   return {
     close,
     reconnect,
     requestSync,
+    publishTransientPresence,
     getCursor: () => cursor,
     getStatus: () => status,
   };

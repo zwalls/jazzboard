@@ -69,8 +69,69 @@ describe("join attempt limiter", () => {
     });
   });
 
+  it("counts one logical keyed attempt only once across delivery retries", async () => {
+    await expect(consumeJoinAttempt("p_alice", {
+      idempotencyKey: "landing-join-0001",
+      requestDigest: "a".repeat(64),
+    })).resolves.toMatchObject({
+      allowed: true,
+      remaining: JOIN_ATTEMPT_LIMIT - 1,
+    });
+    await expect(consumeJoinAttempt("p_alice", {
+      idempotencyKey: "landing-join-0001",
+      requestDigest: "a".repeat(64),
+    })).resolves.toMatchObject({
+      allowed: true,
+      remaining: JOIN_ATTEMPT_LIMIT - 1,
+    });
+    await expect(consumeJoinAttempt("p_alice", {
+      idempotencyKey: "landing-join-0001",
+      requestDigest: "b".repeat(64),
+    })).resolves.toMatchObject({
+      allowed: true,
+      remaining: JOIN_ATTEMPT_LIMIT - 2,
+    });
+  });
+
+  it("does not turn the final allowed logical attempt into a rate-limit error on retry", async () => {
+    for (let attempt = 1; attempt < JOIN_ATTEMPT_LIMIT; attempt += 1) {
+      await consumeJoinAttempt("p_alice", {
+        idempotencyKey: `landing-join-${attempt.toString().padStart(4, "0")}`,
+        requestDigest: attempt.toString(16).padStart(64, "0"),
+      });
+    }
+    const finalIdentity = {
+      idempotencyKey: "landing-join-final",
+      requestDigest: "f".repeat(64),
+    };
+
+    await expect(consumeJoinAttempt("p_alice", finalIdentity)).resolves.toMatchObject({
+      allowed: true,
+      remaining: 0,
+    });
+    await expect(consumeJoinAttempt("p_alice", finalIdentity)).resolves.toMatchObject({
+      allowed: true,
+      remaining: 0,
+    });
+    await expect(consumeJoinAttempt("p_alice", {
+      idempotencyKey: "landing-join-too-many",
+      requestDigest: "e".repeat(64),
+    })).resolves.toMatchObject({ allowed: false });
+    await expect(consumeJoinAttempt("p_alice", finalIdentity)).resolves.toMatchObject({
+      allowed: true,
+      remaining: 0,
+    });
+    await expect(consumeJoinAttempt("p_alice", {
+      idempotencyKey: "landing-join-too-many",
+      requestDigest: "e".repeat(64),
+    })).resolves.toMatchObject({
+      allowed: false,
+      remaining: 0,
+    });
+  });
+
   it("uses an atomic distributed Redis window keyed only by participant ID", async () => {
-    const redis = { eval: vi.fn().mockResolvedValue([JOIN_ATTEMPT_LIMIT + 1, 37]) };
+    const redis = { eval: vi.fn().mockResolvedValue([JOIN_ATTEMPT_LIMIT + 1, 37, 0]) };
     mocks.getRedisForRealtime.mockReturnValue(redis);
 
     await expect(consumeJoinAttempt("p_signed-session")).resolves.toEqual({
@@ -81,10 +142,12 @@ describe("join attempt limiter", () => {
     });
     expect(redis.eval).toHaveBeenCalledOnce();
     expect(redis.eval).toHaveBeenCalledWith(
-      expect.stringContaining('redis.call("INCR", KEYS[1])'),
+      expect.stringContaining('redis.call("HGET", KEYS[1], ARGV[2])'),
       1,
-      "jazzboard:join-attempts:p_signed-session",
+      expect.stringMatching(/^jazzboard:join-attempts:v2:[a-f0-9]{64}$/),
       JOIN_ATTEMPT_WINDOW_SECONDS.toString(),
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      JOIN_ATTEMPT_LIMIT.toString(),
     );
   });
 });

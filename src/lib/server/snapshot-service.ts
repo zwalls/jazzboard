@@ -7,8 +7,11 @@ import { projectJazzboardArtifact } from "@/lib/interchange/project";
 import { parseJazzboardArtifactV1 } from "@/lib/interchange/schemas";
 
 import { readAuthorizedRoom } from "./room-service";
+import { currentMutationContext } from "./mutation-context";
+import { deriveSessionSecretValue } from "./session";
 import {
   getSnapshotStore,
+  snapshotIdFromMutationGeneration,
   type ReadonlySnapshotRecord,
   type SnapshotScope,
 } from "./snapshot-store";
@@ -19,6 +22,30 @@ const MAX_EXPIRY_HOURS = 7 * 24;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function snapshotTokenFromMutationGeneration(
+  scopedKeyHash: string,
+  committedAt: number,
+): string {
+  return deriveSessionSecretValue(
+    "snapshot-token",
+    `${scopedKeyHash}\0${committedAt}`,
+  );
+}
+
+function snapshotCapabilityReconstructionError(
+  committedRoomRevision: number,
+): DomainError {
+  return new DomainError(
+    "MUTATION_OUTCOME_UNKNOWN",
+    "Jazzboard cannot safely reconstruct this snapshot's original private capability.",
+    {
+      replayed: currentMutationContext()?.replayed ?? false,
+      committedRoomRevision,
+      capabilityReconstructionFailed: true,
+    },
+  );
 }
 
 export type PublicReadonlySnapshot = ReturnType<typeof publicSnapshot>;
@@ -48,6 +75,35 @@ export async function createReadonlySnapshot(input: {
   const room = await readAuthorizedRoom(input.roomId, input.participantId);
   const participant = requireParticipant(room, input.participantId);
   requireMutationRole(participant, input.actorKind);
+  const mutationIdentity = currentMutationContext()?.idempotency ?? null;
+  const store = getSnapshotStore();
+  if (mutationIdentity) {
+    const replay = await store.replayCreate({
+      sourceRoomId: room.id,
+      sourceRoomRevision: input.expectedRoomRevision,
+      creatorParticipantId: participant.participantId,
+    });
+    if (replay) {
+      const token = snapshotTokenFromMutationGeneration(
+        mutationIdentity.scopedKeyHash,
+        replay.createdAt,
+      );
+      if (replay.tokenHash !== hashToken(token)) {
+        throw snapshotCapabilityReconstructionError(replay.sourceRoomRevision);
+      }
+      return {
+        snapshot: {
+          id: replay.id,
+          title: replay.title,
+          scope: replay.scope,
+          sourceRoomRevision: replay.sourceRoomRevision,
+          createdAt: replay.createdAt,
+          expiresAt: replay.expiresAt,
+          path: `/snapshot/${token}`,
+        },
+      };
+    }
+  }
   if (room.roomRevision !== input.expectedRoomRevision) {
     throw new DomainError(
       "REVISION_CONFLICT",
@@ -80,17 +136,24 @@ export async function createReadonlySnapshot(input: {
       : { kind: "diagram", diagramId: input.scope.diagramId },
   );
   const artifact = { ...projectedArtifact, kind: "snapshot" as const };
-  const token = randomBytes(32).toString("base64url");
   const createdAt = Date.now();
+  const token = mutationIdentity
+    ? snapshotTokenFromMutationGeneration(mutationIdentity.scopedKeyHash, createdAt)
+    : randomBytes(32).toString("base64url");
+  const snapshotId = mutationIdentity
+    ? snapshotIdFromMutationGeneration(mutationIdentity.scopedKeyHash, createdAt)
+    : null;
   const expiresInHours = Math.min(
     Math.max(input.expiresInHours ?? DEFAULT_EXPIRY_HOURS, 1),
     MAX_EXPIRY_HOURS,
   );
-  const record = await getSnapshotStore().create({
+  const record = await store.create({
+    ...(snapshotId ? { id: snapshotId } : {}),
     tokenHash: hashToken(token),
     sourceRoomId: room.id,
     sourceRoomRevision: room.roomRevision,
     creatorParticipantId: participant.participantId,
+    idempotencyRequestDigest: mutationIdentity?.requestDigest ?? null,
     creator: actorFor(participant, input.actorKind),
     scope: input.scope,
     title: input.title?.trim() || artifact.title,
@@ -98,6 +161,15 @@ export async function createReadonlySnapshot(input: {
     expiresAt: createdAt + expiresInHours * 60 * 60 * 1_000,
     artifact,
   });
+  const returnedToken = mutationIdentity
+    ? snapshotTokenFromMutationGeneration(
+        mutationIdentity.scopedKeyHash,
+        record.createdAt,
+      )
+    : token;
+  if (record.tokenHash !== hashToken(returnedToken)) {
+    throw snapshotCapabilityReconstructionError(record.sourceRoomRevision);
+  }
   return {
     snapshot: {
       id: record.id,
@@ -106,7 +178,7 @@ export async function createReadonlySnapshot(input: {
       sourceRoomRevision: record.sourceRoomRevision,
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
-      path: `/snapshot/${token}`,
+      path: `/snapshot/${returnedToken}`,
     },
   };
 }

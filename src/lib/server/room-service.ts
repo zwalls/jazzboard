@@ -40,6 +40,7 @@ import type {
   RoomActivity,
   RoomActivityAction,
   RoomActivitySummary,
+  RoomPresenceDelta,
   SemanticTransaction,
 } from "@/lib/domain/types";
 
@@ -630,10 +631,13 @@ export async function reviewAgentEditProposal(input: {
     throw new DomainError("FORBIDDEN", "Agents cannot approve or reject agent edit proposals.");
   }
   const authorizedRoom = await readAuthorizedRoom(input.roomId, input.participantId);
+  requireMutationRole(requireParticipant(authorizedRoom, input.participantId), "human");
+  const store = getRoomStore();
+  await store.assertMutationNotReplayed(input.roomId);
   const anticipatedProposal = authorizedRoom.reviewProposals.find((item) => item.id === input.proposalId);
   let revertTarget: RoomActivity | null = null;
   if (anticipatedProposal?.request.kind === "activity_revert") {
-    revertTarget = await getRoomStore().getActivity(
+    revertTarget = await store.getActivity(
       input.roomId,
       anticipatedProposal.request.revert.activityId,
     );
@@ -644,7 +648,7 @@ export async function reviewAgentEditProposal(input: {
       });
     }
   }
-  return getRoomStore().transact<ReviewDecisionOutcome>(
+  return store.transact<ReviewDecisionOutcome>(
     input.roomId,
     (room) => {
       const reviewerParticipant = requireParticipant(room, input.participantId);
@@ -787,7 +791,7 @@ export async function listRoomActivities(input: RoomActivityListInput): Promise<
     .filter((item) => input.diagramId === undefined || item.affectedDiagramIds.includes(input.diagramId));
   const page = matching.slice(0, limit);
   return {
-    activities: page.map(roomActivitySummary),
+    activities: page,
     hasMore: matching.length > limit,
     nextBeforeRoomRevision: matching.length > limit ? page.at(-1)?.roomRevision ?? null : null,
   };
@@ -816,14 +820,16 @@ export async function runActivityRevert(input: {
 }): Promise<CanvasMutationOutcome> {
   const authorizedRoom = await readAuthorizedRoom(input.roomId, input.participantId);
   requireMutationRole(requireParticipant(authorizedRoom, input.participantId), input.actorKind);
-  const targetActivity = await getRoomStore().getActivity(input.roomId, input.revert.activityId);
+  const store = getRoomStore();
+  await store.assertMutationNotReplayed(input.roomId);
+  const targetActivity = await store.getActivity(input.roomId, input.revert.activityId);
   if (!targetActivity) {
     throw new DomainError("INVALID_OPERATION", "That activity is no longer available to revert.", {
       activityId: input.revert.activityId,
     });
   }
 
-  return getRoomStore().transact<CanvasMutationOutcome>(
+  return store.transact<CanvasMutationOutcome>(
     input.roomId,
     (room) => {
       if (input.actorKind === "agent" && room.agentEditPolicy === "review") {
@@ -943,10 +949,6 @@ export async function runLeaseAction(input:
         participant.agent.lastSeenAt = now;
         participant.lastSeenAt = now;
         participant.connected = true;
-        if (result.room.roomRevision === room.roomRevision) {
-          result.room.roomRevision += 1;
-          result.room.updatedAt = now;
-        }
       }
       return {
         room: result.room,
@@ -965,32 +967,8 @@ export async function updatePresence(input: {
   cursor: Point | null;
   viewport: Viewport | null;
   activity: AgentActivity | null;
-}): Promise<RoomState> {
-  return getRoomStore().transact(
-    input.roomId,
-    (room) => {
-      const participant = requireParticipant(room, input.participantId);
-      if (input.actorKind === "agent") requireMutationRole(participant, "agent");
-      const now = Date.now();
-      participant[input.actorKind] = {
-        cursor: input.cursor,
-        viewport: input.viewport,
-        lastSeenAt: now,
-        activity: input.activity,
-      };
-      participant.connected = true;
-      participant.lastSeenAt = now;
-      if (input.actorKind === "agent") participant.agentActive = true;
-      room.roomRevision += 1;
-      room.updatedAt = now;
-      return {
-        room,
-        result: room,
-        eventActor: actorFor(participant, input.actorKind),
-      };
-    },
-    input.actorKind === "agent" ? "agent.activity" : "presence.updated",
-  );
+}): Promise<RoomPresenceDelta> {
+  return getRoomStore().updatePresence(input);
 }
 
 export async function updateSpotlight(input: {
@@ -1084,8 +1062,7 @@ export async function updateSpotlight(input: {
         else followers.delete(input.participantId);
         room.spotlight.followingParticipantIds = [...followers];
       }
-      room.roomRevision += 1;
-      room.updatedAt = now;
+      room.stateRevision = (room.stateRevision ?? room.roomRevision) + 1;
       return {
         room,
         result: room,

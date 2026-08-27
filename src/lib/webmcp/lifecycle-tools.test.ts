@@ -171,6 +171,7 @@ describe("read_collaboration_state", () => {
           id: "room/a b",
           code: "1234",
           roomRevision: 10,
+          stateRevision: 10,
           agentEditPolicy: "live",
           pendingAgentEditProposalCount: 0,
         },

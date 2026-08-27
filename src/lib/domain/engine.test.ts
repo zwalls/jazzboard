@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { blobAssetPathname, privateAssetProxyPath } from "@/lib/assets/policy";
+import { roomBlobNamespace } from "@/lib/assets/private";
+
 import {
   LEASE_DURATION_MS,
   acquireObjectLease,
@@ -24,6 +27,7 @@ import type {
 } from "./types";
 
 const START = 1_000_000;
+const ASSET_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 function presence(lastSeenAt = START) {
   return {
@@ -243,6 +247,93 @@ describe("canvas commands", () => {
     expect(result.room).toMatchObject({ roomRevision: 8, updatedAt: now });
   });
 
+  it("accepts only this room's exact private image namespace", () => {
+    const source = roomWith();
+    const imageObject = {
+      id: "private-image",
+      kind: "image" as const,
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      zIndex: 0,
+      groupId: null,
+      url: privateAssetProxyPath(
+        source.id,
+        blobAssetPathname(roomBlobNamespace(source.id), `${ASSET_UUID}-upload.png`),
+      ),
+      assetId: null,
+      alt: "Private diagram",
+      mimeType: "image/png",
+      sourceUrl: null,
+      locked: false,
+    };
+
+    expect(
+      applyCanvasCommand(source, "alice", "human", { type: "create", object: imageObject }).room
+        .objects[imageObject.id],
+    ).toMatchObject({ url: imageObject.url });
+
+    const absoluteUrl = `https://jazzboard-alias.example${imageObject.url}`;
+    const canonicalized = applyCanvasCommand(source, "alice", "human", {
+      type: "create",
+      object: { ...imageObject, id: "absolute-private-image", url: absoluteUrl },
+    });
+    expect(canonicalized.room.objects["absolute-private-image"]).toMatchObject({
+      url: imageObject.url,
+    });
+
+    const wrongRoom = domainError(() =>
+      applyCanvasCommand(source, "alice", "human", {
+        type: "create",
+        object: {
+          ...imageObject,
+          id: "wrong-room-image",
+          url: privateAssetProxyPath(
+            "room-elsewhere",
+            blobAssetPathname(roomBlobNamespace("room-elsewhere"), `${ASSET_UUID}-upload.png`),
+          ),
+        },
+      }),
+    );
+    expect(wrongRoom).toMatchObject({ code: "INVALID_OPERATION" });
+
+    const wrongNamespace = domainError(() =>
+      applyCanvasCommand(source, "alice", "human", {
+        type: "create",
+        object: {
+          ...imageObject,
+          id: "wrong-namespace-image",
+          url: privateAssetProxyPath(
+            source.id,
+            blobAssetPathname(roomBlobNamespace("room-elsewhere"), `${ASSET_UUID}-upload.png`),
+          ),
+        },
+      }),
+    );
+    expect(wrongNamespace).toMatchObject({ code: "INVALID_OPERATION" });
+
+    const wrongAbsoluteRoom = domainError(() =>
+      applyCanvasCommand(source, "alice", "human", {
+        type: "create",
+        object: {
+          ...imageObject,
+          id: "wrong-absolute-room-image",
+          url: `https://another-jazzboard-alias.example${privateAssetProxyPath(
+            "room-elsewhere",
+            blobAssetPathname(
+              roomBlobNamespace("room-elsewhere"),
+              `${ASSET_UUID}-upload.png`,
+            ),
+          )}`,
+        },
+      }),
+    );
+    expect(wrongAbsoluteRoom).toMatchObject({ code: "INVALID_OPERATION" });
+    expect(source.objects).toEqual({});
+  });
+
   it("updates through an agent, preserves immutable metadata, and activates that agent", () => {
     const original = textObject("note");
     const source = roomWith(original);
@@ -322,6 +413,7 @@ describe("canvas commands", () => {
     expect(result.room.objects.b).toMatchObject({ x: 200, y: 210, revision: 2 });
     expect(result.room.objects.a.lastEditedBy).toEqual(actor(bob));
     expect(result.room.roomRevision).toBe(source.roomRevision + 1);
+    expect(result.room.stateRevision).toBe((source.stateRevision ?? source.roomRevision) + 1);
   });
 
   it("groups and ungroups multiple objects", () => {
@@ -680,7 +772,8 @@ describe("active-object leases", () => {
     });
     expect(result.lease.leaseId).toMatch(/[0-9a-f-]{36}/);
     expect(result.room.leases.note).toEqual(result.lease);
-    expect(result.room.roomRevision).toBe(source.roomRevision + 1);
+    expect(result.room.roomRevision).toBe(source.roomRevision);
+    expect(result.room.stateRevision).toBe((source.stateRevision ?? source.roomRevision) + 1);
   });
 
   it("reacquires for the same actor by extending the same lease", () => {
@@ -784,7 +877,10 @@ describe("active-object leases", () => {
       START + 20,
     );
     expect(released.leases).toEqual({});
-    expect(released.roomRevision).toBe(acquired.room.roomRevision + 1);
+    expect(released.roomRevision).toBe(acquired.room.roomRevision);
+    expect(released.stateRevision).toBe(
+      (acquired.room.stateRevision ?? acquired.room.roomRevision) + 1,
+    );
   });
 
   it("prunes leases at the exact expiry boundary", () => {

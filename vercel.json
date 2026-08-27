@@ -5,6 +5,15 @@
   "functions": {
     "src/app/api/ws/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/cron/assets/cleanup/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/assets/cleanup",
+      "schedule": "0 4 * * *"
+    }
+  ]
 }

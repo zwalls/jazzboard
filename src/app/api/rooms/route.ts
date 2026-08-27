@@ -1,5 +1,6 @@
 import { createRoomRequestSchema, joinRoomRequestSchema } from "@/lib/domain/schemas";
-import { errorResponse, json } from "@/lib/server/http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
+import { mutationRequestDigest, parseIdempotencyKey } from "@/lib/server/idempotency";
 import { consumeJoinAttempt, type JoinAttemptLimit } from "@/lib/server/join-attempt-limiter";
 import { getRoomStore } from "@/lib/server/room-store";
 import { getOrCreateGuestSession } from "@/lib/server/session";
@@ -37,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const session = getOrCreateGuestSession(request);
     setCookie = session.setCookie;
-    const body = (await request.json()) as unknown;
+    const body = await readJsonBody(request);
     const action = typeof body === "object" && body !== null && "action" in body
       ? body.action
       : undefined;
@@ -62,15 +63,44 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
 
-      const limit = await consumeJoinAttempt(session.participantId);
+      const idempotencyKey = parseIdempotencyKey(request.headers.get("idempotency-key"));
+      const limit = await consumeJoinAttempt(
+        session.participantId,
+        idempotencyKey
+          ? {
+              idempotencyKey,
+              requestDigest: mutationRequestDigest({
+                method: request.method,
+                namespace: "room.join",
+                actorKind: "human",
+                body: parsed.data,
+              }),
+            }
+          : null,
+      );
       if (!limit.allowed) {
         return withGuestCookie(rateLimitedResponse(limit), setCookie);
       }
-      room = await store.joinRoom({ participantId: session.participantId, ...parsed.data });
-    } else if (action === "create") {
-      room = await store.createRoom({
+      room = await runMutationRequest({
+        request,
         participantId: session.participantId,
-        ...createRoomRequestSchema.parse(body),
+        operation: "room.join",
+        actorKind: "human",
+        parsedBody: parsed.data,
+        execute: () => store.joinRoom({ participantId: session.participantId, ...parsed.data }),
+      });
+    } else if (action === "create") {
+      const parsed = createRoomRequestSchema.parse(body);
+      room = await runMutationRequest({
+        request,
+        participantId: session.participantId,
+        operation: "room.create",
+        actorKind: "human",
+        parsedBody: parsed,
+        execute: () => store.createRoom({
+          participantId: session.participantId,
+          ...parsed,
+        }),
       });
     } else {
       return withGuestCookie(

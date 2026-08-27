@@ -6,7 +6,7 @@ import {
   reviewProposalListQuerySchema,
 } from "@/lib/domain/schemas";
 import type { ActorKind } from "@/lib/domain/types";
-import { errorResponse, json } from "@/lib/server/http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
 import {
   listAgentEditProposals,
   readAgentEditProposal,
@@ -67,10 +67,18 @@ export async function handleReviewPolicy(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = agentEditPolicyRequestSchema.parse(await request.json());
+    const body = agentEditPolicyRequestSchema.parse(await readJsonBody(request));
     return json({
       ok: true,
-      ...(await setAgentEditPolicy({ roomId, participantId, actorKind, policy: body.policy })),
+      ...(await runMutationRequest({
+        request,
+        participantId,
+        roomId,
+        operation: "room.review.policy",
+        actorKind,
+        parsedBody: body,
+        execute: () => setAgentEditPolicy({ roomId, participantId, actorKind, policy: body.policy }),
+      })),
     });
   } catch (error) {
     return reviewErrorResponse(error);
@@ -86,10 +94,18 @@ export async function handleReviewDecision(
     const participantId = requireGuestParticipantId(request);
     const { roomId, proposalId: rawProposalId } = await context.params;
     const proposalId = proposalIdSchema.parse(rawProposalId);
-    const body = reviewProposalDecisionSchema.parse(await request.json());
+    const body = reviewProposalDecisionSchema.parse(await readJsonBody(request));
     return json({
       ok: true,
-      ...(await reviewAgentEditProposal({ roomId, participantId, actorKind, proposalId, ...body })),
+      ...(await runMutationRequest({
+        request,
+        participantId,
+        roomId,
+        operation: "room.review.decision",
+        actorKind,
+        parsedBody: { proposalId, ...body },
+        execute: () => reviewAgentEditProposal({ roomId, participantId, actorKind, proposalId, ...body }),
+      })),
     });
   } catch (error) {
     return reviewErrorResponse(error);

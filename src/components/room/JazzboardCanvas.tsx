@@ -34,9 +34,17 @@ import type {
   ObjectLease,
   Participant,
   RoomState,
+  RoomPresenceDelta,
   SemanticTransaction,
 } from "@/lib/domain/types";
-import type { LeaseAction } from "@/hooks/use-room";
+import type { ConnectionState, LeaseAction } from "@/hooks/use-room";
+import { roomStateRevision } from "@/lib/realtime/events";
+import {
+  IDLE_PRESENCE_KEYFRAME_MS,
+  TRANSIENT_PRESENCE_INTERVAL_MS,
+  activePresenceDelay,
+  idlePresenceKeyframeDue,
+} from "@/lib/client/presence-cadence";
 
 import styles from "./room.module.css";
 
@@ -81,7 +89,12 @@ type Props = {
       viewport: { x: number; y: number; zoom: number; width: number; height: number } | null;
     },
     actorKind?: ActorKind,
-  ) => Promise<RoomState>;
+  ) => Promise<RoomPresenceDelta>;
+  transientPresence: (value: {
+    cursor: { x: number; y: number } | null;
+    viewport: { x: number; y: number; zoom: number; width: number; height: number } | null;
+  }) => boolean;
+  connection: ConnectionState;
   onSelectionChange: (objectIds: string[]) => void;
   onEditorChange: (editor: Editor | null) => void;
   onExitFollow: () => void;
@@ -114,6 +127,14 @@ function isShape(record: TLRecord | undefined): record is TLShape {
 
 function isBusyError(error: unknown): error is JazzboardApiError {
   return error instanceof JazzboardApiError && error.failure.code === "OBJECT_BUSY";
+}
+
+function isCommittedOutcomeReplay(error: unknown): error is JazzboardApiError {
+  return (
+    error instanceof JazzboardApiError &&
+    error.failure.code === "MUTATION_OUTCOME_UNKNOWN" &&
+    error.failure.details?.replayed === true
+  );
 }
 
 function objectIdForShape(shape: TLShape): string {
@@ -190,6 +211,8 @@ export function JazzboardCanvas({
   lease,
   refresh,
   presence,
+  transientPresence,
+  connection,
   onSelectionChange,
   onEditorChange,
   onExitFollow,
@@ -223,8 +246,19 @@ export function JazzboardCanvas({
   const editingObjectIdRef = useRef<string | null>(null);
   const recoveryGroupLocksRef = useRef(new Map<TLShapeId, RecoveryGroupLock>());
   const flushFramesRef = useRef(new Set<number>());
-  const presenceTimerRef = useRef<number | null>(null);
+  const transientPresenceTimerRef = useRef<number | null>(null);
+  const durablePresenceTimerRef = useRef<number | null>(null);
+  const durablePresenceInFlightRef = useRef(false);
+  const durablePresenceQueuedRef = useRef(false);
+  const lastDurablePresenceAtRef = useRef(0);
+  const durablePresenceSenderRef = useRef<(force?: boolean) => void>(() => undefined);
+  const reconciliationWaitersRef = useRef(new Map<number, () => void>());
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const projectedDocumentRef = useRef<{
+    editor: Editor;
+    roomId: string;
+    roomRevision: number;
+  } | null>(null);
   const assetStore = useMemo(
     () =>
       createJazzboardAssetStore(room.id, (progress) => {
@@ -235,7 +269,10 @@ export function JazzboardCanvas({
   );
 
   useEffect(() => {
-    if (room.id !== roomRef.current.id || room.roomRevision > roomRef.current.roomRevision) {
+    if (
+      room.id !== roomRef.current.id ||
+      roomStateRevision(room) > roomStateRevision(roomRef.current)
+    ) {
       roomRef.current = room;
     }
     selfRef.current = self;
@@ -255,11 +292,24 @@ export function JazzboardCanvas({
 
   useEffect(() => {
     if (!editor) return;
+    const projected = projectedDocumentRef.current;
+    if (
+      projected?.editor === editor &&
+      projected.roomId === room.id &&
+      projected.roomRevision === room.roomRevision
+    ) {
+      return;
+    }
     projectingRoomRef.current = true;
     try {
       projectRoomIntoTldraw(editor, room, {
         protectedObjectIds: syncCoordinatorRef.current.protectedObjectIds(),
       });
+      projectedDocumentRef.current = {
+        editor,
+        roomId: room.id,
+        roomRevision: room.roomRevision,
+      };
     } finally {
       projectingRoomRef.current = false;
     }
@@ -288,7 +338,8 @@ export function JazzboardCanvas({
   }, [editor, followHeight, followWidth, followX, followY, followZoom]);
 
   const advanceRoomRef = useCallback((next: RoomState) => {
-    if (next.roomRevision > roomRef.current.roomRevision) roomRef.current = next;
+    if (next.id !== roomRef.current.id) return roomRef.current;
+    if (roomStateRevision(next) > roomStateRevision(roomRef.current)) roomRef.current = next;
     return roomRef.current;
   }, []);
 
@@ -475,7 +526,6 @@ export function JazzboardCanvas({
         entry.timer = null;
         if (entry.recoveryTimer) window.clearTimeout(entry.recoveryTimer);
         entry.recoveryTimer = null;
-        void releaseLease(entry.objectId);
       }
       for (const [key, batch] of pendingObjectSyncBatchesRef.current) {
         if (![...batch.objectIds].some((objectId) => recoveryIdSet.has(objectId))) continue;
@@ -497,7 +547,9 @@ export function JazzboardCanvas({
       lockObjectsForRecovery(recoveryIds, activeEditFailed);
 
       if (isBusyError(error)) onError(error.message, error.failure.details);
-      else onError(error instanceof Error ? error.message : "The canvas change could not be saved.");
+      else if (!isCommittedOutcomeReplay(error)) {
+        onError(error instanceof Error ? error.message : "The canvas change could not be saved.");
+      }
 
       const attemptRecovery = () => {
         void refresh()
@@ -954,10 +1006,120 @@ export function JazzboardCanvas({
         }
         for (const objectId of settledIds) settleObject(objectId, authoritative);
       } catch (error) {
-        if (mountedRef.current) recoverObjects(ids, error);
+        if (!mountedRef.current) return;
+        if (isCommittedOutcomeReplay(error)) {
+          // The idempotency receipt proves this exact command body committed,
+          // but the generic API cannot reconstruct its original response. Keep
+          // the serialized queue and every owned lease intact until an
+          // authoritative refresh advances the base revisions. Crucially, an
+          // older acknowledgement updates the base without clearing a newer
+          // local generation or projecting over its pixels.
+          const waitForAuthoritativeRetry = () => new Promise<void>((resolve) => {
+            let timer = 0;
+            const complete = () => {
+              for (const scheduledObject of scheduled) {
+                const entry = coordinator.get(scheduledObject.objectId);
+                if (entry?.recoveryTimer === timer) entry.recoveryTimer = null;
+              }
+              reconciliationWaitersRef.current.delete(timer);
+              resolve();
+            };
+            timer = window.setTimeout(complete, 1_200);
+            reconciliationWaitersRef.current.set(timer, complete);
+            for (const scheduledObject of scheduled) {
+              const entry = coordinator.get(scheduledObject.objectId);
+              if (entry) entry.recoveryTimer = timer;
+            }
+          });
+          const committedRoomRevision =
+            typeof error.failure.details?.committedRoomRevision === "number"
+              ? error.failure.details.committedRoomRevision
+              : null;
+          while (mountedRef.current) {
+            let authoritative: RoomState;
+            try {
+              const refreshed = await refresh();
+              if (refreshed.id !== roomRef.current.id) {
+                await waitForAuthoritativeRetry();
+                continue;
+              }
+              authoritative = advanceRoomRef(refreshed);
+            } catch {
+              await waitForAuthoritativeRetry();
+              continue;
+            }
+            if (!mountedRef.current) return;
+            if (
+              committedRoomRevision !== null &&
+              authoritative.roomRevision < committedRoomRevision
+            ) {
+              await waitForAuthoritativeRetry();
+              continue;
+            }
+
+            const settledIds: string[] = [];
+            let invalidIncarnation = false;
+            for (const snapshot of snapshots) {
+              const entry = coordinator.get(snapshot.objectId);
+              if (!entry || entry.recoveryEpoch !== scheduled.find(
+                (item) => item.objectId === snapshot.objectId,
+              )?.recoveryEpoch) {
+                continue;
+              }
+              if (entry.recoveryTimer) window.clearTimeout(entry.recoveryTimer);
+              entry.recoveryTimer = null;
+              const authoritativeObject = authoritative.objects[snapshot.objectId];
+              if (
+                ((snapshot.mode === "create" || snapshot.mode === "update") &&
+                  !authoritativeObject) ||
+                (snapshot.mode === "delete" && authoritativeObject)
+              ) {
+                invalidIncarnation = true;
+                break;
+              }
+              const acknowledged = coordinator.acknowledge(
+                snapshot.objectId,
+                snapshot.generation,
+                authoritativeObject?.revision ?? null,
+                {
+                  expectedCreatedAt: snapshot.baseCreatedAt,
+                  authoritativeCreatedAt: authoritativeObject?.createdAt ?? null,
+                },
+              );
+              if (entry.acknowledgedGeneration < snapshot.generation) {
+                invalidIncarnation = true;
+                break;
+              }
+              if (acknowledged) settledIds.push(snapshot.objectId);
+            }
+            if (invalidIncarnation) {
+              recoverObjects(
+                ids,
+                new Error("A committed canvas change was superseded by a different object incarnation."),
+              );
+              return;
+            }
+            if (settledIds.length) projectAuthoritativeRoom(authoritative);
+            for (const objectId of settledIds) void releaseLease(objectId);
+            return;
+          }
+          return;
+        }
+        recoverObjects(ids, error);
       }
     },
-    [acquireLease, advanceRoomRef, command, editor, recoverObjects, semanticTransaction, settleObject],
+    [
+      acquireLease,
+      advanceRoomRef,
+      command,
+      editor,
+      recoverObjects,
+      refresh,
+      projectAuthoritativeRoom,
+      releaseLease,
+      semanticTransaction,
+      settleObject,
+    ],
   );
 
   const enqueueObjectSyncBatch = useCallback(
@@ -1551,8 +1713,20 @@ export function JazzboardCanvas({
       keyboardInteractionBatchRef.current = null;
       objectGestureEpochRef.current.clear();
       pointerGestureBatchRef.current = null;
-      if (presenceTimerRef.current) window.clearTimeout(presenceTimerRef.current);
-      presenceTimerRef.current = null;
+      if (transientPresenceTimerRef.current) {
+        window.clearTimeout(transientPresenceTimerRef.current);
+      }
+      if (durablePresenceTimerRef.current) {
+        window.clearTimeout(durablePresenceTimerRef.current);
+      }
+      transientPresenceTimerRef.current = null;
+      durablePresenceTimerRef.current = null;
+      durablePresenceQueuedRef.current = false;
+      for (const [timer, complete] of reconciliationWaitersRef.current) {
+        window.clearTimeout(timer);
+        complete();
+      }
+      reconciliationWaitersRef.current.clear();
       syncCoordinatorRef.current.forEach((entry) => {
         if (entry.timer) window.clearTimeout(entry.timer);
         if (entry.recoveryTimer) window.clearTimeout(entry.recoveryTimer);
@@ -1568,21 +1742,90 @@ export function JazzboardCanvas({
     [flushDetachedDirtyState, lease],
   );
 
+  const currentPresenceValue = useCallback(() => {
+    if (!editor) return null;
+    const camera = editor.getCamera();
+    const viewport = editor.getViewportPageBounds();
+    return {
+      cursor: pendingCursorRef.current,
+      viewport: {
+        x: viewport.x,
+        y: viewport.y,
+        zoom: camera.z,
+        width: viewport.width,
+        height: viewport.height,
+      },
+    };
+  }, [editor]);
+
+  const sendDurablePresence = useCallback(
+    (force = false) => {
+      if (
+        !editor ||
+        !mountedRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      if (durablePresenceInFlightRef.current) {
+        durablePresenceQueuedRef.current = true;
+        return;
+      }
+      const delay = activePresenceDelay(lastDurablePresenceAtRef.current, Date.now());
+      if (!force && delay > 0) {
+        if (!durablePresenceTimerRef.current) {
+          durablePresenceTimerRef.current = window.setTimeout(() => {
+            durablePresenceTimerRef.current = null;
+            durablePresenceSenderRef.current(false);
+          }, delay);
+        }
+        return;
+      }
+      if (durablePresenceTimerRef.current) {
+        window.clearTimeout(durablePresenceTimerRef.current);
+        durablePresenceTimerRef.current = null;
+      }
+      const value = currentPresenceValue();
+      if (!value) return;
+      durablePresenceInFlightRef.current = true;
+      lastDurablePresenceAtRef.current = Date.now();
+      void presence(value)
+        .catch(() => undefined)
+        .finally(() => {
+          durablePresenceInFlightRef.current = false;
+          if (!mountedRef.current || !durablePresenceQueuedRef.current) return;
+          durablePresenceQueuedRef.current = false;
+          const remaining = activePresenceDelay(
+            lastDurablePresenceAtRef.current,
+            Date.now(),
+          );
+          durablePresenceTimerRef.current = window.setTimeout(() => {
+            durablePresenceTimerRef.current = null;
+            durablePresenceSenderRef.current(false);
+          }, remaining);
+        });
+    },
+    [currentPresenceValue, editor, presence],
+  );
+
+  useEffect(() => {
+    durablePresenceSenderRef.current = sendDurablePresence;
+  }, [sendDurablePresence]);
+
   const publishPresence = useCallback(
     (cursor: { x: number; y: number } | null) => {
-      if (!editor || presenceTimerRef.current) return;
+      if (!editor || document.visibilityState === "hidden") return;
       pendingCursorRef.current = cursor;
-      presenceTimerRef.current = window.setTimeout(() => {
-        presenceTimerRef.current = null;
-        const camera = editor.getCamera();
-        const viewport = editor.getViewportPageBounds();
-        void presence({
-          cursor: pendingCursorRef.current,
-          viewport: { x: viewport.x, y: viewport.y, zoom: camera.z, width: viewport.width, height: viewport.height },
-        }).catch(() => undefined);
-      }, 90);
+      if (!transientPresenceTimerRef.current) {
+        transientPresenceTimerRef.current = window.setTimeout(() => {
+          transientPresenceTimerRef.current = null;
+          const value = currentPresenceValue();
+          if (value) transientPresence(value);
+        }, TRANSIENT_PRESENCE_INTERVAL_MS);
+      }
+      sendDurablePresence(false);
     },
-    [editor, presence],
+    [currentPresenceValue, editor, sendDurablePresence, transientPresence],
   );
 
   useEffect(() => {
@@ -1599,9 +1842,33 @@ export function JazzboardCanvas({
 
   useEffect(() => {
     if (!editor) return;
-    const heartbeat = window.setInterval(() => publishPresence(pendingCursorRef.current), 8_000);
+    const heartbeat = window.setInterval(() => {
+      if (
+        document.visibilityState !== "hidden" &&
+        idlePresenceKeyframeDue(lastDurablePresenceAtRef.current, Date.now())
+      ) {
+        sendDurablePresence(true);
+      }
+    }, IDLE_PRESENCE_KEYFRAME_MS);
     return () => window.clearInterval(heartbeat);
-  }, [editor, publishPresence]);
+  }, [editor, sendDurablePresence]);
+
+  useEffect(() => {
+    if (!editor || connection !== "live") return;
+    sendDurablePresence(true);
+  }, [connection, editor, sendDurablePresence]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const value = currentPresenceValue();
+      if (value) transientPresence(value);
+      sendDurablePresence(true);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [currentPresenceValue, editor, sendDurablePresence, transientPresence]);
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {

@@ -220,6 +220,7 @@ function collaborationSnapshot(
       code: room.code,
       title: room.title,
       roomRevision: room.roomRevision,
+      stateRevision: room.stateRevision ?? room.roomRevision,
       agentEditPolicy: room.agentEditPolicy,
       pendingAgentEditProposalCount: room.reviewProposals.filter((proposal) => proposal.status === "pending").length,
     },

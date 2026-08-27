@@ -4,7 +4,7 @@ import type { ActorKind } from "@/lib/domain/types";
 import { jazzboardTemplateV1Schema } from "@/lib/interchange/schemas";
 import type { ProjectArtifactScope } from "@/lib/interchange/types";
 
-import { errorResponse, json } from "./http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "./http";
 import {
   exportAuthorizedRoomArtifact,
   instantiateAuthorizedRoomTemplate,
@@ -97,14 +97,22 @@ export async function handleAuthorizedTemplateInstantiation(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = instantiateTemplateRequestSchema.parse(await request.json());
+    const body = instantiateTemplateRequestSchema.parse(await readJsonBody(request));
     const { intent, summary, ...mutation } = body;
-    const result = await instantiateAuthorizedRoomTemplate({
-      roomId,
+    const result = await runMutationRequest({
+      request,
       participantId,
+      roomId,
+      operation: "room.template.instantiate",
       actorKind,
-      ...mutation,
-      metadata: intent || summary ? { intent, summary } : undefined,
+      parsedBody: body,
+      execute: () => instantiateAuthorizedRoomTemplate({
+        roomId,
+        participantId,
+        actorKind,
+        ...mutation,
+        metadata: intent || summary ? { intent, summary } : undefined,
+      }),
     });
     return json({ ok: true, ...result }, { status: 201 });
   } catch (error) {

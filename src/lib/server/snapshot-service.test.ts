@@ -19,7 +19,9 @@ import {
   readPublicSnapshot,
   revokeReadonlySnapshot,
 } from "./snapshot-service";
+import { snapshotIdSchema } from "./snapshot-schemas";
 import { resetSnapshotStoreForTests } from "./snapshot-store";
+import { createMutationContext, runWithMutationContext } from "./mutation-context";
 
 const START = new Date("2026-08-26T12:00:00.000Z");
 
@@ -116,10 +118,12 @@ describe("snapshot service", () => {
     vi.setSystemTime(START);
     resetSnapshotStoreForTests();
     mocks.readAuthorizedRoom.mockResolvedValue(room());
+    vi.stubEnv("SESSION_SECRET", "snapshot-test-secret-that-is-long-enough");
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("creates a high-entropy exact-token link while storing only its hash", async () => {
@@ -172,6 +176,177 @@ describe("snapshot service", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("replays snapshot creation to one deterministic private capability", async () => {
+    const input = {
+      roomId: "room_private_identifier",
+      participantId: "p_owner",
+      actorKind: "human" as const,
+      expectedRoomRevision: 7,
+      scope: { kind: "room" as const },
+      title: "Retry-safe snapshot",
+    };
+    const body = { expectedRoomRevision: 7, scope: input.scope, title: input.title };
+    const mutationContext = () => createMutationContext({
+      request: new Request("https://jazzboard.test/api/snapshots", {
+        method: "POST",
+        headers: { "idempotency-key": "snapshot-create-0001" },
+      }),
+      participantId: "p_owner",
+      roomId: input.roomId,
+      operation: "snapshot.create.human",
+      actorKind: "human",
+      parsedBody: body,
+    });
+
+    const first = await runWithMutationContext(mutationContext(), () => createReadonlySnapshot(input));
+    const advancedRoom = room();
+    advancedRoom.roomRevision = 8;
+    advancedRoom.updatedAt += 1;
+    mocks.readAuthorizedRoom.mockResolvedValue(advancedRoom);
+    const replay = await runWithMutationContext(mutationContext(), () => createReadonlySnapshot(input));
+
+    expect(replay).toEqual(first);
+    expect(snapshotIdSchema.parse(first.snapshot.id)).toBe(first.snapshot.id);
+    expect(first.snapshot.id).toMatch(
+      /^snapshot_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    await expect(
+      listReadonlySnapshots({
+        roomId: input.roomId,
+        participantId: input.participantId,
+        actorKind: "human",
+      }),
+    ).resolves.toMatchObject({ snapshots: [{ id: first.snapshot.id }] });
+
+    const conflictingContext = createMutationContext({
+      request: new Request("https://jazzboard.test/api/snapshots", {
+        method: "POST",
+        headers: { "idempotency-key": "snapshot-create-0001" },
+      }),
+      participantId: "p_owner",
+      roomId: input.roomId,
+      operation: "snapshot.create.human",
+      actorKind: "human",
+      parsedBody: { ...body, title: "Different snapshot" },
+    });
+    await expectDomainError(
+      runWithMutationContext(conflictingContext, () =>
+        createReadonlySnapshot({ ...input, title: "Different snapshot" }),
+      ),
+      "IDEMPOTENCY_CONFLICT",
+    );
+
+    await expect(
+      revokeReadonlySnapshot({
+        roomId: input.roomId,
+        participantId: input.participantId,
+        actorKind: "human",
+        snapshotId: first.snapshot.id,
+      }),
+    ).resolves.toEqual({ snapshotId: first.snapshot.id, revoked: true });
+    await expectDomainError(
+      runWithMutationContext(mutationContext(), () => createReadonlySnapshot(input)),
+      "MUTATION_OUTCOME_UNKNOWN",
+    );
+    await expectDomainError(
+      readPublicSnapshot(first.snapshot.path.replace("/snapshot/", "")),
+      "SNAPSHOT_NOT_FOUND",
+    );
+  });
+
+  it("creates a new generation after 24 hours without reviving the expired bearer", async () => {
+    const input = {
+      roomId: "room_private_identifier",
+      participantId: "p_owner",
+      actorKind: "human" as const,
+      expectedRoomRevision: 7,
+      scope: { kind: "room" as const },
+      title: "Generation-safe snapshot",
+      expiresInHours: 1,
+    };
+    const mutationContext = () => createMutationContext({
+      request: new Request("https://jazzboard.test/api/snapshots", {
+        method: "POST",
+        headers: { "idempotency-key": "snapshot-generation-0001" },
+      }),
+      participantId: input.participantId,
+      roomId: input.roomId,
+      operation: "snapshot.create.human",
+      actorKind: input.actorKind,
+      parsedBody: {
+        expectedRoomRevision: input.expectedRoomRevision,
+        scope: input.scope,
+        title: input.title,
+        expiresInHours: input.expiresInHours,
+      },
+    });
+
+    const first = await runWithMutationContext(mutationContext(), () =>
+      createReadonlySnapshot(input),
+    );
+    const firstToken = first.snapshot.path.replace("/snapshot/", "");
+    vi.advanceTimersByTime(24 * 60 * 60 * 1_000 + 1);
+
+    const second = await runWithMutationContext(mutationContext(), () =>
+      createReadonlySnapshot(input),
+    );
+    const secondToken = second.snapshot.path.replace("/snapshot/", "");
+
+    expect(second.snapshot.id).not.toBe(first.snapshot.id);
+    expect(second.snapshot.path).not.toBe(first.snapshot.path);
+    await expectDomainError(readPublicSnapshot(firstToken), "SNAPSHOT_NOT_FOUND");
+    await expect(readPublicSnapshot(secondToken)).resolves.toMatchObject({
+      title: "Generation-safe snapshot",
+    });
+  });
+
+  it("replays an acknowledged snapshot revocation instead of returning a false not-found", async () => {
+    const created = await createReadonlySnapshot({
+      roomId: "room_private_identifier",
+      participantId: "p_owner",
+      actorKind: "human",
+      expectedRoomRevision: 7,
+      scope: { kind: "room" },
+    });
+    const input = {
+      roomId: "room_private_identifier",
+      participantId: "p_owner",
+      actorKind: "human" as const,
+      snapshotId: created.snapshot.id,
+    };
+    const mutationContext = (snapshotId = input.snapshotId) =>
+      createMutationContext({
+        request: new Request("https://jazzboard.test/api/snapshots", {
+          method: "DELETE",
+          headers: { "idempotency-key": "snapshot-revoke-0001" },
+        }),
+        participantId: input.participantId,
+        roomId: input.roomId,
+        operation: "room.snapshot.revoke",
+        actorKind: input.actorKind,
+        parsedBody: { snapshotId },
+      });
+
+    const first = await runWithMutationContext(mutationContext(), () =>
+      revokeReadonlySnapshot(input),
+    );
+    const replay = await runWithMutationContext(mutationContext(), () =>
+      revokeReadonlySnapshot(input),
+    );
+
+    expect(first).toEqual({ snapshotId: created.snapshot.id, revoked: true });
+    expect(replay).toEqual(first);
+    await expectDomainError(
+      runWithMutationContext(mutationContext("snapshot_00000000-0000-0000-0000-000000000000"), () =>
+        revokeReadonlySnapshot({
+          ...input,
+          snapshotId: "snapshot_00000000-0000-0000-0000-000000000000",
+        }),
+      ),
+      "IDEMPOTENCY_CONFLICT",
+    );
   });
 
   it("requires exact room and Diagram revisions before projecting", async () => {

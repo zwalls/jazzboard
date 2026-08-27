@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { parseRoomAssetProxyReference } from "@/lib/assets/policy";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
@@ -11,9 +12,11 @@ import type {
   ConnectorEndpoint,
   ObjectPatch,
   RoomActivitySummary,
+  RoomPresenceDelta,
   RoomState,
   Viewport,
 } from "@/lib/domain/types";
+import { applyPresenceDelta, roomStateRevision } from "@/lib/realtime/events";
 
 import type {
   JazzboardToolFailure,
@@ -28,6 +31,27 @@ const finite = z.number().finite();
 const positiveDimension = finite.positive().max(100_000);
 const colorSchema = z.string().min(1).max(32);
 const pointSchema = z.object({ x: finite, y: finite }).strict();
+const agentImageUrlSchema = z
+  .string()
+  .max(8_192)
+  .refine((value) => {
+    if (value.startsWith("/") && parseRoomAssetProxyReference(value)) return true;
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "Use an accessible HTTPS URL or an authorized Jazzboard room asset reference.");
+const AGENT_IMAGE_URL_SCHEMA = {
+  anyOf: [
+    { type: "string", pattern: "^https://", maxLength: 8_192 },
+    {
+      type: "string",
+      pattern: "^/api/rooms/[^/]+/assets\\?(pathname|assetId)=",
+      maxLength: 8_192,
+    },
+  ],
+} as const;
 const REVIEW_MODE_RESULT_NOTE =
   " If the room requires review, Jazzboard queues the exact edit instead and returns outcome `proposed` plus its proposal; no canvas objects change until a human approves it.";
 const REVIEW_GATED_TOOL_NAMES = new Set([
@@ -113,11 +137,7 @@ const createNodeInputSchema = z
 
 const addImageInputSchema = z
   .object({
-    url: z
-      .string()
-      .url()
-      .max(8_192)
-      .refine((value) => new URL(value).protocol === "https:", "The image URL must use HTTPS."),
+    url: agentImageUrlSchema,
     alt: z.string().max(2_000).optional(),
     mimeType: z.string().min(1).max(128).optional(),
     locked: z.boolean().optional(),
@@ -187,7 +207,7 @@ const objectPatchSchema = z
     start: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
     end: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
-    url: z.string().url().max(8_192).optional(),
+    url: agentImageUrlSchema.optional(),
     assetId: z.string().max(512).nullable().optional(),
     alt: z.string().max(2_000).optional(),
     mimeType: z.string().max(128).optional(),
@@ -342,9 +362,14 @@ type CommandResponse = {
   proposal: AgentEditProposalSummary | null;
 };
 
-type PresenceResponse = {
+type AuthorizedRoomResponse = {
   ok: true;
   room: RoomState;
+};
+
+type PresenceResponse = {
+  ok: true;
+  presence: RoomPresenceDelta;
 };
 
 class ToolInputFailure extends Error {
@@ -565,7 +590,7 @@ export function createJazzboardWebMcpTools(
   }
 
   async function readAuthorizedRoom(signal: AbortSignal): Promise<RoomState> {
-    const response = await request<PresenceResponse>(authorizedRoomRoute(binding.roomId), {
+    const response = await request<AuthorizedRoomResponse>(authorizedRoomRoute(binding.roomId), {
       method: "GET",
       signal,
     });
@@ -785,13 +810,13 @@ export function createJazzboardWebMcpTools(
     }),
     defineTool({
       name: "add_image",
-      title: "Add an image by HTTPS URL",
+      title: "Add an image by HTTPS or authorized Jazzboard asset URL",
       description:
-        "Place an image from an accessible HTTPS URL as a semantic image object. Conversational local attachments are not accepted by this first-demo tool.",
+        "Place an image from an accessible HTTPS URL or an authorized room-local Jazzboard asset reference as a semantic image object. Conversational local attachments are not accepted by this first-demo tool.",
       inputSchema: {
         type: "object",
         properties: {
-          url: { type: "string", format: "uri", pattern: "^https://", maxLength: 8_192 },
+          url: AGENT_IMAGE_URL_SCHEMA,
           alt: { type: "string", maxLength: 2_000 },
           mimeType: { type: "string", minLength: 1, maxLength: 128 },
           locked: { type: "boolean" },
@@ -817,7 +842,7 @@ export function createJazzboardWebMcpTools(
               zIndex: input.zIndex ?? nextZIndex(room),
               groupId: input.groupId ?? null,
               url: input.url,
-              sourceUrl: input.url,
+              sourceUrl: parseRoomAssetProxyReference(input.url) ? null : input.url,
               assetId: null,
               alt: input.alt ?? "",
               mimeType: input.mimeType ?? "image/*",
@@ -999,7 +1024,7 @@ export function createJazzboardWebMcpTools(
                 additionalProperties: false,
               },
               direction: { enum: ["none", "end", "both"] },
-              url: { type: "string", format: "uri", maxLength: 8_192 },
+              url: AGENT_IMAGE_URL_SCHEMA,
               assetId: { anyOf: [{ type: "string", maxLength: 512 }, { type: "null" }] },
               alt: { type: "string", maxLength: 2_000 },
               mimeType: { type: "string", maxLength: 128 },
@@ -1145,18 +1170,25 @@ export function createJazzboardWebMcpTools(
               height: input.height as number,
               zoom: input.zoom ?? 1,
             };
-        const response = await post<PresenceResponse>(
-          request,
-          presenceUrl,
-          {
+        const response = await request<PresenceResponse>(presenceUrl, {
+          method: "POST",
+          headers: { "x-jazzboard-presence-protocol": "delta-v1" },
+          body: JSON.stringify({
             cursor: { x: viewport.x + viewport.width / 2, y: viewport.y + viewport.height / 2 },
             viewport,
             activity: null,
-          },
+          }),
           signal,
-        );
-        binding.context.acceptRoom(response.room);
-        return { viewport, roomRevision: response.room.roomRevision };
+        });
+        const currentRoom = binding.context.getRoom();
+        if (currentRoom && roomStateRevision(currentRoom) < response.presence.stateRevision) {
+          const patchedRoom = applyPresenceDelta(currentRoom, response.presence);
+          if (patchedRoom) binding.context.acceptRoom(patchedRoom);
+          else await readAuthorizedRoom(signal);
+        } else if (!currentRoom) {
+          await readAuthorizedRoom(signal);
+        }
+        return { viewport, roomRevision: response.presence.roomRevision };
       },
     }),
   ];

@@ -533,6 +533,25 @@ describe("semantic mutation handlers", () => {
         },
       },
     });
+
+    const privateReference =
+      "/api/rooms/room_private/assets?pathname=" +
+      encodeURIComponent(
+        `jazzboard/${"a".repeat(48)}/550e8400-e29b-41d4-a716-446655440000-private.png`,
+      );
+    const privateResult = await execute(toolByName(tools, "add_image"), {
+      url: privateReference,
+      alt: "Authorized private image",
+    });
+    expect(privateResult.ok).toBe(true);
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 1)).toMatchObject({
+      command: {
+        object: {
+          url: privateReference,
+          sourceUrl: null,
+        },
+      },
+    });
   });
 
   it("creates a bounded freehand drawing from canvas-world points", async () => {
@@ -663,8 +682,25 @@ describe("semantic mutation handlers", () => {
 describe("agent virtual viewport", () => {
   it("focuses around semantic objects through the authenticated agent presence route", async () => {
     const fixture = contextFixture();
-    const authoritative = room({ roomRevision: 12 });
-    const request = requestMock(async () => ({ ok: true, room: authoritative }));
+    const request = requestMock(async () => ({
+      ok: true,
+      presence: {
+        roomId: "room/a b",
+        stateRevision: 10,
+        roomRevision: 9,
+        participantId: "alice",
+        actorKind: "agent",
+        lastSeenAt: NOW + 1,
+        connected: true,
+        agentActive: true,
+        presence: {
+          cursor: { x: 400, y: 350 },
+          viewport: { x: 50, y: 150, width: 700, height: 400, zoom: 0.75 },
+          lastSeenAt: NOW + 1,
+          activity: null,
+        },
+      },
+    }));
     const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
 
     const result = await execute(toolByName(tools, "focus_viewport"), {
@@ -677,7 +713,7 @@ describe("agent virtual viewport", () => {
       ok: true,
       data: {
         viewport: { x: 50, y: 150, width: 700, height: 400, zoom: 0.75 },
-        roomRevision: 12,
+        roomRevision: 9,
       },
     });
     expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toEqual({
@@ -686,6 +722,50 @@ describe("agent virtual viewport", () => {
       activity: null,
     });
     expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).not.toHaveProperty("actorKind");
+    expect((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+      headers: { "x-jazzboard-presence-protocol": "delta-v1" },
+    });
+    expect(fixture.accepted.at(-1)).toMatchObject({
+      stateRevision: 10,
+      roomRevision: 9,
+      participants: { alice: { agent: { viewport: { x: 50, y: 150 } } } },
+    });
+  });
+
+  it("authoritatively refreshes when focus_viewport receives a non-cumulative delta gap", async () => {
+    const fixture = contextFixture(room({ stateRevision: 9 }));
+    const authoritative = room({ stateRevision: 11 });
+    const request = requestMock(async (_url, init) => {
+      if (init?.method === "GET") return { ok: true, room: authoritative };
+      return {
+        ok: true,
+        presence: {
+          roomId: "room/a b",
+          stateRevision: 11,
+          roomRevision: 9,
+          participantId: "alice",
+          actorKind: "agent",
+          lastSeenAt: NOW + 1,
+          connected: true,
+          agentActive: true,
+          presence: {
+            cursor: { x: 400, y: 350 },
+            viewport: { x: 50, y: 150, width: 700, height: 400, zoom: 1 },
+            lastSeenAt: NOW + 1,
+            activity: null,
+          },
+        },
+      };
+    });
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
+
+    await execute(toolByName(tools, "focus_viewport"), {
+      objectIds: ["service-a", "service-b"],
+      padding: 50,
+    });
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.accepted).toEqual([authoritative]);
   });
 
   it("rejects partial explicit viewports before making a request", async () => {

@@ -16,22 +16,56 @@ import type {
   LeaseOperation,
   ObjectLease,
   Point,
+  RoomPresenceDelta,
   RoomState,
   SemanticTransaction,
   Viewport,
   AgentActivity,
 } from "@/lib/domain/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
-import { connectRoomRealtime } from "@/lib/realtime/client";
-import { legacyRoomStateFromEvent } from "@/lib/realtime/events";
+import {
+  connectRoomRealtime,
+  type RoomRealtimeConnection,
+} from "@/lib/realtime/client";
+import {
+  applyPresenceDelta,
+  legacyRoomStateFromEvent,
+  presenceDeltaFromEvent,
+  roomStateRevision,
+} from "@/lib/realtime/events";
 
 export type ConnectionState = "connecting" | "live" | "polling" | "offline";
+
+export function applyTransientHumanPresence(
+  room: RoomState,
+  participantId: string,
+  cursor: Point | null,
+  viewport: Viewport | null,
+): RoomState {
+  const participant = room.participants[participantId];
+  if (!participant) return room;
+  return {
+    ...room,
+    participants: {
+      ...room.participants,
+      [participantId]: {
+        ...participant,
+        human: {
+          ...participant.human,
+          cursor: cursor ? { ...cursor } : null,
+          viewport: viewport ? { ...viewport } : null,
+        },
+      },
+    },
+  };
+}
 
 export type LeaseAction =
   | { action: "acquire"; objectId: string; expectedRevision: number; operation: LeaseOperation }
   | { action: "renew" | "release"; objectId: string; leaseId: string };
 
 type RoomResponse = { ok: true; room: RoomState; participantId?: string };
+type PresenceResponse = { ok: true; presence: RoomPresenceDelta };
 
 type RoomVisit = {
   roomId: string;
@@ -42,6 +76,7 @@ type ScopedValue<T> = {
   value: T;
 };
 
+/** Compares aggregate state revisions; roomRevision remains document-only. */
 export function shouldAcceptRoomRevision(currentRevision: number | null, nextRevision: number): boolean {
   return currentRevision === null || nextRevision > currentRevision;
 }
@@ -65,6 +100,20 @@ export function useRoom(roomId: string) {
     value: null,
   });
   const roomRef = useRef<RoomState | null>(null);
+  const connectionRef = useRef<ConnectionState>("connecting");
+  const realtimeRef = useRef<RoomRealtimeConnection | null>(null);
+  const transientPresenceRef = useRef(
+    new Map<
+      string,
+      {
+        connectionId: string;
+        clientSequence: number;
+        serverTime: number;
+        cursor: Point | null;
+        viewport: Viewport | null;
+      }
+    >(),
+  );
   const roomVisitRef = useRef<RoomVisit | null>(roomVisit);
   const refreshGenerationRef = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -74,16 +123,85 @@ export function useRoom(roomId: string) {
     targetRevision: number | null;
   } | null>(null);
 
+  const projectTransientPresence = useCallback((next: RoomState): RoomState => {
+    let projected = next;
+    for (const [participantId, transient] of transientPresenceRef.current) {
+      const participant = projected.participants[participantId];
+      if (!participant) {
+        transientPresenceRef.current.delete(participantId);
+        continue;
+      }
+      if (participant.human.lastSeenAt >= transient.serverTime) {
+        transientPresenceRef.current.delete(participantId);
+        continue;
+      }
+      projected = applyTransientHumanPresence(
+        projected,
+        participantId,
+        transient.cursor,
+        transient.viewport,
+      );
+    }
+    return projected;
+  }, []);
+
   const acceptRoom = useCallback((next: RoomState) => {
     const activeVisit = roomVisitRef.current;
     if (!activeVisit || next.id !== activeVisit.roomId) return false;
-    const currentRevision = roomRef.current?.id === next.id ? roomRef.current.roomRevision : null;
-    if (shouldAcceptRoomRevision(currentRevision, next.roomRevision)) {
-      roomRef.current = next;
-      setRoomState({ visit: activeVisit, value: next });
+    const currentRevision = roomRef.current?.id === next.id
+      ? roomStateRevision(roomRef.current)
+      : null;
+    if (shouldAcceptRoomRevision(currentRevision, roomStateRevision(next))) {
+      const projected = projectTransientPresence(next);
+      roomRef.current = projected;
+      setRoomState({ visit: activeVisit, value: projected });
       return true;
     }
     return false;
+  }, [projectTransientPresence]);
+
+  const acceptPresence = useCallback((delta: RoomPresenceDelta) => {
+    const activeVisit = roomVisitRef.current;
+    const current = roomRef.current;
+    if (!activeVisit || delta.roomId !== activeVisit.roomId || !current) return false;
+    if (roomStateRevision(current) >= delta.stateRevision) return true;
+    const next = applyPresenceDelta(current, delta);
+    if (!next) return false;
+    const projected = projectTransientPresence(next);
+    roomRef.current = projected;
+    setRoomState({ visit: activeVisit, value: projected });
+    return true;
+  }, [projectTransientPresence]);
+
+  const acceptTransientPresence = useCallback((transient: {
+    participantId: string;
+    connectionId: string;
+    clientSequence: number;
+    serverTime: number;
+    cursor: Point | null;
+    viewport: Viewport | null;
+  }) => {
+    const activeVisit = roomVisitRef.current;
+    const current = roomRef.current;
+    if (!activeVisit || !current?.participants[transient.participantId]) return;
+    const previous = transientPresenceRef.current.get(transient.participantId);
+    if (
+      previous &&
+      ((previous.connectionId === transient.connectionId &&
+        previous.clientSequence >= transient.clientSequence) ||
+        previous.serverTime > transient.serverTime)
+    ) {
+      return;
+    }
+    transientPresenceRef.current.set(transient.participantId, transient);
+    const projected = applyTransientHumanPresence(
+      current,
+      transient.participantId,
+      transient.cursor,
+      transient.viewport,
+    );
+    roomRef.current = projected;
+    setRoomState({ visit: activeVisit, value: projected });
   }, []);
 
   const setConnection: Dispatch<SetStateAction<ConnectionState>> = useCallback((next) => {
@@ -91,21 +209,28 @@ export function useRoom(roomId: string) {
     if (!activeVisit) return;
     setConnectionState((current) => {
       const currentValue = current.visit === activeVisit ? current.value : "connecting";
+      const value = typeof next === "function" ? next(currentValue) : next;
+      connectionRef.current = value;
       return {
         visit: activeVisit,
-        value: typeof next === "function" ? next(currentValue) : next,
+        value,
       };
     });
   }, []);
 
   useEffect(() => {
+    const transientCache = transientPresenceRef.current;
     roomVisitRef.current = roomVisit;
     refreshGenerationRef.current += 1;
     roomRef.current = null;
+    connectionRef.current = "connecting";
+    transientCache.clear();
 
     return () => {
       roomVisitRef.current = null;
       refreshGenerationRef.current += 1;
+      realtimeRef.current = null;
+      transientCache.clear();
     };
   }, [roomVisit]);
 
@@ -132,11 +257,12 @@ export function useRoom(roomId: string) {
         });
       }
       if (matchesActiveRoom && requestGeneration === refreshGenerationRef.current) {
-        setConnectionState((current) => ({
-          visit: requestVisit,
-          value:
-            current.visit === requestVisit && current.value === "live" ? "live" : "polling",
-        }));
+        setConnectionState((current) => {
+          const value =
+            current.visit === requestVisit && current.value === "live" ? "live" : "polling";
+          connectionRef.current = value;
+          return { visit: requestVisit, value };
+        });
         setRoomError({ visit: requestVisit, value: null });
       }
       return response.room;
@@ -145,6 +271,7 @@ export function useRoom(roomId: string) {
         requestVisit === roomVisitRef.current &&
         requestGeneration === refreshGenerationRef.current
       ) {
+        connectionRef.current = "offline";
         setConnectionState({ visit: requestVisit, value: "offline" });
         setRoomError({ visit: requestVisit, value: nextError as Error });
       }
@@ -159,7 +286,7 @@ export function useRoom(roomId: string) {
 
   const requestEventRefresh = useCallback((targetRevision: number) => {
     if (roomVisitRef.current !== roomVisit) return;
-    if ((roomRef.current?.roomRevision ?? -1) >= targetRevision) return;
+    if (roomRef.current && roomStateRevision(roomRef.current) >= targetRevision) return;
     let state = eventRefreshRef.current;
     if (!state || state.visit !== roomVisit) {
       state = { visit: roomVisit, running: false, targetRevision: null };
@@ -182,7 +309,7 @@ export function useRoom(roomId: string) {
           try {
             const nextRoom = await refresh();
             const latestRequired = Math.max(requiredRevision, state.targetRevision ?? -1);
-            if (nextRoom.roomRevision < latestRequired) {
+            if (roomStateRevision(nextRoom) < latestRequired) {
               state.targetRevision = latestRequired;
               continue;
             }
@@ -213,18 +340,30 @@ export function useRoom(roomId: string) {
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(`jazzboard:${roomId}`);
     channelRef.current = channel;
     channel?.addEventListener("message", () => {
-      runAutomaticRefresh();
+      if (connectionRef.current !== "live") runAutomaticRefresh();
     });
     const initialRefresh = window.setTimeout(() => {
       runAutomaticRefresh();
     }, 0);
     const poll = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") runAutomaticRefresh();
-    }, 1_200);
+      if (
+        document.visibilityState !== "hidden" &&
+        connectionRef.current !== "live"
+      ) {
+        runAutomaticRefresh();
+      }
+    }, 5_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") return;
+      if (connectionRef.current === "live") realtimeRef.current?.requestSync();
+      else runAutomaticRefresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearTimeout(initialRefresh);
       window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       channel?.close();
       channelRef.current = null;
     };
@@ -240,9 +379,18 @@ export function useRoom(roomId: string) {
       },
       onEvent(event) {
         if (connectionVisit !== roomVisitRef.current) return;
+        const presenceDelta = presenceDeltaFromEvent(event);
+        if (presenceDelta) {
+          if (!acceptPresence(presenceDelta)) requestEventRefresh(event.sequence);
+          return;
+        }
         const nextRoom = legacyRoomStateFromEvent(event);
         if (nextRoom) acceptRoom(nextRoom);
         requestEventRefresh(event.sequence);
+      },
+      onTransientPresence(transient) {
+        if (connectionVisit !== roomVisitRef.current) return;
+        acceptTransientPresence(transient);
       },
       onStatusChange(status) {
         if (connectionVisit !== roomVisitRef.current) return;
@@ -252,8 +400,18 @@ export function useRoom(roomId: string) {
         else setConnection(roomRef.current ? "polling" : "connecting");
       },
     });
-    return () => realtime.close();
-  }, [acceptRoom, requestEventRefresh, roomId, roomVisit, setConnection]);
+    realtimeRef.current = realtime;
+    return () => {
+      if (realtimeRef.current === realtime) realtimeRef.current = null;
+      realtime.close();
+    };
+  }, [acceptPresence, acceptRoom, acceptTransientPresence, requestEventRefresh, roomId, roomVisit, setConnection]);
+
+  const transientPresence = useCallback(
+    (value: { cursor: Point | null; viewport: Viewport | null }) =>
+      realtimeRef.current?.publishTransientPresence(value) ?? false,
+    [],
+  );
 
   const command = useCallback(
     async (canvasCommand: CanvasCommand, actorKind: ActorKind = "human") => {
@@ -289,15 +447,17 @@ export function useRoom(roomId: string) {
       actorKind: ActorKind = "human",
     ) => {
       const endpoint = actorKind === "agent" ? "agent/presence" : "presence";
-      const response = await apiRequest<RoomResponse>(`/api/rooms/${roomId}/${endpoint}`, {
+      const response = await apiRequest<PresenceResponse>(`/api/rooms/${roomId}/${endpoint}`, {
         method: "POST",
+        headers: { "x-jazzboard-presence-protocol": "delta-v1" },
         body: JSON.stringify({ ...value, activity: value.activity ?? null }),
       });
-      acceptRoom(response.room);
-      announceChange();
-      return response.room;
+      if (!acceptPresence(response.presence)) {
+        requestEventRefresh(response.presence.stateRevision);
+      }
+      return response.presence;
     },
-    [acceptRoom, announceChange, roomId],
+    [acceptPresence, requestEventRefresh, roomId],
   );
 
   const spotlight = useCallback(
@@ -365,6 +525,7 @@ export function useRoom(roomId: string) {
     command,
     lease,
     presence,
+    transientPresence,
     semanticTransaction,
     spotlight,
     upgradeRole,

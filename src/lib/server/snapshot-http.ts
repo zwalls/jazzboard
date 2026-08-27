@@ -1,6 +1,6 @@
 import type { ActorKind } from "@/lib/domain/types";
 
-import { errorResponse, json } from "./http";
+import { errorResponse, json, readJsonBody, runMutationRequest } from "./http";
 import {
   createReadonlySnapshotRequestSchema,
   revokeReadonlySnapshotRequestSchema,
@@ -39,12 +39,20 @@ export async function handleCreateReadonlySnapshot(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = createReadonlySnapshotRequestSchema.parse(await request.json());
-    const result = await createReadonlySnapshot({
-      roomId,
+    const body = createReadonlySnapshotRequestSchema.parse(await readJsonBody(request));
+    const result = await runMutationRequest({
+      request,
       participantId,
+      roomId,
+      operation: "room.snapshot.create",
       actorKind,
-      ...body,
+      parsedBody: body,
+      execute: () => createReadonlySnapshot({
+        roomId,
+        participantId,
+        actorKind,
+        ...body,
+      }),
     });
     return json({ ok: true, ...result }, { status: 201 });
   } catch (error) {
@@ -60,12 +68,20 @@ export async function handleRevokeReadonlySnapshot(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = revokeReadonlySnapshotRequestSchema.parse(await request.json());
-    const result = await revokeReadonlySnapshot({
-      roomId,
+    const body = revokeReadonlySnapshotRequestSchema.parse(await readJsonBody(request));
+    const result = await runMutationRequest({
+      request,
       participantId,
+      roomId,
+      operation: "room.snapshot.revoke",
       actorKind,
-      snapshotId: body.snapshotId,
+      parsedBody: body,
+      execute: () => revokeReadonlySnapshot({
+        roomId,
+        participantId,
+        actorKind,
+        snapshotId: body.snapshotId,
+      }),
     });
     return json({ ok: true, ...result });
   } catch (error) {

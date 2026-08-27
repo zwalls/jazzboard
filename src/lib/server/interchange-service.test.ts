@@ -15,6 +15,7 @@ import {
   setAgentEditPolicy,
 } from "./room-service";
 import { getRoomStore } from "./room-store";
+import { createMutationContext, runWithMutationContext } from "./mutation-context";
 
 const START = new Date("2026-08-26T18:00:00.000Z");
 
@@ -306,6 +307,61 @@ describe("authorized portable artifact service", () => {
     const afterFailure = await store.getRoom(room.id);
     expect(Object.keys(afterFailure!.objects)).toHaveLength(objectCount);
     expect(await store.listActivities(room.id)).toHaveLength(beforeActivities.length + 1);
+  });
+
+  it("checks a verified template receipt before stale revision and generated-ID planning", async () => {
+    const { store, room } = await seededRoom();
+    const exported = await exportAuthorizedRoomArtifact({
+      roomId: room.id,
+      participantId: "p_owner",
+      actorKind: "agent",
+      format: "template",
+      scope: { kind: "diagram", diagramId: "diagram_auth" },
+    });
+    const reusable = parseJazzboardTemplateV1(JSON.parse(exported.content));
+    const requestBody = {
+      action: "instantiate_template",
+      expectedRoomRevision: room.roomRevision,
+      template: reusable,
+      origin: { x: 1_200, y: 1_400 },
+    };
+    const context = () => createMutationContext({
+      request: new Request(`https://jazzboard.test/api/rooms/${room.id}/artifacts`, {
+        method: "POST",
+        headers: { "idempotency-key": "template-replay-0001" },
+      }),
+      participantId: "p_owner",
+      roomId: room.id,
+      operation: "room.template.instantiate",
+      actorKind: "agent",
+      parsedBody: requestBody,
+    });
+    const instantiate = () => runWithMutationContext(context(), () =>
+      instantiateAuthorizedRoomTemplate(
+        {
+          roomId: room.id,
+          participantId: "p_owner",
+          actorKind: "agent",
+          expectedRoomRevision: room.roomRevision,
+          template: reusable,
+          origin: requestBody.origin,
+        },
+        { createId: (kind, sourceId) => `replay_${kind}_${sourceId}` },
+      ),
+    );
+
+    const first = await instantiate();
+    const activityCount = (await store.listActivities(room.id)).length;
+    const objectCount = Object.keys(first.room.objects).length;
+    await expect(instantiate()).rejects.toMatchObject({
+      code: "MUTATION_OUTCOME_UNKNOWN",
+      details: {
+        replayed: true,
+        committedRoomRevision: first.room.roomRevision,
+      },
+    });
+    expect(Object.keys((await store.getRoom(room.id))!.objects)).toHaveLength(objectCount);
+    expect(await store.listActivities(room.id)).toHaveLength(activityCount);
   });
 
   it("submits the exact planned transaction for human review instead of bypassing review mode", async () => {
