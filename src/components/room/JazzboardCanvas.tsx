@@ -197,6 +197,10 @@ function isBusyError(error: unknown): error is JazzboardApiError {
   return error instanceof JazzboardApiError && error.failure.code === "OBJECT_BUSY";
 }
 
+function isLeaseNotFoundError(error: unknown): error is JazzboardApiError {
+  return error instanceof JazzboardApiError && error.failure.code === "LEASE_NOT_FOUND";
+}
+
 function isCommittedOutcomeReplay(error: unknown): error is JazzboardApiError {
   return (
     error instanceof JazzboardApiError &&
@@ -357,6 +361,9 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   const leaseRenewalCohortSequenceRef = useRef(0);
   const leaseRenewalCohortsRef = useRef(new Map<number, LeaseRenewalCohort>());
   const leaseRenewalCohortByObjectRef = useRef(new Map<string, number>());
+  const recoverLeaseCohortRef = useRef<
+    (objectIds: Iterable<string>, error: unknown) => void
+  >(() => undefined);
   const editingObjectIdRef = useRef<string | null>(null);
   const recoveryGroupLocksRef = useRef(new Map<TLShapeId, RecoveryGroupLock>());
   const flushFramesRef = useRef(new Set<number>());
@@ -631,9 +638,43 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
               }
             }
           })
-          .catch(() => {
-            // Renewal responses are ambiguous on transport failure. Preserve
-            // the lease identities and let the next cohort tick reconcile.
+          .catch(async (error) => {
+            // Transport failures are ambiguous, so preserve every identity and
+            // let the next cohort tick reconcile. A definitive stale token is
+            // different: renew valid siblings individually so they remain
+            // protected during rollback, then reconcile the entire atomic
+            // gesture rather than letting one missing member silently expire
+            // the rest of the cohort.
+            if (!isLeaseNotFoundError(error) || !mountedRef.current) return;
+            let lostLease = false;
+            for (const { objectId, leaseId } of targets) {
+              const entry = coordinator.get(objectId);
+              const managed = installed.get(objectId);
+              if (
+                !entry ||
+                !managed ||
+                entry.lease !== managed ||
+                entry.releaseRequest ||
+                managed.lease.leaseId !== leaseId
+              ) {
+                continue;
+              }
+              try {
+                const result = await lease({ action: "renew", objectId, leaseId });
+                if (!mountedRef.current) return;
+                advanceRoomRef(result.room);
+                if (result.lease && entry.lease === managed && managed.lease.leaseId === leaseId) {
+                  managed.lease = result.lease;
+                }
+              } catch (targetError) {
+                if (isLeaseNotFoundError(targetError)) lostLease = true;
+                else return;
+              }
+            }
+            if (!lostLease || !mountedRef.current) return;
+            const affectedObjectIds = [...cohort.objectIds];
+            for (const objectId of affectedObjectIds) detachLeaseRenewalCohort(objectId);
+            recoverLeaseCohortRef.current(affectedObjectIds, error);
           })
           .finally(() => {
             if (cohort.request === request) cohort.request = null;
@@ -717,9 +758,21 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
               ? await lease({ action: "release", ...targets[0] })
               : await leaseMany({ action: "release-many", targets });
           advanceRoomRef(released.room);
-        } catch {
-          // Server leases expire quickly; a best-effort release failure must
-          // not keep an acknowledged local edit protected indefinitely.
+        } catch (error) {
+          // A batch is deliberately all-or-nothing. If one token is
+          // definitively stale, release each still-valid sibling sequentially
+          // so the rejected batch cannot leave collaborators blocked. Do not
+          // retry ambiguous failures; those short-lived leases can expire.
+          if (targets.length > 1 && isLeaseNotFoundError(error)) {
+            for (const target of targets) {
+              try {
+                const released = await lease({ action: "release", ...target });
+                advanceRoomRef(released.room);
+              } catch {
+                // Missing/stale members are already unowned by this client.
+              }
+            }
+          }
         } finally {
           for (const { objectId, leaseId } of targets) {
             const entry = coordinator.get(objectId);
@@ -871,6 +924,13 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     (objectId: string, error: unknown) => recoverObjects([objectId], error),
     [recoverObjects],
   );
+
+  useEffect(() => {
+    recoverLeaseCohortRef.current = recoverObjects;
+    return () => {
+      recoverLeaseCohortRef.current = () => undefined;
+    };
+  }, [recoverObjects]);
 
   const acquireLeases = useCallback(
     async (

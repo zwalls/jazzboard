@@ -15,7 +15,12 @@ import {
 const LEFT_ID = "sync-left";
 const RIGHT_ID = "sync-right";
 const CONNECTOR_ID = "sync-connector";
-const COMPLEX_GROUP_IDS = Array.from({ length: 9 }, (_, index) => `sync-group-${index + 1}`);
+const COMPLEX_GROUP_NODE_IDS = Array.from({ length: 5 }, (_, index) => `sync-group-node-${index + 1}`);
+const COMPLEX_GROUP_CONNECTOR_IDS = Array.from(
+  { length: 4 },
+  (_, index) => `sync-group-connector-${index + 1}`,
+);
+const COMPLEX_GROUP_IDS = [...COMPLEX_GROUP_NODE_IDS, ...COMPLEX_GROUP_CONNECTOR_IDS];
 
 async function seedPair(page: Page, roomId: string, includeConnector = false) {
   const response = await page.request.post(`/api/rooms/${encodeURIComponent(roomId)}/semantic`, {
@@ -46,16 +51,27 @@ async function seedComplexGroupMembers(page: Page, roomId: string) {
     data: {
       action: "transaction",
       transaction: {
-        commands: COMPLEX_GROUP_IDS.map((objectId, index) => ({
-          type: "create" as const,
-          object: shapeObject(
-            objectId,
-            `Group member ${index + 1}`,
-            180 + (index % 3) * 190,
-            140 + Math.floor(index / 3) * 130,
-            index % 2 === 0 ? "blue" : "green",
-          ),
-        })),
+        commands: [
+          ...COMPLEX_GROUP_NODE_IDS.map((objectId, index) => ({
+            type: "create" as const,
+            object: shapeObject(
+              objectId,
+              `Architecture service ${index + 1}`,
+              150 + index * 190,
+              240 + (index % 2) * 90,
+              index % 2 === 0 ? "blue" : "green",
+            ),
+          })),
+          ...COMPLEX_GROUP_CONNECTOR_IDS.map((objectId, index) => ({
+            type: "create" as const,
+            object: connectorObject(
+              objectId,
+              `route ${index + 1}`,
+              COMPLEX_GROUP_NODE_IDS[index],
+              COMPLEX_GROUP_NODE_IDS[index + 1],
+            ),
+          })),
+        ],
         diagramCommands: [],
       },
     },
@@ -90,7 +106,9 @@ async function selectPair(page: Page) {
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 5 });
   await page.mouse.up();
-  await expect(page.getByText(/2 selected/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Canvas outline/i }).getByText(/2 selected/i),
+  ).toBeVisible();
 }
 
 async function selectObjects(page: Page, objectIds: readonly string[]) {
@@ -98,7 +116,11 @@ async function selectObjects(page: Page, objectIds: readonly string[]) {
   const first = await centerOf(page, objectIds[0]);
   await page.mouse.click(first.x, first.y);
   await page.keyboard.press("Control+a");
-  await expect(page.getByText(new RegExp(`${objectIds.length} selected`, "i"))).toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: /Canvas outline/i })
+      .getByText(new RegExp(`${objectIds.length} selected`, "i")),
+  ).toBeVisible();
 }
 
 async function dragFrom(page: Page, objectId: string, dx: number, dy: number) {
@@ -308,7 +330,7 @@ test.describe("canvas synchronization edge cases", () => {
         transaction: { commands: Array<{ objectId?: string }> };
       };
       expect(new Set(transaction.transaction.commands.map((command) => command.objectId))).toEqual(
-        new Set(COMPLEX_GROUP_IDS),
+        new Set(COMPLEX_GROUP_NODE_IDS),
       );
 
       await expect
@@ -318,9 +340,17 @@ test.describe("canvas synchronization edge cases", () => {
         })
         .toEqual(COMPLEX_GROUP_IDS.map(() => 3));
       const moved = (await getRoom(page.request, host.room.id)).room;
-      for (const objectId of COMPLEX_GROUP_IDS) {
+      for (const objectId of COMPLEX_GROUP_NODE_IDS) {
         expect(Number(moved.objects[objectId].x) - Number(baseline.objects[objectId].x)).toBeCloseTo(120, 0);
         expect(Number(moved.objects[objectId].y) - Number(baseline.objects[objectId].y)).toBeCloseTo(70, 0);
+      }
+      for (const [index, objectId] of COMPLEX_GROUP_CONNECTOR_IDS.entries()) {
+        const connector = moved.objects[objectId];
+        expect(connector).toMatchObject({
+          kind: "connector",
+          start: { objectId: COMPLEX_GROUP_NODE_IDS[index] },
+          end: { objectId: COMPLEX_GROUP_NODE_IDS[index + 1] },
+        });
       }
       const acquireMany = leaseRequests.filter((request) => request.action === "acquire-many");
       expect(acquireMany).toHaveLength(1);
@@ -935,6 +965,152 @@ test.describe("canvas synchronization edge cases", () => {
         });
       }
       await agentContext.close();
+    }
+  });
+
+  test("reconciles a group when one renewal token is stale and releases valid siblings", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    const host = await createRoomViaApi(page.request, "Stale Cohort", "Definitive lease-loss recovery");
+    await seedPair(page, host.room.id);
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+    await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+    await selectPair(page);
+    await expect
+      .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+      .toEqual([]);
+
+    const leaseUrl = `**/api/rooms/${encodeURIComponent(host.room.id)}/leases`;
+    const leaseActions: Array<{
+      action?: string;
+      objectId?: string;
+      targets?: Array<{ objectId: string; leaseId: string }>;
+    }> = [];
+    let staleTokenInjected = false;
+    let replacementLeaseId: string | null = null;
+    let staleObjectId: string | null = null;
+    let markRenewManySeen!: () => void;
+    const renewManySeen = new Promise<void>((resolve) => {
+      markRenewManySeen = resolve;
+    });
+    const leaseHandler = async (route: Route, request: Request) => {
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      const body = request.postDataJSON() as (typeof leaseActions)[number];
+      leaseActions.push(body);
+      if (body.action === "renew-many" && !staleTokenInjected) {
+        staleTokenInjected = true;
+        const victim = body.targets?.[0];
+        if (!victim) throw new Error("The renewal cohort did not include a victim lease.");
+        const invalidated = await page.request.post(
+          `/api/rooms/${encodeURIComponent(host.room.id)}/leases`,
+          { data: { action: "release", ...victim } },
+        );
+        expect(invalidated.ok()).toBe(true);
+        const replacement = await page.request.post(
+          `/api/rooms/${encodeURIComponent(host.room.id)}/leases`,
+          {
+            data: {
+              action: "acquire",
+              objectId: victim.objectId,
+              expectedRevision: 1,
+              operation: "move",
+            },
+          },
+        );
+        expect(replacement.ok()).toBe(true);
+        const replacementBody = await jsonBody<LeaseResponse>(replacement);
+        replacementLeaseId = replacementBody.lease?.leaseId ?? null;
+        staleObjectId = victim.objectId;
+        markRenewManySeen();
+      }
+      await route.continue();
+    };
+
+    let releaseMutation!: () => void;
+    const mutationGate = new Promise<void>((resolve) => {
+      releaseMutation = resolve;
+    });
+    let markMutationBlocked!: () => void;
+    const mutationBlocked = new Promise<void>((resolve) => {
+      markMutationBlocked = resolve;
+    });
+    let mutationIsBlocked = false;
+    const mutationUrls = [
+      `**/api/rooms/${encodeURIComponent(host.room.id)}/commands`,
+      `**/api/rooms/${encodeURIComponent(host.room.id)}/semantic`,
+    ];
+    const mutationHandler = async (route: Route, request: Request) => {
+      if (request.method() === "POST" && !mutationIsBlocked) {
+        mutationIsBlocked = true;
+        markMutationBlocked();
+        await mutationGate;
+      }
+      await route.continue();
+    };
+
+    try {
+      await page.route(leaseUrl, leaseHandler);
+      for (const url of mutationUrls) await page.route(url, mutationHandler);
+      await page.getByRole("radio", { name: "Color — Red" }).click();
+      await mutationBlocked;
+      await renewManySeen;
+
+      await expect
+        .poll(() => leaseActions.filter((item) => item.action === "renew").length)
+        .toBeGreaterThanOrEqual(2);
+      await expect
+        .poll(() => leaseActions.filter((item) => item.action === "release-many").length)
+        .toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(() => leaseActions.filter((item) => item.action === "release").length)
+        .toBeGreaterThanOrEqual(2);
+      await expect
+        .poll(async () => {
+          const leases = (await getRoom(page.request, host.room.id)).room.leases;
+          return {
+            objectIds: Object.keys(leases),
+            replacementLeaseId: staleObjectId ? leases[staleObjectId]?.leaseId ?? null : null,
+          };
+        })
+        .toEqual({ objectIds: [staleObjectId], replacementLeaseId });
+      expect(
+        new Set(
+          leaseActions
+            .filter((item) => item.action === "release")
+            .map((item) => item.objectId),
+        ),
+      ).toEqual(new Set([LEFT_ID, RIGHT_ID]));
+      await expect(
+        page.getByRole("alert").filter({ hasText: "Canvas changed elsewhere" }),
+      ).toContainText("active-object lease is missing");
+
+      releaseMutation();
+      await expect
+        .poll(async () => {
+          const room = (await getRoom(page.request, host.room.id)).room;
+          return {
+            revisions: [room.objects[LEFT_ID]?.revision, room.objects[RIGHT_ID]?.revision],
+            leased: Object.keys(room.leases),
+          };
+        })
+        .toEqual({ revisions: [1, 1], leased: [staleObjectId] });
+    } finally {
+      releaseMutation();
+      await page.unroute(leaseUrl, leaseHandler).catch(() => undefined);
+      for (const url of mutationUrls) await page.unroute(url, mutationHandler).catch(() => undefined);
+      if (staleObjectId && replacementLeaseId) {
+        await page.request.post(`/api/rooms/${encodeURIComponent(host.room.id)}/leases`, {
+          data: {
+            action: "release",
+            objectId: staleObjectId,
+            leaseId: replacementLeaseId,
+          },
+        });
+      }
     }
   });
 

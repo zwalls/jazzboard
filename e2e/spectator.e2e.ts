@@ -57,6 +57,9 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     await spectatorPage.getByRole("button", { name: "Become a participant" }).click();
     await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toHaveCount(0);
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
+    await spectatorPeople.hover();
+    await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: participant");
+    await spectatorPage.mouse.move(0, 0);
 
     const accepted = await createCanvasObject(
       spectatorContext.request,
