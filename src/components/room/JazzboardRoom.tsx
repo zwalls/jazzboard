@@ -130,7 +130,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
   const [followOpen, setFollowOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
-  const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | null>(null);
+  const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | "share" | "spotlight" | null>(null);
   const [spotlightPickerOpen, setSpotlightPickerOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -345,6 +345,13 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         ? "Offline"
         : "Connecting";
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"} in this room · Your role: ${self.role}`;
+  const spotlightButtonLabel = spotlight?.presenterId === participantId
+    ? "Stop Spotlight"
+    : requestedBySelf
+      ? "Spotlight requested"
+      : spotlight
+        ? "Request Spotlight"
+        : "Spotlight";
 
   function toggleDurability(nextMode: DurabilityPanelMode) {
     setDurabilityOpen((open) => nextMode !== durabilityMode || !open);
@@ -491,7 +498,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             <span
               aria-describedby={statusTooltip === "connection" ? "connection-status-tooltip" : undefined}
               aria-label={`Connection: ${connectionLabel}`}
-              className={`${styles.compactIndicator} ${styles.connectionIndicator} ${
+              className={`${styles.compactIndicator} ${styles.tooltipTrigger} ${styles.connectionIndicator} ${
                 controller.connection === "offline"
                   ? styles.offline
                   : controller.connection === "connecting"
@@ -524,7 +531,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
                 aria-describedby={statusTooltip === "people" ? "room-people-tooltip" : undefined}
                 aria-label="Show people in this room"
                 aria-expanded={presenceOpen}
-                className={styles.compactIndicator}
+                className={`${styles.compactIndicator} ${styles.tooltipTrigger}`}
                 onBlur={() => setStatusTooltip(null)}
                 onClick={() => {
                   setStatusTooltip(null);
@@ -581,28 +588,67 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           </div>
           {self.role === "participant" ? (
             <button
-              className={`${styles.controlButton} ${styles.spotlightButton}`}
+              aria-describedby={statusTooltip === "spotlight" ? "spotlight-button-tooltip" : undefined}
+              aria-label={spotlightButtonLabel}
+              className={`${styles.controlButton} ${styles.iconControlButton} ${styles.tooltipTrigger} ${styles.spotlightButton}`}
+              onBlur={() => setStatusTooltip(null)}
               onClick={() => {
+                setStatusTooltip(null);
                 if (spotlight?.presenterId === participantId) void controller.spotlight({ action: "stop" });
                 else setSpotlightPickerOpen(true);
               }}
+              onFocus={() => setStatusTooltip("spotlight")}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setStatusTooltip(null);
+                  event.stopPropagation();
+                }
+              }}
+              onMouseEnter={() => setStatusTooltip("spotlight")}
+              onMouseLeave={() => setStatusTooltip(null)}
             >
-              <Presentation size={15} />
-              {spotlight?.presenterId === participantId
-                ? "Stop"
-                : requestedBySelf
-                  ? "Requested"
-                  : spotlight
-                    ? "Request"
-                    : "Spotlight"}
+              <Presentation size={16} />
+              {statusTooltip === "spotlight" ? (
+                <span className={styles.compactTooltip} id="spotlight-button-tooltip" role="tooltip">
+                  {spotlightButtonLabel}
+                </span>
+              ) : null}
             </button>
           ) : null}
           <button
-            className={`${styles.controlButton} ${styles.shareBoardButton}`}
-            onClick={() => toggleDurability("share")}
+            aria-describedby={statusTooltip === "share" ? "share-board-button-tooltip" : undefined}
+            aria-label="Share board"
             aria-expanded={durabilityOpen && durabilityMode === "share"}
+            className={`${styles.controlButton} ${styles.iconControlButton} ${styles.tooltipTrigger} ${styles.shareBoardButton}`}
+            onBlur={() => setStatusTooltip(null)}
+            onClick={() => {
+              setStatusTooltip(null);
+              toggleDurability("share");
+            }}
+            onFocus={() => {
+              if (!(durabilityOpen && durabilityMode === "share")) setStatusTooltip("share");
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setStatusTooltip(null);
+                event.stopPropagation();
+              }
+            }}
+            onMouseEnter={() => {
+              if (!(durabilityOpen && durabilityMode === "share")) setStatusTooltip("share");
+            }}
+            onMouseLeave={() => setStatusTooltip(null)}
           >
-            <Share2 size={15} /> Share board
+            <Share2 size={16} />
+            {statusTooltip === "share" ? (
+              <span
+                className={`${styles.compactTooltip} ${styles.tooltipAlignEnd}`}
+                id="share-board-button-tooltip"
+                role="tooltip"
+              >
+                Share board
+              </span>
+            ) : null}
           </button>
         </div>
       </header>

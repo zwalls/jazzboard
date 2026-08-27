@@ -95,8 +95,15 @@ test.describe("landing and room entry", () => {
       expect(box!.width).toBeLessThanOrEqual(48);
     }
     await expect(controls.getByRole("button", { name: "Follow", exact: true })).toBeVisible();
-    await expect(controls.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
-    await expect(controls.getByRole("button", { name: "Share board", exact: true })).toBeVisible();
+    const spotlightButton = controls.getByRole("button", { name: "Spotlight", exact: true });
+    const shareButton = controls.getByRole("button", { name: "Share board", exact: true });
+    for (const button of [spotlightButton, shareButton]) {
+      await expect(button).toBeVisible();
+      const box = await button.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBe(37);
+      expect(box!.width).toBe(37);
+    }
 
     await controls.getByTestId("connection-status").hover();
     await expect(page.getByRole("tooltip")).toHaveText(/^(Connecting|Live|Synced)$/);
@@ -104,6 +111,16 @@ test.describe("landing and room entry", () => {
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(controls.getByTestId("site-tools-status")).toHaveCount(0);
     await expect(controls.getByText("44", { exact: true })).toHaveCount(0);
+
+    await spotlightButton.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Spotlight");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+    await shareButton.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Share board");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
 
     const peopleButton = controls.getByRole("button", { name: "Show people in this room" });
     await peopleButton.hover();

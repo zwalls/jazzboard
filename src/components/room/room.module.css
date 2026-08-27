@@ -182,6 +182,17 @@ button.compactIndicator:hover {
   white-space: nowrap;
 }
 
+.iconControlButton {
+  flex: 0 0 37px;
+  padding: 0;
+  width: 37px;
+}
+
+.iconControlButton:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.24);
+  outline: 0;
+}
+
 .spotlightButton {
   background: var(--brand);
   color: white;
@@ -225,6 +236,10 @@ button.compactIndicator:hover {
 
 .compactIndicator[role="status"] {
   cursor: help;
+}
+
+.tooltipTrigger {
+  position: relative;
 }
 
 .compactIndicator:focus-visible {
@@ -297,16 +312,27 @@ button.compactIndicator:hover {
   z-index: 20;
 }
 
-.compactIndicator:hover .compactTooltip,
-.compactIndicator:focus-visible .compactTooltip {
+.tooltipTrigger:hover .compactTooltip,
+.tooltipTrigger:focus-visible .compactTooltip {
   opacity: 1;
   transform: translate(-50%, 0);
   visibility: visible;
 }
 
-.compactIndicator[aria-expanded="true"] .compactTooltip {
+.tooltipTrigger[aria-expanded="true"] .compactTooltip {
   opacity: 0;
   visibility: hidden;
+}
+
+.tooltipAlignEnd {
+  left: auto;
+  right: 0;
+  transform: translate(0, -3px);
+}
+
+.tooltipTrigger:hover .tooltipAlignEnd,
+.tooltipTrigger:focus-visible .tooltipAlignEnd {
+  transform: translate(0, 0);
 }
 
 .popoverAnchor {
@@ -1647,8 +1673,6 @@ button.compactIndicator:hover {
 
   .roomControls {
     max-width: calc(100vw - (2 * var(--room-edge-inset)));
-    overflow-x: auto;
-    scrollbar-width: none;
   }
 
   .secondaryIndicators,
