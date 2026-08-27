@@ -3,12 +3,24 @@
 import type { ApiFailure } from "@/lib/client/api";
 import type { FollowTarget, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
 
+import type {
+  CanvasPreviewArtifact,
+  CanvasPreviewPresenter,
+  CanvasPreviewRenderRequest,
+  CanvasPreviewTransportAdapter,
+} from "./canvas-preview";
+
 /** The narrow bridge the room UI supplies to the WebMCP client layer. */
 export interface JazzboardWebMcpContext {
   getRoom(): RoomState | null;
   getSelection(): readonly string[];
   getViewport(): Viewport | null;
   getFollowTarget(): FollowTarget;
+  renderCanvasPreview?(
+    request: CanvasPreviewRenderRequest,
+    signal: AbortSignal,
+  ): Promise<CanvasPreviewArtifact>;
+  presentCanvasPreview?: CanvasPreviewPresenter;
   acceptRoom(room: RoomState): void;
   setFollowTarget(target: FollowTarget): void;
   setDeclinedSpotlight(startedAt: number | null): void;
@@ -41,6 +53,7 @@ export type JazzboardToolResult<T = unknown> = JazzboardToolSuccess<T> | Jazzboa
 export type JazzboardWebMcpDependencies = {
   request?: WebMcpRequest;
   createId?: (prefix: string) => string;
+  canvasPreviewTransport?: CanvasPreviewTransportAdapter;
 };
 
 export type JazzboardWebMcpRegistrationStatus = {

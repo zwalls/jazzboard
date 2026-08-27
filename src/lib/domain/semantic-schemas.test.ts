@@ -65,7 +65,7 @@ describe("deterministic layout schemas", () => {
         layout: "hierarchy",
         targets: [{ objectId: "api", expectedRevision: 3 }],
       }),
-    ).toMatchObject({ direction: "right", primaryGap: 160, secondaryGap: 100 });
+    ).toMatchObject({ direction: "right", density: "comfortable" });
 
     expect(
       layoutCommandSchema.safeParse({
@@ -86,5 +86,16 @@ describe("deterministic layout schemas", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts compact density and treats numeric gaps as optional caller minima", () => {
+    expect(
+      layoutCommandSchema.parse({
+        layout: "flow",
+        density: "compact",
+        primaryGap: 120,
+        targets: [{ objectId: "api", expectedRevision: 3 }],
+      }),
+    ).toMatchObject({ density: "compact", primaryGap: 120 });
   });
 });

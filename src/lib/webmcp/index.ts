@@ -55,6 +55,17 @@ export {
   JAZZBOARD_WEBMCP_TOOL_NAMES,
   createJazzboardWebMcpTools,
 } from "./tools";
+export { InRoomCanvasPreviewTransport } from "./in-room-preview-transport";
+export {
+  CANVAS_PREVIEW_DEFAULTS,
+  CANVAS_PREVIEW_LIMITS,
+  CanvasPreviewError,
+  renderCanvasPreview,
+} from "./canvas-preview";
+export {
+  createJazzboardPreviewWebMcpTools,
+  JAZZBOARD_PREVIEW_TOOL_NAMES,
+} from "./preview-tools";
 export type {
   JazzboardToolFailure,
   JazzboardToolResult,
@@ -64,6 +75,14 @@ export type {
   JazzboardWebMcpDependencies,
   JazzboardWebMcpRegistrationStatus,
 } from "./types";
+export type {
+  CanvasPreviewArtifact,
+  CanvasPreviewMetadata,
+  CanvasPreviewPresentation,
+  CanvasPreviewPresenter,
+  CanvasPreviewRenderRequest,
+  CanvasPreviewTransportAdapter,
+} from "./canvas-preview";
 export type {
   JazzboardLandingWebMcpBinding,
   JazzboardLandingWebMcpContext,

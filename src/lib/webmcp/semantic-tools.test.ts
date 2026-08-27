@@ -159,8 +159,18 @@ function tool(tools: WebMCP.ModelContextTool[], name: string) {
 }
 
 type JsonSchema = {
+  type?: string;
   const?: unknown;
+  $ref?: string;
+  $defs?: Record<string, JsonSchema>;
   required?: string[];
+  additionalProperties?: boolean;
+  minProperties?: number;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
   oneOf?: JsonSchema[];
@@ -178,7 +188,13 @@ function operationSchema(schema: JsonSchema, op: string): JsonSchema {
   const items = schema.properties?.operations?.items;
   const variants = items?.oneOf ?? items?.anyOf ?? [];
   const match = variants.find((variant) => variant.properties?.op?.const === op);
-  if (match) return match;
+  if (match) {
+    return {
+      ...items,
+      ...match,
+      required: [...(items?.required ?? []), ...(match.required ?? [])],
+    };
+  }
   const conditional = items?.allOf?.find(
     (variant) => variant.if?.properties?.op?.const === op,
   );
@@ -234,6 +250,121 @@ describe("role-scoped semantic tool registration", () => {
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(expect.arrayContaining(["op", "tempRef", "title"]));
     expect(batchDiagramRequired).not.toContain("diagramId");
+
+    const autoLayoutRequired = operationSchema(transactionSchema, "auto_layout").required ?? [];
+    expect(autoLayoutRequired).toEqual(expect.arrayContaining(["op", "layout", "targets"]));
+    expect(autoLayoutRequired).not.toContain("density");
+  });
+
+  it("keeps the advertised transaction update patch aligned with strict runtime validation", async () => {
+    const state = room();
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: [],
+      membershipObjectIds: [],
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+    const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
+    const patchSchema = transactionSchema.$defs?.patch;
+    const acceptedPatch = {
+      x: 1,
+      y: 2,
+      width: 300,
+      height: 180,
+      rotation: 0.25,
+      zIndex: 8,
+      groupId: null,
+      content: "Updated content",
+      color: "black",
+      size: "l",
+      align: "middle",
+      shape: "ellipse",
+      nodeType: "decision",
+      nodeMetadata: {
+        kind: "decision",
+        status: "accepted",
+        owner: "Platform",
+        resolution: "Use signed sessions.",
+      },
+      label: "Updated label",
+      fill: "blue",
+      stroke: "black",
+      start: { x: 10, y: 20, objectId: null },
+      end: { x: 30, y: 40, objectId: "db" },
+      direction: "both",
+      alt: "Accessible description",
+      locked: true,
+    };
+
+    expect(patchSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      minProperties: 1,
+    });
+    expect(Object.keys(patchSchema?.properties ?? {})).toEqual(Object.keys(acceptedPatch));
+    expect(patchSchema?.properties?.width).toMatchObject({
+      type: "number",
+      exclusiveMinimum: 0,
+      maximum: 100_000,
+    });
+    expect(patchSchema?.properties?.content).toMatchObject({ type: "string", maxLength: 20_000 });
+    expect(patchSchema?.properties?.start).toEqual({ $ref: "#/$defs/connectorEndpoint" });
+    expect(patchSchema?.properties?.nodeMetadata?.anyOf).toEqual([
+      { $ref: "#/$defs/nodeMetadata" },
+      { type: "null" },
+    ]);
+    const metadataVariants = transactionSchema.$defs?.nodeMetadata?.oneOf ?? [];
+    for (const [kind, unresolvedStatus, resolvedStatuses] of [
+      ["decision", "proposed", ["accepted", "rejected", "superseded"]],
+      ["open_question", "open", ["answered", "deferred", "closed"]],
+    ] as const) {
+      const variant = metadataVariants.find((candidate) => candidate.properties?.kind?.const === kind);
+      expect(variant).toMatchObject({ additionalProperties: false, required: ["kind"] });
+      expect(variant?.allOf).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          if: { properties: { status: { const: unresolvedStatus } } },
+          then: { properties: { resolution: { type: "null" } } },
+        }),
+        expect.objectContaining({
+          if: {
+            required: ["status"],
+            properties: { status: { enum: [...resolvedStatuses] } },
+          },
+          then: expect.objectContaining({ required: ["resolution"] }),
+        }),
+      ]));
+    }
+
+    const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
+    });
+    expect(accepted).toMatchObject({ ok: true });
+    const requestBody = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
+    ));
+    expect(requestBody.transaction.commands[0].patch).toEqual(acceptedPatch);
+
+    const rejected = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: { surprise: true } }],
+    });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    for (const nodeMetadata of [
+      { kind: "decision", status: "proposed", resolution: "Too early" },
+      { kind: "decision", status: "accepted", resolution: null },
+      { kind: "open_question", status: "open", resolution: "Too early" },
+      { kind: "open_question", status: "closed", resolution: null },
+    ]) {
+      const lifecycleRejected = await execute(tool(tools, "apply_canvas_transaction"), {
+        operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: { nodeMetadata } }],
+      });
+      expect(lifecycleRejected).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    }
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -446,6 +577,8 @@ describe("transactional semantic mutations", () => {
       },
     });
     expect(authoritative.objects.node_1).toMatchObject({ nodeType: "service", diagramIds: ["checkout-architecture"] });
+    expect(authoritative.objects.node_1).toMatchObject({ x: 0, y: 0 });
+    expect(authoritative.objects.node_2).toMatchObject({ x: 500, y: 0 });
     expect(authoritative.objects.connector_1).toMatchObject({
       start: { objectId: "node_1" },
       end: { objectId: "node_2" },
@@ -470,6 +603,114 @@ describe("transactional semantic mutations", () => {
 
     expect(leakedAlias).toMatchObject({ ok: false, error: { code: "UNRESOLVED_TEMP_REF" } });
     expect((request as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(callsBefore);
+  });
+
+  it("resolves temporary object and Diagram refs into one atomic comfortable auto-layout", async () => {
+    const local = fixture(room([]));
+    let authoritative = local.getRoom();
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        action: "transaction";
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(authoritative, "alice", "agent", body.transaction, NOW + 110);
+      authoritative = result.room;
+      return { ok: true, ...result };
+    }) as unknown as WebMcpRequest;
+    const ids = ["node_client", "node_api", "connector_auth", "diagram_auth"];
+    const tools = createJazzboardSemanticWebMcpTools(local.binding, {
+      request,
+      createId: () => ids.shift()!,
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_node", tempRef: "client", label: "Client", nodeType: "component" },
+        { op: "create_node", tempRef: "api", label: "API", nodeType: "service" },
+        {
+          op: "connect",
+          tempRef: "auth",
+          start: { tempRef: "client" },
+          end: { tempRef: "api" },
+          label: "authorize signed cookie",
+        },
+        {
+          op: "create_diagram",
+          tempRef: "diagram",
+          title: "Authorization",
+          members: [{ tempRef: "client" }, { tempRef: "api" }],
+          connectors: [{ tempRef: "auth" }],
+        },
+        {
+          op: "auto_layout",
+          layout: "flow",
+          density: "comfortable",
+          origin: { x: 100, y: 200 },
+          targets: ["client", "api"],
+          diagramTempRef: "diagram",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        positions: [
+          { objectId: "node_client", x: 100, y: 200 },
+          { objectId: "node_api", x: 690, y: 200 },
+        ],
+      },
+    });
+    expect(authoritative.objects.node_client).toMatchObject({ revision: 1, x: 100, y: 200 });
+    expect(authoritative.objects.node_api).toMatchObject({ revision: 1, x: 690, y: 200 });
+    expect(authoritative.objects.connector_auth).toMatchObject({ revision: 1 });
+    expect(authoritative.diagrams.diagram_auth).toMatchObject({ revision: 1 });
+  });
+
+  it("rejects explicit coordinates on auto-layout targets before mutation", async () => {
+    const request = vi.fn() as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(room([])).binding, {
+      request,
+      createId: () => "node_1",
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_node", tempRef: "node", label: "Layered node", nodeType: "component", x: 40, y: 40 },
+        { op: "auto_layout", layout: "flow", targets: ["node"] },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("uses shared comfortable spacing and column maxima for unspecified batch coordinates", async () => {
+    const local = fixture(room([]));
+    let authoritative = local.getRoom();
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(authoritative, "alice", "agent", body.transaction, NOW + 115);
+      authoritative = result.room;
+      return { ok: true, ...result };
+    }) as unknown as WebMcpRequest;
+    const ids = ["wide", "next"];
+    const tools = createJazzboardSemanticWebMcpTools(local.binding, {
+      request,
+      createId: () => ids.shift()!,
+    });
+
+    await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_shape", tempRef: "wide", width: 700 },
+        { op: "create_shape", tempRef: "next" },
+      ],
+    });
+
+    expect(authoritative.objects.wide).toMatchObject({ x: 80, y: 80, width: 700 });
+    expect(authoritative.objects.next).toMatchObject({ x: 940, y: 80 });
   });
 
   it("carries lifecycle metadata and review intent through one atomic transaction", async () => {

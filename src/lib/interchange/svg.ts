@@ -1,3 +1,5 @@
+import { connectorLabelBounds, connectorLabelMetrics } from "@/lib/domain/layout";
+
 import { parseJazzboardArtifactV1 } from "./schemas";
 import { sortArtifactWarnings } from "./project";
 import type {
@@ -9,6 +11,12 @@ import type {
 
 type ArtifactObject = JazzboardArtifactV1["objects"][number];
 type Coordinate = { x: number; y: number };
+type ConnectorObject = Extract<ArtifactObject, { kind: "connector" }>;
+
+const CONNECTOR_LABEL_FONT_SIZE = 20;
+const CONNECTOR_LABEL_LINE_HEIGHT = 27;
+const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
+const CONNECTOR_LABEL_TOTAL_INSET = 9;
 
 const COLORS: Readonly<Record<string, string>> = {
   black: "#1d1d1d",
@@ -92,6 +100,70 @@ function geometryPoints(object: ArtifactObject): Coordinate[] {
   ].map((point) => rotatedPoint(point, object.rotation, center));
 }
 
+function wrapConnectorLine(value: string, maxGraphemes: number): string[] {
+  const graphemes = Array.from(value);
+  const targetLineCount = Math.max(1, Math.ceil(graphemes.length / maxGraphemes));
+  if (targetLineCount === 1) return [value];
+  const lines: string[] = [];
+  let offset = 0;
+  for (let lineIndex = 0; lineIndex < targetLineCount - 1; lineIndex += 1) {
+    const remainingLines = targetLineCount - lineIndex;
+    const remainingGraphemes = graphemes.length - offset;
+    const minimumTake = Math.max(1, remainingGraphemes - (remainingLines - 1) * maxGraphemes);
+    const maximumTake = Math.min(maxGraphemes, remainingGraphemes - (remainingLines - 1));
+    const idealTake = Math.min(
+      maximumTake,
+      Math.max(minimumTake, Math.round(remainingGraphemes / remainingLines)),
+    );
+    let take = idealTake;
+    let nearestBoundaryDistance = Number.POSITIVE_INFINITY;
+    for (let candidate = minimumTake; candidate <= maximumTake; candidate += 1) {
+      if (!/\s/u.test(graphemes[offset + candidate] ?? "")) continue;
+      let nextOffset = offset + candidate;
+      while (/\s/u.test(graphemes[nextOffset] ?? "")) nextOffset += 1;
+      if (graphemes.length - nextOffset < remainingLines - 1) continue;
+      const distance = Math.abs(candidate - idealTake);
+      if (distance < nearestBoundaryDistance) {
+        take = candidate;
+        nearestBoundaryDistance = distance;
+      }
+    }
+    const line = graphemes.slice(offset, offset + take).join("").trim();
+    if (line) lines.push(line);
+    offset += take;
+    while (/\s/u.test(graphemes[offset] ?? "")) offset += 1;
+  }
+  const finalLine = graphemes.slice(offset).join("").trim();
+  if (finalLine) lines.push(finalLine);
+  return lines;
+}
+
+function connectorLabelLayout(object: ConnectorObject) {
+  const metrics = connectorLabelMetrics(object.label);
+  if (!metrics.normalizedLines.length) return null;
+  const maxGraphemes = Math.max(
+    1,
+    Math.floor((metrics.width - CONNECTOR_LABEL_TOTAL_INSET) / CONNECTOR_LABEL_GRAPHEME_WIDTH),
+  );
+  const lines = metrics.normalizedLines.flatMap((line) => wrapConnectorLine(line, maxGraphemes));
+  const bounds = connectorLabelBounds(object.label, object.start, object.end)!;
+  const width = bounds.width;
+  const height = bounds.height;
+  const centerX = (object.start.x + object.end.x) / 2;
+  const centerY = (object.start.y + object.end.y) / 2;
+  return {
+    x: bounds.x,
+    y: bounds.y,
+    width,
+    height,
+    centerX,
+    firstTextY:
+      centerY - ((lines.length - 1) * CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
+      CONNECTOR_LABEL_FONT_SIZE * 0.35,
+    lines,
+  };
+}
+
 function renderBounds(artifact: JazzboardArtifactV1, padding: number) {
   let minX = artifact.bounds.x;
   let minY = artifact.bounds.y;
@@ -103,6 +175,15 @@ function renderBounds(artifact: JazzboardArtifactV1, padding: number) {
       minY = Math.min(minY, point.y);
       maxX = Math.max(maxX, point.x);
       maxY = Math.max(maxY, point.y);
+    }
+    if (object.kind === "connector") {
+      const label = connectorLabelLayout(object);
+      if (label) {
+        minX = Math.min(minX, label.x);
+        minY = Math.min(minY, label.y);
+        maxX = Math.max(maxX, label.x + label.width);
+        maxY = Math.max(maxY, label.y + label.height);
+      }
     }
   }
   minX -= padding;
@@ -194,15 +275,24 @@ function renderShape(object: Extract<ArtifactObject, { kind: "shape" }>): string
   return `<g${rotation(object)}>${geometry}${label}</g>`;
 }
 
-function renderConnector(object: Extract<ArtifactObject, { kind: "connector" }>): string {
+function renderConnector(object: ConnectorObject): string {
   const stroke = color(object.color, "#1d1d1d");
   const markerStart = object.direction === "both" ? ' marker-start="url(#jazzboard-arrow-start)"' : "";
   const markerEnd = object.direction === "none" ? "" : ' marker-end="url(#jazzboard-arrow-end)"';
   const line = `<line x1="${number(object.start.x)}" y1="${number(object.start.y)}" x2="${number(object.end.x)}" y2="${number(object.end.y)}" stroke="${stroke}" stroke-width="2" stroke-linecap="round"${markerStart}${markerEnd}/>`;
-  if (!object.label.trim()) return line;
-  const x = (object.start.x + object.end.x) / 2;
-  const y = (object.start.y + object.end.y) / 2 - 7;
-  return `${line}${textLines([object.label.replace(/\s+/g, " ").slice(0, 240)], x, y, 16, "middle", stroke, 13)}`;
+  const label = connectorLabelLayout(object);
+  if (!label) return line;
+  const background = `<rect x="${number(label.x)}" y="${number(label.y)}" width="${number(label.width)}" height="${number(label.height)}" rx="6" fill="#ffffff" stroke="#d7dce3" stroke-width="1"/>`;
+  const text = textLines(
+    label.lines,
+    label.centerX,
+    label.firstTextY,
+    CONNECTOR_LABEL_LINE_HEIGHT,
+    "middle",
+    stroke,
+    CONNECTOR_LABEL_FONT_SIZE,
+  );
+  return `${line}<g>${background}${text}</g>`;
 }
 
 function renderImage(object: Extract<ArtifactObject, { kind: "image" }>): string {

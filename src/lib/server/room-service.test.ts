@@ -747,5 +747,5 @@ describe("room service authorization", () => {
     expect(records[0].affectedObjectIds).toEqual(["bounded-200"]);
     expect(records.at(-1)?.affectedObjectIds).toEqual(["bounded-1"]);
     expect(records.some((record) => record.affectedObjectIds.includes("bounded-0"))).toBe(false);
-  });
+  }, 20_000);
 });

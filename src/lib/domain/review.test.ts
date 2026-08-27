@@ -214,6 +214,14 @@ describe("agent edit review domain records", () => {
           },
         },
       ],
+      autoLayout: {
+        layout: "flow",
+        direction: "right",
+        density: "comfortable",
+        targets: [{ objectId: "api", expectedRevision: 1 }],
+        diagramId: "system",
+        expectedDiagramRevision: 1,
+      },
     };
     const sourceRoom = room([], [], 17);
     const proposal = buildAgentEditProposal({
@@ -226,6 +234,7 @@ describe("agent edit review domain records", () => {
     });
 
     transaction.commands[0] = { ...transaction.commands[0], type: "delete", targets: [] };
+    transaction.autoLayout!.density = "compact";
     expect(proposal).toMatchObject({
       id: "proposal-1",
       revision: 1,
@@ -236,14 +245,17 @@ describe("agent edit review domain records", () => {
       summary: "Add the room API container",
       purpose: {
         kind: "semantic_transaction",
-        operationCount: 2,
+        operationCount: 3,
         objectIds: ["api", "existing"],
         diagramIds: ["system"],
-        layout: null,
+        layout: "flow",
       },
       request: {
         kind: "semantic_transaction",
-        transaction: { commands: [expect.objectContaining({ type: "create" })] },
+        transaction: {
+          commands: [expect.objectContaining({ type: "create" })],
+          autoLayout: expect.objectContaining({ density: "comfortable", layout: "flow" }),
+        },
       },
     });
     expect(agentEditProposalSummary(proposal)).not.toHaveProperty("request");

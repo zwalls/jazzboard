@@ -182,18 +182,28 @@ export function agentEditProposalPurpose(request: AgentEditProposalRequest): Age
   const objectIds = uniqueSorted([
     ...request.transaction.commands.flatMap(commandObjectIds),
     ...diagramMemberIds,
+    ...(request.transaction.autoLayout?.targets.map((target) => target.objectId) ?? []),
   ]);
-  const diagramIds = uniqueSorted(request.transaction.diagramCommands.map((command) =>
-    command.type === "diagram.create" ? command.diagram.id : command.diagramId,
-  ));
-  const operationCount = request.transaction.commands.length + request.transaction.diagramCommands.length;
+  const diagramIds = uniqueSorted([
+    ...request.transaction.diagramCommands.map((command) =>
+      command.type === "diagram.create" ? command.diagram.id : command.diagramId,
+    ),
+    ...(request.transaction.autoLayout?.diagramId ? [request.transaction.autoLayout.diagramId] : []),
+  ]);
+  const operationCount =
+    request.transaction.commands.length +
+    request.transaction.diagramCommands.length +
+    (request.transaction.autoLayout ? 1 : 0);
+  const layoutSuffix = request.transaction.autoLayout
+    ? ` with ${request.transaction.autoLayout.density ?? "comfortable"} ${request.transaction.autoLayout.layout} layout`
+    : "";
   return {
     kind: request.kind,
-    label: `Proposed ${operationCount} semantic operation${operationCount === 1 ? "" : "s"}`,
+    label: `Proposed ${operationCount} semantic operation${operationCount === 1 ? "" : "s"}${layoutSuffix}`,
     operationCount,
     objectIds,
     diagramIds,
-    layout: null,
+    layout: request.transaction.autoLayout?.layout ?? null,
   };
 }
 

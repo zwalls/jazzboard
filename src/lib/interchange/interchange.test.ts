@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { connectorLabelMetrics } from "@/lib/domain/layout";
 import type { ActorRef, RoomState } from "@/lib/domain/types";
 
 import { renderDiagramMermaid } from "./mermaid";
@@ -315,6 +316,7 @@ describe("Jazzboard portable interchange", () => {
     expect(rendered.svg).toContain("&lt;script");
     expect(rendered.svg).toContain("src=&quot;https://private.invalid/x.js&quot;&gt;");
     expect(rendered.svg).not.toContain("<script");
+    expect(rendered.svg).not.toContain("<style");
     expect(rendered.svg).not.toContain("<foreignObject");
     expect(rendered.svg).not.toContain("<image");
     expect(rendered.svg).not.toMatch(/\shref\s*=/i);
@@ -323,6 +325,55 @@ describe("Jazzboard portable interchange", () => {
     expect(rendered.warnings.map((warning) => warning.code)).toContain("MEDIA_NOT_EMBEDDED");
     expect(rendered.width).toBeLessThanOrEqual(800);
     expect(rendered.height).toBeLessThanOrEqual(600);
+  });
+
+  it("wraps connector labels on a readable background and includes the full label box in view bounds", () => {
+    const artifact = projectJazzboardArtifact(roomFixture(), { kind: "room" });
+    const connector = artifact.objects.find((object) => object.id === "connector_ab");
+    expect(connector?.kind).toBe("connector");
+    if (!connector || connector.kind !== "connector") throw new Error("Missing connector fixture.");
+
+    connector.x = 100;
+    connector.y = 100;
+    connector.width = 20;
+    connector.height = 1;
+    connector.start = { x: 100, y: 100, objectId: null };
+    connector.end = { x: 120, y: 100, objectId: null };
+    connector.label =
+      "authorizes requests across a private guest session boundary and validates active-object leases\n<script>alert(1)</script>";
+    artifact.objects = [connector];
+    artifact.diagrams = [];
+    artifact.bounds = { x: 100, y: 100, width: 20, height: 1 };
+
+    const metrics = connectorLabelMetrics(connector.label);
+    const rendered = renderJazzboardSvg(artifact, { padding: 0, maxWidth: 8_192, maxHeight: 8_192 });
+    const labelBox = rendered.svg.match(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="6"/,
+    );
+    const viewBox = rendered.svg.match(/viewBox="([^"]+)"/);
+    expect(labelBox).not.toBeNull();
+    expect(viewBox).not.toBeNull();
+    if (!labelBox || !viewBox) throw new Error("Missing SVG label or view bounds.");
+
+    const [, rawLabelX, rawLabelY, rawLabelWidth, rawLabelHeight] = labelBox;
+    const [viewX, viewY, viewWidth, viewHeight] = viewBox[1].split(" ").map(Number);
+    const labelX = Number(rawLabelX);
+    const labelY = Number(rawLabelY);
+    const labelWidth = Number(rawLabelWidth);
+    const labelHeight = Number(rawLabelHeight);
+    expect(labelWidth).toBe(metrics.width);
+    expect(labelHeight).toBe(metrics.height);
+    expect(viewX).toBeLessThanOrEqual(labelX);
+    expect(viewY).toBeLessThanOrEqual(labelY);
+    expect(viewX + viewWidth).toBeGreaterThanOrEqual(labelX + labelWidth);
+    expect(viewY + viewHeight).toBeGreaterThanOrEqual(labelY + labelHeight);
+    expect(rendered.svg.match(/<tspan /g)?.length).toBeGreaterThan(2);
+    expect(rendered.svg).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(rendered.svg).not.toContain("<script");
+    expect(rendered.svg).not.toContain("<style");
+    expect(rendered.svg).not.toContain("<foreignObject");
+    expect(rendered.svg).not.toContain("<image");
+    expect(rendered.svg).not.toMatch(/\shref\s*=/i);
   });
 
   it("strips audit fields and plans a fresh, shifted, relationship-safe create transaction", () => {

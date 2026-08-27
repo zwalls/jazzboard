@@ -19,10 +19,10 @@ import { JAZZBOARD_SNAPSHOT_ROOM_TOOL_NAMES } from "@/lib/webmcp/snapshot-room-t
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 export const JAZZBOARD_ORIGIN = "https://jazzboard-rho.vercel.app";
-export const AGENT_DOC_VERSION = "1.1.0";
-export const AGENT_DOC_LAST_UPDATED = "2026-08-26";
+export const AGENT_DOC_VERSION = "1.2.0";
+export const AGENT_DOC_LAST_UPDATED = "2026-08-27";
 export const JAZZBOARD_SKILL_DESCRIPTION =
-  "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, reviewing, reverting, exporting, templating, or privately snapshotting its semantic canvas and diagrams; or managing Follow and Spotlight without visual browser automation.";
+  "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, laying out, visually checking, reviewing, reverting, exporting, templating, or privately snapshotting its semantic canvas and diagrams; or managing Follow and Spotlight without visual browser automation.";
 
 /** Public readiness documents consume the executable registration inventories directly. */
 export const LANDING_TOOL_NAMES = JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES;
@@ -122,7 +122,7 @@ export function makeHomepageMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "## Semantic canvas",
     "",
-    "Agents read stable object and Diagram IDs, explicit node classifications, exact geometry, semantic connector relationships, revisions, and attribution. Decision nodes carry structured proposed/accepted/rejected/superseded status, owner, and resolution; open questions carry open/answered/deferred/closed status, owner, and resolution. Efficient operations include bounded queries, neighborhood reads, deterministic layout, and all-or-nothing transactions with temporary references.",
+    "Agents read stable object and Diagram IDs, explicit node classifications, exact geometry, semantic connector relationships, revisions, and attribution. Decision nodes carry structured proposed/accepted/rejected/superseded status, owner, and resolution; open questions carry open/answered/deferred/closed status, owner, and resolution. Efficient operations include bounded queries, neighborhood reads, comfortable label-aware layout, all-or-nothing transactions with temporary references, and exact revision-guarded tldraw previews for visual checking.",
     "",
     "## Traceable agent work",
     "",
@@ -194,9 +194,13 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "Existing-object and existing-diagram edits require the exact current revision returned by a read. Supply a current lease ID when an active edit owns one. On `REVISION_CONFLICT` or `OBJECT_BUSY`, do not retry blindly: read the affected semantic unit again, reconsider intent, and retry only if it remains correct.",
     "`roomRevision` is the durable semantic document revision used by room-level preconditions. `stateRevision` is an aggregate synchronization watermark that may advance for presence, Spotlight, or lease activity without changing canvas content. Never substitute `stateRevision` for an `expectedRoomRevision` field.",
     "",
-    "Use `apply_canvas_transaction` for a coherent multi-node change. It can create and update nodes, shapes, text, connectors, and diagrams atomically; temporary references let connectors and diagram membership target objects created earlier in the same call. Any invalid reference, stale revision, active lease conflict, permission failure, or membership error rejects the whole transaction.",
+    "Use `apply_canvas_transaction` for a coherent multi-node change. It can create and update nodes, shapes, text, connectors, and diagrams atomically; temporary references let connectors and diagram membership target objects created earlier in the same call. Add at most one `auto_layout` operation to arrange node, shape, or text temporary references—and optionally a new Diagram temporary reference—inside that same all-or-nothing commit. Existing objects use the separate revision- and lease-checked `layout_objects` tool. Any invalid reference, stale revision, active lease conflict, permission failure, or membership error rejects the whole transaction.",
     "",
-    "Use `layout_objects` for deterministic flow, grid, or hierarchy layout. It preserves object IDs and semantic connector attachments and updates Diagram bounds. Use explicit node types (`service`, `component`, `requirement`, `decision`, or `open_question`); never infer classification from color or shape.",
+    "Use `layout_objects` for deterministic flow, grid, or hierarchy layout. `comfortable` density is the default and expands individual corridors to keep connector labels readable; `compact` is an explicit tighter minimum. Numeric gaps are caller minima, not a request to clip labels. The operation preserves object IDs and semantic connector attachments and updates label-aware Diagram bounds.",
+    "",
+    "Automatic layout is opt-in. To draw a character, stack cards, overlay annotations, or otherwise preserve deliberate overlap, provide exact `x` and `y` coordinates and omit `auto_layout`/`layout_objects`. A new object cannot be both explicitly positioned and targeted by transaction `auto_layout`; split those intentions instead of asking Jazzboard to guess.",
+    "",
+    "Use explicit node types (`service`, `component`, `requirement`, `decision`, or `open_question`); never infer classification from color or shape.",
     "",
     "Decision nodes use `proposed`, `accepted`, `rejected`, or `superseded`; open-question nodes use `open`, `answered`, `deferred`, or `closed`. Both can carry an owner and resolution. A proposed decision or open question cannot already contain a resolution, while every resolved decision or non-open question requires one. Jazzboard manages `resolvedAt` on committed state.",
     "",
@@ -215,6 +219,8 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "## Export, reuse, and snapshot",
     "",
     "`export_canvas_artifact` returns an authorized board, Diagram, or exact selection as privacy-safe semantic JSON or fixed-vocabulary SVG; it returns one exact Diagram as directive-free Mermaid. Portable attribution contains display name and human/agent kind, never participant IDs or colors. Room codes, sessions, presence, leases, private image URLs, and out-of-scope connector IDs are omitted; image geometry becomes a placeholder with warnings. PNG is not a server or WebMCP format: the visual client rasterizes the safe SVG locally.",
+    "",
+    "`render_canvas_preview` is a separate participant-only visual verification operation, not an export or shared mutation. Supply exact object IDs with current revisions, or one exact Diagram ID and revision. Jazzboard renders the authoritative tldraw projection into a bounded temporary PNG surface containing only that scope, then returns `screenshotClip` in viewport CSS pixels. Capture that exact clip before `expiresAt`, inspect the resulting image, and dismiss it when finished. Current WebMCP serializes tool results as JSON rather than native image content, so the screenshot step is required; never try to open a returned Blob URL, and never infer a viewport, selection, or “last created” scope.",
     "",
     "`create_diagram_template` converts one authorized Diagram into an audit-free, create-only template. Images are rejected rather than copied. `instantiate_diagram_template` requires the exact room revision, plans an atomic transaction at the requested origin, replaces every object, Diagram, and group identity with a fresh ID, returns the ID map, and follows the room's live-or-review policy.",
     "",
@@ -260,7 +266,7 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     toolList(ROOM_PARTICIPANT_TOOL_NAMES),
     "",
-    `The participant surface combines passive reads with ${ROOM_PARTICIPANT_ONLY_TOOL_NAMES.length} participant-only editing, collaboration, review-policy, template, and snapshot operations. Successful shared mutations are attributed to the participant-owned agent selected from the signed session; callers cannot supply another actor. Server-side role, revisions, leases, review policy, and transaction validation remain authoritative.`,
+    `The participant surface combines passive reads with ${ROOM_PARTICIPANT_ONLY_TOOL_NAMES.length} participant-only editing, collaboration, local visual-verification, review-policy, template, and snapshot operations. Successful shared mutations are attributed to the participant-owned agent selected from the signed session; callers cannot supply another actor. Server-side role, revisions, leases, review policy, and transaction validation remain authoritative.`,
     "",
     `## Spectator room — ${ROOM_SPECTATOR_TOOL_NAMES.length} passive tools`,
     "",
@@ -285,7 +291,7 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "The agent edit policy is either live or review-before-apply. `enable_agent_review` can only tighten the policy. There is intentionally no WebMCP tool to approve or reject a proposal or return review mode to live; only a human participant can make those decisions.",
     "",
-    "Semantic JSON, directive-free Mermaid, and fixed-vocabulary SVG are server export formats. The visual client can produce PNG by rasterizing the safe SVG locally; PNG is intentionally absent from WebMCP export schemas. Reusable Diagram templates strip source-room audit state and instantiate with fresh IDs through the same live-or-review gate. Snapshot creation returns its high-entropy path once; no tool can recover it later.",
+    "Semantic JSON, directive-free Mermaid, and fixed-vocabulary SVG are server export formats. The visual client can produce PNG by rasterizing the safe SVG locally; PNG is intentionally absent from WebMCP export schemas. The participant-only `render_canvas_preview` tool instead renders an exact revision-guarded tldraw scope into a temporary in-room surface and returns a viewport screenshot clip for immediate visual inspection; it does not persist or export that image. Reusable Diagram templates strip source-room audit state and instantiate with fresh IDs through the same live-or-review gate. Snapshot creation returns its high-entropy path once; no tool can recover it later.",
     "",
     "## Efficient operation map",
     "",
@@ -300,10 +306,11 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "| Compensate one unchanged activity safely | `revert_activity` with every returned guard |",
     "| Inspect review mode or a pending exact request | `list_agent_edit_proposals` / `read_agent_edit_proposal` |",
     "| Tighten future agent edits to human review | `enable_agent_review` |",
-    "| Create a coherent multi-node diagram | `apply_canvas_transaction` |",
+    "| Create and comfortably arrange a coherent multi-node diagram atomically | `apply_canvas_transaction` with one `auto_layout` operation |",
     "| Create only a diagram container around known objects | `create_diagram` |",
     "| Change diagram metadata or membership | `edit_diagram` |",
     "| Arrange known revision-checked objects | `layout_objects` |",
+    "| Visually inspect exact object or Diagram revisions | `render_canvas_preview`, then capture its returned `screenshotClip` |",
     "| Inspect collaboration state | `read_collaboration_state` |",
     "| Move the shared agent viewport | `focus_viewport` |",
     "| Export a redacted board, Diagram, or selection | `export_canvas_artifact` |",

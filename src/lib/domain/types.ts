@@ -535,22 +535,28 @@ export type DiagramCommand =
 export type SemanticTransaction = {
   commands: CanvasCommand[];
   diagramCommands: DiagramCommand[];
+  /** Optional post-create layout committed inside the same all-or-nothing transaction. */
+  autoLayout?: LayoutCommand;
 };
 
 export type LayoutKind = "flow" | "grid" | "hierarchy";
 export type LayoutDirection = "right" | "down";
+export type LayoutDensity = "comfortable" | "compact";
 
 export type LayoutCommand = {
   layout: LayoutKind;
   direction: LayoutDirection;
+  density?: LayoutDensity;
   targets: Array<{
     objectId: string;
     expectedRevision: number;
     leaseId?: string;
   }>;
   origin?: Point;
-  primaryGap: number;
-  secondaryGap: number;
+  /** Optional caller minimum; density and connector-label clearance can make it larger. */
+  primaryGap?: number;
+  /** Optional caller minimum; density and connector-label clearance can make it larger. */
+  secondaryGap?: number;
   columns?: number;
   diagramId?: string;
   expectedDiagramRevision?: number;

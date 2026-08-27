@@ -84,9 +84,9 @@ describe("semantic mutation route authorization", () => {
       layout: expect.objectContaining({
         layout: "flow",
         direction: "right",
-        primaryGap: 160,
-        secondaryGap: 100,
+        density: "comfortable",
       }),
+      metadata: undefined,
     });
   });
 

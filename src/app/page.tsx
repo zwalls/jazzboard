@@ -32,7 +32,7 @@ const structuredData = {
         "Conflict-safe revision checks and active-object leases",
       ],
       isAccessibleForFree: true,
-      dateModified: "2026-08-26",
+      dateModified: "2026-08-27",
     },
     {
       "@type": "BreadcrumbList",

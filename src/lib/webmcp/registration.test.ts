@@ -31,6 +31,12 @@ function context(): JazzboardWebMcpContext {
     getSelection: () => [],
     getViewport: () => null,
     getFollowTarget: () => null,
+    renderCanvasPreview: async () => {
+      throw new Error("not executed by registration tests");
+    },
+    presentCanvasPreview: async () => {
+      throw new Error("not executed by registration tests");
+    },
     acceptRoom: () => undefined,
     setFollowTarget: () => undefined,
     setDeclinedSpotlight: () => undefined,
@@ -44,6 +50,13 @@ function binding(roomId: string, role: "participant" | "spectator"): JazzboardWe
 
 function requestMock() {
   return vi.fn(async () => ({ ok: true, room: {} as RoomState })) as unknown as WebMcpRequest;
+}
+
+function participantDependencies() {
+  return {
+    request: requestMock(),
+    canvasPreviewTransport: { emit: vi.fn() },
+  };
 }
 
 describe("JazzboardWebMcpRegistrar", () => {
@@ -61,7 +74,7 @@ describe("JazzboardWebMcpRegistrar", () => {
   it("imperatively registers the participant surface with abort-signal cleanup", async () => {
     const modelContext = new FakeModelContext();
     const registrar = new JazzboardWebMcpRegistrar(
-      { request: requestMock() },
+      participantDependencies(),
       () => modelContext as unknown as WebMCP.ModelContext,
     );
 
@@ -137,7 +150,7 @@ describe("JazzboardWebMcpRegistrar", () => {
   it("registers only read-only tools for spectators", async () => {
     const modelContext = new FakeModelContext();
     const registrar = new JazzboardWebMcpRegistrar(
-      {},
+      participantDependencies(),
       () => modelContext as unknown as WebMCP.ModelContext,
     );
 
@@ -154,7 +167,7 @@ describe("JazzboardWebMcpRegistrar", () => {
   it("unregisters every participant tool immediately when the role becomes spectator", async () => {
     const modelContext = new FakeModelContext();
     const registrar = new JazzboardWebMcpRegistrar(
-      {},
+      participantDependencies(),
       () => modelContext as unknown as WebMCP.ModelContext,
     );
 
@@ -172,7 +185,7 @@ describe("JazzboardWebMcpRegistrar", () => {
   it("cleans up old room handlers before registering a new room", async () => {
     const modelContext = new FakeModelContext();
     const registrar = new JazzboardWebMcpRegistrar(
-      {},
+      participantDependencies(),
       () => modelContext as unknown as WebMCP.ModelContext,
     );
 
@@ -197,7 +210,7 @@ describe("JazzboardWebMcpRegistrar", () => {
       throw new Error("registration failed");
     });
     const registrar = new JazzboardWebMcpRegistrar(
-      {},
+      participantDependencies(),
       () => modelContext as unknown as WebMCP.ModelContext,
     );
 

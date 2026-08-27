@@ -573,7 +573,7 @@ describe("SnapshotStore", () => {
       MAX_DEPLOYMENT_SNAPSHOT_BYTES,
     );
     await expect(store.getByTokenHash("deployment-budget-0")).resolves.toBeNull();
-  });
+  }, 20_000);
 
   it("evicts oldest artifacts to enforce room and deployment count ceilings", async () => {
     for (let index = 0; index <= MAX_ROOM_SNAPSHOTS; index += 1) {

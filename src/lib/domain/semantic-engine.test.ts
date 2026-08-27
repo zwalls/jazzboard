@@ -6,6 +6,7 @@ import {
   normalizeRoomSemanticState,
 } from "./engine";
 import { DomainError } from "./errors";
+import { connectorLabelBounds } from "./layout";
 import type {
   ActorRef,
   CanvasObject,
@@ -271,6 +272,176 @@ describe("atomic semantic transactions", () => {
     });
   });
 
+  it("creates and comfortably lays out a labeled Diagram atomically without double-revisioning creates", () => {
+    const source = room([]);
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [
+          {
+            type: "create",
+            object: {
+              id: "client",
+              kind: "shape",
+              x: 0,
+              y: 0,
+              width: 200,
+              height: 100,
+              rotation: 0,
+              zIndex: 1,
+              groupId: null,
+              shape: "rectangle",
+              nodeType: "component",
+              label: "Client",
+              fill: "blue",
+              stroke: "blue",
+            },
+          },
+          {
+            type: "create",
+            object: {
+              id: "api",
+              kind: "shape",
+              x: 0,
+              y: 0,
+              width: 200,
+              height: 100,
+              rotation: 0,
+              zIndex: 2,
+              groupId: null,
+              shape: "rectangle",
+              nodeType: "service",
+              label: "API",
+              fill: "green",
+              stroke: "green",
+            },
+          },
+          {
+            type: "create",
+            object: {
+              id: "auth",
+              kind: "connector",
+              x: 0,
+              y: 0,
+              width: 1,
+              height: 1,
+              rotation: 0,
+              zIndex: 3,
+              groupId: null,
+              start: { objectId: "client", x: 100, y: 50 },
+              end: { objectId: "api", x: 100, y: 50 },
+              direction: "end",
+              label: "authorize signed cookie",
+              color: "black",
+            },
+          },
+        ],
+        diagramCommands: [
+          {
+            type: "diagram.create",
+            diagram: {
+              id: "auth-flow",
+              title: "Authorization flow",
+              description: "",
+              diagramType: "architecture",
+              category: null,
+              tags: [],
+              memberObjectIds: ["client", "api"],
+              connectorIds: ["auth"],
+            },
+          },
+        ],
+        autoLayout: {
+          layout: "flow",
+          direction: "right",
+          density: "comfortable",
+          origin: { x: 100, y: 200 },
+          targets: [
+            { objectId: "client", expectedRevision: 1 },
+            { objectId: "api", expectedRevision: 1 },
+          ],
+          diagramId: "auth-flow",
+          expectedDiagramRevision: 1,
+        },
+      },
+      NOW + 215,
+    );
+
+    expect(result.positions).toEqual([
+      { objectId: "client", x: 100, y: 200 },
+      { objectId: "api", x: 610, y: 200 },
+    ]);
+    expect(result.room.objects.client).toMatchObject({ revision: 1, x: 100, y: 200 });
+    expect(result.room.objects.api).toMatchObject({ revision: 1, x: 610, y: 200 });
+    expect(result.room.objects.auth).toMatchObject({
+      revision: 1,
+      start: { objectId: "client", x: 300, y: 250 },
+      end: { objectId: "api", x: 610, y: 250 },
+    });
+    expect(result.room.diagrams["auth-flow"]).toMatchObject({ revision: 1 });
+  });
+
+  it("rolls back an embedded layout when a target revision is stale", () => {
+    const source = room([node("api", 0, 0, 2)]);
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(source, "alice", "agent", {
+        commands: [],
+        diagramCommands: [],
+        autoLayout: {
+          layout: "flow",
+          direction: "right",
+          targets: [{ objectId: "api", expectedRevision: 1 }],
+        },
+      }),
+    );
+
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { objectId: "api" } });
+    expect(source).toEqual(before);
+  });
+
+  it("rolls back an embedded layout when its derived connector is foreign-leased", () => {
+    const source = room([node("client", 0, 0), node("api", 400, 0), connector("edge", "client", "api")]);
+    source.leases.edge = {
+      leaseId: "bob-edge-lease",
+      objectId: "edge",
+      actor: actor(bob),
+      operation: "connect",
+      objectRevision: 1,
+      acquiredAt: NOW,
+      expiresAt: NOW + 4_000,
+    };
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applySemanticTransaction(
+        source,
+        "alice",
+        "agent",
+        {
+          commands: [],
+          diagramCommands: [],
+          autoLayout: {
+            layout: "flow",
+            direction: "right",
+            origin: { x: 100, y: 200 },
+            targets: [
+              { objectId: "client", expectedRevision: 1 },
+              { objectId: "api", expectedRevision: 1 },
+            ],
+          },
+        },
+        NOW + 100,
+      ),
+    );
+
+    expect(error).toMatchObject({ code: "OBJECT_BUSY", details: { objectId: "edge" } });
+    expect(source).toEqual(before);
+  });
+
   it("rejects cross-type semantic ID collisions atomically", () => {
     const source = room([node("payments", 0, 0)]);
     const before = structuredClone(source);
@@ -308,6 +479,26 @@ describe("atomic semantic transactions", () => {
 });
 
 describe("derived geometry and diagram integrity", () => {
+  it("includes a connector label's shared visual box in authoritative Diagram bounds", () => {
+    const edge = connector("edge", "api", "worker");
+    if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+    edge.label = "authorizes signed guest sessions across the private room boundary ".repeat(3).trim();
+    const source = room(
+      [node("api", 0, 0), node("worker", 400, 0), edge],
+      [diagram(["api", "worker"], ["edge"])],
+    );
+    const projectedEdge = source.objects.edge;
+    if (projectedEdge.kind !== "connector") throw new Error("Expected connector fixture.");
+    const labelBounds = connectorLabelBounds(projectedEdge.label, projectedEdge.start, projectedEdge.end);
+    expect(labelBounds).not.toBeNull();
+    expect(source.diagrams["diagram-main"].bounds).toEqual({
+      x: 0,
+      y: labelBounds!.y,
+      width: 600,
+      height: labelBounds!.height,
+    });
+  });
+
   it("revisions a Diagram once when member semantics change without changing membership or bounds", () => {
     const source = room(
       [node("api", 0, 0), node("worker", 400, 0), connector("edge", "api", "worker")],
@@ -453,19 +644,19 @@ describe("derived geometry and diagram integrity", () => {
 
     expect(result.positions).toEqual([
       { objectId: "api", x: 100, y: 200 },
-      { objectId: "worker", x: 400, y: 200 },
-      { objectId: "db", x: 700, y: 200 },
+      { objectId: "worker", x: 500, y: 200 },
+      { objectId: "db", x: 889, y: 200 },
     ]);
     expect(result.room.objects["api-worker"]).toMatchObject({
       revision: 2,
       start: { objectId: "api", x: 300, y: 250 },
-      end: { objectId: "worker", x: 400, y: 250 },
+      end: { objectId: "worker", x: 500, y: 250 },
       lastEditedBy: actor(alice, "agent"),
     });
     expect(result.room.objects["worker-db"]).toMatchObject({ revision: 2 });
     expect(result.room.diagrams?.["diagram-main"]).toMatchObject({
       revision: 2,
-      bounds: { x: 100, y: 200, width: 800, height: 100 },
+      bounds: { x: 100, y: 200, width: 989, height: 100 },
       lastEditedBy: actor(alice, "agent"),
     });
     expect(result.changedObjectIds).toEqual(expect.arrayContaining(["api", "worker", "db", "api-worker", "worker-db"]));

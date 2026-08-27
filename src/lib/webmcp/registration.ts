@@ -34,6 +34,10 @@ import {
   JAZZBOARD_REVIEW_READ_TOOL_NAMES,
   JAZZBOARD_REVIEW_TOOL_NAMES,
 } from "./review-tools";
+import {
+  createJazzboardPreviewWebMcpTools,
+  JAZZBOARD_PREVIEW_TOOL_NAMES,
+} from "./preview-tools";
 import type {
   JazzboardWebMcpBinding,
   JazzboardWebMcpDependencies,
@@ -53,6 +57,7 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_SNAPSHOT_ROOM_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_TOOL_NAMES,
+  ...JAZZBOARD_PREVIEW_TOOL_NAMES,
 ] as const;
 
 export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
@@ -77,6 +82,7 @@ export function createJazzboardRoomWebMcpTools(
     ...createJazzboardSnapshotRoomWebMcpTools(binding, dependencies),
     ...createJazzboardInterchangeWebMcpTools(binding, dependencies),
     ...createJazzboardReviewWebMcpTools(binding, dependencies),
+    ...createJazzboardPreviewWebMcpTools(binding, dependencies),
   ];
 }
 
@@ -157,5 +163,6 @@ export class JazzboardWebMcpRegistrar {
     this.generation += 1;
     this.registrationController?.abort();
     this.registrationController = null;
+    this.dependencies.canvasPreviewTransport?.dispose?.();
   }
 }

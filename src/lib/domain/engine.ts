@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { DomainError } from "./errors";
+import {
+  connectorLabelBounds,
+  connectorLabelPrimaryClearance,
+  minimumLayoutGaps,
+} from "./layout";
 import { MAX_ROOM_REVIEW_PROPOSALS } from "./review";
 import type {
   ActorKind,
@@ -325,10 +330,21 @@ function resolvedConnectorGeometry(room: RoomState, connector: Extract<CanvasObj
 function boundsFor(room: RoomState, objectIds: readonly string[]): CanvasBounds {
   const objects = unique(objectIds).flatMap((id) => room.objects[id] ?? []);
   if (!objects.length) return { ...EMPTY_BOUNDS };
-  const minX = Math.min(...objects.map((object) => object.x));
-  const minY = Math.min(...objects.map((object) => object.y));
-  const maxX = Math.max(...objects.map((object) => object.x + object.width));
-  const maxY = Math.max(...objects.map((object) => object.y + object.height));
+  const bounds = objects.flatMap((object) => {
+    const objectBounds = {
+      x: object.x,
+      y: object.y,
+      width: object.width,
+      height: object.height,
+    };
+    if (object.kind !== "connector") return [objectBounds];
+    const labelBounds = connectorLabelBounds(object.label, object.start, object.end);
+    return labelBounds ? [objectBounds, labelBounds] : [objectBounds];
+  });
+  const minX = Math.min(...bounds.map((bound) => bound.x));
+  const minY = Math.min(...bounds.map((bound) => bound.y));
+  const maxX = Math.max(...bounds.map((bound) => bound.x + bound.width));
+  const maxY = Math.max(...bounds.map((bound) => bound.y + bound.height));
   return {
     x: minX,
     y: minY,
@@ -698,6 +714,7 @@ export type SemanticMutationResult = {
   changedObjectIds: string[];
   changedDiagramIds: string[];
   membershipObjectIds: string[];
+  positions?: Array<{ objectId: string; x: number; y: number }>;
 };
 
 export function applySemanticTransaction(
@@ -708,7 +725,7 @@ export function applySemanticTransaction(
   now = Date.now(),
   actorOverride?: ActorRef,
 ): SemanticMutationResult {
-  if (transaction.commands.length + transaction.diagramCommands.length === 0) {
+  if (transaction.commands.length + transaction.diagramCommands.length + (transaction.autoLayout ? 1 : 0) === 0) {
     throw new DomainError("INVALID_OPERATION", "A semantic transaction requires at least one operation.");
   }
   const room = normalizeRoomSemanticState(structuredClone(source));
@@ -726,6 +743,9 @@ export function applySemanticTransaction(
   for (const command of transaction.diagramCommands) {
     applyDiagramCommandMutable(room, command, actor, now, touchedDiagramIds);
   }
+  const positions = transaction.autoLayout
+    ? applyLayoutMutable(room, baseline, transaction.autoLayout, actor, now, touchedObjectIds)
+    : undefined;
 
   // Bound connector geometry is authoritative server state. Implicit changes
   // honor active-object leases and receive the same actor attribution.
@@ -816,6 +836,7 @@ export function applySemanticTransaction(
     changedObjectIds: [...touchedObjectIds],
     changedDiagramIds: [...touchedDiagramIds],
     membershipObjectIds,
+    ...(positions ? { positions } : {}),
   };
 }
 
@@ -1139,6 +1160,43 @@ function hierarchyLevels(room: RoomState, orderedIds: readonly string[]): string
   );
 }
 
+function layoutConnectors(room: RoomState, command: LayoutCommand, selected: Set<string>) {
+  const diagramConnectorIds = command.diagramId
+    ? new Set(room.diagrams?.[command.diagramId]?.connectorIds ?? [])
+    : null;
+  return Object.values(room.objects)
+    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => {
+      if (object.kind !== "connector" || !object.start.objectId || !object.end.objectId) return false;
+      if (!selected.has(object.start.objectId) || !selected.has(object.end.objectId)) return false;
+      return !diagramConnectorIds || diagramConnectorIds.has(object.id);
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function labelAwareBoundaryGaps(input: {
+  count: number;
+  minimum: number;
+  direction: "right" | "down";
+  density: LayoutCommand["density"];
+  rankById: ReadonlyMap<string, number>;
+  connectors: ReturnType<typeof layoutConnectors>;
+}): number[] {
+  const gaps = Array.from({ length: Math.max(0, input.count - 1) }, () => input.minimum);
+  for (const connector of input.connectors) {
+    const startRank = input.rankById.get(connector.start.objectId!);
+    const endRank = input.rankById.get(connector.end.objectId!);
+    if (startRank === undefined || endRank === undefined || startRank === endRank) continue;
+    const required = connectorLabelPrimaryClearance(connector.label, input.direction, input.density);
+    if (!required) continue;
+    const firstBoundary = Math.min(startRank, endRank);
+    const lastBoundary = Math.max(startRank, endRank);
+    for (let boundary = firstBoundary; boundary < lastBoundary; boundary += 1) {
+      gaps[boundary] = Math.max(gaps[boundary] ?? input.minimum, required);
+    }
+  }
+  return gaps;
+}
+
 function layoutPositions(room: RoomState, command: LayoutCommand): Map<string, { x: number; y: number }> {
   const objects = command.targets.map((target) => getObject(room, target.objectId));
   for (const object of objects) {
@@ -1155,15 +1213,29 @@ function layoutPositions(room: RoomState, command: LayoutCommand): Map<string, {
     y: Math.min(...objects.map((object) => object.y)),
   };
   const positions = new Map<string, { x: number; y: number }>();
+  const selected = new Set(objects.map((object) => object.id));
+  const connectors = layoutConnectors(room, command, selected);
+  const gaps = minimumLayoutGaps(command);
 
   if (command.layout === "flow") {
+    const rankById = new Map(objects.map((object, index) => [object.id, index]));
+    const primaryGaps = labelAwareBoundaryGaps({
+      count: objects.length,
+      minimum: gaps.primaryGap,
+      direction: command.direction,
+      density: command.density,
+      rankById,
+      connectors,
+    });
     let cursor = command.direction === "right" ? origin.x : origin.y;
-    for (const object of objects) {
+    for (const [index, object] of objects.entries()) {
       positions.set(
         object.id,
         command.direction === "right" ? { x: cursor, y: origin.y } : { x: origin.x, y: cursor },
       );
-      cursor += (command.direction === "right" ? object.width : object.height) + command.primaryGap;
+      cursor +=
+        (command.direction === "right" ? object.width : object.height) +
+        (primaryGaps[index] ?? 0);
     }
     return positions;
   }
@@ -1181,19 +1253,52 @@ function layoutPositions(room: RoomState, command: LayoutCommand): Map<string, {
     const rowHeights = Array.from({ length: rows }, (_, row) =>
       Math.max(...slots.filter((slot) => slot.row === row).map((slot) => slot.object.height), 1),
     );
+    const columnById = new Map(slots.map((slot) => [slot.object.id, slot.column]));
+    const rowById = new Map(slots.map((slot) => [slot.object.id, slot.row]));
+    const columnGaps = labelAwareBoundaryGaps({
+      count: columns,
+      minimum: gaps.primaryGap,
+      direction: "right",
+      density: command.density,
+      rankById: columnById,
+      connectors,
+    });
+    const rowGaps = labelAwareBoundaryGaps({
+      count: rows,
+      minimum: gaps.secondaryGap,
+      direction: "down",
+      density: command.density,
+      rankById: rowById,
+      connectors,
+    });
     const columnX = columnWidths.map((_, column) =>
-      origin.x + columnWidths.slice(0, column).reduce((sum, width) => sum + width + command.primaryGap, 0),
+      origin.x + columnWidths.slice(0, column).reduce(
+        (sum, width, boundary) => sum + width + (columnGaps[boundary] ?? 0),
+        0,
+      ),
     );
     const rowY = rowHeights.map((_, row) =>
-      origin.y + rowHeights.slice(0, row).reduce((sum, height) => sum + height + command.secondaryGap, 0),
+      origin.y + rowHeights.slice(0, row).reduce(
+        (sum, height, boundary) => sum + height + (rowGaps[boundary] ?? 0),
+        0,
+      ),
     );
     for (const slot of slots) positions.set(slot.object.id, { x: columnX[slot.column], y: rowY[slot.row] });
     return positions;
   }
 
   const levels = hierarchyLevels(room, objects.map((object) => object.id));
+  const levelById = new Map(levels.flatMap((level, index) => level.map((id) => [id, index] as const)));
+  const primaryGaps = labelAwareBoundaryGaps({
+    count: levels.length,
+    minimum: gaps.primaryGap,
+    direction: command.direction,
+    density: command.density,
+    rankById: levelById,
+    connectors,
+  });
   let primaryCursor = command.direction === "right" ? origin.x : origin.y;
-  for (const level of levels) {
+  for (const [levelIndex, level] of levels.entries()) {
     const members = level.map((id) => room.objects[id]);
     let secondaryCursor = command.direction === "right" ? origin.y : origin.x;
     for (const object of members) {
@@ -1203,32 +1308,35 @@ function layoutPositions(room: RoomState, command: LayoutCommand): Map<string, {
           ? { x: primaryCursor, y: secondaryCursor }
           : { x: secondaryCursor, y: primaryCursor },
       );
-      secondaryCursor += (command.direction === "right" ? object.height : object.width) + command.secondaryGap;
+      secondaryCursor += (command.direction === "right" ? object.height : object.width) + gaps.secondaryGap;
     }
     primaryCursor +=
       Math.max(...members.map((object) => (command.direction === "right" ? object.width : object.height)), 1) +
-      command.primaryGap;
+      (primaryGaps[levelIndex] ?? 0);
   }
   return positions;
 }
 
-export function applyLayoutCommand(
-  source: RoomState,
-  participantId: string,
-  actorKind: ActorKind,
+function applyLayoutMutable(
+  room: RoomState,
+  baseline: RoomState,
   command: LayoutCommand,
-  now = Date.now(),
-  actorOverride?: ActorRef,
-): SemanticMutationResult & { positions: Array<{ objectId: string; x: number; y: number }> } {
-  const current = normalizeRoomSemanticState(structuredClone(source));
-  const participant = requireParticipant(current, participantId);
-  requireMutationRole(participant, actorKind);
+  actor: ActorRef,
+  now: number,
+  touchedObjectIds: Set<string>,
+): Array<{ objectId: string; x: number; y: number }> {
   const ids = command.targets.map((target) => target.objectId);
   if (new Set(ids).size !== ids.length) {
     throw new DomainError("INVALID_OPERATION", "Layout targets must be unique.");
   }
+  if ((command.diagramId === undefined) !== (command.expectedDiagramRevision === undefined)) {
+    throw new DomainError(
+      "INVALID_OPERATION",
+      "diagramId and expectedDiagramRevision must be provided together.",
+    );
+  }
   if (command.diagramId) {
-    const diagram = current.diagrams?.[command.diagramId];
+    const diagram = room.diagrams?.[command.diagramId];
     if (!diagram) {
       throw new DomainError("DIAGRAM_NOT_FOUND", `Diagram ${command.diagramId} does not exist.`, {
         diagramId: command.diagramId,
@@ -1254,29 +1362,65 @@ export function applyLayoutCommand(
       });
     }
   }
-  const positions = layoutPositions(current, command);
+
+  for (const target of command.targets) {
+    const object = getObject(room, target.objectId);
+    if (object.kind === "connector") {
+      throw new DomainError(
+        "INVALID_OPERATION",
+        "Layout targets must be nodes or canvas content; bound connectors are positioned automatically.",
+        { objectId: object.id },
+      );
+    }
+    const existedAtBaseline = Boolean(baseline.objects[target.objectId]);
+    if (existedAtBaseline && touchedObjectIds.has(target.objectId)) {
+      throw new DomainError(
+        "INVALID_OPERATION",
+        `Layout target ${target.objectId} is also changed by another operation in this transaction.`,
+        { objectId: target.objectId },
+      );
+    }
+    verifyLease(room, object, actor, target.leaseId, now);
+    verifyRevision(object, target.expectedRevision);
+  }
+
+  const positions = layoutPositions(room, command);
+  for (const target of command.targets) {
+    const position = positions.get(target.objectId)!;
+    const object = room.objects[target.objectId];
+    if (baseline.objects[target.objectId]) {
+      room.objects[target.objectId] = updateObject(object, position, actor, now);
+    } else {
+      Object.assign(object, position);
+    }
+    touchedObjectIds.add(target.objectId);
+  }
+  return command.targets.map((target) => ({ objectId: target.objectId, ...positions.get(target.objectId)! }));
+}
+
+export function applyLayoutCommand(
+  source: RoomState,
+  participantId: string,
+  actorKind: ActorKind,
+  command: LayoutCommand,
+  now = Date.now(),
+  actorOverride?: ActorRef,
+): SemanticMutationResult & { positions: Array<{ objectId: string; x: number; y: number }> } {
   const result = applySemanticTransaction(
-    current,
+    source,
     participantId,
     actorKind,
     {
-      commands: [
-        {
-          type: "move",
-          targets: command.targets.map((target) => ({
-            ...target,
-            ...positions.get(target.objectId)!,
-          })),
-        },
-      ],
+      commands: [],
       diagramCommands: [],
+      autoLayout: command,
     },
     now,
     actorOverride,
   );
   return {
     ...result,
-    positions: command.targets.map((target) => ({ objectId: target.objectId, ...positions.get(target.objectId)! })),
+    positions: result.positions ?? [],
   };
 }
 

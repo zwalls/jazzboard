@@ -253,18 +253,58 @@ export const diagramCommandSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+export const layoutDensitySchema = z.enum(["comfortable", "compact"]);
+
+const layoutTargetSchema = z
+  .object({
+    objectId: z.string().min(1).max(128),
+    expectedRevision: z.number().int().positive(),
+    leaseId: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+
+export const layoutCommandSchema = z
+  .object({
+    layout: z.enum(["flow", "grid", "hierarchy"]),
+    direction: z.enum(["right", "down"]).default("right"),
+    density: layoutDensitySchema.default("comfortable"),
+    targets: z.array(layoutTargetSchema).min(1).max(200),
+    origin: pointSchema.optional(),
+    primaryGap: z.number().finite().min(0).max(10_000).optional(),
+    secondaryGap: z.number().finite().min(0).max(10_000).optional(),
+    columns: z.number().int().min(1).max(50).optional(),
+    diagramId: z.string().min(1).max(128).optional(),
+    expectedDiagramRevision: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine((layout, context) => {
+    if ((layout.diagramId === undefined) !== (layout.expectedDiagramRevision === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "diagramId and expectedDiagramRevision must be provided together.",
+      });
+    }
+    const ids = layout.targets.map((target) => target.objectId);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: "custom", message: "Layout targets must be unique." });
+    }
+  });
+
 export const semanticTransactionSchema = z
   .object({
     commands: z.array(canvasCommandSchema).max(200).default([]),
     diagramCommands: z.array(diagramCommandSchema).max(100).default([]),
+    autoLayout: layoutCommandSchema.optional(),
   })
   .strict()
   .refine(
-    (transaction) => transaction.commands.length + transaction.diagramCommands.length > 0,
+    (transaction) =>
+      transaction.commands.length + transaction.diagramCommands.length + (transaction.autoLayout ? 1 : 0) > 0,
     "A semantic transaction requires at least one object or diagram operation.",
   )
   .refine(
-    (transaction) => transaction.commands.length + transaction.diagramCommands.length <= 200,
+    (transaction) =>
+      transaction.commands.length + transaction.diagramCommands.length + (transaction.autoLayout ? 1 : 0) <= 200,
     "A semantic transaction supports at most 200 total operations.",
   );
 
@@ -366,40 +406,6 @@ export const activityListQuerySchema = z
     diagramId: z.string().min(1).max(128).optional(),
   })
   .strict();
-
-const layoutTargetSchema = z
-  .object({
-    objectId: z.string().min(1).max(128),
-    expectedRevision: z.number().int().positive(),
-    leaseId: z.string().min(1).max(128).optional(),
-  })
-  .strict();
-
-export const layoutCommandSchema = z
-  .object({
-    layout: z.enum(["flow", "grid", "hierarchy"]),
-    direction: z.enum(["right", "down"]).default("right"),
-    targets: z.array(layoutTargetSchema).min(1).max(200),
-    origin: pointSchema.optional(),
-    primaryGap: z.number().finite().min(0).max(10_000).default(160),
-    secondaryGap: z.number().finite().min(0).max(10_000).default(100),
-    columns: z.number().int().min(1).max(50).optional(),
-    diagramId: z.string().min(1).max(128).optional(),
-    expectedDiagramRevision: z.number().int().positive().optional(),
-  })
-  .strict()
-  .superRefine((layout, context) => {
-    if ((layout.diagramId === undefined) !== (layout.expectedDiagramRevision === undefined)) {
-      context.addIssue({
-        code: "custom",
-        message: "diagramId and expectedDiagramRevision must be provided together.",
-      });
-    }
-    const ids = layout.targets.map((target) => target.objectId);
-    if (new Set(ids).size !== ids.length) {
-      context.addIssue({ code: "custom", message: "Layout targets must be unique." });
-    }
-  });
 
 export const leaseRequestSchema = z.discriminatedUnion("action", [
   z.object({

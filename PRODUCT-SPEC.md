@@ -79,7 +79,7 @@ A diagram is an authoritative container, not a visual grouping convention. Every
 - an explicit diagram type (`architecture`, `flow`, `hierarchy`, `system_context`, `process`, or `custom`) and optional category;
 - optional tags or keywords;
 - member object IDs and connector IDs;
-- an automatically maintained bounding region;
+- an automatically maintained, connector-label-aware bounding region;
 - a revision, creation and update times, creator attribution, and last-editor attribution.
 
 Diagram records are the source of truth for membership. Each object's `diagramIds` field is a normalized reverse index for efficient query and neighborhood reads. Metadata, membership, connector relationships, bounds, revisions, and attribution remain intact as nodes move, connections change, or the diagram is laid out again.
@@ -92,8 +92,10 @@ The shared semantic transaction path accepts authorized human and agent actors. 
 - `find_diagrams` searches title, description, type, category, tags, or contained object and returns stable IDs plus concise summaries suitable for discovery inside an already-authorized room.
 - `read_neighborhood` starts from exact object IDs and returns the bounded local subgraph: members, connectors, related endpoints, diagram metadata, and current revisions. `read_diagram` is the corresponding entry point for a diagram ID.
 - `read_diagram` retrieves a first-class diagram and its authoritative membership; `describe_diagram` returns its agent-readable identity, purpose, structure, bounds, revision, and attribution.
-- `layout_objects` applies deterministic `flow`, `grid`, and `hierarchy` layouts while preserving object IDs, semantic connectors, metadata, and attribution. Hierarchy layout rejects cyclic directed graphs rather than guessing.
-- `apply_canvas_transaction` can atomically create classified nodes, shapes, text, connectors, and diagram records while revision-checking object and diagram updates. Request-local references let a connector or diagram membership target an object created earlier in the same call.
+- `layout_objects` applies deterministic `flow`, `grid`, and `hierarchy` layouts while preserving object IDs, semantic connectors, metadata, and attribution. `comfortable` density is the default; `compact` is opt-in. Numeric gaps are minimums, and an individual corridor expands when needed to keep its connector label readable. Hierarchy layout rejects cyclic directed graphs rather than guessing.
+- Automatic layout is opt-in. Exact `x` and `y` coordinates remain authoritative when layout is omitted, including intentional overlap for stacked objects, annotations, character drawing, and other freeform composition. A transaction rejects the ambiguous case where the same new object has explicit coordinates and is also an automatic-layout target.
+- `apply_canvas_transaction` can atomically create classified nodes, shapes, text, connectors, and diagram records while revision-checking object and diagram updates. Request-local references let a connector or diagram membership target an object created earlier in the same call, and at most one `auto_layout` operation can arrange newly created node, shape, or text references plus an optional new Diagram reference inside the same all-or-nothing commit. Existing objects use `layout_objects` with exact revisions and leases.
+- `render_canvas_preview` lets a participant visually verify exact object revisions or one exact Diagram revision through the authoritative tldraw renderer. It paints only that bounded authorized scope into a short-lived local PNG surface and returns exact viewport screenshot bounds. Current WebMCP result serialization is JSON-only, so the consuming browser agent captures that clip as a second step; the tool never returns an unusable Blob URL or claims native image-content transport.
 - Request-local references never become shared aliases. The response resolves them to stable authoritative IDs.
 - Every existing object or diagram update requires its exact current revision. Optional lease IDs are honored for active edits.
 - Transactions and layouts are all-or-nothing: invalid references, stale revisions, busy objects, authorization failures, or diagram membership errors reject the entire operation with no partial write.
@@ -232,6 +234,7 @@ Tools use strict semantic schemas and structured success/failure results. Read o
 
 - Primitive canvas tools: `create_text`, `create_shape`, `create_node`, `create_drawing`, `add_image`, `draw_connection`, `update_object`, `move_objects`, `group_objects`, and `delete_objects`.
 - Compound semantic tools: `apply_canvas_transaction`, `layout_objects`, `create_diagram`, and `edit_diagram`.
+- Exact visual verification: `render_canvas_preview` for revision-guarded object or Diagram scope; its temporary in-room image is local, non-persistent, and expires automatically.
 - Activity compensation: `revert_activity`.
 - Review-policy tightening: `enable_agent_review`.
 - Reusable interchange: `create_diagram_template` and `instantiate_diagram_template`.
@@ -261,7 +264,8 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 | Read structured decision/open-question lifecycle metadata | Yes | No | Read-only | Read-only |
 | Create/edit/delete canvas objects and drawings | Participant | No | Yes | No |
 | Atomic multi-object/diagram transaction | Shared model | No | Yes | No |
-| Deterministic flow/grid/hierarchy layout | Shared model | No | Yes | No |
+| Deterministic comfortable/compact flow/grid/hierarchy layout | Shared model | No | Yes | No |
+| Exact tldraw visual verification with a temporary screenshot clip | Participant | No | Yes, local-only | No |
 | Inspect immutable attributable activity and affected bounds | Yes | No | Read-only | Read-only |
 | Conflict-safe compensating revert | Participant | No | Yes, apply or propose | No |
 | Inspect agent proposal queue and exact proposal | Yes | No | Read-only | Read-only |
@@ -298,7 +302,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - **Agent self-approval and policy loosening:** agents may inspect proposals and tighten a live room to review mode, but only a human participant may approve or reject a proposal or loosen review mode back to live. No WebMCP operation performs those human decisions.
 - **Snapshot-secret recovery:** a private snapshot path is returned only at creation and stored only as a hash. Neither a human nor an agent can recover an already-issued secret from a snapshot list or ID; create a replacement and revoke the old snapshot if needed.
 - **Snapshot as room access:** an exact snapshot path exposes only one frozen redacted artifact until expiry/revocation. It never joins, discovers, follows, or mutates the source room.
-- **Unsafe export features:** artifacts never embed private/external image URLs, executable Mermaid directives, or scriptable/networked SVG features. PNG remains a client-side rendering of the safe SVG rather than a new server/WebMCP format.
+- **Unsafe export features:** artifacts never embed private/external image URLs, executable Mermaid directives, or scriptable/networked SVG features. Exported PNG remains a client-side rendering of the safe SVG rather than a new server/WebMCP format. The separate exact-scope preview tool is ephemeral visual verification through the real tldraw renderer, not a portable export.
 - **Clipboard and UI chrome:** copying a code, opening a popover, toggling a panel, and choosing a visual tool are presentation mechanics rather than semantic product operations. The room code and equivalent semantic outcomes are available through read or action tools.
 - **Unscoped local attachment bytes:** human paste, drag-and-drop, and file selection remain supported. Agent image placement accepts an accessible HTTPS URL, including an authorized Jazzboard-hosted asset URL, until a scoped asset-transfer design can safely bind conversational bytes to the signed room session.
 - **Fake presence:** passive reads, private Follow changes, and local room-view navigation do not activate or advertise an agent. Presence begins with a successful shared-state mutation or shared agent-viewport action.
@@ -331,6 +335,9 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Reusable Diagram templates omit audit/source/media state and instantiate atomically with fresh object, Diagram, and group IDs through the room's review policy.
 - [x] Expiring private read-only snapshots use one-time high-entropy paths stored only as hashes, creator-scoped secret-free lists, exact-revision capture, revocation, and a four-tool passive snapshot surface.
 - [x] Human and agent changes converge through the same server-authoritative model and tldraw projection.
+- [x] Comfortable automatic layout reserves readable connector-label corridors, compact density remains explicit, and connector labels contribute to Diagram and safe-export bounds.
+- [x] Exact-coordinate transactions preserve intentional overlap and freeform composition, while a transaction `auto_layout` operation can arrange temporary references atomically without double revisions or partial writes.
+- [x] Participants can render exact revision-guarded object or Diagram scopes through tldraw into one expiring local preview surface and use the returned screenshot clip; spectators receive no preview tool and no preview image is persisted or exposed by URL.
 - [x] Automated tests cover schemas, permissions, privacy boundaries, revisions, leases, transactions, layouts, diagrams, registration, and browser workflows.
 - [x] Production release is complete only after live browser QA calls the deployed, browser-exposed WebMCP tools against a genuinely multi-node diagram.
 - [x] The initial HTML response advertises `/llms.txt`, the landing page advertises an exact Markdown alternate, and explicit Markdown content negotiation works without changing the visual design.
@@ -352,4 +359,4 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 
 ## First-demo success condition
 
-Two developers join one room with distinct identities and participant-owned agents. A website image is annotated non-destructively. An agent uses one transaction to create a classified, titled architecture Diagram with structured decision/open-question workflow state and labeled connectors, retrieves a bounded neighborhood, and applies deterministic layout without breaking relationships. A conflicting edit commits nothing. Review mode turns a later agent change into an exact proposal that only a human can approve or reject; committed work appears as bounded attributable activity and one unchanged activity can be safely compensated without rewriting history. The Diagram exports as redacted semantic JSON, Mermaid, SVG, and client PNG, instantiates from a reusable template with entirely fresh IDs, and is shared through an expiring private read-only snapshot whose four local tools cannot access the source room. Follow and Spotlight complete through WebMCP. A spectator in another browser can inspect the authorized room, activity, proposals, and safe export through passive tools but receives no mutation or role-upgrade surface. The deployed site's actual browser-exposed tools—not only test shims—complete the workflow.
+Two developers join one room with distinct identities and participant-owned agents. A website image is annotated non-destructively. An agent uses one atomic transaction to create and comfortably lay out a classified, titled architecture Diagram with structured decision/open-question workflow state and readable labeled connectors, retrieves a bounded neighborhood, and rearranges it without breaking relationships. Exact coordinates can still create an intentionally overlapping freeform composition. The agent renders the exact Diagram revision through tldraw, captures the returned temporary screenshot clip, and visually checks its work. A conflicting edit commits nothing. Review mode turns a later agent change into an exact proposal that only a human can approve or reject; committed work appears as bounded attributable activity and one unchanged activity can be safely compensated without rewriting history. The Diagram exports as redacted semantic JSON, Mermaid, SVG, and client PNG, instantiates from a reusable template with entirely fresh IDs, and is shared through an expiring private read-only snapshot whose four local tools cannot access the source room. Follow and Spotlight complete through WebMCP. A spectator in another browser can inspect the authorized room, activity, proposals, and safe export through passive tools but receives no mutation, preview, or role-upgrade surface. The deployed site's actual browser-exposed tools—not only test shims—complete the workflow.

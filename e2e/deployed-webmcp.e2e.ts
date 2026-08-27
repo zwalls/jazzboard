@@ -33,6 +33,10 @@ const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
   "list_readonly_snapshots",
 ] as const;
 
+// Rendering does not mutate shared room state, but it intentionally paints a
+// temporary local surface, so it is neither a strict read nor a room mutation.
+const PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES = ["render_canvas_preview"] as const;
+
 const ROOM_MUTATION_TOOL_NAMES = [
   "create_text",
   "create_shape",
@@ -69,12 +73,15 @@ const ROOM_MUTATION_TOOL_NAMES = [
 const PARTICIPANT_ROOM_TOOL_NAMES = [
   ...SHARED_ROOM_READ_TOOL_NAMES,
   ...PARTICIPANT_ONLY_READ_TOOL_NAMES,
+  ...PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES,
   ...ROOM_MUTATION_TOOL_NAMES,
 ] as const;
 const SPECTATOR_ROOM_TOOL_NAMES = [...SHARED_ROOM_READ_TOOL_NAMES] as const;
 
 const WEBMCP_TEXT = "Written through browser WebMCP";
 const REJECTED_LABEL = "MUST_NOT_COMMIT_E2E";
+const LONG_CONNECTOR_LABEL =
+  "Authorize the signed guest session before loading protected room state";
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8Dwn4GBgYGJAQoAHgQCAQKc7S8AAAAASUVORK5CYII=",
   "base64",
@@ -138,8 +145,32 @@ type TransactionData = {
   temporaryReferences: Record<string, string>;
   changedObjectIds: string[];
   changedDiagramIds: string[];
+  positions?: Array<{ objectId: string; x: number; y: number }>;
   objects: CanvasObjectData[];
   diagrams: DiagramData[];
+};
+
+type CanvasPreviewData = {
+  previewId: string;
+  screenshotClip: {
+    coordinateSpace: "viewport-css-pixels";
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  expiresAt: number;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+  byteLength: number;
+  scope: { kind: "diagram"; diagramId: string; expectedRevision: number };
+  sourceRevisions: {
+    roomRevision: number;
+    diagramRevision: number;
+    objects: Array<{ objectId: string; revision: number }>;
+  };
+  targets: Array<{ objectId: string; revision: number }>;
 };
 
 type ReadDiagramData = {
@@ -288,12 +319,12 @@ function expectReadOnlySurface(metadata: ToolMetadata[], expectedNames: readonly
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 45 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 46 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(45);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(46);
     expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(13);
 
     await installWebMcpShim(page);
@@ -335,13 +366,23 @@ test.describe("WebMCP browser acceptance", () => {
     await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("45 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
     for (const toolName of [...SHARED_ROOM_READ_TOOL_NAMES, ...PARTICIPANT_ONLY_READ_TOOL_NAMES]) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
     }
     for (const toolName of ROOM_MUTATION_TOOL_NAMES) {
       expect(participantMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).not.toBe(true);
     }
+    expect(
+      participantMetadata.find((tool) => tool.name === "render_canvas_preview"),
+    ).toMatchObject({
+      name: "render_canvas_preview",
+      annotations: { untrustedContentHint: true },
+    });
+    expect(
+      participantMetadata.find((tool) => tool.name === "render_canvas_preview")?.annotations
+        ?.readOnlyHint,
+    ).not.toBe(true);
 
     const hostBefore = successData(await callWebMcpTool<ReadRoomData>(page, "read_room_state", {}));
     const hostMembershipBefore = hostBefore.participants.find(
@@ -390,7 +431,7 @@ test.describe("WebMCP browser acceptance", () => {
             start: { tempRef: "room_api" },
             end: { tempRef: "guest_session" },
             direction: "end",
-            label: "authorize signed cookie",
+            label: LONG_CONNECTOR_LABEL,
           },
           {
             op: "connect",
@@ -421,6 +462,15 @@ test.describe("WebMCP browser acceptance", () => {
               { tempRef: "session_redis" },
             ],
           },
+          {
+            op: "auto_layout",
+            layout: "flow",
+            layoutDirection: "right",
+            density: "comfortable",
+            origin: { x: 120, y: 160 },
+            targets: ["web_client", "room_api", "guest_session", "redis_store"],
+            diagramTempRef: "auth_flow",
+          },
         ],
       }),
     );
@@ -445,6 +495,18 @@ test.describe("WebMCP browser acceptance", () => {
     expect(diagramId).toBe("diagram_authentication_request_flow_e2e");
     const memberIds = [refs.web_client, refs.room_api, refs.guest_session, refs.redis_store];
     const connectorIds = [refs.client_api, refs.api_session, refs.session_redis];
+    const transactionObjectById = new Map(
+      transaction.objects.map((object) => [object.id, object] as const),
+    );
+    expect(transaction.positions).toEqual(
+      memberIds.map((objectId) => ({
+        objectId,
+        x: transactionObjectById.get(objectId)?.x,
+        y: transactionObjectById.get(objectId)?.y,
+      })),
+    );
+    expect(transaction.objects).toHaveLength(7);
+    expect(transaction.objects.every((object) => object.revision === 1)).toBe(true);
     expect(transaction.diagrams[0]).toMatchObject({
       id: diagramId,
       title: "Authentication request flow",
@@ -458,6 +520,32 @@ test.describe("WebMCP browser acceptance", () => {
       lastEditedBy: { kind: "agent" },
     });
 
+    const expectedRelationships = [
+      { connectorId: refs.client_api, startId: refs.web_client, endId: refs.room_api },
+      { connectorId: refs.api_session, startId: refs.room_api, endId: refs.guest_session },
+      { connectorId: refs.session_redis, startId: refs.guest_session, endId: refs.redis_store },
+    ];
+    for (const relationship of expectedRelationships) {
+      const connector = transactionObjectById.get(relationship.connectorId);
+      const start = transactionObjectById.get(relationship.startId);
+      const end = transactionObjectById.get(relationship.endId);
+      expect(connector).toMatchObject({
+        kind: "connector",
+        revision: 1,
+        start: { objectId: relationship.startId },
+        end: { objectId: relationship.endId },
+      });
+      expect(start).toBeDefined();
+      expect(end).toBeDefined();
+      expect(end!.y).toBe(start!.y);
+      expect(end!.x - (start!.x + start!.width)).toBeGreaterThanOrEqual(160);
+    }
+    const longLabelClearance =
+      transactionObjectById.get(refs.guest_session)!.x -
+      (transactionObjectById.get(refs.room_api)!.x +
+        transactionObjectById.get(refs.room_api)!.width);
+    expect(longLabelClearance).toBeGreaterThan(300);
+
     // A server-projected, bound tldraw arrow must settle. Binding geometry is
     // derived UI state and must not echo back as perpetual human edits.
     await page.waitForTimeout(900);
@@ -466,6 +554,11 @@ test.describe("WebMCP browser acceptance", () => {
     const settledConnectorRevisions = connectorIds.map(
       (connectorId) => settledProjection.room.objects[connectorId].revision,
     );
+    expect(
+      memberIds.map((memberId) => settledProjection.room.objects[memberId].revision),
+    ).toEqual([1, 1, 1, 1]);
+    expect(settledConnectorRevisions).toEqual([1, 1, 1]);
+    expect(settledDiagramRevision).toBe(1);
     await page.waitForTimeout(900);
     const idleProjection = await getRoom(page.request, created.room.id);
     expect(idleProjection.room.diagrams[diagramId].revision).toBe(settledDiagramRevision);
@@ -473,6 +566,85 @@ test.describe("WebMCP browser acceptance", () => {
       connectorIds.map((connectorId) => idleProjection.room.objects[connectorId].revision),
     ).toEqual(settledConnectorRevisions);
     expect(Object.keys(idleProjection.room.leases)).toEqual([]);
+
+    const preview = successData(
+      await callWebMcpTool<CanvasPreviewData>(page, "render_canvas_preview", {
+        scope: { kind: "diagram", diagramId, expectedRevision: 1 },
+        maxWidth: 1_000,
+        maxHeight: 600,
+      }),
+    );
+    expect(preview).toMatchObject({
+      previewId: expect.stringMatching(/^preview_/),
+      screenshotClip: {
+        coordinateSpace: "viewport-css-pixels",
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+      mimeType: "image/png",
+      width: expect.any(Number),
+      height: expect.any(Number),
+      byteLength: expect.any(Number),
+      scope: { kind: "diagram", diagramId, expectedRevision: 1 },
+      sourceRevisions: {
+        diagramRevision: 1,
+        objects: expect.arrayContaining(
+          [...memberIds, ...connectorIds].map((objectId) => ({ objectId, revision: 1 })),
+        ),
+      },
+      targets: expect.arrayContaining(
+        [...memberIds, ...connectorIds].map((objectId) => ({ objectId, revision: 1 })),
+      ),
+    });
+    expect(preview.expiresAt).toBeGreaterThan(Date.now() + 50_000);
+    expect(preview.byteLength).toBeGreaterThan(0);
+    expect(preview).not.toHaveProperty("previewUrl");
+    expect(preview).not.toHaveProperty("imageUrl");
+    expect(preview).not.toHaveProperty("dataUrl");
+
+    const previewDialog = page.getByRole("dialog", { name: "Canvas preview" });
+    const previewImage = previewDialog.getByAltText("Exact rendered Jazzboard canvas preview");
+    await expect(previewDialog).toBeVisible();
+    await expect(previewImage).toBeVisible();
+    const previewImageBounds = await previewImage.boundingBox();
+    expect(previewImageBounds).not.toBeNull();
+    expect(previewImageBounds!.x).toBeCloseTo(preview.screenshotClip.x, 1);
+    expect(previewImageBounds!.y).toBeCloseTo(preview.screenshotClip.y, 1);
+    expect(previewImageBounds!.width).toBeCloseTo(preview.screenshotClip.width, 1);
+    expect(previewImageBounds!.height).toBeCloseTo(preview.screenshotClip.height, 1);
+    expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual({
+      x: 0,
+      y: 0,
+    });
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+    expect(preview.screenshotClip.x).toBeGreaterThanOrEqual(0);
+    expect(preview.screenshotClip.y).toBeGreaterThanOrEqual(0);
+    expect(preview.screenshotClip.x + preview.screenshotClip.width).toBeLessThanOrEqual(
+      viewport!.width,
+    );
+    expect(preview.screenshotClip.y + preview.screenshotClip.height).toBeLessThanOrEqual(
+      viewport!.height,
+    );
+    const previewPng = await page.screenshot({
+      type: "png",
+      clip: {
+        x: preview.screenshotClip.x,
+        y: preview.screenshotClip.y,
+        width: preview.screenshotClip.width,
+        height: preview.screenshotClip.height,
+      },
+    });
+    expect(previewPng.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    expect(previewPng.length).toBeGreaterThan(512);
+    expect(previewPng.readUInt32BE(16)).toBeGreaterThan(64);
+    expect(previewPng.readUInt32BE(20)).toBeGreaterThan(32);
+    await previewDialog.getByRole("button", { name: "Dismiss canvas preview" }).click();
+    await expect(previewDialog).toBeHidden();
 
     const drawing = successData(
       await callWebMcpTool<CreateObjectData>(page, "create_drawing", {
@@ -490,6 +662,51 @@ test.describe("WebMCP browser acceptance", () => {
       changedObjectIds: [expect.any(String)],
       objects: [{ kind: "draw", revision: 1 }],
     });
+
+    const overlapTransaction = successData(
+      await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+        operations: [
+          {
+            op: "create_shape",
+            tempRef: "stack_base",
+            label: "Intentional layered base",
+            shape: "rectangle",
+            x: 80,
+            y: 720,
+            width: 240,
+            height: 180,
+          },
+          {
+            op: "create_shape",
+            tempRef: "stack_detail",
+            label: "Intentional layered detail",
+            shape: "ellipse",
+            x: 80,
+            y: 720,
+            width: 240,
+            height: 180,
+          },
+        ],
+      }),
+    );
+    const overlapIds = [
+      overlapTransaction.temporaryReferences.stack_base,
+      overlapTransaction.temporaryReferences.stack_detail,
+    ];
+    expect(overlapTransaction.positions).toBeUndefined();
+    expect(overlapTransaction.objects).toEqual(
+      expect.arrayContaining(
+        overlapIds.map((id) =>
+          expect.objectContaining({ id, x: 80, y: 720, width: 240, height: 180, revision: 1 }),
+        ),
+      ),
+    );
+    const persistedOverlap = await getRoom(page.request, created.room.id);
+    expect(overlapIds.map((id) => persistedOverlap.room.objects[id])).toEqual(
+      overlapIds.map((id) =>
+        expect.objectContaining({ id, x: 80, y: 720, width: 240, height: 180, revision: 1 }),
+      ),
+    );
 
     const found = successData(
       await callWebMcpTool<{ totalMatched: number; diagrams: DiagramData[] }>(page, "find_diagrams", {
@@ -574,9 +791,8 @@ test.describe("WebMCP browser acceptance", () => {
       await callWebMcpTool<LayoutData>(page, "layout_objects", {
         layout: "flow",
         direction: "right",
-        origin: { x: 120, y: 160 },
-        primaryGap: 80,
-        secondaryGap: 60,
+        density: "comfortable",
+        origin: { x: 180, y: 200 },
         diagramId,
         expectedDiagramRevision: diagramBeforeLayout.diagram.revision,
         targets: diagramBeforeLayout.objects.map((object) => ({
@@ -585,12 +801,16 @@ test.describe("WebMCP browser acceptance", () => {
         })),
       }),
     );
-    expect(layout.positions).toEqual([
-      { objectId: refs.web_client, x: 120, y: 160 },
-      { objectId: refs.room_api, x: 480, y: 160 },
-      { objectId: refs.guest_session, x: 840, y: 160 },
-      { objectId: refs.redis_store, x: 1_200, y: 160 },
-    ]);
+    const atomicPositionById = new Map(
+      transaction.positions!.map((position) => [position.objectId, position] as const),
+    );
+    expect(layout.positions).toEqual(
+      memberIds.map((objectId) => ({
+        objectId,
+        x: atomicPositionById.get(objectId)!.x + 60,
+        y: atomicPositionById.get(objectId)!.y + 40,
+      })),
+    );
     expect(layout.changedObjectIds).toEqual(expect.arrayContaining([...memberIds, ...connectorIds]));
     expect(layout.changedDiagramIds).toEqual([diagramId]);
 
@@ -600,7 +820,12 @@ test.describe("WebMCP browser acceptance", () => {
     expect(diagramAfterLayout.diagram).toMatchObject({
       id: diagramId,
       revision: 2,
-      bounds: { x: 120, y: 160, width: 1_360, height: 152 },
+      bounds: {
+        x: 180,
+        y: 200,
+        width: transaction.diagrams[0].bounds.width,
+        height: transaction.diagrams[0].bounds.height,
+      },
       memberObjectIds: memberIds,
       connectorIds,
       lastEditedBy: { kind: "agent" },
@@ -1138,6 +1363,11 @@ test.describe("WebMCP browser acceptance", () => {
         callWebMcpTool(spectatorPage, "apply_canvas_transaction", { operations: [] }),
       ).rejects.toThrow("WebMCP tool apply_canvas_transaction is not registered");
       await expect(
+        callWebMcpTool(spectatorPage, "render_canvas_preview", {
+          scope: { kind: "diagram", diagramId, expectedRevision: spectatorDescription.diagram.revision },
+        }),
+      ).rejects.toThrow("WebMCP tool render_canvas_preview is not registered");
+      await expect(
         callWebMcpTool(spectatorPage, "follow_participant", {
           participantId: host.participantId,
           target: "human",
@@ -1159,7 +1389,7 @@ test.describe("WebMCP browser acceptance", () => {
     });
 
     await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
-    await expect(page.getByTitle("WebMCP site tools status")).toContainText("45 site tools");
+    await expect(page.getByTitle("WebMCP site tools status")).toContainText("46 site tools");
 
     const created = await callWebMcpTool<CreateObjectData>(page, "create_text", {
       content: WEBMCP_TEXT,

@@ -3,6 +3,13 @@
 import { z } from "zod";
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
+import {
+  DEFAULT_AUTOMATIC_LAYOUT_COLUMNS,
+  DEFAULT_AUTOMATIC_LAYOUT_SLOT_HEIGHT,
+  DEFAULT_AUTOMATIC_LAYOUT_SLOT_WIDTH,
+  DEFAULT_AUTOMATIC_LAYOUT_VIEWPORT_PADDING,
+  layoutDensityDefaults,
+} from "@/lib/domain/layout";
 import { nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
   AgentEditProposalSummary,
@@ -11,6 +18,7 @@ import type {
   CreateCanvasObject,
   DiagramCommand,
   DiagramNodeType,
+  LayoutCommand,
   ObjectKind,
   ObjectPatch,
   RoomState,
@@ -33,7 +41,7 @@ const point = z.object({ x: finite, y: finite }).strict();
 const nodeType = z.enum(["service", "component", "requirement", "decision", "open_question"]);
 const nodeStatus = z.enum(["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"]);
 const REVIEW_MODE_RESULT_NOTE =
-  " If the room requires review, Jazzboard queues the exact all-or-nothing request and returns outcome `proposed` plus its proposal; shared canvas state remains unchanged until a human approves it.";
+  " In review mode, `proposed` means no shared change until human approval.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
 const objectKind = z.enum(["text", "shape", "connector", "image", "draw"]);
 
@@ -191,6 +199,19 @@ const editDiagramOperation = z
     "At least one diagram field must be updated.",
   );
 
+const autoLayoutOperation = z
+  .object({
+    op: z.literal("auto_layout"),
+    layout: z.enum(["flow", "grid", "hierarchy"]),
+    layoutDirection: z.enum(["right", "down"]).default("right"),
+    density: z.enum(["comfortable", "compact"]).default("comfortable"),
+    targets: z.array(tempRef).min(1).max(199),
+    diagramTempRef: tempRef.optional(),
+    origin: point.optional(),
+    columns: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
 const transactionOperation = z.discriminatedUnion("op", [
   createNodeOperation,
   createShapeOperation,
@@ -199,11 +220,99 @@ const transactionOperation = z.discriminatedUnion("op", [
   updateOperation,
   createDiagramOperation,
   editDiagramOperation,
+  autoLayoutOperation,
 ]);
 
 const transactionInput = z
-  .object({ operations: z.array(transactionOperation).min(1).max(200), ...activityMetadataFields })
-  .strict();
+  .object({
+    operations: z.array(transactionOperation).min(1).max(200),
+    ...activityMetadataFields,
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const layouts = input.operations.flatMap((operation) => operation.op === "auto_layout" ? [operation] : []);
+    if (layouts.length > 1) {
+      context.addIssue({ code: "custom", path: ["operations"], message: "A transaction can contain at most one auto-layout operation." });
+      return;
+    }
+    const layout = layouts[0];
+    if (!layout) return;
+    if (new Set(layout.targets).size !== layout.targets.length) {
+      context.addIssue({ code: "custom", path: ["operations"], message: "Auto-layout targets must be unique." });
+    }
+    const temporaryTargets = new Set(layout.targets);
+    const placeableReferences = new Set(
+      input.operations.flatMap((operation) =>
+        operation.op === "create_node" || operation.op === "create_shape" || operation.op === "create_text"
+          ? [operation.tempRef]
+          : [],
+      ),
+    );
+    for (const reference of layout.targets) {
+      if (!placeableReferences.has(reference)) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations"],
+          message: `Auto-layout target ${reference} must reference a created node, shape, or text object.`,
+        });
+      }
+    }
+    if (
+      layout.diagramTempRef &&
+      !input.operations.some(
+        (operation) => operation.op === "create_diagram" && operation.tempRef === layout.diagramTempRef,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["operations"],
+        message: "diagramTempRef must reference a Diagram created in this transaction.",
+      });
+    }
+    input.operations.forEach((operation, index) => {
+      if (
+        "tempRef" in operation &&
+        temporaryTargets.has(operation.tempRef) &&
+        ("x" in operation && operation.x !== undefined || "y" in operation && operation.y !== undefined)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations", index],
+          message: "An auto-layout target cannot also supply explicit x or y coordinates.",
+        });
+      }
+    });
+  });
+
+const TRANSACTION_PATCH_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    x: { type: "number" },
+    y: { type: "number" },
+    width: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
+    height: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
+    rotation: { type: "number" },
+    zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
+    groupId: { anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }] },
+    content: { type: "string", maxLength: 20_000 },
+    color: { type: "string", minLength: 1, maxLength: 32 },
+    size: { enum: ["s", "m", "l", "xl"] },
+    align: { enum: ["start", "middle", "end"] },
+    shape: { enum: ["rectangle", "ellipse", "diamond"] },
+    nodeType: { anyOf: [{ $ref: "#/$defs/nodeType" }, { type: "null" }] },
+    nodeMetadata: { anyOf: [{ $ref: "#/$defs/nodeMetadata" }, { type: "null" }] },
+    label: { type: "string", maxLength: 10_000 },
+    fill: { type: "string", minLength: 1, maxLength: 32 },
+    stroke: { type: "string", minLength: 1, maxLength: 32 },
+    start: { $ref: "#/$defs/connectorEndpoint" },
+    end: { $ref: "#/$defs/connectorEndpoint" },
+    direction: { enum: ["none", "end", "both"] },
+    alt: { type: "string", maxLength: 2_000 },
+    locked: { type: "boolean" },
+  },
+} as const;
 
 // Zod remains the authoritative execution validator. This equivalent WebMCP
 // descriptor uses shared definitions plus conditional required fields instead
@@ -225,15 +334,6 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         required: ["op"],
         properties: {
           op: {
-            enum: [
-              "create_node",
-              "create_shape",
-              "create_text",
-              "connect",
-              "update",
-              "create_diagram",
-              "edit_diagram",
-            ],
           },
           tempRef: { $ref: "#/$defs/tempRef" },
           objectId: { $ref: "#/$defs/id" },
@@ -282,35 +382,46 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           groupId: {
             anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }],
           },
+          layout: { enum: ["flow", "grid", "hierarchy"] },
+          layoutDirection: { enum: ["right", "down"] },
+          density: { enum: ["comfortable", "compact"] },
+          targets: { type: "array", minItems: 1, maxItems: 199, items: { $ref: "#/$defs/tempRef" } },
+          diagramTempRef: { $ref: "#/$defs/tempRef" },
+          origin: { $ref: "#/$defs/point" },
+          columns: { type: "integer", minimum: 1, maximum: 50 },
         },
-        allOf: [
+        oneOf: [
           {
-            if: { properties: { op: { const: "create_node" } }, required: ["op"] },
-            then: { required: ["tempRef", "label", "nodeType"] },
+            properties: { op: { const: "create_node" } },
+            required: ["tempRef", "label", "nodeType"],
           },
           {
-            if: { properties: { op: { const: "create_shape" } }, required: ["op"] },
-            then: { required: ["tempRef"] },
+            properties: { op: { const: "create_shape" } },
+            required: ["tempRef"],
           },
           {
-            if: { properties: { op: { const: "create_text" } }, required: ["op"] },
-            then: { required: ["tempRef", "content"] },
+            properties: { op: { const: "create_text" } },
+            required: ["tempRef", "content"],
           },
           {
-            if: { properties: { op: { const: "connect" } }, required: ["op"] },
-            then: { required: ["tempRef", "start", "end"] },
+            properties: { op: { const: "connect" } },
+            required: ["tempRef", "start", "end"],
           },
           {
-            if: { properties: { op: { const: "update" } }, required: ["op"] },
-            then: { required: ["objectId", "expectedRevision", "patch"] },
+            properties: { op: { const: "update" } },
+            required: ["objectId", "expectedRevision", "patch"],
           },
           {
-            if: { properties: { op: { const: "create_diagram" } }, required: ["op"] },
-            then: { required: ["tempRef", "title"] },
+            properties: { op: { const: "create_diagram" } },
+            required: ["tempRef", "title"],
           },
           {
-            if: { properties: { op: { const: "edit_diagram" } }, required: ["op"] },
-            then: { required: ["diagramId", "expectedRevision"] },
+            properties: { op: { const: "edit_diagram" } },
+            required: ["diagramId", "expectedRevision"],
+          },
+          {
+            properties: { op: { const: "auto_layout" } },
+            required: ["layout", "targets"],
           },
         ],
       },
@@ -353,26 +464,75 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       enum: ["service", "component", "requirement", "decision", "open_question"],
     },
     nodeMetadata: {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind", "status"],
-      properties: {
-        kind: { enum: ["decision", "open_question"] },
-        status: {
-          enum: [
-            "proposed",
-            "accepted",
-            "rejected",
-            "superseded",
-            "open",
-            "answered",
-            "deferred",
-            "closed",
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: {
+            kind: { const: "decision" },
+            status: { enum: ["proposed", "accepted", "rejected", "superseded"] },
+            owner: { $ref: "#/$defs/nodeOwner" },
+            resolution: { $ref: "#/$defs/nodeResolution" },
+          },
+          allOf: [
+            {
+              if: { properties: { status: { const: "proposed" } } },
+              then: { properties: { resolution: { type: "null" } } },
+            },
+            {
+              if: {
+                required: ["status"],
+                properties: { status: { enum: ["accepted", "rejected", "superseded"] } },
+              },
+              then: {
+                required: ["resolution"],
+                properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
+              },
+            },
           ],
         },
-        owner: { type: "string", minLength: 1, maxLength: 160 },
-        resolution: { type: "string", minLength: 1, maxLength: 4_000 },
-      },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: {
+            kind: { const: "open_question" },
+            status: { enum: ["open", "answered", "deferred", "closed"] },
+            owner: { $ref: "#/$defs/nodeOwner" },
+            resolution: { $ref: "#/$defs/nodeResolution" },
+          },
+          allOf: [
+            {
+              if: { properties: { status: { const: "open" } } },
+              then: { properties: { resolution: { type: "null" } } },
+            },
+            {
+              if: {
+                required: ["status"],
+                properties: { status: { enum: ["answered", "deferred", "closed"] } },
+              },
+              then: {
+                required: ["resolution"],
+                properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
+              },
+            },
+          ],
+        },
+      ],
+    },
+    nodeOwner: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 160 },
+        { type: "null" },
+      ],
+    },
+    nodeResolutionText: { type: "string", minLength: 1, maxLength: 10_000 },
+    nodeResolution: {
+      anyOf: [
+        { $ref: "#/$defs/nodeResolutionText" },
+        { type: "null" },
+      ],
     },
     connectorEndpoint: {
       type: "object",
@@ -384,35 +544,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         y: { type: "number" },
       },
     },
-    patch: {
-      type: "object",
-      additionalProperties: false,
-      minProperties: 1,
-      properties: {
-        x: { type: "number" },
-        y: { type: "number" },
-        width: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-        height: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-        rotation: { type: "number" },
-        zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
-        groupId: { anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }] },
-        content: { type: "string", maxLength: 20_000 },
-        color: { type: "string", minLength: 1, maxLength: 32 },
-        size: { enum: ["s", "m", "l", "xl"] },
-        align: { enum: ["start", "middle", "end"] },
-        shape: { enum: ["rectangle", "ellipse", "diamond"] },
-        nodeType: { anyOf: [{ $ref: "#/$defs/nodeType" }, { type: "null" }] },
-        nodeMetadata: { anyOf: [{ $ref: "#/$defs/nodeMetadata" }, { type: "null" }] },
-        label: { type: "string", maxLength: 10_000 },
-        fill: { type: "string", minLength: 1, maxLength: 32 },
-        stroke: { type: "string", minLength: 1, maxLength: 32 },
-        start: { $ref: "#/$defs/connectorEndpoint" },
-        end: { $ref: "#/$defs/connectorEndpoint" },
-        direction: { enum: ["none", "end", "both"] },
-        alt: { type: "string", maxLength: 2_000 },
-        locked: { type: "boolean" },
-      },
-    },
+    patch: TRANSACTION_PATCH_INPUT_SCHEMA,
   },
 } as const;
 
@@ -420,6 +552,7 @@ const layoutInput = z
   .object({
     layout: z.enum(["flow", "grid", "hierarchy"]),
     direction: z.enum(["right", "down"]).default("right"),
+    density: z.enum(["comfortable", "compact"]).default("comfortable"),
     targets: z
       .array(
         z
@@ -433,8 +566,8 @@ const layoutInput = z
       .min(1)
       .max(200),
     origin: point.optional(),
-    primaryGap: finite.min(0).max(10_000).default(160),
-    secondaryGap: finite.min(0).max(10_000).default(100),
+    primaryGap: finite.min(0).max(10_000).optional(),
+    secondaryGap: finite.min(0).max(10_000).optional(),
     columns: z.number().int().min(1).max(50).optional(),
     diagramId: id.optional(),
     expectedDiagramRevision: z.number().int().positive().optional(),
@@ -446,6 +579,45 @@ const layoutInput = z
       context.addIssue({ code: "custom", message: "diagramId and expectedDiagramRevision must be supplied together." });
     }
   });
+
+const LAYOUT_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["layout", "targets"],
+  properties: {
+    layout: { enum: ["flow", "grid", "hierarchy"] },
+    direction: { enum: ["right", "down"] },
+    density: { enum: ["comfortable", "compact"] },
+    targets: {
+      type: "array",
+      minItems: 1,
+      maxItems: 200,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["objectId", "expectedRevision"],
+        properties: {
+          objectId: { type: "string", minLength: 1, maxLength: 128 },
+          expectedRevision: { type: "integer", minimum: 1 },
+          leaseId: { type: "string", minLength: 1, maxLength: 128 },
+        },
+      },
+    },
+    origin: {
+      type: "object",
+      additionalProperties: false,
+      required: ["x", "y"],
+      properties: { x: { type: "number" }, y: { type: "number" } },
+    },
+    primaryGap: { type: "number", minimum: 0, maximum: 10_000 },
+    secondaryGap: { type: "number", minimum: 0, maximum: 10_000 },
+    columns: { type: "integer", minimum: 1, maximum: 50 },
+    diagramId: { type: "string", minLength: 1, maxLength: 128 },
+    expectedDiagramRevision: { type: "integer", minimum: 1 },
+    intent: { type: "string", minLength: 1, maxLength: 1_000 },
+    summary: { type: "string", minLength: 1, maxLength: 500 },
+  },
+} as const;
 
 const relationshipFilter = z
   .object({
@@ -619,7 +791,6 @@ function defineTool<TSchema extends z.ZodType>(input: {
       input.inputSchema ??
       (z.toJSONSchema(input.schema, {
         io: "input",
-        reused: "ref",
       }) as WebMCP.ModelContextTool["inputSchema"]),
     annotations: input.annotations,
     async execute(rawInput, options): Promise<JazzboardToolResult> {
@@ -702,19 +873,58 @@ function nextZIndex(room: RoomState | null): number {
   return room ? Math.max(-1, ...Object.values(room.objects).map((object) => object.zIndex)) + 1 : 0;
 }
 
+function automaticBatchOrigins(
+  items: Array<{ width: number; height: number }>,
+  viewport: Viewport | null,
+): Array<{ x: number; y: number }> {
+  if (!items.length) return [];
+  const layoutDefaults = layoutDensityDefaults("comfortable");
+  const columns = Math.min(DEFAULT_AUTOMATIC_LAYOUT_COLUMNS, items.length);
+  const rows = Math.ceil(items.length / columns);
+  const columnWidths = Array.from({ length: columns }, (_, column) =>
+    Math.max(
+      DEFAULT_AUTOMATIC_LAYOUT_SLOT_WIDTH,
+      ...items.filter((_, index) => index % columns === column).map((item) => item.width),
+    ),
+  );
+  const rowHeights = Array.from({ length: rows }, (_, row) =>
+    Math.max(
+      DEFAULT_AUTOMATIC_LAYOUT_SLOT_HEIGHT,
+      ...items
+        .filter((_, index) => Math.floor(index / columns) === row)
+        .map((item) => item.height),
+    ),
+  );
+  const originX = viewport ? viewport.x + DEFAULT_AUTOMATIC_LAYOUT_VIEWPORT_PADDING : 0;
+  const originY = viewport ? viewport.y + DEFAULT_AUTOMATIC_LAYOUT_VIEWPORT_PADDING : 0;
+  const columnX = columnWidths.map((_, column) =>
+    originX + columnWidths.slice(0, column).reduce(
+      (sum, width) => sum + width + layoutDefaults.primaryGap,
+      0,
+    ),
+  );
+  const rowY = rowHeights.map((_, row) =>
+    originY + rowHeights.slice(0, row).reduce(
+      (sum, height) => sum + height + layoutDefaults.secondaryGap,
+      0,
+    ),
+  );
+  return items.map((_, index) => ({
+    x: columnX[index % columns],
+    y: rowY[Math.floor(index / columns)],
+  }));
+}
+
 function batchPosition(
   input: { x?: number; y?: number; width?: number; height?: number },
-  viewport: Viewport | null,
-  index: number,
+  automaticOrigin: { x: number; y: number },
   defaults: { width: number; height: number },
 ) {
   const width = input.width ?? defaults.width;
   const height = input.height ?? defaults.height;
-  const originX = viewport ? viewport.x + 80 : 0;
-  const originY = viewport ? viewport.y + 80 : 0;
   return {
-    x: input.x ?? originX + (index % 4) * 360,
-    y: input.y ?? originY + Math.floor(index / 4) * 240,
+    x: input.x ?? automaticOrigin.x,
+    y: input.y ?? automaticOrigin.y,
     width,
     height,
   };
@@ -775,7 +985,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "query_objects",
       title: "Query semantic canvas objects",
       description:
-        "Find a bounded subset of authoritative canvas objects by content, kind, explicit node classification, group, diagram, relationship, or canvas-world region without returning unrelated room content.",
+        "Find bounded authoritative objects by content, kind, node classification, group, Diagram, relationship, or canvas region without unrelated room content.",
       schema: queryInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1014,7 +1224,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply an atomic semantic canvas transaction",
       description:
-        "Create multiple classified nodes, shapes, text objects, connectors, and Diagram containers plus revision-checked updates in one all-or-nothing operation. Request-local temporary references let connectors and diagrams target objects created in the same call.",
+        "Atomically create or update semantic objects and Diagrams. Temporary refs connect new objects; optional auto_layout arranges new refs. Omit layout to preserve explicit coordinates and overlap.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -1055,6 +1265,23 @@ export function createJazzboardSemanticWebMcpTools(
         const deferredConnections: z.output<typeof connectOperation>[] = [];
         const deferredUpdates: z.output<typeof updateOperation>[] = [];
         const deferredDiagrams: Array<z.output<typeof createDiagramOperation> | z.output<typeof editDiagramOperation>> = [];
+        let deferredAutoLayout: z.output<typeof autoLayoutOperation> | undefined;
+        const placeableOperations = input.operations.filter(
+          (operation): operation is z.output<typeof createNodeOperation> | z.output<typeof createShapeOperation> | z.output<typeof createTextOperation> =>
+            operation.op === "create_node" || operation.op === "create_shape" || operation.op === "create_text",
+        );
+        const automaticOrigins = automaticBatchOrigins(
+          placeableOperations.map((operation) => {
+            const defaults = operation.op === "create_text"
+              ? { width: 320, height: 96 }
+              : { width: 280, height: 152 };
+            return {
+              width: operation.width ?? defaults.width,
+              height: operation.height ?? defaults.height,
+            };
+          }),
+          binding.context.getViewport(),
+        );
         let createIndex = 0;
         let zIndex = nextZIndex(currentRoom);
 
@@ -1070,6 +1297,10 @@ export function createJazzboardSemanticWebMcpTools(
         };
 
         for (const operation of input.operations) {
+          if (operation.op === "auto_layout") {
+            deferredAutoLayout = operation;
+            continue;
+          }
           if (operation.op === "connect") {
             deferredConnections.push(operation);
             continue;
@@ -1084,7 +1315,7 @@ export function createJazzboardSemanticWebMcpTools(
           }
           const objectId = refs.get(operation.tempRef)!;
           const defaults = operation.op === "create_text" ? { width: 320, height: 96 } : { width: 280, height: 152 };
-          const position = batchPosition(operation, binding.context.getViewport(), createIndex, defaults);
+          const position = batchPosition(operation, automaticOrigins[createIndex]!, defaults);
           const common = {
             id: objectId,
             ...position,
@@ -1206,10 +1437,36 @@ export function createJazzboardSemanticWebMcpTools(
             });
           }
         }
+        const autoLayout: LayoutCommand | undefined = deferredAutoLayout
+          ? (() => {
+              const diagramId = deferredAutoLayout.diagramTempRef
+                ? refs.get(deferredAutoLayout.diagramTempRef)
+                : undefined;
+              if (deferredAutoLayout.diagramTempRef && !diagramId) {
+                throw new SemanticToolError(
+                  "UNRESOLVED_TEMP_REF",
+                  `Diagram reference ${deferredAutoLayout.diagramTempRef} is not defined in this request.`,
+                  { tempRef: deferredAutoLayout.diagramTempRef },
+                );
+              }
+              return {
+                layout: deferredAutoLayout.layout,
+                direction: deferredAutoLayout.layoutDirection,
+                density: deferredAutoLayout.density,
+                targets: deferredAutoLayout.targets.map((reference) => ({
+                  objectId: idFor({ tempRef: reference }),
+                  expectedRevision: 1,
+                })),
+                ...(deferredAutoLayout.origin ? { origin: deferredAutoLayout.origin } : {}),
+                ...(deferredAutoLayout.columns !== undefined ? { columns: deferredAutoLayout.columns } : {}),
+                ...(diagramId ? { diagramId, expectedDiagramRevision: 1 } : {}),
+              };
+            })()
+          : undefined;
         const response = await mutate(
           {
             action: "transaction",
-            transaction: { commands, diagramCommands },
+            transaction: { commands, diagramCommands, ...(autoLayout ? { autoLayout } : {}) },
             metadata: activityMetadata(input),
           },
           signal,
@@ -1221,6 +1478,7 @@ export function createJazzboardSemanticWebMcpTools(
           changedObjectIds: response.changedObjectIds,
           changedDiagramIds: response.changedDiagramIds,
           membershipObjectIds: response.membershipObjectIds,
+          positions: response.positions,
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
           activity: response.activity,
@@ -1232,8 +1490,9 @@ export function createJazzboardSemanticWebMcpTools(
       name: "layout_objects",
       title: "Arrange semantic objects deterministically",
       description:
-        "Atomically arrange revision-checked objects as a flow, grid, or connector-derived acyclic hierarchy. Active leases are honored, bound connector geometry is recomputed, and affected Diagram bounds and revisions stay authoritative.",
+        "Arrange revision-checked objects as a comfortable or compact flow, grid, or connector-derived hierarchy. Leases, connector geometry and labels, Diagram bounds, and revisions remain authoritative.",
       schema: layoutInput,
+      inputSchema: LAYOUT_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
         const layout = stripActivityMetadata(input);
@@ -1258,7 +1517,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "create_diagram",
       title: "Create a first-class semantic diagram",
       description:
-        "Create an authoritative Diagram container with a stable ID, title, description, explicit type and category, tags, member object IDs, connector IDs, computed bounds, revision, and agent attribution.",
+        "Create an authoritative Diagram with a stable ID, semantic metadata, members, connectors, computed bounds, revision, and agent attribution.",
       schema: createDiagramInput,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
@@ -1296,7 +1555,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "edit_diagram",
       title: "Edit a diagram by semantic ID and revision",
       description:
-        "Revision-check and atomically edit one Diagram's metadata, tags, members, or connectors. Server validation maintains reverse memberships and recomputes bounds; stale revisions fail without partial changes.",
+        "Revision-check and atomically edit Diagram metadata or membership. The server maintains reverse membership and bounds; stale revisions cause no change.",
       schema: editDiagramInput,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {

@@ -78,6 +78,16 @@ export type ReviewDecisionOutcome =
       proposal: AgentEditProposalSummary;
     });
 
+function semanticTransactionOperationCount(transaction: SemanticTransaction): number {
+  return transaction.commands.length + transaction.diagramCommands.length + (transaction.autoLayout ? 1 : 0);
+}
+
+function semanticTransactionLayoutSuffix(transaction: SemanticTransaction): string {
+  return transaction.autoLayout
+    ? ` with ${transaction.autoLayout.density ?? "comfortable"} ${transaction.autoLayout.layout} layout`
+    : "";
+}
+
 export async function readAuthorizedRoom(roomId: string, participantId: string): Promise<RoomState> {
   const room = await getRoomStore().getRoom(roomId);
   if (!room) throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
@@ -129,7 +139,9 @@ function queueAgentEdit(
     participantId,
     proposal.purpose.objectIds,
     `${proposal.purpose.label} — awaiting human review`,
-    request.kind === "layout" ? "moving" : "creating",
+    request.kind === "layout" || (request.kind === "semantic_transaction" && request.transaction.autoLayout)
+      ? "moving"
+      : "creating",
   );
   return {
     room,
@@ -141,7 +153,9 @@ function queueAgentEdit(
       membershipObjectIds: [] as string[],
       activity: null,
       proposal: agentEditProposalSummary(proposal),
-      ...(request.kind === "layout" ? { positions: [] as Array<{ objectId: string; x: number; y: number }> } : {}),
+      ...(request.kind === "layout" || (request.kind === "semantic_transaction" && request.transaction.autoLayout)
+        ? { positions: [] as Array<{ objectId: string; x: number; y: number }> }
+        : {}),
     },
     eventActor: proposal.author,
   };
@@ -390,22 +404,25 @@ export async function runSemanticTransaction(input: {
         input.transaction,
       );
       if (input.actorKind === "agent") {
+        const operationCount = semanticTransactionOperationCount(input.transaction);
         markSemanticAgentActivity(
           result.room,
           input.participantId,
           result.changedObjectIds,
-          `Applying ${input.transaction.commands.length + input.transaction.diagramCommands.length} semantic operation${input.transaction.commands.length + input.transaction.diagramCommands.length === 1 ? "" : "s"}`,
-          input.transaction.commands.some((command) => command.type === "move") ? "moving" : "creating",
+          `Applying ${operationCount} semantic operation${operationCount === 1 ? "" : "s"}${semanticTransactionLayoutSuffix(input.transaction)}`,
+          input.transaction.autoLayout || input.transaction.commands.some((command) => command.type === "move")
+            ? "moving"
+            : "creating",
         );
       }
       const activityActor = actorFor(requireParticipant(result.room, input.participantId), input.actorKind);
-      const operationCount = input.transaction.commands.length + input.transaction.diagramCommands.length;
+      const operationCount = semanticTransactionOperationCount(input.transaction);
       const activityRecord = buildRoomActivity({
         before: baseline,
         after: result.room,
         actor: activityActor,
         action: "canvas.transaction",
-        label: `Applied ${operationCount} semantic operation${operationCount === 1 ? "" : "s"}`,
+        label: `Applied ${operationCount} semantic operation${operationCount === 1 ? "" : "s"}${semanticTransactionLayoutSuffix(input.transaction)}`,
         changedObjectIds: result.changedObjectIds,
         changedDiagramIds: result.changedDiagramIds,
         membershipObjectIds: result.membershipObjectIds,
@@ -611,10 +628,10 @@ function proposalActivityDescriptor(
       label: `Reverted activity ${proposal.request.revert.activityId}`,
     };
   }
-  const count = proposal.request.transaction.commands.length + proposal.request.transaction.diagramCommands.length;
+  const count = semanticTransactionOperationCount(proposal.request.transaction);
   return {
     action: "canvas.transaction",
-    label: `Applied ${count} semantic operation${count === 1 ? "" : "s"}`,
+    label: `Applied ${count} semantic operation${count === 1 ? "" : "s"}${semanticTransactionLayoutSuffix(proposal.request.transaction)}`,
   };
 }
 
@@ -720,7 +737,10 @@ export async function reviewAgentEditProposal(input: {
         proposal.author.participantId,
         semanticResult.changedObjectIds,
         `Applying approved proposal: ${proposal.purpose.label}`,
-        proposal.request.kind === "layout" ? "moving" : "creating",
+        proposal.request.kind === "layout" ||
+          (proposal.request.kind === "semantic_transaction" && proposal.request.transaction.autoLayout)
+          ? "moving"
+          : "creating",
       );
       const descriptor = proposalActivityDescriptor(proposal, semanticResult.changedObjectIds.length);
       const activityRecord = buildRoomActivity({
