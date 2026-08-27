@@ -21,10 +21,6 @@ import {
   JAZZBOARD_ACTIVITY_TOOL_NAMES,
 } from "./activity-tools";
 import {
-  createJazzboardSnapshotRoomWebMcpTools,
-  JAZZBOARD_SNAPSHOT_ROOM_TOOL_NAMES,
-} from "./snapshot-room-tools";
-import {
   createJazzboardInterchangeWebMcpTools,
   JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
   JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES,
@@ -42,6 +38,10 @@ import {
   createJazzboardMessageWebMcpTools,
   JAZZBOARD_MESSAGE_TOOL_NAMES,
 } from "./message-tools";
+import {
+  createJazzboardPngExportWebMcpTools,
+  JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
+} from "./png-export-tools";
 import type {
   JazzboardWebMcpBinding,
   JazzboardWebMcpDependencies,
@@ -58,8 +58,8 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_LIFECYCLE_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_TOOL_NAMES,
   ...JAZZBOARD_ACTIVITY_TOOL_NAMES,
-  ...JAZZBOARD_SNAPSHOT_ROOM_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
+  ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_TOOL_NAMES,
   ...JAZZBOARD_PREVIEW_TOOL_NAMES,
   ...JAZZBOARD_MESSAGE_TOOL_NAMES,
@@ -71,6 +71,7 @@ export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
   ...JAZZBOARD_ACTIVITY_READ_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES,
+  ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_READ_TOOL_NAMES,
 ] as const;
 
@@ -84,8 +85,8 @@ export function createJazzboardRoomWebMcpTools(
     ...createJazzboardLifecycleWebMcpTools(binding, dependencies),
     ...createJazzboardSemanticWebMcpTools(binding, dependencies),
     ...createJazzboardActivityWebMcpTools(binding, dependencies),
-    ...createJazzboardSnapshotRoomWebMcpTools(binding, dependencies),
     ...createJazzboardInterchangeWebMcpTools(binding, dependencies),
+    ...createJazzboardPngExportWebMcpTools(binding, dependencies),
     ...createJazzboardReviewWebMcpTools(binding, dependencies),
     ...createJazzboardPreviewWebMcpTools(binding, dependencies),
     ...createJazzboardMessageWebMcpTools(binding, dependencies),
@@ -131,7 +132,13 @@ export class JazzboardWebMcpRegistrar {
 
     const controller = new AbortController();
     this.registrationController = controller;
-    const tools = createJazzboardRoomWebMcpTools(binding, this.dependencies);
+    // Tool names and descriptions already carry the model-facing semantics.
+    // Omit optional display titles from the registered production descriptor.
+    const tools = createJazzboardRoomWebMcpTools(binding, this.dependencies).map((tool) => {
+      const registeredTool = { ...tool };
+      delete registeredTool.title;
+      return registeredTool;
+    });
 
     try {
       await Promise.all(

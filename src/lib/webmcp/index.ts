@@ -72,6 +72,10 @@ export {
   JAZZBOARD_MESSAGE_READ_TOOL_NAMES,
   JAZZBOARD_MESSAGE_TOOL_NAMES,
 } from "./message-tools";
+export {
+  createJazzboardPngExportWebMcpTools,
+  JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
+} from "./png-export-tools";
 export type {
   JazzboardToolFailure,
   JazzboardToolResult,

@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 import { createRoomViaApi, getRoom } from "./helpers";
 
 const TINY_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8Dwn4GBgYGJAQoAHgQCAQKc7S8AAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGP8z7DlPwMewIRPcvgoAADJ3wLCTMjowgAAAABJRU5ErkJggg==",
   "base64",
 );
 
@@ -78,8 +79,43 @@ test("adds a screenshot-style image through tldraw's standard media picker and l
     )
     .toEqual(Object.keys(state.room.objects).map((id) => `shape:${id}`).sort());
 
-  await page.getByRole("button", { name: "Canvas outline" }).click();
+  await page.getByRole("button", { name: "Canvas outline", exact: true }).click();
   const outline = page.getByRole("complementary", { name: "Canvas outline" });
   await expect(outline.getByText("1 objects")).toBeVisible();
   await expect(outline.getByText("website-screenshot.png", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Canvas outline", exact: true }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  const exportPanel = page.getByRole("complementary", { name: "Export board" });
+  const [pngDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    exportPanel.getByRole("button", { name: "PNG" }).click(),
+  ]);
+  expect(pngDownload.suggestedFilename()).toBe("image-annotation.png");
+  const pngPath = await pngDownload.path();
+  expect(pngPath).not.toBeNull();
+  const exportedPng = await readFile(pngPath!);
+  expect(exportedPng.subarray(1, 4).toString("ascii")).toBe("PNG");
+
+  const pixels = await page.evaluate(async (base64) => {
+    const response = await fetch(`data:image/png;base64,${base64}`);
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas decoding is unavailable.");
+    context.drawImage(bitmap, 0, 0);
+    const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    let sourceColorPixels = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index] > 220 && data[index + 1] < 40 && data[index + 2] > 140 && data[index + 3] > 240) {
+        sourceColorPixels += 1;
+      }
+    }
+    return { width: bitmap.width, height: bitmap.height, sourceColorPixels };
+  }, exportedPng.toString("base64"));
+  expect(pixels.width).toBeGreaterThan(0);
+  expect(pixels.height).toBeGreaterThan(0);
+  expect(pixels.sourceColorPixels).toBeGreaterThan(0);
 });

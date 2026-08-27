@@ -146,11 +146,9 @@ describe("agent-readable content", () => {
       "claim_agent_message",
       "reply_to_agent_message",
       "export_canvas_artifact",
+      "export_canvas_png",
       "create_diagram_template",
       "instantiate_diagram_template",
-      "create_readonly_snapshot",
-      "list_readonly_snapshots",
-      "revoke_readonly_snapshot",
       "read_snapshot_state",
       "query_snapshot_objects",
       "read_snapshot_diagram",
@@ -158,6 +156,18 @@ describe("agent-readable content", () => {
     ]) {
       expect(corpus).toContain(`\`${toolName}\``);
     }
+
+    for (const retiredToolName of [
+      "create_readonly_snapshot",
+      "list_readonly_snapshots",
+      "revoke_readonly_snapshot",
+    ]) {
+      expect(corpus).not.toContain(`\`${retiredToolName}\``);
+    }
+
+    expect(corpus).toContain("image-faithful PNG");
+    expect(corpus).toContain("Jazzboard issues no new hosted snapshot URLs");
+    expect(corpus).toContain("neither returned by WebMCP nor persisted");
   });
 
   it("documents authoritative connector routing and visual verification", () => {
@@ -218,8 +228,8 @@ describe("agent-readable content", () => {
     expect(corpus).toContain("approve or reject");
     expect(corpus).toContain("loosen review mode back to live");
     expect(corpus).toContain("upgrade a spectator");
-    expect(corpus).toContain("recovering an already-issued snapshot secret");
-    expect(corpus).toContain("snapshot-secret recovery is impossible for everyone");
+    expect(corpus).toContain("creating or recovering a hosted snapshot URL");
+    expect(corpus).toContain("Jazzboard cannot issue a replacement");
     expect(corpus).toContain("pull-only");
     expect(corpus).toContain("does not wake");
     expect(corpus).toContain("private participant");

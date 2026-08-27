@@ -1,6 +1,8 @@
 .roomPage {
   --chrome: rgba(255, 255, 255, 0.92);
   --chrome-line: rgba(201, 207, 220, 0.9);
+  --room-edge-inset: 16px;
+  --room-right-panel-top: 65px;
   background: #f7f8fc;
   height: 100dvh;
   min-height: 560px;
@@ -25,15 +27,22 @@
   background-size: 22px 22px;
 }
 
+.canvasShell :global(.tlui-layout__top__right) {
+  padding-top: var(--room-right-panel-top);
+}
+
+.canvasShell :global(.tlui-style-panel__wrapper) {
+  max-height: calc(100dvh - var(--room-right-panel-top) - 8px);
+}
+
 .roomHeader {
   align-items: flex-start;
   display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  left: 16px;
+  justify-content: flex-end;
+  left: var(--room-edge-inset);
   pointer-events: none;
   position: absolute;
-  right: 16px;
+  right: var(--room-edge-inset);
   top: 14px;
   z-index: 400;
 }
@@ -49,15 +58,42 @@
   pointer-events: auto;
 }
 
-.roomIdentity {
-  flex: 0 1 auto;
+.combinedLeftPanel {
+  align-items: stretch;
+  backdrop-filter: blur(18px) saturate(1.25);
+  background: var(--chrome);
+  border: 1px solid var(--chrome-line);
+  border-radius: 14px;
+  box-shadow: 0 8px 26px rgba(39, 47, 77, 0.1), 0 1px 3px rgba(39, 47, 77, 0.08);
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: column;
+  margin: 14px 0 0 16px;
+  max-width: calc(100vw - 32px);
+  min-width: 260px;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.combinedLeftPanel :global(.tlui-menu-zone) {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-radius: 0 0 13px 13px;
+  border-top: 1px solid rgba(201, 207, 220, 0.72);
+  box-shadow: none;
+  width: auto;
+}
+
+.combinedRoomIdentity {
+  align-items: center;
+  display: flex;
   gap: 9px;
   min-height: 51px;
-  min-width: 260px;
   padding: 6px 8px;
 }
 
-.roomIdentity > div:not(.popoverAnchor) {
+.combinedRoomIdentity > div {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -65,7 +101,7 @@
   min-width: 0;
 }
 
-.roomIdentity strong {
+.combinedRoomIdentity strong {
   font-size: 13px;
   font-weight: 740;
   letter-spacing: -0.018em;
@@ -75,7 +111,7 @@
   white-space: nowrap;
 }
 
-.roomIdentity div > span {
+.combinedRoomIdentity div > span {
   color: var(--ink-soft);
   font-size: 10px;
   font-weight: 670;
@@ -1581,33 +1617,34 @@
   100% { box-shadow: 0 0 0 0 rgba(89, 101, 232, 0); }
 }
 
-@media (max-width: 1020px) {
+@media (max-width: 1040px) {
   .siteToolsPill,
   .rolePill {
     display: none;
   }
-
-  .roomIdentity {
-    min-width: 220px;
-  }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
+  .roomPage {
+    --room-edge-inset: 10px;
+    --room-right-panel-top: 74px;
+  }
+
+  .combinedLeftPanel {
+    margin: 9px 0 0 10px;
+    max-width: calc(100vw - 20px);
+  }
+
   .roomHeader {
-    align-items: stretch;
-    flex-direction: column;
     left: 10px;
     right: 10px;
     top: 9px;
   }
 
-  .roomIdentity {
-    min-width: 0;
-    width: fit-content;
-  }
-
   .roomControls {
-    align-self: flex-end;
+    max-width: calc(100vw - (2 * var(--room-edge-inset)));
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .statusPill,
@@ -1620,7 +1657,7 @@
   .rejoinSpotlight,
   .handoffRequest {
     max-width: calc(100vw - 20px);
-    top: 118px;
+    top: calc(var(--room-right-panel-top) + 14px);
   }
 
   .spotlightInvite {
@@ -1662,6 +1699,16 @@
   .diagramFieldRow,
   .membershipSummary {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .roomPage {
+    --room-right-panel-top: 176px;
+  }
+
+  .roomHeader {
+    top: 111px;
   }
 }
 

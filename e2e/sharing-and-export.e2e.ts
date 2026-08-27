@@ -23,7 +23,9 @@ test("shares the live board by private invite while keeping exports separate", a
   await expect(sharePanel).toBeVisible();
   await expect(sharePanel.getByText("Collaborate live")).toBeVisible();
   await expect(sharePanel.getByText(host.room.code, { exact: true })).toBeVisible();
-  await expect(sharePanel.getByText("Share read-only")).toBeVisible();
+  await expect(sharePanel.getByText(/use Export → PNG/)).toBeVisible();
+  await expect(sharePanel.getByText("Share read-only")).toHaveCount(0);
+  await expect(sharePanel.getByRole("button", { name: /snapshot/i })).toHaveCount(0);
   await expect(sharePanel.getByRole("button", { name: "Semantic JSON" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Show people in this room" }).click();
@@ -64,7 +66,7 @@ test("shares the live board by private invite while keeping exports separate", a
   await expect(exportPanel).toBeVisible();
   await expect(exportPanel.getByRole("button", { name: "Semantic JSON" })).toBeEnabled();
   await expect(exportPanel.getByRole("button", { name: "SVG" })).toBeEnabled();
-  await expect(exportPanel.getByRole("button", { name: "PNG" })).toBeEnabled();
+  await expect(exportPanel.getByRole("button", { name: "PNG" })).toBeDisabled();
   await expect(exportPanel.getByRole("button", { name: "Mermaid" })).toBeDisabled();
   await expect(exportPanel.getByRole("button", { name: /Save diagram template/ })).toBeVisible();
 
@@ -86,7 +88,7 @@ test("shares the live board by private invite while keeping exports separate", a
     await invitedPage.getByRole("button", { name: "Share board" }).click();
     const spectatorShare = invitedPage.getByRole("complementary", { name: "Share board" });
     await expect(spectatorShare.getByRole("button", { name: "Copy invite" })).toBeVisible();
-    await expect(spectatorShare.getByText(/Only participants can issue frozen read-only snapshot links/)).toBeVisible();
+    await expect(spectatorShare.getByText(/use Export → PNG/)).toBeVisible();
     await expect(spectatorShare.getByText("Share read-only")).toHaveCount(0);
 
     await spectatorShare.getByRole("button", { name: "Close share board" }).click();

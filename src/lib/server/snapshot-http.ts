@@ -2,11 +2,9 @@ import type { ActorKind } from "@/lib/domain/types";
 
 import { errorResponse, json, readJsonBody, runMutationRequest } from "./http";
 import {
-  createReadonlySnapshotRequestSchema,
   revokeReadonlySnapshotRequestSchema,
 } from "./snapshot-schemas";
 import {
-  createReadonlySnapshot,
   listReadonlySnapshots,
   readPublicSnapshot,
   revokeReadonlySnapshot,
@@ -31,30 +29,24 @@ export async function handleListReadonlySnapshots(
   }
 }
 
-export async function handleCreateReadonlySnapshot(
-  request: Request,
-  context: RoomRouteContext,
-  actorKind: ActorKind,
-): Promise<Response> {
+/**
+ * Stable retirement response for tabs or clients that cached the old
+ * snapshot-creation surface. This intentionally performs no snapshot work.
+ */
+export function handleRetiredReadonlySnapshotCreation(request: Request): Response {
   try {
-    const participantId = requireGuestParticipantId(request);
-    const { roomId } = await context.params;
-    const body = createReadonlySnapshotRequestSchema.parse(await readJsonBody(request));
-    const result = await runMutationRequest({
-      request,
-      participantId,
-      roomId,
-      operation: "room.snapshot.create",
-      actorKind,
-      parsedBody: body,
-      execute: () => createReadonlySnapshot({
-        roomId,
-        participantId,
-        actorKind,
-        ...body,
-      }),
-    });
-    return json({ ok: true, ...result }, { status: 201 });
+    requireGuestParticipantId(request);
+    return json(
+      {
+        ok: false,
+        error: {
+          code: "SNAPSHOT_ISSUANCE_RETIRED",
+          message: "Jazzboard no longer creates hosted snapshot links. Download a local PNG instead.",
+          details: null,
+        },
+      },
+      { status: 410 },
+    );
   } catch (error) {
     return errorResponse(error);
   }

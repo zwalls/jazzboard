@@ -40,18 +40,10 @@ function request(method: string, body?: unknown): Request {
   });
 }
 
-const createBody = {
-  expectedRoomRevision: 7,
-  scope: { kind: "diagram", diagramId: "diagram_auth", expectedDiagramRevision: 3 },
-  title: "Authentication request flow",
-  expiresInHours: 24,
-};
-
 describe("snapshot collection route authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireGuestParticipantId.mockReturnValue("p_authenticated");
-    mocks.createReadonlySnapshot.mockResolvedValue({ snapshot: { id: "snapshot_created" } });
     mocks.listReadonlySnapshots.mockResolvedValue({ snapshots: [] });
     mocks.revokeReadonlySnapshot.mockResolvedValue({ snapshotId: "snapshot_revoked", revoked: true });
   });
@@ -59,16 +51,19 @@ describe("snapshot collection route authorization", () => {
   it.each([
     ["human", postHumanSnapshot],
     ["agent", postAgentSnapshot],
-  ] as const)("derives the %s actor and signed participant for create", async (actorKind, handler) => {
-    const response = await handler(request("POST", createBody), context);
+  ] as const)("returns a stable retirement response for cached %s creation clients", async (_actorKind, handler) => {
+    const response = await handler(request("POST", { expectedRoomRevision: 9 }));
 
-    expect(response.status).toBe(201);
-    expect(mocks.createReadonlySnapshot).toHaveBeenCalledWith({
-      roomId: "room_private",
-      participantId: "p_authenticated",
-      actorKind,
-      ...createBody,
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "SNAPSHOT_ISSUANCE_RETIRED",
+        message: "Jazzboard no longer creates hosted snapshot links. Download a local PNG instead.",
+        details: null,
+      },
     });
+    expect(mocks.createReadonlySnapshot).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -99,20 +94,6 @@ describe("snapshot collection route authorization", () => {
       actorKind,
       snapshotId,
     });
-  });
-
-  it("rejects malformed requests before the snapshot service runs", async () => {
-    const response = await postHumanSnapshot(
-      request("POST", { expectedRoomRevision: 7, scope: { kind: "room" }, expiresInHours: 169 }),
-      context,
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      error: { code: "INVALID_REQUEST", details: { issues: expect.any(Array) } },
-    });
-    expect(mocks.createReadonlySnapshot).not.toHaveBeenCalled();
   });
 
   it("requires the signed guest session before any operation", async () => {

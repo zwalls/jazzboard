@@ -37,6 +37,9 @@ function context(): JazzboardWebMcpContext {
     presentCanvasPreview: async () => {
       throw new Error("not executed by registration tests");
     },
+    saveCanvasPng: async () => {
+      throw new Error("not executed by registration tests");
+    },
     acceptRoom: () => undefined,
     setFollowTarget: () => undefined,
     setDeclinedSpotlight: () => undefined,
@@ -88,6 +91,13 @@ describe("JazzboardWebMcpRegistrar", () => {
     });
     expect(modelContext.registerTool).toHaveBeenCalledTimes(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES.length);
     expect([...modelContext.tools.keys()]).toEqual(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES);
+    for (const retiredToolName of [
+      "create_readonly_snapshot",
+      "list_readonly_snapshots",
+      "revoke_readonly_snapshot",
+    ]) {
+      expect(modelContext.tools.has(retiredToolName)).toBe(false);
+    }
     expect(modelContext.registrationSignals).toHaveLength(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES.length);
     expect(new Set(modelContext.registrationSignals).size).toBe(1);
     expect(modelContext.registrationSignals[0]?.aborted).toBe(false);
@@ -118,7 +128,7 @@ describe("JazzboardWebMcpRegistrar", () => {
     expect(
       descriptorBytes,
       `Production-shaped descriptors use ${descriptorBytes} bytes. Largest: ${JSON.stringify(largestDescriptors)}`,
-    ).toBeLessThanOrEqual(60_000);
+    ).toBeLessThanOrEqual(55_000);
 
     const collectDescriptions = (value: unknown): string[] => {
       if (Array.isArray(value)) return value.flatMap(collectDescriptions);
@@ -161,7 +171,14 @@ describe("JazzboardWebMcpRegistrar", () => {
       registeredToolNames: [...JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES],
     });
     expect([...modelContext.tools.keys()]).toEqual(JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES);
-    expect([...modelContext.tools.values()].every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(
+      [...modelContext.tools.values()]
+        .filter((tool) => tool.name !== "export_canvas_png")
+        .every((tool) => tool.annotations?.readOnlyHint),
+    ).toBe(true);
+    expect(modelContext.tools.get("export_canvas_png")?.annotations).toEqual({
+      untrustedContentHint: true,
+    });
   });
 
   it("unregisters every participant tool immediately when the role becomes spectator", async () => {

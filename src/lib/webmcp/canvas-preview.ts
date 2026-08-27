@@ -21,6 +21,10 @@ export {
 
 export type CanvasPreviewSource =
   | {
+      kind: "room";
+      expectedRevision: number;
+    }
+  | {
       kind: "objects";
       targets: Array<{ objectId: string; expectedRevision: number }>;
     }
@@ -169,6 +173,17 @@ function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRender
     });
   }
 
+  if (request.source.kind === "room" && room.roomRevision > request.source.expectedRevision) {
+    throw new CanvasPreviewError(
+      "ROOM_REVISION_CONFLICT",
+      "The Jazzboard room changed before its PNG could be rendered.",
+      {
+        expectedRevision: request.source.expectedRevision,
+        actualRevision: room.roomRevision,
+      },
+    );
+  }
+
   if (request.source.kind === "diagram") {
     const diagram = room.diagrams[request.source.diagramId];
     if (!diagram) {
@@ -220,6 +235,7 @@ function isAuthoritativeScopeProjected(
   request: CanvasPreviewRenderRequest,
 ): boolean {
   if (room.id !== request.roomId) return false;
+  if (request.source.kind === "room" && room.roomRevision !== request.source.expectedRevision) return false;
   if (request.source.kind === "diagram") {
     const currentDiagram = room.diagrams[request.source.diagramId];
     if (!currentDiagram || currentDiagram.revision !== request.source.expectedRevision) return false;
