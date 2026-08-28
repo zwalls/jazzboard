@@ -107,7 +107,11 @@ import type {
   CanvasSurfaceProps,
   SemanticCanvasEditingHost,
 } from "./canvas-surface-types";
-import { SemanticCanvasContextMenu } from "./SemanticCanvasContextMenu";
+import {
+  SemanticCanvasContextMenu,
+  type SemanticCanvasContextMenuActionId,
+  type SemanticCanvasContextMenuItem,
+} from "./SemanticCanvasContextMenu";
 import { SemanticCanvasObject } from "./SemanticCanvasObject";
 import {
   SemanticImagePicker,
@@ -211,15 +215,13 @@ type ActiveConnectorEndpointPointer = Readonly<{
   token: SemanticConnectorSessionToken;
 }>;
 
-type ImageContextMenuState = Readonly<{
-  objectId: string;
+type CanvasContextMenuState = Readonly<{
+  objectId: string | null;
   x: number;
   y: number;
 }>;
 
-const IMAGE_CONTEXT_MENU_WIDTH = 190;
-const IMAGE_CONTEXT_MENU_HEIGHT = 48;
-const IMAGE_CONTEXT_MENU_MARGIN = 8;
+const CONTEXT_MENU_MARGIN = 8;
 
 const emptySubscribe = () => () => undefined;
 let fallbackSemanticId = 0;
@@ -420,7 +422,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const [tabStopObjectId, setTabStopObjectId] = useState<string | null>(null);
   const pendingFocusObjectIdRef = useRef<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [imageContextMenu, setImageContextMenu] = useState<ImageContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [panning, setPanning] = useState(false);
   const panRef = useRef<PanState | null>(null);
   const pointerPageRef = useRef<{ x: number; y: number } | null>(null);
@@ -460,9 +462,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   );
   const canUndo = Boolean(historyReplayReady && historyState?.canUndo);
   const canRedo = Boolean(historyReplayReady && historyState?.canRedo);
-  const activeImageContextMenu = imageContextMenu
-    && scene.objectsById[imageContextMenu.objectId]?.object.kind === "image"
-    ? imageContextMenu
+  const activeContextMenu = contextMenu
+    && (contextMenu.objectId === null || scene.objectsById[contextMenu.objectId])
+    ? contextMenu
     : null;
 
   roomRef.current = controller?.getAuthoritativeRoom() ?? room;
@@ -596,7 +598,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       const isPinch = event.ctrlKey || event.metaKey;
       if (!isPinch && !(event.target instanceof Node && shell.contains(event.target))) return;
       event.preventDefault();
-      setImageContextMenu(null);
+      setContextMenu(null);
       onExitFollowRef.current();
 
       if (isPinch) {
@@ -663,6 +665,17 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     if (!menuOpen) return;
     menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-semantic-context-menu="true"]')) return;
+      setContextMenu(null);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [contextMenu]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -754,7 +767,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTextEditor(null);
     setActiveMarqueeSession(null);
-    setImageContextMenu(null);
+    setContextMenu(null);
     if (!controller) setActiveTool("select");
     return () => {
       const activeMove = activeMoveRef.current;
@@ -1569,7 +1582,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     if (first) beginTextEdit(first);
   }
 
-  function runSelectionAction(action: "delete" | "group" | "ungroup" | "forward" | "backward") {
+  function runSelectionAction(action: "delete" | "group" | "ungroup" | "front" | "forward" | "backward" | "back") {
     const engine = keyboardEngineRef.current;
     const snapshot = controllerRef.current?.getSnapshot() ?? roomRef.current;
     try {
@@ -1599,9 +1612,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     return createObjectId("shape").replace(/^shape_/, "object_");
   }
 
-  function applyPastePayload(payload: SemanticCanvasClipboardPayload) {
+  function applyPastePayload(payload: SemanticCanvasClipboardPayload): string | null {
     const currentController = controllerRef.current;
-    if (!currentController) return;
+    if (!currentController) return null;
     const result = keyboardEngineRef.current.paste({
       room: currentController.getSnapshot(),
       payload,
@@ -1610,6 +1623,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     });
     dispatchMutation(result);
     if (result.status === "finished") updateSelection(result.createdObjectIds);
+    return result.status === "finished" ? result.createdObjectIds[0] ?? null : null;
   }
 
   function writeClipboard(payload: SemanticCanvasClipboardPayload) {
@@ -1629,14 +1643,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
-  function pasteClipboard() {
+  function pasteClipboard(): string | null {
     const expectedRoomId = roomRef.current.id;
     const internal = clipboardRef.current;
     if (internal) {
-      try { applyPastePayload(decodeSemanticCanvasClipboard(internal, expectedRoomId)); }
+      try { return applyPastePayload(decodeSemanticCanvasClipboard(internal, expectedRoomId)); }
       catch (error) { reportAuthoringError(error); }
-      return;
     }
+    return null;
   }
 
   function runShortcut(shortcut: ReturnType<typeof normalizeSemanticCanvasShortcut>) {
@@ -1725,7 +1739,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
           });
           dispatchMutation(result);
           if (result.status === "finished") updateSelection(result.createdObjectIds);
-          break;
+          return result.status === "finished" ? result.createdObjectIds[0] ?? null : null;
         }
         case "copy": {
           const result = engine.copy({ room: snapshot, selection: currentKeyboardSelection() });
@@ -1739,7 +1753,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
           if (result.status === "finished") updateSelection([]);
           break;
         }
-        case "paste": pasteClipboard(); break;
+        case "paste": return pasteClipboard();
       }
     } catch (error) { reportAuthoringError(error); }
   }
@@ -1803,7 +1817,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
-    setImageContextMenu(null);
+    setContextMenu(null);
     const target = event.target as Element;
     const canvasSvg = event.currentTarget.firstElementChild;
     const isCanvasBackground = target === event.currentTarget
@@ -2068,33 +2082,192 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
+  function editContextLabel(object: RoomState["objects"][string]): string | null {
+    if (object.revision <= 0 || object.kind === "draw" || (object.kind === "image" && object.locked)) return null;
+    if (object.kind === "text") return "Edit text";
+    if (object.kind === "connector") return "Edit connector label";
+    if (object.kind === "image") return "Edit image description";
+    return "Edit label";
+  }
+
+  function contextMenuItemsFor(state: CanvasContextMenuState): SemanticCanvasContextMenuItem[] {
+    const snapshot = controllerRef.current?.getSnapshot() ?? roomRef.current;
+    const items: SemanticCanvasContextMenuItem[] = [];
+    if (state.objectId === null) {
+      if (editingEnabled && clipboardRef.current) {
+        items.push({ id: "paste", label: "Paste", shortcut: "⌘V" });
+      }
+      if (Object.keys(snapshot.objects).length) {
+        items.push({ id: "select-all", label: "Select all", shortcut: "⌘A" });
+        items.push({ id: "fit-board", label: "Fit board", shortcut: "0", dividerBefore: items.length > 0 });
+      }
+      return items;
+    }
+
+    const selectedObjects = selectionRef.current.flatMap((objectId) => {
+      const object = snapshot.objects[objectId];
+      return object ? [object] : [];
+    });
+    const soleObject = selectedObjects.length === 1 ? selectedObjects[0]! : null;
+    const hasMutableObject = selectedObjects.some((object) => object.kind !== "image" || !object.locked);
+    const editLabel = editingEnabled && soleObject ? editContextLabel(soleObject) : null;
+    const selectedObjectIds = new Set(selectedObjects.map((object) => object.id));
+    const connectorsCanGroup = selectedObjects.every((object) => (
+      object.kind !== "connector"
+      || [object.start, object.end].every((endpoint) => (
+        endpoint.objectId === null || selectedObjectIds.has(endpoint.objectId)
+      ))
+    ));
+    const selectedGroupIds = [...new Set(selectedObjects.flatMap((object) => object.groupId ? [object.groupId] : []))];
+    const soleCompleteGroupId = selectedGroupIds.length === 1
+      && selectedObjects.every((object) => object.groupId === selectedGroupIds[0])
+      && (sceneRef.current.groupMembers[selectedGroupIds[0]!] ?? []).every((objectId) => (
+        selectionRef.current.includes(objectId)
+      ))
+      && (sceneRef.current.groupMembers[selectedGroupIds[0]!] ?? []).length === selectedObjects.length;
+
+    if (editLabel) items.push({ id: "edit", label: editLabel });
+    if (editingEnabled && hasMutableObject) {
+      items.push({ id: "cut", label: "Cut", shortcut: "⌘X", dividerBefore: Boolean(items.length) });
+    }
+    items.push({
+      id: "copy",
+      label: "Copy",
+      shortcut: "⌘C",
+      dividerBefore: Boolean(items.length) && !items.some((item) => item.id === "cut"),
+    });
+    if (editingEnabled) {
+      if (hasMutableObject) items.push({ id: "duplicate", label: "Duplicate", shortcut: "⌘D" });
+      if (clipboardRef.current) items.push({ id: "paste", label: "Paste", shortcut: "⌘V" });
+      if (selectedObjects.length > 1 && !soleCompleteGroupId && connectorsCanGroup) {
+        items.push({ id: "group", label: "Group", shortcut: "⌘G", dividerBefore: true });
+      }
+      if (selectedObjects.some((object) => object.groupId !== null)) {
+        items.push({ id: "ungroup", label: "Ungroup", shortcut: "⇧⌘G", dividerBefore: !items.some((item) => item.id === "group") });
+      }
+      if (hasMutableObject) {
+        items.push({ id: "bring-to-front", label: "Bring to front", dividerBefore: true });
+        items.push({ id: "bring-forward", label: "Bring forward" });
+        items.push({ id: "send-backward", label: "Send backward" });
+        items.push({ id: "send-to-back", label: "Send to back" });
+      }
+    }
+    if (soleObject?.kind === "image") {
+      items.push({
+        id: "download-original",
+        label: "Download original",
+        href: soleObject.url,
+        download: true,
+        dividerBefore: true,
+      });
+    }
+    if (editingEnabled && hasMutableObject) {
+      items.push({ id: "delete", label: "Delete", shortcut: "⌫", danger: true, dividerBefore: true });
+    }
+    items.push({ id: "select-all", label: "Select all", shortcut: "⌘A", dividerBefore: true });
+    return items;
+  }
+
+  function restoreContextFocus(objectId: string | null) {
+    if (objectId) requestObjectFocus(objectId);
+    else queueMicrotask(() => shellRef.current?.focus());
+  }
+
+  function dismissContextMenu() {
+    const objectId = contextMenu?.objectId ?? null;
+    setContextMenu(null);
+    restoreContextFocus(objectId);
+  }
+
+  function runContextMenuAction(actionId: SemanticCanvasContextMenuActionId) {
+    const objectId = contextMenu?.objectId ?? null;
+    setContextMenu(null);
+    switch (actionId) {
+      case "edit":
+        if (objectId) beginTextEdit(objectId);
+        return;
+      case "cut":
+        runShortcut({ type: "cut" });
+        restoreContextFocus(null);
+        return;
+      case "copy":
+        runShortcut({ type: "copy" });
+        restoreContextFocus(objectId);
+        return;
+      case "paste":
+        restoreContextFocus(runShortcut({ type: "paste" }) ?? selectionRef.current[0] ?? null);
+        return;
+      case "duplicate":
+        restoreContextFocus(runShortcut({ type: "duplicate" }) ?? selectionRef.current[0] ?? null);
+        return;
+      case "group":
+        runSelectionAction("group");
+        restoreContextFocus(objectId);
+        return;
+      case "ungroup":
+        runSelectionAction("ungroup");
+        restoreContextFocus(objectId);
+        return;
+      case "bring-to-front":
+        runSelectionAction("front");
+        restoreContextFocus(objectId);
+        return;
+      case "bring-forward":
+        runSelectionAction("forward");
+        restoreContextFocus(objectId);
+        return;
+      case "send-backward":
+        runSelectionAction("backward");
+        restoreContextFocus(objectId);
+        return;
+      case "send-to-back":
+        runSelectionAction("back");
+        restoreContextFocus(objectId);
+        return;
+      case "delete":
+        runSelectionAction("delete");
+        return;
+      case "select-all":
+        runShortcut({ type: "select-all" });
+        restoreContextFocus(selectionRef.current[0] ?? null);
+        return;
+      case "fit-board":
+        fitBoard();
+        restoreContextFocus(null);
+        return;
+      case "download-original":
+        restoreContextFocus(objectId);
+    }
+  }
+
   function handleContextMenu(event: MouseEvent<HTMLDivElement>) {
-    if (!editingEnabled || activeTextRef.current || hasActivePointerSession()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMenuOpen(false);
+    if (activeTextRef.current || hasActivePointerSession()) {
+      setContextMenu(null);
+      return;
+    }
     const target = event.target as Element;
     const objectElement = target.closest<SVGElement>("[data-object-id]");
     const selectedObjectId = target.closest("[data-semantic-selection-controls='true']")
-      && selectionRef.current.length === 1
       ? selectionRef.current[0]
       : null;
     const objectId = objectElement?.dataset.objectId ?? selectedObjectId;
-    const object = objectId ? sceneRef.current.objectsById[objectId]?.object : null;
-    if (!objectId || object?.kind !== "image") {
-      setImageContextMenu(null);
-      return;
+    if (objectId) {
+      if (!selectionRef.current.includes(objectId)) selectObject(objectId, false);
+      if (editingEnabled) setActiveTool("select");
+    } else {
+      updateSelection([]);
     }
 
-    event.preventDefault();
-    event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    const maxX = Math.max(IMAGE_CONTEXT_MENU_MARGIN, rect.width - IMAGE_CONTEXT_MENU_WIDTH - IMAGE_CONTEXT_MENU_MARGIN);
-    const maxY = Math.max(IMAGE_CONTEXT_MENU_MARGIN, rect.height - IMAGE_CONTEXT_MENU_HEIGHT - IMAGE_CONTEXT_MENU_MARGIN);
-    setMenuOpen(false);
-    updateSelection([objectId]);
-    setImageContextMenu({
-      objectId,
-      x: Math.min(maxX, Math.max(IMAGE_CONTEXT_MENU_MARGIN, event.clientX - rect.left)),
-      y: Math.min(maxY, Math.max(IMAGE_CONTEXT_MENU_MARGIN, event.clientY - rect.top)),
-    });
+    const nextContextMenu: CanvasContextMenuState = {
+      objectId: objectId ?? null,
+      x: Math.max(CONTEXT_MENU_MARGIN, event.clientX - rect.left),
+      y: Math.max(CONTEXT_MENU_MARGIN, event.clientY - rect.top),
+    };
+    setContextMenu(contextMenuItemsFor(nextContextMenu).length ? nextContextMenu : null);
   }
 
   function handleKeyUp(event: KeyboardEvent<HTMLDivElement>) {
@@ -2315,12 +2488,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
 
       <CanvasPresenceOverlay runtime={runtime} room={projectedRoom} selfId={self.participantId} />
 
-      {activeImageContextMenu ? (
+      {activeContextMenu ? (
         <SemanticCanvasContextMenu
-          x={activeImageContextMenu.x}
-          y={activeImageContextMenu.y}
-          downloadUrl={(scene.objectsById[activeImageContextMenu.objectId]!.object as Extract<RoomState["objects"][string], { kind: "image" }>).url}
-          onDismiss={() => setImageContextMenu(null)}
+          x={activeContextMenu.x}
+          y={activeContextMenu.y}
+          label={activeContextMenu.objectId ? "Object actions" : "Canvas actions"}
+          items={contextMenuItemsFor(activeContextMenu)}
+          onAction={runContextMenuAction}
+          onDismiss={dismissContextMenu}
         />
       ) : null}
 

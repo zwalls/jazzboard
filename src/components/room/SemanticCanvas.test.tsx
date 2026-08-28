@@ -507,6 +507,132 @@ describe("SemanticCanvas", () => {
     expect(screen.getByText("2 canvas objects selected.")).toBeInTheDocument();
   });
 
+  it("owns the participant object context menu and applies actions to the atomic semantic selection", async () => {
+    const deletion = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+    const harness = makeEditingHarness(room, async () => deletion.promise);
+    const rendered = renderEditableCanvas(room, harness.editing);
+    const node = screen.getByRole("button", { name: /service: Room API/i });
+
+    expect(fireEvent.contextMenu(node, { clientX: 180, clientY: 140 })).toBe(false);
+    expect(rendered.onSelectionChange).toHaveBeenLastCalledWith(["node-a", "node-b"]);
+
+    const menu = screen.getByRole("menu", { name: "Object actions" });
+    expect(menu).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Cut" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Duplicate" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Bring forward" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Send backward" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Select all" })).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await flushMicrotasks(32);
+
+    await waitFor(() => expect(harness.command).toHaveBeenCalledWith(expect.objectContaining({
+      type: "delete",
+      targets: expect.arrayContaining([
+        expect.objectContaining({ objectId: "node-a", expectedRevision: 1 }),
+        expect.objectContaining({ objectId: "node-b", expectedRevision: 1 }),
+      ]),
+    }), "human"));
+    expect(screen.queryByRole("button", { name: /service: Room API/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Text: Authorized guest/i })).toBeNull();
+  });
+
+  it("suppresses the browser context menu for spectators without exposing mutation actions", () => {
+    renderCanvas();
+    const node = screen.getByRole("button", { name: /service: Room API/i });
+
+    expect(fireEvent.contextMenu(node, { clientX: 180, clientY: 140 })).toBe(false);
+    expect(screen.getByRole("menu", { name: "Object actions" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Select all" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "Cut" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Duplicate" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Bring forward" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Send backward" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
+
+  it("preserves a larger existing selection when opening one member's object actions", async () => {
+    const ungrouped = structuredClone(room);
+    ungrouped.objects["node-a"]!.groupId = null;
+    ungrouped.objects["node-b"]!.groupId = null;
+    const harness = makeEditingHarness(ungrouped);
+    const rendered = renderEditableCanvas(ungrouped, harness.editing);
+
+    rendered.getRuntime()!.selectObjects(["node-a", "node-b"]);
+    await flushMicrotasks();
+    rendered.onSelectionChange.mockClear();
+
+    expect(fireEvent.contextMenu(
+      screen.getByRole("button", { name: /service: Room API/i }),
+      { clientX: 180, clientY: 140 },
+    )).toBe(false);
+    expect(rendered.getRuntime()!.getSelectedObjectIds()).toEqual(["node-a", "node-b"]);
+    expect(rendered.onSelectionChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("menuitem", { name: "Group" })).toBeVisible();
+  });
+
+  it("dismisses object actions before opening persistent canvas chrome menus", () => {
+    const harness = makeEditingHarness(room);
+    renderEditableCanvas(room, harness.editing);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /service: Room API/i }));
+    expect(screen.getByRole("menu", { name: "Object actions" })).toBeVisible();
+
+    const boardMenu = screen.getByRole("button", { name: "Board menu" });
+    fireEvent.pointerDown(boardMenu);
+    expect(screen.queryByRole("menu", { name: "Object actions" })).toBeNull();
+    fireEvent.click(boardMenu);
+    expect(screen.getByRole("menu", { name: "Board actions" })).toBeVisible();
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+  });
+
+  it("suppresses the browser menu without rendering an empty menu on a blank board", () => {
+    const emptyRoom = structuredClone(room);
+    emptyRoom.objects = {};
+    const harness = makeEditingHarness(emptyRoom);
+    renderEditableCanvas(emptyRoom, harness.editing);
+
+    expect(fireEvent.contextMenu(screen.getByTestId("semantic-canvas"))).toBe(false);
+    expect(screen.queryByRole("menu", { name: "Canvas actions" })).toBeNull();
+  });
+
+  it("does not offer an incoherent group when a selected connector binds outside the selection", async () => {
+    const connectorRoom = structuredClone(room);
+    connectorRoom.objects["node-a"]!.groupId = null;
+    connectorRoom.objects["node-b"]!.groupId = null;
+    connectorRoom.objects["connector-a-b"] = {
+      id: "connector-a-b",
+      kind: "connector",
+      x: 280,
+      y: 140,
+      width: 40,
+      height: 1,
+      rotation: 0,
+      zIndex: 3,
+      revision: 1,
+      groupId: null,
+      diagramIds: [],
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      start: { x: 280, y: 140, objectId: "node-a" },
+      end: { x: 320, y: 140, objectId: "node-b" },
+      direction: "end",
+      label: "calls",
+      color: "black",
+    };
+    const harness = makeEditingHarness(connectorRoom);
+    const rendered = renderEditableCanvas(connectorRoom, harness.editing);
+    rendered.getRuntime()!.selectObjects(["node-a", "connector-a-b"]);
+    await flushMicrotasks();
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /service: Room API/i }));
+    expect(screen.getByRole("menu", { name: "Object actions" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "Group" })).toBeNull();
+  });
+
   it("pans from empty scene-group space without treating objects or chrome as the background", async () => {
     let runtime: CanvasRuntime | null = null;
     renderCanvas(vi.fn((next) => { runtime = next; }));
