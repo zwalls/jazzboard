@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  useEffect,
   useId,
   useRef,
   useState,
@@ -116,6 +117,18 @@ export function SemanticToolPalette({
   const [connectorOptionsOpen, setConnectorOptionsOpen] = useState(false);
   const connectorOptionsId = useId();
   const connectorOptionsButtonRef = useRef<HTMLButtonElement>(null);
+  const connectorOptionsRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!connectorOptionsOpen) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || connectorOptionsRootRef.current?.contains(target)) return;
+      setConnectorOptionsOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [connectorOptionsOpen]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     event.stopPropagation();
@@ -148,6 +161,7 @@ export function SemanticToolPalette({
         {TOOL_DEFINITIONS.map(({ id, label, hint, icon: Icon }, index) => (
           <div
             key={id}
+            ref={id === "connector" ? connectorOptionsRootRef : undefined}
             className={`${styles.toolSlot} ${index === 2 || index === 7 ? styles.groupStart : ""}`}
           >
             <button

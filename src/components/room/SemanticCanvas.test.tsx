@@ -556,9 +556,12 @@ describe("SemanticCanvas", () => {
     const identity = screen.getByTestId("combined-left-panel");
     expect(identity).toHaveTextContent("Semantic test board");
     expect(identity).toHaveTextContent("Room 1234");
-    expect(screen.getByRole("link", { name: "Back to Jazzboard home" })).toHaveAttribute("href", "/");
+    const backButton = screen.getByRole("link", { name: "Back to Jazzboard home" });
+    expect(backButton).toHaveAttribute("href", "/");
+    expect(identity).not.toContainElement(backButton);
 
     const menuButton = screen.getByRole("button", { name: "Board menu" });
+    expect(identity.firstElementChild).toBe(menuButton);
     fireEvent.click(menuButton);
     expect(await screen.findByRole("menuitem", { name: "Canvas outline · 2 selected" })).toHaveFocus();
     expect(screen.getByRole("menuitem", { name: "Preparing Ask…" })).toBeDisabled();
@@ -568,6 +571,19 @@ describe("SemanticCanvas", () => {
     await flushMicrotasks();
     expect(screen.queryByRole("menu")).toBeNull();
     expect(menuButton).toHaveFocus();
+  });
+
+  it("dismisses the board menu on pointer-away without closing it for internal pointer events", async () => {
+    renderCanvas();
+    const menuButton = screen.getByRole("button", { name: "Board menu" });
+    fireEvent.click(menuButton);
+    const menu = await screen.findByRole("menu", { name: "Board actions" });
+
+    fireEvent.pointerDown(menu);
+    expect(menu).toBeVisible();
+
+    fireEvent.pointerDown(screen.getByTestId("semantic-canvas"), { button: 0, clientX: 600, clientY: 400 });
+    expect(screen.queryByRole("menu", { name: "Board actions" })).toBeNull();
   });
 
   it("selects a first-class visual group by semantic member IDs", () => {

@@ -1,8 +1,5 @@
 .shell {
-  background-color: #f9fafb;
-  background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
-  background-position: var(--grid-x, 0px) var(--grid-y, 0px);
-  background-size: var(--grid-size, 22px) var(--grid-size, 22px);
+  background-color: #fff;
   height: 100%;
   inset: 0;
   overflow: hidden;
@@ -129,39 +126,43 @@
   text-align: center;
 }
 
-.combinedLeftPanel {
-  align-items: stretch;
-  background: rgba(255, 255, 255, 0.985);
-  border: 1px solid rgba(201, 207, 220, 0.92);
-  border-radius: 14px;
-  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
-  display: inline-flex;
-  flex-direction: column;
+.roomHeaderChrome {
+  align-items: center;
+  display: flex;
+  gap: 10px;
   left: 16px;
   max-width: calc(100vw - 32px);
-  min-width: 260px;
   pointer-events: auto;
   position: absolute;
   top: 14px;
   z-index: 390;
 }
 
-.roomIdentity {
+.combinedLeftPanel {
   align-items: center;
+  background: rgba(255, 255, 255, 0.985);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
   display: flex;
-  gap: 9px;
-  min-height: 51px;
-  padding: 6px 8px;
+  height: 64px;
+  max-width: calc(100vw - 86px);
+  min-width: 280px;
+  position: relative;
 }
 
 .backButton {
   align-items: center;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.985);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
   color: #4f596f;
   display: inline-flex;
-  height: 32px;
+  flex: 0 0 auto;
+  height: 44px;
   justify-content: center;
-  width: 32px;
+  width: 44px;
 }
 
 .backButton:hover,
@@ -169,20 +170,36 @@
   background: #eef0ff;
   color: #4c59d8;
   outline: 2px solid #5965e8;
-  outline-offset: 1px;
+  outline-offset: 2px;
+}
+
+.headerDivider {
+  background: rgba(201, 207, 220, 0.72);
+  flex: 0 0 auto;
+  height: 30px;
+  width: 1px;
+}
+
+.roomIdentity {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 14px 0 12px;
 }
 
 .brandMini {
   align-items: center;
   background: #5965e8;
-  border-radius: 8px;
+  border-radius: 11px;
   color: #fff;
   display: inline-flex;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 800;
-  height: 30px;
+  height: 38px;
   justify-content: center;
-  width: 30px;
+  width: 38px;
 }
 
 .roomIdentityText {
@@ -195,7 +212,7 @@
 
 .roomIdentityText strong {
   color: #20283b;
-  font-size: 12px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -203,16 +220,17 @@
 
 .roomIdentityText span {
   color: #737d92;
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 3px;
 }
 
 .menuButton {
-  border-radius: 0 0 13px 13px;
-  border-top: 1px solid rgba(201, 207, 220, 0.72);
-  justify-content: flex-start;
-  min-height: 38px;
-  width: 100%;
+  align-self: stretch;
+  border-radius: 15px 0 0 15px;
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0;
+  width: 48px;
 }
 
 .menu {
@@ -298,15 +316,20 @@
 }
 
 @media (max-width: 800px) {
-  .combinedLeftPanel {
+  .roomHeaderChrome {
     left: 10px;
     max-width: calc(100vw - 20px);
     top: 9px;
   }
+
+  .combinedLeftPanel {
+    max-width: calc(100vw - 74px);
+    min-width: 0;
+  }
 }
 
 @media (max-width: 720px) {
-  .combinedLeftPanel {
+  .roomHeaderChrome {
     top: 9px;
   }
 }

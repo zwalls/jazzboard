@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
@@ -667,6 +666,18 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   useEffect(() => {
     if (!menuOpen) return;
     menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuButtonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
   }, [menuOpen]);
 
   useEffect(() => {
@@ -2316,13 +2327,6 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     void replay.catch(reportAuthoringError);
   }
 
-  const gridSize = Math.max(8, 22 * viewport.zoom);
-  const gridStyle = {
-    "--grid-size": `${gridSize}px`,
-    "--grid-x": `${(-viewport.x * viewport.zoom) % gridSize}px`,
-    "--grid-y": `${(-viewport.y * viewport.zoom) % gridSize}px`,
-  } as CSSProperties;
-
   const persistentCanvasChrome = (
     <>
       {editingEnabled ? (
@@ -2337,59 +2341,61 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       ) : null}
 
       <div
-        className={styles.combinedLeftPanel}
-        data-testid="combined-left-panel"
+        className={styles.roomHeaderChrome}
         onPointerDown={(event) => event.stopPropagation()}
         onWheel={(event) => event.stopPropagation()}
       >
-        <div className={styles.roomIdentity}>
-          <Link aria-label="Back to Jazzboard home" href="/" className={styles.backButton}>
-            <ArrowLeft size={17} />
-          </Link>
-          <span className={styles.brandMini} aria-hidden="true">J</span>
-          <div className={styles.roomIdentityText}>
-            <strong>{projectedRoom.title}</strong>
-            <span>Room {projectedRoom.code}</span>
-          </div>
-        </div>
-        <button
-          ref={menuButtonRef}
-          className={styles.menuButton}
-          data-testid="main-menu.button"
-          aria-label="Board menu"
-          aria-expanded={menuOpen}
-          aria-controls="semantic-board-menu"
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          <Menu size={16} /> Board
-        </button>
-        {menuOpen ? (
-          <div
-            ref={menuRef}
-            id="semantic-board-menu"
-            className={styles.menu}
-            role="menu"
-            aria-label="Board actions"
-            onKeyDown={handleMenuKeyDown}
+        <Link aria-label="Back to Jazzboard home" href="/" className={styles.backButton}>
+          <ArrowLeft size={20} />
+        </Link>
+        <div className={styles.combinedLeftPanel} data-testid="combined-left-panel">
+          <button
+            ref={menuButtonRef}
+            className={styles.menuButton}
+            data-testid="main-menu.button"
+            aria-label="Board menu"
+            aria-expanded={menuOpen}
+            aria-controls="semantic-board-menu"
+            onClick={() => setMenuOpen((open) => !open)}
           >
-            {self.role === "participant" ? (
-              <>
-                <button role="menuitem" disabled={!canUndo} title="Undo (⌘Z)" onClick={() => replayHistory("undo")}>Undo <span aria-hidden="true">⌘Z</span></button>
-                <button role="menuitem" disabled={!canRedo} title="Redo (⇧⌘Z)" onClick={() => replayHistory("redo")}>Redo <span aria-hidden="true">⇧⌘Z</span></button>
-              </>
-            ) : null}
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onCanvasOutline(); }}><ListTree size={15} /> {withCount("Canvas outline", boardMenuActions.selectionCount, "selected")}</button>
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onActivity(); }}><Activity size={15} /> Activity</button>
-            {self.role === "participant" ? (
-              <button role="menuitem" disabled={boardMenuActions.askPreparing} onClick={() => { setMenuOpen(false); boardMenuActions.onAsk(); }}><MessageCircle size={15} /> {boardMenuActions.askPreparing ? "Preparing Ask…" : withCount("Ask agent", boardMenuActions.selectionCount, "selected")}</button>
-            ) : null}
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onExport(); }}><Download size={15} /> Export</button>
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onReview(); }}><ScanSearch size={15} /> {withCount("Review", boardMenuActions.pendingReviewCount, "pending")}</button>
-            {self.role === "spectator" ? (
-              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onUpgradeRole(); }}><ShieldCheck size={15} /> Become a participant</button>
-            ) : null}
+            <Menu size={20} />
+          </button>
+          <span className={styles.headerDivider} aria-hidden="true" />
+          <div className={styles.roomIdentity}>
+            <span className={styles.brandMini} aria-hidden="true">J</span>
+            <div className={styles.roomIdentityText}>
+              <strong>{projectedRoom.title}</strong>
+              <span>Room {projectedRoom.code}</span>
+            </div>
           </div>
-        ) : null}
+          {menuOpen ? (
+            <div
+              ref={menuRef}
+              id="semantic-board-menu"
+              className={styles.menu}
+              role="menu"
+              aria-label="Board actions"
+              onKeyDown={handleMenuKeyDown}
+            >
+              {self.role === "participant" ? (
+                <>
+                  <button role="menuitem" disabled={!canUndo} title="Undo (⌘Z)" onClick={() => replayHistory("undo")}>Undo <span aria-hidden="true">⌘Z</span></button>
+                  <button role="menuitem" disabled={!canRedo} title="Redo (⇧⌘Z)" onClick={() => replayHistory("redo")}>Redo <span aria-hidden="true">⇧⌘Z</span></button>
+                </>
+              ) : null}
+              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onCanvasOutline(); }}><ListTree size={15} /> {withCount("Canvas outline", boardMenuActions.selectionCount, "selected")}</button>
+              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onActivity(); }}><Activity size={15} /> Activity</button>
+              {self.role === "participant" ? (
+                <button role="menuitem" disabled={boardMenuActions.askPreparing} onClick={() => { setMenuOpen(false); boardMenuActions.onAsk(); }}><MessageCircle size={15} /> {boardMenuActions.askPreparing ? "Preparing Ask…" : withCount("Ask agent", boardMenuActions.selectionCount, "selected")}</button>
+              ) : null}
+              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onExport(); }}><Download size={15} /> Export</button>
+              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onReview(); }}><ScanSearch size={15} /> {withCount("Review", boardMenuActions.pendingReviewCount, "pending")}</button>
+              {self.role === "spectator" ? (
+                <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onUpgradeRole(); }}><ShieldCheck size={15} /> Become a participant</button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div
@@ -2417,7 +2423,6 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       role="region"
       aria-label={`${projectedRoom.title} semantic canvas`}
       tabIndex={0}
-      style={gridStyle}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

@@ -151,6 +151,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const selectionRef = useRef(selection);
   const canvasRuntimeRef = useRef(canvasRuntime);
   const followTargetRef = useRef(followTarget);
+  const followPopoverAnchorRef = useRef<HTMLDivElement | null>(null);
   const previewHostRef = useRef<CanvasPreviewHostHandle | null>(null);
   const canvasRef = useRef<CanvasSurfaceHandle | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
@@ -193,6 +194,17 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (room && participantId) saveRecent(room, participantId);
   }, [participantId, room]);
+
+  useEffect(() => {
+    if (!followOpen) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || followPopoverAnchorRef.current?.contains(target)) return;
+      setFollowOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [followOpen]);
 
   useEffect(() => {
     roomStateRef.current = room;
@@ -614,7 +626,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             </div>
           </div>
           <span className={styles.controlDivider} aria-hidden="true" />
-          <div className={styles.popoverAnchor}>
+          <div ref={followPopoverAnchorRef} className={styles.popoverAnchor}>
             <button
               className={styles.controlButton}
               onClick={() => {

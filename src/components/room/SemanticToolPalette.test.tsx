@@ -131,6 +131,24 @@ describe("SemanticToolPalette", () => {
     expect(canvasKeyDown).not.toHaveBeenCalled();
   });
 
+  it("dismisses connector options on pointer-away while preserving internal pointer interactions", () => {
+    render(<SemanticToolPalette {...defaultProps} activeTool="connector" />);
+    const toggle = screen.getByRole("button", { name: "Connector options" });
+    fireEvent.click(toggle);
+    const options = screen.getByRole("dialog", { name: "Connector options" });
+
+    fireEvent.pointerDown(options);
+    expect(options).toBeVisible();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Rectangle tool" }));
+    expect(screen.queryByRole("dialog", { name: "Connector options" })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("dialog", { name: "Connector options" })).toBeVisible();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("dialog", { name: "Connector options" })).not.toBeInTheDocument();
+  });
+
   it("isolates pointer, click, wheel, context-menu, and keyboard traffic from the canvas", () => {
     const canvasEvents = {
       click: vi.fn(),

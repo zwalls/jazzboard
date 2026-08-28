@@ -19,6 +19,11 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
     await collaboratorPage.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(collaboratorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
 
+    await page.getByRole("button", { name: /^Follow/ }).click();
+    await expect(page.getByText("Choose a live target")).toBeVisible();
+    await page.getByTestId("semantic-canvas").click({ position: { x: 360, y: 300 } });
+    await expect(page.getByText("Choose a live target")).toHaveCount(0);
+
     await createCanvasObject(
       collaboratorContext.request,
       host.room.id,
