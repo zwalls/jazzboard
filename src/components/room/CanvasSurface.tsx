@@ -19,6 +19,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       <SemanticCanvas
         ref={ref}
         boardMenuActions={props.boardMenuActions}
+        persistentChromeHost={props.persistentChromeHost}
         room={props.room}
         self={props.self}
         followTarget={props.followTarget}

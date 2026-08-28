@@ -89,6 +89,7 @@
   display: flex;
   gap: 2px;
   padding: 4px;
+  pointer-events: auto;
   position: absolute;
   right: 18px;
   z-index: 390;
@@ -139,6 +140,7 @@
   left: 16px;
   max-width: calc(100vw - 32px);
   min-width: 260px;
+  pointer-events: auto;
   position: absolute;
   top: 14px;
   z-index: 390;

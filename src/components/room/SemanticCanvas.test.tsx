@@ -357,6 +357,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.querySelectorAll('[data-testid="persistent-canvas-chrome"]').forEach((element) => element.remove());
+  document.querySelectorAll("[data-jazzboard-room-test]").forEach((element) => element.remove());
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -617,6 +619,122 @@ describe("SemanticCanvas", () => {
     renderEditableCanvas(room, harness.editing);
     expect(screen.getByRole("toolbar", { name: "Canvas tools" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Select tool" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("portals persistent participant chrome outside the semantic canvas shell", () => {
+    const persistentChromeHost = document.createElement("div");
+    persistentChromeHost.dataset.testid = "persistent-canvas-chrome";
+    document.body.append(persistentChromeHost);
+    const harness = makeEditingHarness(room);
+    const participant = { ...self, role: "participant" as const };
+
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        room={{ ...room, participants: { [participant.participantId]: participant } }}
+        self={participant}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
+        onExitFollow={vi.fn()}
+        editing={harness.editing}
+        persistentChromeHost={persistentChromeHost}
+      />,
+    );
+
+    const shell = screen.getByTestId("semantic-canvas");
+    const roomCard = screen.getByTestId("combined-left-panel");
+    const palette = screen.getByRole("toolbar", { name: "Canvas tools" });
+    const zoomControls = screen.getByLabelText("Canvas zoom controls");
+
+    for (const chrome of [roomCard, palette, zoomControls]) {
+      expect(persistentChromeHost).toContainElement(chrome);
+      expect(shell).not.toContainElement(chrome);
+    }
+
+    persistentChromeHost.remove();
+  });
+
+  it("portals spectator chrome while omitting only the participant palette", () => {
+    const persistentChromeHost = document.createElement("div");
+    persistentChromeHost.dataset.testid = "persistent-canvas-chrome";
+    document.body.append(persistentChromeHost);
+
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        room={room}
+        self={self}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
+        onExitFollow={vi.fn()}
+        persistentChromeHost={persistentChromeHost}
+      />,
+    );
+
+    const shell = screen.getByTestId("semantic-canvas");
+    const roomCard = screen.getByTestId("combined-left-panel");
+    const zoomControls = screen.getByLabelText("Canvas zoom controls");
+
+    expect(persistentChromeHost).toContainElement(roomCard);
+    expect(persistentChromeHost).toContainElement(zoomControls);
+    expect(shell).not.toContainElement(roomCard);
+    expect(shell).not.toContainElement(zoomControls);
+    expect(screen.queryByRole("toolbar", { name: "Canvas tools" })).toBeNull();
+
+    persistentChromeHost.remove();
+  });
+
+  it("cancels native pinch before browser zoom even when it starts over portaled chrome", async () => {
+    const roomRoot = document.createElement("main");
+    roomRoot.dataset.jazzboardRoom = "";
+    roomRoot.dataset.jazzboardRoomTest = "";
+    const reactMount = document.createElement("div");
+    const persistentChromeHost = document.createElement("div");
+    persistentChromeHost.dataset.testid = "persistent-canvas-chrome";
+    roomRoot.append(reactMount, persistentChromeHost);
+    document.body.append(roomRoot);
+    let runtime: CanvasRuntime | null = null;
+    const onExitFollow = vi.fn();
+
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        room={room}
+        self={self}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={(next) => { runtime = next; }}
+        onExitFollow={onExitFollow}
+        persistentChromeHost={persistentChromeHost}
+      />,
+      { container: reactMount },
+    );
+    await waitFor(() => expect(runtime).not.toBeNull());
+    const initialZoom = runtime!.getViewport().zoom;
+    const pinch = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 400,
+      clientY: 300,
+      ctrlKey: true,
+      deltaY: -120,
+    });
+
+    expect(screen.getByLabelText("Canvas zoom controls").dispatchEvent(pinch)).toBe(false);
+    expect(pinch.defaultPrevented).toBe(true);
+    expect(onExitFollow).toHaveBeenCalledOnce();
+    expect(runtime!.getViewport().zoom).toBeGreaterThan(initialZoom);
   });
 
   it("routes select-all, native clipboard fallback, nudge, and Escape through the room-scoped semantic keyboard engine", async () => {

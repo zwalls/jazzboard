@@ -16,8 +16,8 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
-  type WheelEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Activity,
   ArrowLeft,
@@ -134,6 +134,7 @@ import styles from "./semantic-canvas.module.css";
 export type SemanticCanvasProps = Pick<
   CanvasSurfaceProps,
   | "boardMenuActions"
+  | "persistentChromeHost"
   | "room"
   | "self"
   | "followTarget"
@@ -273,6 +274,7 @@ function viewportWithPhysicalSize(viewport: Viewport, width: number, height: num
 
 export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProps>(function SemanticCanvas({
   boardMenuActions,
+  persistentChromeHost = null,
   room,
   self,
   followTarget,
@@ -288,6 +290,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const editingHostRef = useRef(editing);
+  const onExitFollowRef = useRef(onExitFollow);
   const presenceRef = useRef(presence);
   const transientPresenceRef = useRef(transientPresence);
   const presencePublisherRef = useRef<SemanticPresencePublisher | null>(null);
@@ -318,6 +321,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const editingEnabled = Boolean(editing && self.role === "participant");
 
   editingHostRef.current = editing;
+  onExitFollowRef.current = onExitFollow;
   presenceRef.current = presence;
   transientPresenceRef.current = transientPresence;
 
@@ -579,6 +583,43 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     setViewport(next);
     presencePublisherRef.current?.notifyChanged();
   }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const wheelSurface = shell.closest<HTMLElement>("[data-jazzboard-room]") ?? shell;
+
+    const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      // macOS trackpad pinch is delivered as a cancelable ctrl+wheel stream.
+      // This listener must remain explicitly non-passive so the browser never
+      // applies page/visual-viewport zoom in addition to Jazzboard camera zoom.
+      const isPinch = event.ctrlKey || event.metaKey;
+      if (!isPinch && !(event.target instanceof Node && shell.contains(event.target))) return;
+      event.preventDefault();
+      setImageContextMenu(null);
+      onExitFollowRef.current();
+
+      if (isPinch) {
+        const rect = shell.getBoundingClientRect();
+        const factor = Math.exp(-event.deltaY * 0.0025);
+        updateViewport(zoomViewportAtPoint(
+          viewportRef.current,
+          viewportRef.current.zoom * factor,
+          { x: event.clientX - rect.left, y: event.clientY - rect.top },
+        ));
+        return;
+      }
+
+      updateViewport({
+        ...viewportRef.current,
+        x: viewportRef.current.x + event.deltaX / viewportRef.current.zoom,
+        y: viewportRef.current.y + event.deltaY / viewportRef.current.zoom,
+      });
+    };
+
+    wheelSurface.addEventListener("wheel", handleNativeWheel, { capture: true, passive: false });
+    return () => wheelSurface.removeEventListener("wheel", handleNativeWheel, { capture: true });
+  }, [updateViewport]);
 
   const runtime = useMemo<CanvasRuntime>(() => createSemanticCanvasRuntime({
     getRoom: () => roomRef.current,
@@ -1856,27 +1897,6 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     presencePublisherRef.current?.notifyChanged();
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setImageContextMenu(null);
-    onExitFollow();
-    if (event.ctrlKey || event.metaKey) {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const factor = Math.exp(-event.deltaY * 0.0025);
-      updateViewport(zoomViewportAtPoint(
-        viewportRef.current,
-        viewportRef.current.zoom * factor,
-        { x: event.clientX - rect.left, y: event.clientY - rect.top },
-      ));
-      return;
-    }
-    updateViewport({
-      ...viewportRef.current,
-      x: viewportRef.current.x + event.deltaX / viewportRef.current.zoom,
-      y: viewportRef.current.y + event.deltaY / viewportRef.current.zoom,
-    });
-  }
-
   function supportedTransferredImage(files: FileList | readonly File[]): File | null {
     return Array.from(files).find((file) => /^(?:image\/jpeg|image\/png|image\/webp|image\/gif)$/i.test(file.type)) ?? null;
   }
@@ -2124,6 +2144,89 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     "--grid-y": `${(-viewport.y * viewport.zoom) % gridSize}px`,
   } as CSSProperties;
 
+  const persistentCanvasChrome = (
+    <>
+      {editingEnabled ? (
+        <SemanticToolPalette
+          activeTool={activeTool}
+          connectorRouting={connectorRouting}
+          connectorDirection={connectorDirection}
+          onToolChange={chooseTool}
+          onConnectorRoutingChange={setConnectorRouting}
+          onConnectorDirectionChange={setConnectorDirection}
+        />
+      ) : null}
+
+      <div
+        className={styles.combinedLeftPanel}
+        data-testid="combined-left-panel"
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <div className={styles.roomIdentity}>
+          <Link aria-label="Back to Jazzboard home" href="/" className={styles.backButton}>
+            <ArrowLeft size={17} />
+          </Link>
+          <span className={styles.brandMini} aria-hidden="true">J</span>
+          <div className={styles.roomIdentityText}>
+            <strong>{projectedRoom.title}</strong>
+            <span>Room {projectedRoom.code}</span>
+          </div>
+        </div>
+        <button
+          ref={menuButtonRef}
+          className={styles.menuButton}
+          data-testid="main-menu.button"
+          aria-label="Board menu"
+          aria-expanded={menuOpen}
+          aria-controls="semantic-board-menu"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <Menu size={16} /> Board
+        </button>
+        {menuOpen ? (
+          <div
+            ref={menuRef}
+            id="semantic-board-menu"
+            className={styles.menu}
+            role="menu"
+            aria-label="Board actions"
+            onKeyDown={handleMenuKeyDown}
+          >
+            {self.role === "participant" ? (
+              <>
+                <button role="menuitem" disabled={!canUndo} title="Undo (⌘Z)" onClick={() => replayHistory("undo")}>Undo <span aria-hidden="true">⌘Z</span></button>
+                <button role="menuitem" disabled={!canRedo} title="Redo (⇧⌘Z)" onClick={() => replayHistory("redo")}>Redo <span aria-hidden="true">⇧⌘Z</span></button>
+              </>
+            ) : null}
+            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onCanvasOutline(); }}><ListTree size={15} /> {withCount("Canvas outline", boardMenuActions.selectionCount, "selected")}</button>
+            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onActivity(); }}><Activity size={15} /> Activity</button>
+            {self.role === "participant" ? (
+              <button role="menuitem" disabled={boardMenuActions.askPreparing} onClick={() => { setMenuOpen(false); boardMenuActions.onAsk(); }}><MessageCircle size={15} /> {boardMenuActions.askPreparing ? "Preparing Ask…" : withCount("Ask agent", boardMenuActions.selectionCount, "selected")}</button>
+            ) : null}
+            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onExport(); }}><Download size={15} /> Export</button>
+            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onReview(); }}><ScanSearch size={15} /> {withCount("Review", boardMenuActions.pendingReviewCount, "pending")}</button>
+            {self.role === "spectator" ? (
+              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onUpgradeRole(); }}><ShieldCheck size={15} /> Become a participant</button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div
+        className={styles.toolbar}
+        aria-label="Canvas zoom controls"
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <button aria-label="Zoom out" onClick={() => zoomAtCenter(1 / 1.2)}><Minus size={15} /></button>
+        <span className={styles.zoomValue}>{Math.round(viewport.zoom * 100)}%</span>
+        <button aria-label="Zoom in" onClick={() => zoomAtCenter(1.2)}><Plus size={15} /></button>
+        <button aria-label="Fit board" onClick={fitBoard}><Maximize2 size={15} /></button>
+      </div>
+    </>
+  );
+
   return (
     <div
       ref={shellRef}
@@ -2142,7 +2245,6 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       onPointerCancel={handlePointerCancel}
       onPointerLeave={handlePointerLeave}
       onContextMenu={handleContextMenu}
-      onWheel={handleWheel}
       onPaste={handlePaste}
       onCopy={handleCopy}
       onCut={handleCut}
@@ -2246,84 +2348,19 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       />
 
       {editingEnabled ? (
-        <>
-          <SemanticToolPalette
-            activeTool={activeTool}
-            connectorRouting={connectorRouting}
-            connectorDirection={connectorDirection}
-            onToolChange={chooseTool}
-            onConnectorRoutingChange={setConnectorRouting}
-            onConnectorDirectionChange={setConnectorDirection}
-          />
-          <SemanticImagePicker
-            key={projectedRoom.id}
-            ref={imagePickerRef}
-            roomId={projectedRoom.id}
-            disabled={hasActivePointerSession() || Boolean(activeTextEditor)}
-            onReady={handleImageReady}
-            onError={reportAuthoringError}
-            onDismiss={() => setActiveTool("select")}
-          />
-        </>
+        <SemanticImagePicker
+          key={projectedRoom.id}
+          ref={imagePickerRef}
+          roomId={projectedRoom.id}
+          disabled={hasActivePointerSession() || Boolean(activeTextEditor)}
+          onReady={handleImageReady}
+          onError={reportAuthoringError}
+          onDismiss={() => setActiveTool("select")}
+        />
       ) : null}
-
-      <div className={styles.combinedLeftPanel} data-testid="combined-left-panel">
-        <div className={styles.roomIdentity}>
-          <Link aria-label="Back to Jazzboard home" href="/" className={styles.backButton}>
-            <ArrowLeft size={17} />
-          </Link>
-          <span className={styles.brandMini} aria-hidden="true">J</span>
-          <div className={styles.roomIdentityText}>
-            <strong>{projectedRoom.title}</strong>
-            <span>Room {projectedRoom.code}</span>
-          </div>
-        </div>
-        <button
-          ref={menuButtonRef}
-          className={styles.menuButton}
-          data-testid="main-menu.button"
-          aria-label="Board menu"
-          aria-expanded={menuOpen}
-          aria-controls="semantic-board-menu"
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          <Menu size={16} /> Board
-        </button>
-        {menuOpen ? (
-          <div
-            ref={menuRef}
-            id="semantic-board-menu"
-            className={styles.menu}
-            role="menu"
-            aria-label="Board actions"
-            onKeyDown={handleMenuKeyDown}
-          >
-            {self.role === "participant" ? (
-              <>
-                <button role="menuitem" disabled={!canUndo} title="Undo (⌘Z)" onClick={() => replayHistory("undo")}>Undo <span aria-hidden="true">⌘Z</span></button>
-                <button role="menuitem" disabled={!canRedo} title="Redo (⇧⌘Z)" onClick={() => replayHistory("redo")}>Redo <span aria-hidden="true">⇧⌘Z</span></button>
-              </>
-            ) : null}
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onCanvasOutline(); }}><ListTree size={15} /> {withCount("Canvas outline", boardMenuActions.selectionCount, "selected")}</button>
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onActivity(); }}><Activity size={15} /> Activity</button>
-            {self.role === "participant" ? (
-              <button role="menuitem" disabled={boardMenuActions.askPreparing} onClick={() => { setMenuOpen(false); boardMenuActions.onAsk(); }}><MessageCircle size={15} /> {boardMenuActions.askPreparing ? "Preparing Ask…" : withCount("Ask agent", boardMenuActions.selectionCount, "selected")}</button>
-            ) : null}
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onExport(); }}><Download size={15} /> Export</button>
-            <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onReview(); }}><ScanSearch size={15} /> {withCount("Review", boardMenuActions.pendingReviewCount, "pending")}</button>
-            {self.role === "spectator" ? (
-              <button role="menuitem" onClick={() => { setMenuOpen(false); boardMenuActions.onUpgradeRole(); }}><ShieldCheck size={15} /> Become a participant</button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      <div className={styles.toolbar} aria-label="Canvas zoom controls">
-        <button aria-label="Zoom out" onClick={() => zoomAtCenter(1 / 1.2)}><Minus size={15} /></button>
-        <span className={styles.zoomValue}>{Math.round(viewport.zoom * 100)}%</span>
-        <button aria-label="Zoom in" onClick={() => zoomAtCenter(1.2)}><Plus size={15} /></button>
-        <button aria-label="Fit board" onClick={fitBoard}><Maximize2 size={15} /></button>
-      </div>
+      {persistentChromeHost
+        ? createPortal(persistentCanvasChrome, persistentChromeHost)
+        : persistentCanvasChrome}
       <div className={styles.srOnly} aria-live="polite">
         {selection.length ? `${selection.length} canvas object${selection.length === 1 ? "" : "s"} selected.` : "Canvas selection cleared."}
       </div>

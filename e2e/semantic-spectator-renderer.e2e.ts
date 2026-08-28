@@ -258,6 +258,7 @@ test("renders the first-party spectator canvas without mutation authority", asyn
     await spectatorPage.goto(`/room/${encodeURIComponent(host.room.id)}`);
 
     const canvas = spectatorPage.getByTestId("semantic-canvas");
+    const zoomControls = spectatorPage.getByLabel("Canvas zoom controls");
     await expect(canvas).toBeVisible({ timeout: 20_000 });
     await expect(canvas).toHaveAttribute("data-canvas-renderer", "jazzboard-semantic-v1");
     await expect(spectatorPage.getByTestId("jazzboard-canvas")).toHaveAttribute(
@@ -302,10 +303,10 @@ test("renders the first-party spectator canvas without mutation authority", asyn
     await expect(decision).toHaveAttribute("data-selected", "true");
     await expect(service).toHaveAttribute("data-selected", "false");
     await expect(spectatorPage.getByTestId("canvas-selection-count")).toHaveText("1 selected");
-    await expect(canvas.getByText("125%", { exact: true })).toBeVisible();
+    await expect(zoomControls.getByText("125%", { exact: true })).toBeVisible();
 
-    await canvas.getByRole("button", { name: "Zoom in" }).click();
-    await expect(canvas.getByText("150%", { exact: true })).toBeVisible();
+    await zoomControls.getByRole("button", { name: "Zoom in" }).click();
+    await expect(zoomControls.getByText("150%", { exact: true })).toBeVisible();
     const beforePan = await viewportTransform(spectatorPage);
     const canvasBox = await canvas.boundingBox();
     if (!canvasBox) throw new Error("Semantic canvas did not have a browser layout box.");
@@ -315,12 +316,12 @@ test("renders the first-party spectator canvas without mutation authority", asyn
     );
     await spectatorPage.mouse.wheel(160, 120);
     await expect.poll(() => viewportTransform(spectatorPage)).not.toBe(beforePan);
-    await expect(canvas.getByText("150%", { exact: true })).toBeVisible();
+    await expect(zoomControls.getByText("150%", { exact: true })).toBeVisible();
 
     await spectatorPage.getByRole("button", { name: /^Follow/ }).click();
     await spectatorPage.getByRole("button", { name: "Follow Riley Host's cursor" }).click();
     await expect(spectatorPage.getByText("Following: Riley Host’s human")).toBeVisible();
-    await expect(canvas.getByText("80%", { exact: true })).toBeVisible();
+    await expect(zoomControls.getByText("80%", { exact: true })).toBeVisible();
     const followingTransform = await viewportTransform(spectatorPage);
     expect(followingTransform).not.toBe(beforePan);
 

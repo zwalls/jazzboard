@@ -48,8 +48,18 @@ async function expectPersistentChromeUsesStablePaint(page: Page): Promise<void> 
   for (const [label, locator] of Object.entries(persistentChrome(page))) {
     const filters = await locator.evaluate((element) => {
       const style = getComputedStyle(element);
+      let current: Element | null = element;
+      let hasFixedContainingLayer = false;
+      while (current) {
+        if (getComputedStyle(current).position === "fixed") {
+          hasFixedContainingLayer = true;
+          break;
+        }
+        current = current.parentElement;
+      }
       return {
         backdropFilter: style.backdropFilter,
+        hasFixedContainingLayer,
         webkitBackdropFilter: style.getPropertyValue("-webkit-backdrop-filter"),
       };
     });
@@ -58,6 +68,7 @@ async function expectPersistentChromeUsesStablePaint(page: Page): Promise<void> 
       filters.webkitBackdropFilter || "none",
       `${label} should not depend on a prefixed backdrop compositor layer`,
     ).toBe("none");
+    expect(filters.hasFixedContainingLayer, `${label} should live in viewport-fixed chrome`).toBe(true);
   }
 }
 

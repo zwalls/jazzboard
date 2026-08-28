@@ -22,6 +22,7 @@ type LeaseBatchResult = { leases: ObjectLease[]; room: RoomState };
 /** Renderer-neutral commands and room chrome supplied by JazzboardRoom. */
 export type CanvasSurfaceProps = {
   boardMenuActions: BoardMenuActions;
+  persistentChromeHost?: HTMLElement | null;
   room: RoomState;
   self: Participant;
   followTarget: FollowTarget;

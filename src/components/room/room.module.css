@@ -18,6 +18,18 @@
   width: 100%;
 }
 
+.viewportChromeLayer {
+  inset: 0;
+  isolation: isolate;
+  pointer-events: none;
+  position: fixed;
+  z-index: 400;
+}
+
+.canvasChromeHost {
+  display: contents;
+}
+
 .roomHeader {
   align-items: flex-start;
   display: flex;
@@ -27,7 +39,7 @@
   position: absolute;
   right: var(--room-edge-inset);
   top: 14px;
-  z-index: 400;
+  z-index: 10;
 }
 
 /* Persistent chrome stays on the normal paint path so browser/pinch zoom cannot drop it. */

@@ -142,6 +142,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [diagramAnnouncement, setDiagramAnnouncement] = useState("");
   const [selection, setSelection] = useState<string[]>([]);
   const [canvasRuntime, setCanvasRuntime] = useState<CanvasRuntime | null>(null);
+  const [persistentChromeHost, setPersistentChromeHost] = useState<HTMLDivElement | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [declinedSpotlight, setDeclinedSpotlight] = useState<number | null>(null);
@@ -536,10 +537,12 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   return (
     <main
       className={`${styles.roomPage} ${effectiveFollowTarget ? styles.following : ""}`}
+      data-jazzboard-room
       style={{ "--follow-color": followedParticipant?.color ?? "#5B5CE2" } as React.CSSProperties}
     >
-      <header className={styles.roomHeader}>
-        <div className={`${styles.floatingBar} ${styles.roomControls}`} data-testid="room-controls">
+      <div className={styles.viewportChromeLayer} data-testid="room-viewport-chrome">
+        <header className={styles.roomHeader}>
+          <div className={`${styles.floatingBar} ${styles.roomControls}`} data-testid="room-controls">
           <div className={styles.secondaryIndicators} aria-label="Room status">
             <span
               aria-describedby={statusTooltip === "connection" ? "connection-status-tooltip" : undefined}
@@ -696,8 +699,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               </span>
             ) : null}
           </button>
-        </div>
-      </header>
+          </div>
+        </header>
+        <div ref={setPersistentChromeHost} className={styles.canvasChromeHost} data-testid="persistent-canvas-chrome" />
+      </div>
 
       {effectiveFollowTarget && followedParticipant ? (
         <div className={styles.followBanner} role="status">
@@ -764,6 +769,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       <CanvasSurface
         ref={canvasRef}
         boardMenuActions={boardMenuActions}
+        persistentChromeHost={persistentChromeHost}
         room={room}
         self={self}
         followTarget={effectiveFollowTarget}
