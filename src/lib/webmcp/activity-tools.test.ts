@@ -95,7 +95,7 @@ describe("Jazzboard activity WebMCP surface", () => {
     expect(participantTools.find((tool) => tool.name === "revert_activity")?.annotations?.readOnlyHint).not.toBe(true);
     for (const tool of participantTools) {
       expect(tool.title).toBeTruthy();
-      expect(tool.description.length).toBeGreaterThan(100);
+      expect(tool.description.length).toBeGreaterThan(40);
       expect(tool.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
     }
   });

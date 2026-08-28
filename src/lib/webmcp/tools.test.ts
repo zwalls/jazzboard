@@ -1,5 +1,6 @@
 /// <reference types="webmcp-types" />
 
+import Ajv from "ajv";
 import { describe, expect, it, vi } from "vitest";
 
 import { JazzboardApiError } from "@/lib/client/api";
@@ -196,6 +197,24 @@ describe("Jazzboard semantic WebMCP surface", () => {
 
     expect(drawSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
     expect(updateSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
+    expect(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA.properties.mode.description).toContain(
+      "delegates routing",
+    );
+    expect(drawSchema.$defs?.port).toMatchObject({
+      required: ["side"],
+      properties: {
+        side: { enum: ["top", "right", "bottom", "left"] },
+        position: { minimum: 0, maximum: 1, default: 0.5 },
+      },
+    });
+    expect(updateSchema.$defs?.connectorEndpoint).toMatchObject({
+      properties: {
+        normalizedAnchor: expect.any(Object),
+        isPrecise: expect.any(Object),
+        isExact: expect.any(Object),
+        snap: expect.any(Object),
+      },
+    });
   });
 });
 
@@ -492,6 +511,77 @@ describe("semantic mutation handlers", () => {
     });
   });
 
+  it("keeps create_node lifecycle metadata acceptance identical in JSON Schema and runtime", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), {
+      request,
+      createId: () => "node_lifecycle",
+    });
+    const createNode = toolByName(tools, "create_node");
+    const validatesAdvertisedSchema = new Ajv({ allErrors: true, logger: false }).compile(
+      createNode.inputSchema as object,
+    );
+    const acceptedInputs = [
+      {
+        label: "Pending decision",
+        nodeMetadata: { kind: "decision" },
+      },
+      {
+        label: "Accepted decision",
+        nodeType: "decision",
+        nodeMetadata: { kind: "decision", status: "accepted", resolution: "Use signed sessions." },
+      },
+      {
+        label: "Open question",
+        nodeType: "open_question",
+        nodeMetadata: { kind: "open_question" },
+      },
+    ];
+    const rejectedInputs = [
+      {
+        label: "Premature resolution",
+        nodeMetadata: { kind: "decision", resolution: "Status was omitted." },
+      },
+      {
+        label: "Mismatched kind",
+        nodeType: "decision",
+        nodeMetadata: { kind: "open_question" },
+      },
+      {
+        label: "Metadata on a component",
+        nodeType: "component",
+        nodeMetadata: { kind: "decision" },
+      },
+    ];
+
+    for (const input of acceptedInputs) {
+      expect(validatesAdvertisedSchema(input), JSON.stringify(validatesAdvertisedSchema.errors)).toBe(true);
+      await expect(execute(createNode, input)).resolves.toMatchObject({ ok: true });
+    }
+    for (const input of rejectedInputs) {
+      expect(validatesAdvertisedSchema(input)).toBe(false);
+      await expect(execute(createNode, input)).resolves.toMatchObject({
+        ok: false,
+        error: { code: "INVALID_TOOL_INPUT" },
+      });
+    }
+    expect(request).toHaveBeenCalledTimes(acceptedInputs.length);
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 0)).toMatchObject({
+      command: {
+        object: {
+          nodeType: "decision",
+          nodeMetadata: {
+            kind: "decision",
+            status: "proposed",
+            owner: null,
+            resolution: null,
+          },
+        },
+      },
+    });
+  });
+
   it("updates an authoritative node classification through update_object", async () => {
     const fixture = contextFixture();
     const request = successfulRequest();
@@ -583,7 +673,6 @@ describe("semantic mutation handlers", () => {
         { x: 40, y: 70 },
         { x: 30, y: 100 },
       ],
-      color: "red",
       size: "l",
     });
 
@@ -606,7 +695,7 @@ describe("semantic mutation handlers", () => {
             { x: 50, y: 20 },
             { x: 40, y: 50 },
           ],
-          color: "red",
+          color: "black",
           size: "l",
         },
       },
@@ -659,6 +748,49 @@ describe("semantic mutation handlers", () => {
           },
           direction: "both",
           label: "events",
+        },
+      },
+    });
+  });
+
+  it("connects bound semantic ports without requiring pixel coordinates", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), {
+      request,
+      createId: () => "connector_ported",
+    });
+
+    const result = await execute(toolByName(tools, "draw_connection"), {
+      start: { objectId: "service-a", port: { side: "right", position: 0.25 } },
+      end: { objectId: "service-b", port: { side: "left", position: 0.75 } },
+      routing: { mode: "elbow" },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toMatchObject({
+      command: {
+        type: "create",
+        object: {
+          id: "connector_ported",
+          start: {
+            objectId: "service-a",
+            x: 300,
+            y: 225,
+            normalizedAnchor: { x: 1, y: 0.25 },
+            isPrecise: true,
+            isExact: false,
+            snap: "edge-point",
+          },
+          end: {
+            objectId: "service-b",
+            x: 500,
+            y: 475,
+            normalizedAnchor: { x: 0, y: 0.75 },
+            isPrecise: true,
+            isExact: false,
+            snap: "edge-point",
+          },
         },
       },
     });

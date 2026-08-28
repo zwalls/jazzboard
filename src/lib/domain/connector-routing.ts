@@ -3,7 +3,6 @@ import type {
   CanvasBounds,
   CanvasObject,
   ConnectorEndpoint,
-  ConnectorEndpointSnap,
   ConnectorObject,
   ConnectorRouting,
   ConnectorRoutingInput,
@@ -94,6 +93,8 @@ export type ConnectorRoutingContext = {
   obstacleIdsByConnector: ReadonlyMap<string, ReadonlySet<string>>;
   laneIndexByConnector: ReadonlyMap<string, number>;
   laneDirectionByConnector: ReadonlyMap<string, 1 | -1>;
+  /** Stable, geometry-ordered ports grouped by each automatic edge's natural side. */
+  portPositionByEndpointSide?: ReadonlyMap<string, number>;
 };
 
 type Candidate = {
@@ -108,10 +109,15 @@ type Candidate = {
   pathLength: number;
   collisionObjectIds: string[];
   crossingCount: number;
+  visualConflictCount: number;
+  corridorCongestion: number;
+  labelPosition: number;
+  labelBounds: CanvasBounds | null;
 };
 
 const SIDES: readonly ConnectorPortSide[] = ["right", "bottom", "left", "top"];
 const ELBOW_MIDPOINTS = [0.5, 0.35, 0.65, 0.2, 0.8] as const;
+const AUTO_LABEL_POSITIONS = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8] as const;
 const DEFAULT_CURVE_BEND = 40;
 const EPSILON = 0.001;
 const TWO_PI = Math.PI * 2;
@@ -152,12 +158,25 @@ export function normalizeConnectorRouting(
     bend = (bend < 0 ? -1 : 1) * CONNECTOR_ROUTING_LIMITS.minCurvedBend;
   }
 
+  const labelPosition = clamp(finiteOr(input.labelPosition, 0.5), 0, 1);
+  // Persist the distinction for new auto routes. Legacy canonical auto routes
+  // did not record it, so retain non-default positions conservatively as
+  // authored while allowing the historical 0.5 default to keep adapting.
+  const labelPositionSource = mode === "auto"
+    ? "labelPositionSource" in input && input.labelPositionSource
+      ? input.labelPositionSource
+      : "kind" in input
+        ? Math.abs(labelPosition - 0.5) > EPSILON ? "authored" : "generated"
+        : Object.prototype.hasOwnProperty.call(input, "labelPosition") ? "authored" : "generated"
+    : undefined;
+
   return {
     mode,
     kind,
     bend,
     elbowMidPoint: clamp(finiteOr(input.elbowMidPoint, 0.5), 0, 1),
-    labelPosition: clamp(finiteOr(input.labelPosition, 0.5), 0, 1),
+    labelPosition,
+    ...(labelPositionSource ? { labelPositionSource } : {}),
   };
 }
 
@@ -275,6 +294,86 @@ function connectorLaneIndexes(connectors: readonly ConnectorObject[]): {
   return { laneIndexByConnector, laneDirectionByConnector };
 }
 
+function endpointSideKey(
+  connectorId: string,
+  endpoint: "start" | "end",
+  side: ConnectorPortSide,
+): string {
+  return `${connectorId}\u0000${endpoint}\u0000${side}`;
+}
+
+type PortIncident = {
+  connector: ConnectorObject;
+  endpoint: "start" | "end";
+  neighbor: Point;
+};
+
+/**
+ * Assign incident automatic edges stable ports before candidate routing begins.
+ * Only the geometry-preferred side participates in distribution. A connection
+ * entering a node on the left must not displace an unrelated connection leaving
+ * on the right; each remains centered unless another automatic edge naturally
+ * shares that side. The resulting position is copied to alternate candidate
+ * sides so obstacle avoidance retains a stable, distinct lane without mixing
+ * opposite-side traffic into the same allocation group. Ordering follows
+ * neighbor geometry, preventing insertion-order-dependent hub braids without
+ * inventing offsets for ordinary chains.
+ */
+function connectorPortPositions(
+  room: RoutingRoom,
+  connectors: readonly ConnectorObject[],
+): Map<string, number> {
+  const incidents = new Map<string, PortIncident[]>();
+  for (const connector of connectors) {
+    if (normalizeConnectorRouting(connector.routing).mode !== "auto") continue;
+    for (const endpointName of ["start", "end"] as const) {
+      const endpoint = connector[endpointName];
+      if (!endpoint.objectId || !room.objects[endpoint.objectId]) continue;
+      if (
+        endpoint.isPrecise &&
+        endpoint.normalizedAnchor &&
+        (endpoint.snap === "edge" || endpoint.snap === "edge-point")
+      ) {
+        continue;
+      }
+      const opposite = connector[endpointName === "start" ? "end" : "start"];
+      const oppositeObject = opposite.objectId ? room.objects[opposite.objectId] : undefined;
+      const neighbor = oppositeObject ? objectCenter(oppositeObject) : opposite;
+      const side = preferredSide(objectCenter(room.objects[endpoint.objectId]), neighbor);
+      const key = `${endpoint.objectId}\u0000${side}`;
+      const group = incidents.get(key) ?? [];
+      group.push({ connector, endpoint: endpointName, neighbor });
+      incidents.set(key, group);
+    }
+  }
+
+  const positions = new Map<string, number>();
+  for (const [key, group] of incidents) {
+    const side = key.slice(key.lastIndexOf("\u0000") + 1) as ConnectorPortSide;
+    group.sort((left, right) => {
+      const leftAlong = side === "top" || side === "bottom" ? left.neighbor.x : left.neighbor.y;
+      const rightAlong = side === "top" || side === "bottom" ? right.neighbor.x : right.neighbor.y;
+      return leftAlong - rightAlong ||
+        left.neighbor.x - right.neighbor.x ||
+        left.neighbor.y - right.neighbor.y ||
+        left.connector.createdAt - right.connector.createdAt ||
+        left.connector.id.localeCompare(right.connector.id) ||
+        left.endpoint.localeCompare(right.endpoint);
+    });
+    group.forEach((incident, index) => {
+      // Retain generous corner clearance while using the full safe side span.
+      const position = group.length === 1 ? 0.5 : 0.16 + 0.68 * (index / (group.length - 1));
+      for (const candidateSide of SIDES) {
+        positions.set(
+          endpointSideKey(incident.connector.id, incident.endpoint, candidateSide),
+          position,
+        );
+      }
+    });
+  }
+  return positions;
+}
+
 /** Build stable obstacle and parallel-lane indexes once for a batch resolution. */
 export function createConnectorRoutingContext(
   room: RoutingRoom,
@@ -308,6 +407,7 @@ export function createConnectorRoutingContext(
     (object): object is ConnectorObject => object.kind === "connector",
   );
   const { laneIndexByConnector, laneDirectionByConnector } = connectorLaneIndexes(connectors);
+  const portPositionByEndpointSide = connectorPortPositions(room, connectors);
 
   return {
     room,
@@ -316,6 +416,7 @@ export function createConnectorRoutingContext(
     obstacleIdsByConnector,
     laneIndexByConnector,
     laneDirectionByConnector,
+    portPositionByEndpointSide,
   };
 }
 
@@ -367,11 +468,9 @@ function anchorForEndpoint(
     objectId: target.id,
     normalizedAnchor,
     isPrecise: supplied ? true : options.persistPrecise,
-    // A generated cardinal port is an exact outline point when an auto curve
-    // needs tldraw to preserve the authoritative bend. Without this flag,
-    // tldraw applies a second non-exact clipping pass and can collapse a
-    // positive curve back to its source even though both bindings are valid.
-    // Explicit routes still preserve the caller's binding exactness.
+    // A generated cardinal port is an exact outline point when an automatic
+    // curve must retain its authoritative bend. Explicit routes still
+    // preserve the caller's binding exactness.
     isExact: supplied ? (endpoint.isExact ?? false) : options.persistExact,
     snap: endpoint.snap ?? "none",
   };
@@ -619,6 +718,86 @@ function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
   );
 }
 
+function pointInsideBounds(point: Point, bounds: CanvasBounds): boolean {
+  return (
+    point.x >= bounds.x - EPSILON &&
+    point.x <= bounds.x + bounds.width + EPSILON &&
+    point.y >= bounds.y - EPSILON &&
+    point.y <= bounds.y + bounds.height + EPSILON
+  );
+}
+
+function segmentIntersectionPoints(a: Point, b: Point, c: Point, d: Point): Point[] {
+  const ab = { x: b.x - a.x, y: b.y - a.y };
+  const cd = { x: d.x - c.x, y: d.y - c.y };
+  const denominator = ab.x * cd.y - ab.y * cd.x;
+  if (Math.abs(denominator) > EPSILON) {
+    const ac = { x: c.x - a.x, y: c.y - a.y };
+    const ratio = (ac.x * cd.y - ac.y * cd.x) / denominator;
+    return [{ x: a.x + ab.x * ratio, y: a.y + ab.y * ratio }];
+  }
+  const candidates = [a, b, c, d].filter((point) =>
+    onSegment(a, point, b) && onSegment(c, point, d),
+  );
+  const unique = new Map<string, Point>();
+  for (const point of candidates) {
+    unique.set(`${Math.round(point.x / EPSILON)}:${Math.round(point.y / EPSILON)}`, point);
+  }
+  return [...unique.values()];
+}
+
+function segmentIsIncidentToObject(
+  connector: ConnectorObject,
+  points: readonly Point[],
+  segmentIndex: number,
+  objectId: string,
+): boolean {
+  return (
+    (connector.start.objectId === objectId && segmentIndex === 1) ||
+    (connector.end.objectId === objectId && segmentIndex === points.length - 1)
+  );
+}
+
+function isLegitimateSharedTerminalIntersection(input: {
+  connector: ConnectorObject;
+  points: readonly Point[];
+  segmentIndex: number;
+  other: ConnectorObject;
+  otherPoints: readonly Point[];
+  otherSegmentIndex: number;
+  room: RoutingRoom;
+}): boolean {
+  const sharedObjectIds = [input.connector.start.objectId, input.connector.end.objectId]
+    .filter((objectId): objectId is string => Boolean(objectId))
+    .filter((objectId) =>
+      objectId === input.other.start.objectId || objectId === input.other.end.objectId,
+    );
+  if (!sharedObjectIds.length) return false;
+  const intersectionPoints = segmentIntersectionPoints(
+    input.points[input.segmentIndex - 1],
+    input.points[input.segmentIndex],
+    input.otherPoints[input.otherSegmentIndex - 1],
+    input.otherPoints[input.otherSegmentIndex],
+  );
+  if (!intersectionPoints.length) return false;
+
+  return sharedObjectIds.some((objectId) => {
+    const target = input.room.objects[objectId];
+    if (
+      !target ||
+      !segmentIsIncidentToObject(input.connector, input.points, input.segmentIndex, objectId) ||
+      !segmentIsIncidentToObject(input.other, input.otherPoints, input.otherSegmentIndex, objectId)
+    ) {
+      return false;
+    }
+    const terminalBounds = expandBounds(
+      objectBounds(target),
+      CONNECTOR_ROUTING_LIMITS.obstaclePadding,
+    );
+    return intersectionPoints.every((point) => pointInsideBounds(point, terminalBounds));
+  });
+}
+
 function crossingCount(
   connector: ConnectorObject,
   points: readonly Point[],
@@ -630,15 +809,27 @@ function crossingCount(
   for (const route of resolvedRoutes) {
     const other = room.objects[route.connectorId];
     if (!other || other.kind !== "connector") continue;
-    const sharesEndpoint = [connector.start.objectId, connector.end.objectId].some(
-      (id) => id && (id === other.start.objectId || id === other.end.objectId),
-    );
-    if (sharesEndpoint) continue;
     if (!boundsIntersect(routeBounds, route.pathBounds)) continue;
     let intersects = false;
     for (let leftIndex = 1; leftIndex < points.length && !intersects; leftIndex += 1) {
       for (let rightIndex = 1; rightIndex < route.points.length; rightIndex += 1) {
-        if (segmentsIntersect(points[leftIndex - 1], points[leftIndex], route.points[rightIndex - 1], route.points[rightIndex])) {
+        if (
+          segmentsIntersect(
+            points[leftIndex - 1],
+            points[leftIndex],
+            route.points[rightIndex - 1],
+            route.points[rightIndex],
+          ) &&
+          !isLegitimateSharedTerminalIntersection({
+            connector,
+            points,
+            segmentIndex: leftIndex,
+            other,
+            otherPoints: route.points,
+            otherSegmentIndex: rightIndex,
+            room,
+          })
+        ) {
           intersects = true;
           break;
         }
@@ -647,6 +838,146 @@ function crossingCount(
     if (intersects) count += 1;
   }
   return count;
+}
+
+function routeVisualConflictCount(
+  points: readonly Point[],
+  labelBounds: CanvasBounds | null,
+  resolvedRoutes: readonly ResolvedConnectorRoute[],
+): number {
+  let count = 0;
+  const pathBounds = connectorRouteBounds(points, 0);
+  for (const route of resolvedRoutes) {
+    if (labelBounds && boundsIntersect(labelBounds, route.pathBounds)) {
+      for (let index = 1; index < route.points.length; index += 1) {
+        if (segmentIntersectsBounds(route.points[index - 1], route.points[index], labelBounds)) {
+          count += 2;
+          break;
+        }
+      }
+    }
+    if (route.labelBounds) {
+      if (labelBounds && boundsIntersect(labelBounds, route.labelBounds)) count += 4;
+      if (boundsIntersect(pathBounds, route.labelBounds)) {
+        for (let index = 1; index < points.length; index += 1) {
+          if (segmentIntersectsBounds(points[index - 1], points[index], route.labelBounds)) {
+            count += 2;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
+function routeIncidentSegment(
+  points: readonly Point[],
+  atStart: boolean,
+): { anchor: Point; next: Point; direction: Point } | null {
+  if (points.length < 2) return null;
+  const anchor = atStart ? points[0] : points[points.length - 1];
+  const next = atStart ? points[1] : points[points.length - 2];
+  const length = distance(anchor, next);
+  if (length <= EPSILON) return null;
+  return {
+    anchor,
+    next,
+    direction: { x: (next.x - anchor.x) / length, y: (next.y - anchor.y) / length },
+  };
+}
+
+function corridorCongestion(
+  connector: ConnectorObject,
+  points: readonly Point[],
+  resolvedRoutes: readonly ResolvedConnectorRoute[],
+  room: RoutingRoom,
+  laneSpacing: number,
+): number {
+  let score = 0;
+  for (const endpointName of ["start", "end"] as const) {
+    const objectId = connector[endpointName].objectId;
+    if (!objectId) continue;
+    const incident = routeIncidentSegment(points, endpointName === "start");
+    if (!incident) continue;
+    for (const route of resolvedRoutes) {
+      const other = room.objects[route.connectorId];
+      if (!other || other.kind !== "connector") continue;
+      const otherAtStart = other.start.objectId === objectId;
+      const otherAtEnd = other.end.objectId === objectId;
+      if (!otherAtStart && !otherAtEnd) continue;
+      const prior = routeIncidentSegment(route.points, otherAtStart);
+      if (!prior) continue;
+      const portDistance = distance(incident.anchor, prior.anchor);
+      if (portDistance <= Math.max(8, laneSpacing * 0.5)) score += 2;
+      const directionAlignment = incident.direction.x * prior.direction.x +
+        incident.direction.y * prior.direction.y;
+      if (directionAlignment > 0.9 && portDistance <= laneSpacing) score += 1;
+    }
+  }
+  return score;
+}
+
+function labelObjectCollisionCount(
+  connector: ConnectorObject,
+  labelBounds: CanvasBounds | null,
+  context: ConnectorRoutingContext,
+): number {
+  if (!labelBounds) return 0;
+  const allowed = context.obstacleIdsByConnector.get(connector.id);
+  const excluded = new Set([connector.start.objectId, connector.end.objectId].filter(Boolean));
+  let count = 0;
+  for (const obstacle of context.obstacles) {
+    if (excluded.has(obstacle.id) || (allowed && !allowed.has(obstacle.id))) continue;
+    if (boundsIntersect(labelBounds, expandBounds(obstacle.bounds, context.options.obstaclePadding))) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function solveAutoLabelPlacement(
+  connector: ConnectorObject,
+  routing: ConnectorRouting,
+  points: readonly Point[],
+  context: ConnectorRoutingContext,
+  resolvedRoutes: readonly ResolvedConnectorRoute[],
+): { position: number; bounds: CanvasBounds | null; visualConflictCount: number } {
+  const generatedAuto = routing.mode === "auto" && routing.labelPositionSource !== "authored";
+  const startingPosition = generatedAuto && context.options.resolutionMode === "bounded"
+    ? 0.5
+    : routing.labelPosition;
+  const defaultBounds = connectorLabelBoundsForRoute(connector.label, points, startingPosition);
+  if (context.options.resolutionMode === "bounded") {
+    return { position: startingPosition, bounds: defaultBounds, visualConflictCount: 0 };
+  }
+  // Explicit routes and caller-authored auto positions are authoritative.
+  // Solver-authored positions remain adaptive across later geometry changes.
+  if (!generatedAuto || !defaultBounds) {
+    return {
+      position: startingPosition,
+      bounds: defaultBounds,
+      visualConflictCount: routeVisualConflictCount(points, defaultBounds, resolvedRoutes),
+    };
+  }
+
+  const placements = AUTO_LABEL_POSITIONS.map((position, ordinal) => {
+    const bounds = connectorLabelBoundsForRoute(connector.label, points, position);
+    const visualConflictCount = routeVisualConflictCount(points, bounds, resolvedRoutes);
+    return {
+      position,
+      bounds,
+      visualConflictCount,
+      score: [
+        labelObjectCollisionCount(connector, bounds, context),
+        visualConflictCount,
+        Math.abs(position - 0.5),
+        ordinal,
+      ] as const,
+    };
+  });
+  placements.sort((left, right) => compareScore(left.score, right.score));
+  return placements[0];
 }
 
 export function connectorRouteBounds(
@@ -721,6 +1052,8 @@ function candidateScore(
   return [
     candidate.collisionObjectIds.length,
     candidate.crossingCount,
+    candidate.visualConflictCount,
+    candidate.corridorCongestion,
     kindRank,
     mode === "auto" && laneIndex !== 0 && candidate.kind === "curved"
       ? Math.abs(candidate.bend - preferredLaneBend)
@@ -763,30 +1096,64 @@ export function resolveConnectorRoute(
   // The pair-wide lane index is already unique. Endpoint direction must not
   // flip this port position, or mixed A→B / B→A routes can collapse onto the
   // same lane. Direction only orients the signed curve bend below.
-  const startPortPosition = clamp(0.5 + laneIndex * CONNECTOR_ROUTING_LIMITS.portLaneStep, 0.15, 0.85);
-  // Parallel lanes use the same side-relative position at both endpoints.
-  // Mirroring the end position would turn otherwise parallel routes into an X.
-  const endPortPosition = startPortPosition;
+  const fallbackPortPosition = clamp(
+    0.5 + laneIndex * CONNECTOR_ROUTING_LIMITS.portLaneStep,
+    0.15,
+    0.85,
+  );
+  const portPosition = (
+    endpoint: "start" | "end",
+    side: ConnectorPortSide,
+  ): number => context.portPositionByEndpointSide?.get(endpointSideKey(connector.id, endpoint, side)) ??
+    fallbackPortPosition;
   const candidates: Candidate[] = [];
   let boundedClearCandidate = false;
-  // Auto anchors are resolved output, never caller constraints.
-  const respectPrecise = sourceRouting.mode !== "auto";
+  // Auto anchors generated by the router use snap:none and remain movable.
+  // Explicit edge/edge-point snap intent is caller-authored and authoritative.
+  const respectPrecise = (endpoint: ConnectorEndpoint): boolean =>
+    sourceRouting.mode !== "auto" ||
+    Boolean(endpoint.isPrecise && (endpoint.snap === "edge" || endpoint.snap === "edge-point"));
 
-  const addCandidate = (input: Omit<Candidate, "ordinal" | "collisionObjectIds" | "crossingCount" | "pathLength">) => {
+  const addCandidate = (input: Omit<Candidate,
+    | "ordinal"
+    | "collisionObjectIds"
+    | "crossingCount"
+    | "pathLength"
+    | "visualConflictCount"
+    | "corridorCongestion"
+    | "labelPosition"
+    | "labelBounds"
+  >) => {
     if (candidates.length >= context.options.maxCandidates) return;
-    const labelBounds = connectorLabelBoundsForRoute(
-      connector.label,
+    const labelPlacement = solveAutoLabelPlacement(
+      connector,
+      sourceRouting,
       input.points,
-      sourceRouting.labelPosition,
+      context,
+      resolvedRoutes,
     );
     const candidate = {
       ...input,
       ordinal: candidates.length,
       pathLength: polylineLength(input.points),
-      collisionObjectIds: collisionIds(connector, input.points, labelBounds, context),
+      labelPosition: labelPlacement.position,
+      labelBounds: labelPlacement.bounds,
+      collisionObjectIds: collisionIds(connector, input.points, labelPlacement.bounds, context),
       crossingCount: context.options.resolutionMode === "bounded"
         ? 0
         : crossingCount(connector, input.points, resolvedRoutes, context.room),
+      visualConflictCount: context.options.resolutionMode === "bounded"
+        ? 0
+        : labelPlacement.visualConflictCount,
+      corridorCongestion: context.options.resolutionMode === "bounded"
+        ? 0
+        : corridorCongestion(
+            connector,
+            input.points,
+            resolvedRoutes,
+            context.room,
+            context.options.laneSpacing,
+          ),
     };
     candidates.push(candidate);
     if (
@@ -803,28 +1170,28 @@ export function resolveConnectorRoute(
     startObject,
     startPreferred,
     false,
-    respectPrecise,
+    respectPrecise(connector.start),
   )[0];
   const endDirectSide = endpointSideOptions(
     connector.end,
     endObject,
     endPreferred,
     false,
-    respectPrecise,
+    respectPrecise(connector.end),
   )[0];
   const startSides = endpointSideOptions(
     connector.start,
     startObject,
     startPreferred,
     sourceRouting.mode === "auto" || sourceRouting.mode === "elbow",
-    respectPrecise,
+    respectPrecise(connector.start),
   );
   const endSides = endpointSideOptions(
     connector.end,
     endObject,
     endPreferred,
     sourceRouting.mode === "auto" || sourceRouting.mode === "elbow",
-    respectPrecise,
+    respectPrecise(connector.end),
   );
 
   // Explicit modes retain a human-authored precise anchor, while ordinary straight/curved
@@ -838,19 +1205,19 @@ export function resolveConnectorRoute(
     lanePosition: number,
     kind: ConnectorRoutingKind,
   ): ConnectorEndpoint => anchorForEndpoint(endpoint, target, side, lanePosition, {
-    respectPrecise,
+    respectPrecise: respectPrecise(endpoint),
     persistPrecise: persistPrecise(kind),
     persistExact: sourceRouting.mode === "auto" && kind === "curved",
   });
 
   const addStraight = () => {
-    const start = resolveEndpoint(connector.start, startObject, startDirectSide, startPortPosition, "straight");
-    const end = resolveEndpoint(connector.end, endObject, endDirectSide, endPortPosition, "straight");
+    const start = resolveEndpoint(connector.start, startObject, startDirectSide, portPosition("start", startDirectSide), "straight");
+    const end = resolveEndpoint(connector.end, endObject, endDirectSide, portPosition("end", endDirectSide), "straight");
     addCandidate({ kind: "straight", bend: 0, elbowMidPoint: 0.5, start, end, points: compactPoints([start, end]), arc: null });
   };
   const addCurved = (bend: number) => {
-    const start = resolveEndpoint(connector.start, startObject, startDirectSide, startPortPosition, "curved");
-    const end = resolveEndpoint(connector.end, endObject, endDirectSide, endPortPosition, "curved");
+    const start = resolveEndpoint(connector.start, startObject, startDirectSide, portPosition("start", startDirectSide), "curved");
+    const end = resolveEndpoint(connector.end, endObject, endDirectSide, portPosition("end", endDirectSide), "curved");
     const route = curvedRoute(start, end, bend, context.options.maxRoutePoints);
     if (!route.arc) return;
     addCandidate({ kind: "curved", bend, elbowMidPoint: 0.5, start, end, ...route });
@@ -860,8 +1227,8 @@ export function resolveConnectorRoute(
       for (const endSide of endSides) {
         for (const midpoint of midpoints) {
           if (candidates.length >= context.options.maxCandidates || boundedClearCandidate) return;
-          const start = resolveEndpoint(connector.start, startObject, startSide, startPortPosition, "elbow");
-          const end = resolveEndpoint(connector.end, endObject, endSide, endPortPosition, "elbow");
+          const start = resolveEndpoint(connector.start, startObject, startSide, portPosition("start", startSide), "elbow");
+          const end = resolveEndpoint(connector.end, endObject, endSide, portPosition("end", endSide), "elbow");
           const points = elbowPoints({
             start,
             end,
@@ -870,8 +1237,7 @@ export function resolveConnectorRoute(
             startRotation: startObject?.rotation ?? 0,
             endRotation: endObject?.rotation ?? 0,
             midpoint,
-            // Jazzboard arrows always use tldraw's medium size, whose v3.15.6
-            // elbow expansion is exactly 36 page-space pixels.
+            // Jazzboard's canonical elbow expansion is 36 page-space pixels.
             legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
           });
           addCandidate({ kind: "elbow", bend: 0, elbowMidPoint: midpoint, start, end, points, arc: null });
@@ -936,11 +1302,14 @@ export function resolveConnectorRoute(
     kind: chosen.kind,
     bend: chosen.kind === "curved" ? chosen.bend : 0,
     elbowMidPoint: chosen.kind === "elbow" ? chosen.elbowMidPoint : sourceRouting.elbowMidPoint,
-    labelPosition: sourceRouting.labelPosition,
+    labelPosition: chosen.labelPosition,
+    ...(sourceRouting.labelPositionSource
+      ? { labelPositionSource: sourceRouting.labelPositionSource }
+      : {}),
   };
   const pathBounds = connectorRouteBounds(chosen.points);
-  const labelPoint = pointAlongConnectorRoute(chosen.points, routing.labelPosition);
-  const labelBounds = connectorLabelBoundsForRoute(connector.label, chosen.points, routing.labelPosition);
+  const labelPoint = pointAlongConnectorRoute(chosen.points, chosen.labelPosition);
+  const labelBounds = chosen.labelBounds;
   return {
     connectorId: connector.id,
     routing,
@@ -1114,19 +1483,4 @@ export function resolveAffectedConnectorRoutes(
     );
   }
   return Object.fromEntries(resolved.map((route) => [route.connectorId, route]));
-}
-
-/** Exact tldraw defaults for a legacy/null endpoint binding. */
-export function connectorEndpointBindingDefaults(endpoint: ConnectorEndpoint): {
-  normalizedAnchor: Point;
-  isPrecise: boolean;
-  isExact: boolean;
-  snap: ConnectorEndpointSnap;
-} {
-  return {
-    normalizedAnchor: endpoint.normalizedAnchor ?? { x: 0.5, y: 0.5 },
-    isPrecise: endpoint.isPrecise ?? false,
-    isExact: endpoint.isExact ?? false,
-    snap: endpoint.snap ?? "none",
-  };
 }

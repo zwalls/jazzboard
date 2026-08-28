@@ -1,20 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Editor } from "tldraw";
 
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { ActorRef, CanvasObject, Participant, RoomState } from "@/lib/domain/types";
-
-const projection = vi.hoisted(() => ({
-  isEquivalentTldrawProjection: vi.fn((current: CanvasObject, draft: CanvasObject) => current === draft),
-  jazzboardMeta: vi.fn((shape: { objectId: string; revision: number }) => ({
-    objectId: shape.objectId,
-    revision: shape.revision,
-    createdAt: 10_000,
-  })),
-  tldrawShapeId: vi.fn((objectId: string) => `shape:${objectId}`),
-  tldrawShapeToSemantic: vi.fn((_editor: Editor, shape: { draft: CanvasObject }) => shape.draft),
-}));
-
-vi.mock("@/lib/canvas/projection", () => projection);
 
 import {
   renderCanvasPreview,
@@ -107,45 +94,54 @@ function request(objects: CanvasObject[], overrides: Partial<CanvasPreviewRender
   };
 }
 
-function editorFor(objects: CanvasObject[], blob = new Blob(["png"], { type: "image/png" })) {
-  const shapes = new Map(
-    objects.map((item) => [
-      `shape:${item.id}`,
-      { id: `shape:${item.id}`, objectId: item.id, revision: item.revision, draft: item },
-    ]),
-  );
+function canvasFor(
+  objects: CanvasObject[],
+  blob = new Blob(["png"], { type: "image/png" }),
+  warnings: readonly string[] = [],
+) {
+  const projected = new Map(objects.map((item) => [item.id, item]));
   const bounds = new Map([
-    ["shape:a", { x: 0, y: 0, width: 100, height: 50 }],
-    ["shape:b", { x: 50, y: 100, width: 100, height: 50 }],
+    ["a", { x: 0, y: 0, width: 100, height: 50 }],
+    ["b", { x: 50, y: 100, width: 100, height: 50 }],
   ]);
-  const toImage = vi.fn(async () => ({ blob, width: 100, height: 100 }));
-  const editor = {
-    getShape: (id: string) => shapes.get(id),
-    getShapeMaskedPageBounds: (id: string) => bounds.get(id),
-    toImage,
-  } as unknown as Editor;
-  return { editor, toImage };
+  const renderPng = vi.fn(async () => ({ blob, logicalWidth: 100, logicalHeight: 100, warnings }));
+  const canvas = {
+    rendererId: "jazzboard-semantic-v1",
+    capabilities: { renderPng: true },
+    isObjectProjectionExact: (candidate: CanvasObject) => projected.get(candidate.id) === candidate,
+    getVisibleBounds: (objectIds: readonly string[]) => {
+      const selected = objectIds.flatMap((id) => bounds.get(id) ?? []);
+      if (!selected.length) return null;
+      const x = Math.min(...selected.map((item) => item.x));
+      const y = Math.min(...selected.map((item) => item.y));
+      const maxX = Math.max(...selected.map((item) => item.x + item.width));
+      const maxY = Math.max(...selected.map((item) => item.y + item.height));
+      return { x, y, width: maxX - x, height: maxY - y };
+    },
+    renderPng,
+  } as unknown as CanvasRuntime;
+  return { canvas, renderPng };
 }
 
-describe("exact tldraw canvas preview renderer", () => {
+describe("exact canvas preview renderer", () => {
   it("exports only exact target shape IDs with a tight crop and bounded scale", async () => {
     const objects = [object("a"), object("b")];
     const currentRoom = room(objects);
-    const { editor, toImage } = editorFor(objects);
+    const { canvas, renderPng } = canvasFor(objects, undefined, ["One image used a placeholder."]);
 
     const result = await renderCanvasPreview(
-      { getEditor: () => editor, getRoom: () => currentRoom },
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
       request(objects),
       new AbortController().signal,
     );
 
-    expect(toImage).toHaveBeenCalledWith(["shape:a", "shape:b"], {
-      format: "png",
+    expect(renderPng).toHaveBeenCalledWith(["a", "b"], {
       background: true,
       darkMode: false,
       padding: 10,
       pixelRatio: 1,
       scale: 100 / 170,
+      signal: expect.any(AbortSignal),
     });
     expect(result.metadata).toMatchObject({
       width: 100,
@@ -158,38 +154,41 @@ describe("exact tldraw canvas preview renderer", () => {
           { objectId: "b", revision: 1 },
         ],
       },
-      warnings: ["The preview was downscaled to fit the requested dimensions."],
+      warnings: [
+        "One image used a placeholder.",
+        "The preview was downscaled to fit the requested dimensions.",
+      ],
     });
   });
 
   it("fails rather than rendering a newer local scope under an old revision target", async () => {
     const expected = object("a", 1);
     const newer = object("a", 2);
-    const { editor, toImage } = editorFor([expected]);
+    const { canvas, renderPng } = canvasFor([expected]);
 
     await expect(
       renderCanvasPreview(
-        { getEditor: () => editor, getRoom: () => room([newer]) },
+        { getCanvasRuntime: () => canvas, getRoom: () => room([newer]) },
         request([expected]),
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({ code: "OBJECT_REVISION_CONFLICT" });
-    expect(toImage).not.toHaveBeenCalled();
+    expect(renderPng).not.toHaveBeenCalled();
   });
 
   it("fails immediately when an exact object identity was deleted or replaced", async () => {
     const expected = object("a", 1);
     const replacement = { ...object("a", 1), createdAt: NOW + 1 };
-    const { editor, toImage } = editorFor([expected]);
+    const { canvas, renderPng } = canvasFor([expected]);
 
     await expect(
       renderCanvasPreview(
-        { getEditor: () => editor, getRoom: () => room([replacement]) },
+        { getCanvasRuntime: () => canvas, getRoom: () => room([replacement]) },
         request([expected]),
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({ code: "PREVIEW_SCOPE_CHANGED" });
-    expect(toImage).not.toHaveBeenCalled();
+    expect(renderPng).not.toHaveBeenCalled();
   });
 
   it("times out truthfully when the exact authoritative projection never arrives", async () => {
@@ -198,7 +197,7 @@ describe("exact tldraw canvas preview renderer", () => {
     await expect(
       renderCanvasPreview(
         {
-          getEditor: () => null,
+          getCanvasRuntime: () => null,
           getRoom: () => room([expected]),
           now: () => now,
           wait: async () => {
@@ -214,11 +213,11 @@ describe("exact tldraw canvas preview renderer", () => {
   it("discards a render that exceeds the exact byte budget", async () => {
     const expected = object("a");
     const currentRoom = room([expected]);
-    const { editor } = editorFor([expected], new Blob(["0123456789"]));
+    const { canvas } = canvasFor([expected], new Blob(["0123456789"]));
 
     await expect(
       renderCanvasPreview(
-        { getEditor: () => editor, getRoom: () => currentRoom },
+        { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
         request([expected], { maxBytes: 4 }),
         new AbortController().signal,
       ),

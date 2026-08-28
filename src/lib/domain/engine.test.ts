@@ -1144,6 +1144,7 @@ describe("active-object leases", () => {
 
     expect(error.code).toBe("OBJECT_BUSY");
     expect(error.message).toContain("Bob");
+    expect(error.message).toBe("Bob is currently resizing this object.");
     expect(error.details).toEqual({
       objectId: "note",
       actor: actor(bob, "agent"),
@@ -1236,5 +1237,35 @@ describe("active-object leases", () => {
     expect(error.code).toBe("OBJECT_BUSY");
     expect(error.details).toMatchObject({ objectId: "b", operation: "resize" });
     expect(acquired.room).toEqual(before);
+  });
+
+  it("uses a grammatical delete lease conflict message", () => {
+    const acquired = acquireObjectLease(
+      roomWith(textObject("note")),
+      "bob",
+      "human",
+      "note",
+      1,
+      "delete",
+      START + 10,
+    );
+    const error = domainError(() =>
+      applyCanvasCommand(
+        acquired.room,
+        "alice",
+        "human",
+        {
+          type: "update",
+          objectId: "note",
+          expectedRevision: 1,
+          operation: "edit",
+          patch: { content: "Blocked edit" },
+        },
+        START + 20,
+      ),
+    );
+
+    expect(error.code).toBe("OBJECT_BUSY");
+    expect(error.message).toBe("Bob is currently deleting this object.");
   });
 });

@@ -214,7 +214,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.5.0");
+    expect(AGENT_DOC_VERSION).toBe("1.6.1");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -229,10 +229,10 @@ describe("agent-readable content", () => {
     ].join("\n");
 
     for (const phrase of [
-      "obstacle-aware `auto` routing",
-      "cardinal ports",
-      "elbow corridors",
-      "lane offsets",
+      "delegates route selection",
+      "Generated singleton endpoints",
+      "naturally sharing one side",
+      "intent-unaware",
       "`straight`",
       "`curved`",
       "`elbow`",
@@ -240,8 +240,15 @@ describe("agent-readable content", () => {
       "`isPrecise`",
       "`isExact`",
       "`snap`",
+      "`port.side`",
+      "`port.position`",
+      "`port.exact`",
       "deliberate overlap",
+      "freeform",
+      "illustration",
       "Diagram membership",
+      "graph-aware",
+      "`analyze_diagram_layout`",
       "`render_canvas_preview`",
     ]) {
       expect(corpus).toContain(phrase);
@@ -249,10 +256,42 @@ describe("agent-readable content", () => {
 
     expect(guide).toContain("`routing.mode`");
     expect(guide).toContain("`routing.kind`");
-    expect(guide).toContain("after creating, laying out, or rerouting a diagram");
+    expect(guide).toContain("## Close the diagram-quality loop");
     expect(reference).toContain("Mermaid remains topology-only");
     expect(skill).toContain("Routing and endpoint metadata survive Diagram membership");
     expect(skill).toContain("SVG renders resolved route geometry and labels");
+  });
+
+  it("requires intent-led geometry interpretation and actual pixel inspection as separate steps", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      homepage: makeHomepageMarkdown(),
+      guide: makeAgentGuideMarkdown(),
+      reference: makeWebMcpMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits geometry analysis`).toContain("`analyze_diagram_layout`");
+      expect(body, `${name} omits intent limits`).toMatch(/intent-unaware|requested intent/i);
+      expect(body, `${name} omits freeform preservation`).toMatch(/freeform|deliberate geometry/i);
+      expect(body, `${name} omits preview rendering`).toContain("`render_canvas_preview`");
+      expect(body, `${name} omits screenshot capture`).toContain("`screenshotClip`");
+      expect(body, `${name} omits pixel inspection`).toMatch(/inspect[^\n]*pixels|pixel inspection/i);
+      expect(body, `${name} conflates rendering and inspection`).toMatch(
+        /rendering[^\n]*(?:not|isn't|does not)[^\n]*(?:inspection|visual QA)|render[^\n]*not[^\n]*visual inspection/i,
+      );
+    }
+
+    const guide = documents.guide;
+    expect(guide).toContain("status as permission to redesign");
+    expect(guide).toContain("correct every unintended finding");
+    expect(guide).toContain("keep intentional geometry");
+    expect(guide).toContain("visualInspectionStatus: not_performed");
+    expect(guide).toContain("graph-aware hierarchy layout");
+    expect(guide).toContain("explicit ports");
+    expect(guide).toMatch(/edit[^\n]*repeat/i);
   });
 
   it("states the privacy and runtime-authority boundaries across detailed guidance", () => {

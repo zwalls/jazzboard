@@ -1,10 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Editor } from "tldraw";
 
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import { apiRequest } from "@/lib/client/api";
 import { downloadCanvasPng, downloadTextFile } from "@/lib/client/download";
-import { tldrawShapeId } from "@/lib/canvas/projection";
 import type { RoomState } from "@/lib/domain/types";
 
 import { buildArtifactUrl, DurabilityPanel } from "./DurabilityPanel";
@@ -162,33 +161,27 @@ function renderPanel(
   options: {
     sourceRoom?: RoomState;
     selection?: string[];
-    editor?: Editor | null;
+    runtime?: CanvasRuntime | null;
   } = {},
 ) {
   const sourceRoom = options.sourceRoom ?? room;
   const selectedIds = [...new Set(options.selection ?? [])];
-  const shapes = Object.keys(sourceRoom.objects).map((objectId) => ({
-    id: tldrawShapeId(objectId),
-    type: sourceRoom.objects[objectId].kind === "connector" ? "arrow" : "text",
-    meta: { jazzboardId: objectId },
-  }));
-  const shapeById = new Map(shapes.map((shape) => [shape.id, shape]));
-  const defaultEditor = {
-    getCurrentPageShapesSorted: () => shapes,
-    getSelectedShapes: () => selectedIds
-      .map((objectId) => shapeById.get(tldrawShapeId(objectId)))
-      .filter(Boolean),
-    getSortedChildIdsForParent: () => [],
-    getShape: (shapeId: string) => shapeById.get(shapeId as typeof shapes[number]["id"]),
-    store: { listen: vi.fn(() => vi.fn()) },
-  } as unknown as Editor;
+  const objectIds = Object.keys(sourceRoom.objects);
+  const defaultRuntime = {
+    rendererId: "jazzboard-semantic-v1",
+    capabilities: { renderPng: true },
+    getDocumentObjectIds: () => objectIds,
+    getSelectedObjectIds: () => selectedIds,
+    hasObject: (objectId: string) => objectIds.includes(objectId),
+    onDocumentChange: vi.fn(() => vi.fn()),
+  } as unknown as CanvasRuntime;
   return render(
     <DurabilityPanel
       mode={mode}
       room={sourceRoom}
       role={role}
       selection={options.selection ?? []}
-      editor={options.editor === undefined ? defaultEditor : options.editor}
+      runtime={options.runtime === undefined ? defaultRuntime : options.runtime}
       getImportOrigin={() => ({ x: 10, y: 20 })}
       acceptRoom={vi.fn()}
       onClose={vi.fn()}
@@ -252,14 +245,14 @@ describe("DurabilityPanel", () => {
     );
   });
 
-  it("downloads PNG directly from the live tldraw canvas without requesting redacted SVG", async () => {
+  it("downloads PNG directly from the active faithful canvas renderer without requesting redacted SVG", async () => {
     const onAnnounce = vi.fn();
     renderPanel("spectator", "export", onAnnounce);
 
     fireEvent.click(screen.getByRole("button", { name: "PNG" }));
 
     await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
-      editor: expect.anything(),
+      runtime: expect.anything(),
       objectIds: ["node-a", "node-b", "edge", "outside"],
       filename: "architecture.png",
       signal: expect.any(AbortSignal),
@@ -275,7 +268,7 @@ describe("DurabilityPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "PNG" }));
 
     await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
-      editor: expect.anything(),
+      runtime: expect.anything(),
       objectIds: ["node-a", "node-b", "edge"],
       filename: "authentication-request-flow.png",
       signal: expect.any(AbortSignal),
@@ -289,7 +282,7 @@ describe("DurabilityPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "PNG" }));
 
     await waitFor(() => expect(downloadCanvasPng).toHaveBeenCalledWith({
-      editor: expect.anything(),
+      runtime: expect.anything(),
       objectIds: ["outside", "node-a"],
       filename: "architecture-selection.png",
       signal: expect.any(AbortSignal),

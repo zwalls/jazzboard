@@ -5,9 +5,9 @@ import {
   connectorLabelPrimaryClearance,
   minimumLayoutGaps,
 } from "./layout";
+import { computeAffectedConnectorIds } from "./connector-dependencies";
 import {
   CONNECTOR_ROUTING_BOUNDED_MAX_CANDIDATES,
-  CONNECTOR_ROUTING_LIMITS,
   CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
   connectorRouteBounds,
   materializeConnectorRoutes,
@@ -115,6 +115,15 @@ function verifyRevision(object: CanvasObject, expectedRevision: number): void {
   }
 }
 
+const LEASE_OPERATION_PRESENT_PARTICIPLE: Readonly<Record<LeaseOperation, string>> = {
+  move: "moving",
+  resize: "resizing",
+  edit: "editing",
+  connect: "connecting",
+  delete: "deleting",
+  annotate: "annotating",
+};
+
 function verifyLease(
   room: RoomState,
   object: CanvasObject,
@@ -131,13 +140,17 @@ function verifyLease(
     (!leaseId || lease.leaseId === leaseId);
   if (ownsLease) return;
 
-  throw new DomainError("OBJECT_BUSY", `${lease.actor.displayName} is currently ${lease.operation}ing this object.`, {
-    objectId: object.id,
-    actor: lease.actor,
-    operation: lease.operation,
-    currentRevision: object.revision,
-    expiresAt: lease.expiresAt,
-  });
+  throw new DomainError(
+    "OBJECT_BUSY",
+    `${lease.actor.displayName} is currently ${LEASE_OPERATION_PRESENT_PARTICIPLE[lease.operation]} this object.`,
+    {
+      objectId: object.id,
+      actor: lease.actor,
+      operation: lease.operation,
+      currentRevision: object.revision,
+      expiresAt: lease.expiresAt,
+    },
+  );
 }
 
 function touchRoom(room: RoomState, now: number): void {
@@ -299,12 +312,6 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
-  if (left.length !== right.length) return false;
-  const expected = new Set(left);
-  return right.every((value) => expected.has(value));
-}
-
 function samePoint(left: { x: number; y: number }, right: { x: number; y: number }): boolean {
   return left.x === right.x && left.y === right.y;
 }
@@ -353,289 +360,6 @@ function boundsFor(
     width: Math.max(maxX - minX, 1),
     height: Math.max(maxY - minY, 1),
   };
-}
-
-function unionCanvasBounds(left: CanvasBounds, right: CanvasBounds): CanvasBounds {
-  const minX = Math.min(left.x, right.x);
-  const minY = Math.min(left.y, right.y);
-  const maxX = Math.max(left.x + left.width, right.x + right.width);
-  const maxY = Math.max(left.y + left.height, right.y + right.height);
-  return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
-}
-
-function expandCanvasBounds(bounds: CanvasBounds, padding: number): CanvasBounds {
-  return {
-    x: bounds.x - padding,
-    y: bounds.y - padding,
-    width: bounds.width + padding * 2,
-    height: bounds.height + padding * 2,
-  };
-}
-
-function canvasBoundsIntersect(left: CanvasBounds, right: CanvasBounds): boolean {
-  return !(
-    left.x + left.width < right.x ||
-    right.x + right.width < left.x ||
-    left.y + left.height < right.y ||
-    right.y + right.height < left.y
-  );
-}
-
-function routedObjectBounds(object: CanvasObject): CanvasBounds {
-  const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
-  const cosine = Math.cos(object.rotation);
-  const sine = Math.sin(object.rotation);
-  const corners = [
-    { x: object.x, y: object.y },
-    { x: object.x + object.width, y: object.y },
-    { x: object.x + object.width, y: object.y + object.height },
-    { x: object.x, y: object.y + object.height },
-  ].map((point) => {
-    const dx = point.x - center.x;
-    const dy = point.y - center.y;
-    return {
-      x: center.x + dx * cosine - dy * sine,
-      y: center.y + dx * sine + dy * cosine,
-    };
-  });
-  const minX = Math.min(...corners.map((point) => point.x));
-  const minY = Math.min(...corners.map((point) => point.y));
-  const maxX = Math.max(...corners.map((point) => point.x));
-  const maxY = Math.max(...corners.map((point) => point.y));
-  return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
-}
-
-function objectGeometryChanged(before: CanvasObject | undefined, after: CanvasObject | undefined): boolean {
-  if (!before || !after) return before !== after;
-  return (
-    before.x !== after.x ||
-    before.y !== after.y ||
-    before.width !== after.width ||
-    before.height !== after.height ||
-    before.rotation !== after.rotation
-  );
-}
-
-function connectorPairKey(connector: Extract<CanvasObject, { kind: "connector" }>): string {
-  const endpointKey = (endpoint: typeof connector.start): string => endpoint.objectId
-    ? `object:${endpoint.objectId}`
-    : `point:${Math.round(endpoint.x * 1_000) / 1_000},${Math.round(endpoint.y * 1_000) / 1_000}`;
-  const start = endpointKey(connector.start);
-  const end = endpointKey(connector.end);
-  return start <= end ? `${start}\u0000${end}` : `${end}\u0000${start}`;
-}
-
-function connectorRouteInputChanged(
-  before: CanvasObject | undefined,
-  after: CanvasObject | undefined,
-): boolean {
-  if (before?.kind !== "connector" || after?.kind !== "connector") {
-    return before?.kind === "connector" || after?.kind === "connector";
-  }
-  return (
-    objectGeometryChanged(before, after) ||
-    before.label !== after.label ||
-    JSON.stringify(before.start) !== JSON.stringify(after.start) ||
-    JSON.stringify(before.end) !== JSON.stringify(after.end) ||
-    JSON.stringify(normalizeConnectorRouting(before.routing)) !==
-      JSON.stringify(normalizeConnectorRouting(after.routing))
-  );
-}
-
-function connectorSeesObject(
-  room: RoomState,
-  connectorId: string,
-  objectId: string,
-): boolean {
-  const scopes = Object.values(room.diagrams ?? {}).filter((diagram) =>
-    diagram.connectorIds.includes(connectorId),
-  );
-  return scopes.length === 0 || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
-}
-
-function connectorInfluenceBounds(
-  room: RoomState,
-  connector: Extract<CanvasObject, { kind: "connector" }>,
-  route: ResolvedConnectorRoute | undefined,
-): CanvasBounds {
-  let bounds = route?.bounds ?? {
-    x: connector.x,
-    y: connector.y,
-    width: connector.width,
-    height: connector.height,
-  };
-  for (const objectId of [connector.start.objectId, connector.end.objectId]) {
-    const target = objectId ? room.objects[objectId] : undefined;
-    if (target) bounds = unionCanvasBounds(bounds, routedObjectBounds(target));
-  }
-  return expandCanvasBounds(bounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding);
-}
-
-function affectedConnectorIds(
-  baseline: RoomState,
-  room: RoomState,
-  touchedObjectIds: ReadonlySet<string>,
-  touchedDiagramIds: ReadonlySet<string>,
-): Set<string> {
-  const baselineRoutes = materializeConnectorRoutes(baseline);
-  const currentRoutes = materializeConnectorRoutes(room);
-  const currentConnectors = Object.values(room.objects)
-    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
-    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
-  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
-  const affected = new Set<string>();
-  const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
-    objectGeometryChanged(baseline.objects[objectId], room.objects[objectId]),
-  ));
-  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
-    baseline.objects[objectId]?.kind === "shape" || room.objects[objectId]?.kind === "shape",
-  );
-  const scopeChangedDiagramIds = new Set(
-    [...touchedDiagramIds].filter((diagramId) => {
-      const before = baseline.diagrams?.[diagramId];
-      const after = room.diagrams?.[diagramId];
-      return (
-        !before ||
-        !after ||
-        !sameIdSet(before.memberObjectIds, after.memberObjectIds) ||
-        !sameIdSet(before.connectorIds, after.connectorIds)
-      );
-    }),
-  );
-
-  for (const connector of currentConnectors) {
-    if (
-      touchedObjectIds.has(connector.id) &&
-      connectorRouteInputChanged(baseline.objects[connector.id], connector)
-    ) {
-      affected.add(connector.id);
-    }
-    if (
-      changedGeometryIds.has(connector.start.objectId ?? "") ||
-      changedGeometryIds.has(connector.end.objectId ?? "")
-    ) {
-      affected.add(connector.id);
-    }
-    if (connector.routing?.mode !== "auto") continue;
-    if ([...scopeChangedDiagramIds].some((diagramId) =>
-      baseline.diagrams?.[diagramId]?.connectorIds.includes(connector.id) ||
-      room.diagrams?.[diagramId]?.connectorIds.includes(connector.id),
-    )) {
-      affected.add(connector.id);
-      continue;
-    }
-    const routeBounds = currentRoutes[connector.id]?.bounds;
-    if (!routeBounds) continue;
-    for (const objectId of changedObstacleIds) {
-      if (
-        !connectorSeesObject(baseline, connector.id, objectId) &&
-        !connectorSeesObject(room, connector.id, objectId)
-      ) {
-        continue;
-      }
-      const before = baseline.objects[objectId];
-      const after = room.objects[objectId];
-      const impactBounds = before && after
-        ? unionCanvasBounds(routedObjectBounds(before), routedObjectBounds(after))
-        : routedObjectBounds((before ?? after)!);
-      const priorRouteBounds = baselineRoutes[connector.id]?.bounds ?? routeBounds;
-      if (
-        canvasBoundsIntersect(priorRouteBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding)) ||
-        canvasBoundsIntersect(routeBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding))
-      ) {
-        affected.add(connector.id);
-        break;
-      }
-    }
-  }
-
-  // A create/delete or endpoint edit can change stable parallel-lane indexes.
-  const affectedPairKeys = new Set<string>();
-  for (const objectId of touchedObjectIds) {
-    const before = baseline.objects[objectId];
-    const after = room.objects[objectId];
-    const beforePair = before?.kind === "connector" ? connectorPairKey(before) : null;
-    const afterPair = after?.kind === "connector" ? connectorPairKey(after) : null;
-    if (beforePair !== afterPair) {
-      if (beforePair) affectedPairKeys.add(beforePair);
-      if (afterPair) affectedPairKeys.add(afterPair);
-    }
-  }
-  for (const connector of currentConnectors) {
-    if (affectedPairKeys.has(connectorPairKey(connector))) affected.add(connector.id);
-  }
-
-  // Crossing scores are ordered. Only later auto routes whose influence region
-  // overlaps a changed route can depend on that changed route.
-  const queue: Array<{
-    connectorId: string;
-    order: number;
-    bounds: CanvasBounds;
-    endpointObjectIds: ReadonlySet<string>;
-  }> = [];
-  for (const connectorId of affected) {
-    const connector = room.objects[connectorId];
-    if (connector?.kind !== "connector") continue;
-    const before = baseline.objects[connectorId];
-    const currentBounds = connectorInfluenceBounds(room, connector, currentRoutes[connectorId]);
-    const bounds = before?.kind === "connector"
-      ? unionCanvasBounds(
-          currentBounds,
-          connectorInfluenceBounds(baseline, before, baselineRoutes[connectorId]),
-        )
-      : currentBounds;
-    queue.push({
-      connectorId,
-      order: order.get(connectorId) ?? -1,
-      bounds,
-      endpointObjectIds: new Set(
-        [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
-      ),
-    });
-  }
-  for (const objectId of touchedObjectIds) {
-    const deleted = baseline.objects[objectId];
-    if (deleted?.kind !== "connector" || room.objects[objectId]) continue;
-    const firstLaterIndex = currentConnectors.findIndex((connector) =>
-      connector.createdAt > deleted.createdAt ||
-      (connector.createdAt === deleted.createdAt && connector.id.localeCompare(deleted.id) > 0),
-    );
-    queue.push({
-      connectorId: deleted.id,
-      order: (firstLaterIndex < 0 ? currentConnectors.length : firstLaterIndex) - 1,
-      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoutes[deleted.id]),
-      endpointObjectIds: new Set(
-        [deleted.start.objectId, deleted.end.objectId].filter((id): id is string => Boolean(id)),
-      ),
-    });
-  }
-  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
-    const impact = queue[queueIndex];
-    for (const connector of currentConnectors) {
-      if (
-        affected.has(connector.id) ||
-        connector.routing?.mode !== "auto" ||
-        (order.get(connector.id) ?? -1) <= impact.order ||
-        [connector.start.objectId, connector.end.objectId].some(
-          (objectId) => objectId && impact.endpointObjectIds.has(objectId),
-        )
-      ) {
-        continue;
-      }
-      const candidateBounds = connectorInfluenceBounds(room, connector, currentRoutes[connector.id]);
-      if (!canvasBoundsIntersect(impact.bounds, candidateBounds)) continue;
-      affected.add(connector.id);
-      queue.push({
-        connectorId: connector.id,
-        order: order.get(connector.id) ?? -1,
-        bounds: candidateBounds,
-        endpointObjectIds: new Set(
-          [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
-        ),
-      });
-    }
-  }
-  return affected;
 }
 
 function diagramComparable(diagram: Diagram) {
@@ -1049,12 +773,12 @@ export function applySemanticTransaction(
 
   // Bound connector geometry is authoritative server state. Implicit changes
   // honor active-object leases and receive the same actor attribution.
-  const connectorIdsToResolve = affectedConnectorIds(
+  const connectorIdsToResolve = computeAffectedConnectorIds({
     baseline,
-    room,
+    current: room,
     touchedObjectIds,
     touchedDiagramIds,
-  );
+  });
   const resolvedRoutes = resolveAffectedConnectorRoutes(
     room,
     connectorIdsToResolve,
@@ -1431,20 +1155,36 @@ export function applyActivityRevert(
   return { room, changedObjectIds, changedDiagramIds, membershipObjectIds };
 }
 
-function hierarchyLevels(room: RoomState, orderedIds: readonly string[]): string[][] {
-  const selected = new Set(orderedIds);
+type LayoutConnector = Extract<CanvasObject, { kind: "connector" }>;
+
+type HierarchyGraph = {
+  components: string[][];
+  incoming: ReadonlyMap<string, readonly string[]>;
+  outgoing: ReadonlyMap<string, readonly string[]>;
+  levelById: ReadonlyMap<string, number>;
+};
+
+function hierarchyGraph(
+  orderedIds: readonly string[],
+  connectors: readonly LayoutConnector[],
+): HierarchyGraph {
   const order = new Map(orderedIds.map((id, index) => [id, index]));
   const outgoing = new Map(orderedIds.map((id) => [id, new Set<string>()]));
+  const incoming = new Map(orderedIds.map((id) => [id, new Set<string>()]));
+  const adjacent = new Map(orderedIds.map((id) => [id, new Set<string>()]));
   const indegree = new Map(orderedIds.map((id) => [id, 0]));
 
-  for (const connector of Object.values(room.objects)) {
-    if (connector.kind !== "connector" || connector.direction === "none") continue;
+  for (const connector of connectors) {
+    if (connector.direction === "none") continue;
     const start = connector.start.objectId;
     const end = connector.end.objectId;
-    if (!start || !end || start === end || !selected.has(start) || !selected.has(end)) continue;
+    if (!start || !end || start === end || !order.has(start) || !order.has(end)) continue;
     const neighbors = outgoing.get(start)!;
     if (neighbors.has(end)) continue;
     neighbors.add(end);
+    incoming.get(end)!.add(start);
+    adjacent.get(start)!.add(end);
+    adjacent.get(end)!.add(start);
     indegree.set(end, (indegree.get(end) ?? 0) + 1);
   }
 
@@ -1463,17 +1203,239 @@ function hierarchyLevels(room: RoomState, orderedIds: readonly string[]): string
     }
   }
   if (visited.length !== orderedIds.length) {
-    const cyclicObjectIds = orderedIds.filter((id) => !visited.includes(id));
+    const visitedIds = new Set(visited);
+    const cyclicObjectIds = orderedIds.filter((id) => !visitedIds.has(id));
     throw new DomainError(
       "INVALID_OPERATION",
       "Hierarchy layout requires an acyclic set of directed semantic connectors.",
       { cyclicObjectIds },
     );
   }
-  const maxLevel = Math.max(...levelById.values(), 0);
-  return Array.from({ length: maxLevel + 1 }, (_, level) =>
-    orderedIds.filter((id) => levelById.get(id) === level),
+
+  const components: string[][] = [];
+  const assigned = new Set<string>();
+  for (const root of orderedIds) {
+    if (assigned.has(root)) continue;
+    const component: string[] = [];
+    const pending = [root];
+    assigned.add(root);
+    while (pending.length) {
+      const current = pending.shift()!;
+      component.push(current);
+      const neighbors = [...(adjacent.get(current) ?? [])].sort(
+        (left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0),
+      );
+      for (const neighbor of neighbors) {
+        if (assigned.has(neighbor)) continue;
+        assigned.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+    component.sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
+    components.push(component);
+  }
+
+  const orderedNeighbors = (neighbors: ReadonlyMap<string, ReadonlySet<string>>) =>
+    new Map(
+      orderedIds.map((id) => [
+        id,
+        [...(neighbors.get(id) ?? [])].sort(
+          (left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0),
+        ),
+      ]),
+    );
+  return {
+    components,
+    incoming: orderedNeighbors(incoming),
+    outgoing: orderedNeighbors(outgoing),
+    levelById,
+  };
+}
+
+function hierarchyCrossings(
+  levels: readonly (readonly string[])[],
+  incoming: ReadonlyMap<string, readonly string[]>,
+  levelById: ReadonlyMap<string, number>,
+): number {
+  const positionById = new Map(
+    levels.flatMap((level) => level.map((id, position) => [
+      id,
+      (position + 0.5) / Math.max(level.length, 1),
+    ] as const)),
   );
+  const segmentsByBoundary = new Map<number, Array<{ left: number; right: number }>>();
+  for (const level of levels) {
+    for (const end of level) {
+      for (const start of incoming.get(end) ?? []) {
+        const startRank = levelById.get(start);
+        const endRank = levelById.get(end);
+        const startPosition = positionById.get(start);
+        const endPosition = positionById.get(end);
+        if (
+          startRank === undefined ||
+          endRank === undefined ||
+          startPosition === undefined ||
+          endPosition === undefined ||
+          startRank >= endRank
+        ) {
+          continue;
+        }
+        const span = endRank - startRank;
+        for (let boundary = startRank; boundary < endRank; boundary += 1) {
+          const leftProgress = (boundary - startRank) / span;
+          const rightProgress = (boundary + 1 - startRank) / span;
+          const segments = segmentsByBoundary.get(boundary) ?? [];
+          segments.push({
+            left: startPosition + (endPosition - startPosition) * leftProgress,
+            right: startPosition + (endPosition - startPosition) * rightProgress,
+          });
+          segmentsByBoundary.set(boundary, segments);
+        }
+      }
+    }
+  }
+
+  let crossings = 0;
+  for (const segments of segmentsByBoundary.values()) {
+    const orderedSegments = [...segments].sort(
+      (left, right) => left.left - right.left || left.right - right.right,
+    );
+    const rightPositions = [...new Set(orderedSegments.map((segment) => segment.right))]
+      .sort((left, right) => left - right);
+    const rightIndex = new Map(rightPositions.map((position, index) => [position, index]));
+    const fenwick = Array.from({ length: rightPositions.length + 1 }, () => 0);
+    const seenAtOrBefore = (positionIndex: number) => {
+      let count = 0;
+      for (let index = positionIndex + 1; index > 0; index -= index & -index) count += fenwick[index];
+      return count;
+    };
+    const remember = (positionIndex: number) => {
+      for (let index = positionIndex + 1; index < fenwick.length; index += index & -index) {
+        fenwick[index] += 1;
+      }
+    };
+    let seen = 0;
+    for (let groupStart = 0; groupStart < orderedSegments.length;) {
+      const startPosition = orderedSegments[groupStart].left;
+      let groupEnd = groupStart + 1;
+      while (
+        groupEnd < orderedSegments.length &&
+        Math.abs(orderedSegments[groupEnd].left - startPosition) <= Number.EPSILON
+      ) {
+        groupEnd += 1;
+      }
+      for (let index = groupStart; index < groupEnd; index += 1) {
+        const endPositionIndex = rightIndex.get(orderedSegments[index].right) ?? 0;
+        crossings += seen - seenAtOrBefore(endPositionIndex);
+      }
+      for (let index = groupStart; index < groupEnd; index += 1) {
+        remember(rightIndex.get(orderedSegments[index].right) ?? 0);
+        seen += 1;
+      }
+      groupStart = groupEnd;
+    }
+  }
+  return crossings;
+}
+
+function optimizedHierarchyLevels(
+  component: readonly string[],
+  graph: HierarchyGraph,
+  originalOrder: ReadonlyMap<string, number>,
+): string[][] {
+  const maxLevel = Math.max(...component.map((id) => graph.levelById.get(id) ?? 0), 0);
+  const levels = Array.from({ length: maxLevel + 1 }, (_, level) =>
+    component.filter((id) => graph.levelById.get(id) === level),
+  );
+  let best = levels.map((level) => [...level]);
+  let bestCrossings = hierarchyCrossings(best, graph.incoming, graph.levelById);
+
+  const reorder = (
+    levelIndex: number,
+    neighbors: ReadonlyMap<string, readonly string[]>,
+  ) => {
+    const current = levels[levelIndex];
+    const currentOrder = new Map(current.map((id, index) => [id, index]));
+    const positionById = new Map(
+      levels.flatMap((level) => level.map((id, position) => [id, position] as const)),
+    );
+    levels[levelIndex] = [...current].sort((left, right) => {
+      const barycenter = (id: string) => {
+        const positions = (neighbors.get(id) ?? [])
+          .map((neighbor) => positionById.get(neighbor))
+          .filter((position): position is number => position !== undefined);
+        return positions.length
+          ? positions.reduce((sum, position) => sum + position, 0) / positions.length
+          : null;
+      };
+      const leftCenter = barycenter(left);
+      const rightCenter = barycenter(right);
+      if (leftCenter !== null && rightCenter !== null && leftCenter !== rightCenter) {
+        return leftCenter - rightCenter;
+      }
+      if (leftCenter === null && rightCenter !== null) return 1;
+      if (leftCenter !== null && rightCenter === null) return -1;
+      return (
+        (currentOrder.get(left) ?? 0) - (currentOrder.get(right) ?? 0) ||
+        (originalOrder.get(left) ?? 0) - (originalOrder.get(right) ?? 0)
+      );
+    });
+  };
+
+  const rememberBest = () => {
+    const crossings = hierarchyCrossings(levels, graph.incoming, graph.levelById);
+    if (crossings < bestCrossings) {
+      bestCrossings = crossings;
+      best = levels.map((level) => [...level]);
+    }
+  };
+
+  // Alternating barycentric sweeps are deterministic and substantially reduce
+  // crossings. Caller order remains the stable tie-breaker, and retaining the
+  // best sweep prevents oscillation.
+  for (let pass = 0; pass < 4 && bestCrossings > 0; pass += 1) {
+    for (let level = 1; level < levels.length; level += 1) {
+      reorder(level, graph.incoming);
+    }
+    rememberBest();
+    for (let level = levels.length - 2; level >= 0; level -= 1) {
+      reorder(level, graph.outgoing);
+    }
+    rememberBest();
+  }
+
+  // Direct barycenters do not give an intermediate rank a neighbor for a
+  // long edge that merely passes through it. Deterministic adjacent swaps,
+  // scored against every crossed rank boundary above, close that gap without
+  // introducing persisted virtual nodes or changing the layout schema.
+  levels.splice(0, levels.length, ...best.map((level) => [...level]));
+  let localCrossings = bestCrossings;
+  for (let pass = 0; pass < 4 && localCrossings > 0; pass += 1) {
+    let improved = false;
+    const rankOrder = pass % 2 === 0
+      ? levels.map((_, index) => index)
+      : levels.map((_, index) => index).reverse();
+    for (const rank of rankOrder) {
+      const level = levels[rank];
+      const pairOrder = pass % 2 === 0
+        ? Array.from({ length: Math.max(level.length - 1, 0) }, (_, index) => index)
+        : Array.from({ length: Math.max(level.length - 1, 0) }, (_, index) => level.length - 2 - index);
+      for (const index of pairOrder) {
+        [level[index], level[index + 1]] = [level[index + 1], level[index]];
+        const candidateCrossings = hierarchyCrossings(levels, graph.incoming, graph.levelById);
+        if (candidateCrossings < localCrossings) {
+          localCrossings = candidateCrossings;
+          improved = true;
+          best = levels.map((candidateLevel) => [...candidateLevel]);
+          bestCrossings = candidateCrossings;
+        } else {
+          [level[index], level[index + 1]] = [level[index + 1], level[index]];
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  return best;
 }
 
 function layoutConnectors(room: RoomState, command: LayoutCommand, selected: Set<string>) {
@@ -1603,32 +1565,57 @@ function layoutPositions(room: RoomState, command: LayoutCommand): Map<string, {
     return positions;
   }
 
-  const levels = hierarchyLevels(room, objects.map((object) => object.id));
-  const levelById = new Map(levels.flatMap((level, index) => level.map((id) => [id, index] as const)));
-  const primaryGaps = labelAwareBoundaryGaps({
-    count: levels.length,
-    minimum: gaps.primaryGap,
-    direction: command.direction,
-    density: command.density,
-    rankById: levelById,
-    connectors,
-  });
-  let primaryCursor = command.direction === "right" ? origin.x : origin.y;
-  for (const [levelIndex, level] of levels.entries()) {
-    const members = level.map((id) => room.objects[id]);
-    let secondaryCursor = command.direction === "right" ? origin.y : origin.x;
-    for (const object of members) {
-      positions.set(
-        object.id,
-        command.direction === "right"
-          ? { x: primaryCursor, y: secondaryCursor }
-          : { x: secondaryCursor, y: primaryCursor },
-      );
-      secondaryCursor += (command.direction === "right" ? object.height : object.width) + gaps.secondaryGap;
+  const orderedIds = objects.map((object) => object.id);
+  const originalOrder = new Map(orderedIds.map((id, index) => [id, index]));
+  const graph = hierarchyGraph(orderedIds, connectors);
+  let componentSecondaryCursor = command.direction === "right" ? origin.y : origin.x;
+
+  for (const component of graph.components) {
+    const levels = optimizedHierarchyLevels(component, graph, originalOrder);
+    const componentIds = new Set(component);
+    const componentConnectors = connectors.filter(
+      (connector) =>
+        componentIds.has(connector.start.objectId!) && componentIds.has(connector.end.objectId!),
+    );
+    const primaryGaps = labelAwareBoundaryGaps({
+      count: levels.length,
+      minimum: gaps.primaryGap,
+      direction: command.direction,
+      density: command.density,
+      rankById: graph.levelById,
+      connectors: componentConnectors,
+    });
+    const levelSecondarySpans = levels.map((level) =>
+      level.reduce(
+        (span, id, index) =>
+          span +
+          (command.direction === "right" ? room.objects[id].height : room.objects[id].width) +
+          (index === level.length - 1 ? 0 : gaps.secondaryGap),
+        0,
+      ),
+    );
+    const componentSecondarySpan = Math.max(...levelSecondarySpans, 1);
+    let primaryCursor = command.direction === "right" ? origin.x : origin.y;
+
+    for (const [levelIndex, level] of levels.entries()) {
+      const members = level.map((id) => room.objects[id]);
+      let secondaryCursor =
+        componentSecondaryCursor + (componentSecondarySpan - levelSecondarySpans[levelIndex]) / 2;
+      for (const object of members) {
+        positions.set(
+          object.id,
+          command.direction === "right"
+            ? { x: primaryCursor, y: secondaryCursor }
+            : { x: secondaryCursor, y: primaryCursor },
+        );
+        secondaryCursor +=
+          (command.direction === "right" ? object.height : object.width) + gaps.secondaryGap;
+      }
+      primaryCursor +=
+        Math.max(...members.map((object) => (command.direction === "right" ? object.width : object.height)), 1) +
+        (primaryGaps[levelIndex] ?? 0);
     }
-    primaryCursor +=
-      Math.max(...members.map((object) => (command.direction === "right" ? object.width : object.height)), 1) +
-      (primaryGaps[levelIndex] ?? 0);
+    componentSecondaryCursor += componentSecondarySpan + gaps.secondaryGap;
   }
   return positions;
 }

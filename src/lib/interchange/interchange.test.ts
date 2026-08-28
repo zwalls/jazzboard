@@ -299,11 +299,12 @@ describe("Jazzboard portable interchange", () => {
     const source = room.objects.connector_ab;
     if (source.kind !== "connector") throw new Error("Missing connector fixture.");
     source.routing = {
-      mode: "elbow",
+      mode: "auto",
       kind: "elbow",
       bend: 0,
       elbowMidPoint: 0.35,
       labelPosition: 0.7,
+      labelPositionSource: "generated",
     };
     source.start = {
       ...source.start,
@@ -420,12 +421,29 @@ describe("Jazzboard portable interchange", () => {
     const rendered = renderJazzboardSvg(artifact, { padding: 12, maxWidth: 800, maxHeight: 600 });
 
     expect(rendered.svg).toContain('x1="110" y1="80" x2="400" y2="80"');
+    expect(rendered.svg).toContain('fill="#ffffff"');
+    expect(rendered.svg).toContain(
+      'fill="#f2e5f7" stroke="#9050c8" stroke-width="3.5"',
+    );
+    expect(rendered.svg).toContain(
+      'fill="#dfe3f7" stroke="#20242c" stroke-width="3.5"',
+    );
+    expect(rendered.svg).toContain(
+      'font-family="Shantell Sans,Comic Sans MS,Comic Sans,cursive"',
+    );
+    expect(rendered.svg).toContain('font-size="22" font-weight="400"');
+    expect(rendered.svg).toContain('stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"');
+    expect(rendered.svg).toContain('font-size="24" font-weight="400"');
+    expect(rendered.svg).toContain(
+      '<polygon points="400,80 388,86.96 388,73.04" fill="#20242c"/>',
+    );
     expect(rendered.svg).toContain("&lt;script");
     expect(rendered.svg).toContain("src=&quot;https://private.invalid/x.js&quot;&gt;");
     expect(rendered.svg).not.toContain("<script");
     expect(rendered.svg).not.toContain("<style");
     expect(rendered.svg).not.toContain("<foreignObject");
     expect(rendered.svg).not.toContain("<image");
+    expect(rendered.svg).not.toContain("<marker");
     expect(rendered.svg).not.toMatch(/\shref\s*=/i);
     expect(rendered.svg).not.toContain("PRIVATE_IMAGE_TOKEN");
     expect(rendered.svg).toContain('stroke-dasharray="8 6"');
@@ -488,9 +506,9 @@ describe("Jazzboard portable interchange", () => {
     expect(elbow.svg).toMatch(/<path d="M 0 0 L [^"]+ L 200 100" fill="none"/);
 
     const labelBox = elbow.svg.match(
-      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="6"/,
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="4"/,
     );
-    const labelText = elbow.svg.match(/<text x="([^"]+)" y="([^"]+)"[^>]+font-size="20"/);
+    const labelText = elbow.svg.match(/<text[^>]+ x="([^"]+)" y="([^"]+)"[^>]+font-size="20"/);
     const viewBox = elbow.svg.match(/viewBox="([^"]+)"/);
     expect(labelBox).not.toBeNull();
     expect(labelText).not.toBeNull();
@@ -527,7 +545,7 @@ describe("Jazzboard portable interchange", () => {
     const metrics = connectorLabelMetrics(connector.label);
     const rendered = renderJazzboardSvg(artifact, { padding: 0, maxWidth: 8_192, maxHeight: 8_192 });
     const labelBox = rendered.svg.match(
-      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="6"/,
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" rx="4"/,
     );
     const viewBox = rendered.svg.match(/viewBox="([^"]+)"/);
     expect(labelBox).not.toBeNull();
@@ -553,6 +571,104 @@ describe("Jazzboard portable interchange", () => {
     expect(rendered.svg).not.toContain("<foreignObject");
     expect(rendered.svg).not.toContain("<image");
     expect(rendered.svg).not.toMatch(/\shref\s*=/i);
+  });
+
+  it("renders connector arrowheads and draw widths with the shared semantic visual contract", () => {
+    const artifact = projectJazzboardArtifact(roomFixture(), { kind: "room" });
+    const connector = artifact.objects.find((object) => object.id === "connector_ab");
+    if (!connector || connector.kind !== "connector") throw new Error("Missing connector fixture.");
+    connector.color = "blue";
+    connector.direction = "both";
+    connector.label = "";
+    connector.start = { ...connector.start, objectId: null };
+    connector.end = { ...connector.end, objectId: null };
+    artifact.objects = [connector];
+    artifact.diagrams = [];
+    artifact.bounds = { x: 110, y: 80, width: 290, height: 1 };
+
+    const connectorSvg = renderJazzboardSvg(artifact, {
+      padding: 0,
+      maxWidth: 8_192,
+      maxHeight: 8_192,
+    }).svg;
+    expect(connectorSvg).toContain('stroke="#5266df" stroke-width="3.5"');
+    expect(connectorSvg).toContain(
+      '<polygon points="110,80 122,73.04 122,86.96" fill="#5266df"/>',
+    );
+    expect(connectorSvg).toContain(
+      '<polygon points="400,80 388,86.96 388,73.04" fill="#5266df"/>',
+    );
+    expect(connectorSvg).not.toContain("marker-");
+
+    const attribution = { displayName: "Alice", kind: "human" as const };
+    artifact.objects = [
+      {
+        id: "draw_s",
+        kind: "draw",
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 10,
+        rotation: 0,
+        zIndex: 1,
+        groupId: null,
+        revision: 1,
+        createdAt: NOW,
+        updatedAt: NOW,
+        createdBy: attribution,
+        lastEditedBy: attribution,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 10 }],
+        color: "red",
+        size: "s",
+      },
+      {
+        id: "draw_m",
+        kind: "draw",
+        x: 30,
+        y: 0,
+        width: 20,
+        height: 10,
+        rotation: 0,
+        zIndex: 2,
+        groupId: null,
+        revision: 1,
+        createdAt: NOW,
+        updatedAt: NOW,
+        createdBy: attribution,
+        lastEditedBy: attribution,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 10 }],
+        color: "red",
+        size: "m",
+      },
+      {
+        id: "draw_l",
+        kind: "draw",
+        x: 60,
+        y: 0,
+        width: 20,
+        height: 10,
+        rotation: 0,
+        zIndex: 3,
+        groupId: null,
+        revision: 1,
+        createdAt: NOW,
+        updatedAt: NOW,
+        createdBy: attribution,
+        lastEditedBy: attribution,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 10 }],
+        color: "red",
+        size: "l",
+      },
+    ];
+    artifact.bounds = { x: 0, y: 0, width: 80, height: 10 };
+    const drawSvg = renderJazzboardSvg(artifact, {
+      padding: 0,
+      maxWidth: 8_192,
+      maxHeight: 8_192,
+    }).svg;
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="3"');
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="4.5"');
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="6"');
   });
 
   it("strips audit fields and plans a fresh, shifted, relationship-safe create transaction", () => {

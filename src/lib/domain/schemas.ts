@@ -152,6 +152,7 @@ export const connectorRoutingSchema = z
     bend: z.number().finite().min(-10_000).max(10_000),
     elbowMidPoint: z.number().finite().min(0).max(1),
     labelPosition: z.number().finite().min(0).max(1),
+    labelPositionSource: z.enum(["generated", "authored"]).optional(),
   })
   .strict()
   .superRefine((routing, context) => {
@@ -215,7 +216,7 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   baseObjectSchema.extend({
     kind: z.literal("draw"),
     points: z.array(pointSchema).min(2).max(20_000),
-    color: z.string().min(1).max(32).default("red"),
+    color: z.string().min(1).max(32).default("black"),
     size: z.enum(["s", "m", "l"]).default("m"),
   }),
 ]).superRefine((object, context) => {

@@ -14,8 +14,8 @@ import {
   CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
   LEGACY_CONNECTOR_ROUTING,
   cardinalNormalizedAnchor,
-  connectorEndpointBindingDefaults,
   connectorLabelBoundsForRoute,
+  connectorPortSide,
   connectorRouteBounds,
   materializeConnectorRoutes,
   normalizeConnectorRouting,
@@ -151,20 +151,15 @@ describe("canonical connector routing", () => {
       bend: 0,
       elbowMidPoint: 0.25,
       labelPosition: 0.75,
+      labelPositionSource: "authored",
     });
   });
 
-  it("uses exact cardinal anchors and the tldraw v3 legacy binding defaults", () => {
+  it("uses exact cardinal anchors", () => {
     expect(cardinalNormalizedAnchor("top", 0.25)).toEqual({ x: 0.25, y: 0 });
     expect(cardinalNormalizedAnchor("right", 0.25)).toEqual({ x: 1, y: 0.25 });
     expect(cardinalNormalizedAnchor("bottom", 0.75)).toEqual({ x: 0.75, y: 1 });
     expect(cardinalNormalizedAnchor("left", 0.75)).toEqual({ x: 0, y: 0.75 });
-    expect(connectorEndpointBindingDefaults({ x: 1, y: 2, objectId: "node" })).toEqual({
-      normalizedAnchor: { x: 0.5, y: 0.5 },
-      isPrecise: false,
-      isExact: false,
-      snap: "none",
-    });
   });
 });
 
@@ -225,6 +220,31 @@ describe("deterministic route geometry", () => {
     ]);
   });
 
+  it("centers each side of an aligned auto-routed chain without treating opposite sides as competing ports", () => {
+    const nodes = [
+      node("client", 0, 0),
+      node("api", 300, 0),
+      node("auth", 600, 0),
+      node("store", 900, 0),
+    ];
+    const edges = nodes.slice(0, -1).map((current, index) => connector(
+      `chain-${index}`,
+      current.id,
+      nodes[index + 1].id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 1,
+    ));
+
+    const routes = resolveConnectorRoutes(room([...nodes, ...edges]));
+
+    for (const edge of edges) {
+      expect(routes[edge.id].routing).toMatchObject({ mode: "auto", kind: "straight" });
+      expect(routes[edge.id].start.normalizedAnchor).toEqual({ x: 1, y: 0.5 });
+      expect(routes[edge.id].end.normalizedAnchor).toEqual({ x: 0, y: 0.5 });
+      expect(routes[edge.id].points.every((point) => point.y === 40)).toBe(true);
+    }
+  });
+
   it("keeps imprecise straight ports movable across a later layout", () => {
     const start = node("start", 0, 0);
     const end = node("end", 0, 300);
@@ -251,7 +271,7 @@ describe("deterministic route geometry", () => {
     ]);
   });
 
-  it("chooses a collision-free tldraw elbow around an unrelated service", () => {
+  it("chooses a collision-free elbow around an unrelated service", () => {
     const left = node("left", 0, 100);
     const blocker = node("blocker", 250, 100, 100, 80);
     const right = node("right", 500, 100);
@@ -456,5 +476,304 @@ describe("deterministic route geometry", () => {
     expect(scoped.collisionObjectIds).toEqual([]);
     expect(unscoped.collisionObjectIds).toEqual(["outside"]);
     expect(unscoped.routing.kind).toBe("straight");
+  });
+
+  it("distributes a high-degree hub's incident ports in neighbor order", () => {
+    const hub = node("hub", 0, 210, 160, 140);
+    const leaves = Array.from({ length: 8 }, (_, index) =>
+      node(`leaf-${index}`, 560, index * 80, 120, 64),
+    );
+    const edges = leaves.map((leaf, index) => {
+      const edge = connector(
+        `hub-edge-${index}`,
+        hub.id,
+        leaf.id,
+        normalizeConnectorRouting({ mode: "auto" }),
+        index + 1,
+      );
+      edge.label = `hub request ${index}`;
+      return edge;
+    });
+
+    const resolved = resolveConnectorRoutes(room([hub, ...leaves, ...edges]));
+    const hubAnchors = edges.map((edge) => resolved[edge.id].start.normalizedAnchor!);
+
+    expect(new Set(hubAnchors.map((anchor) => `${anchor.x}:${anchor.y}`)).size).toBe(edges.length);
+    for (const side of ["top", "right", "bottom", "left"] as const) {
+      const incident = edges
+        .map((edge, index) => ({
+          leafY: leaves[index].y,
+          anchor: resolved[edge.id].start.normalizedAnchor!,
+        }))
+        .filter(({ anchor }) => connectorPortSide(anchor) === side)
+        .sort((left, right) => left.leafY - right.leafY);
+      const positions = incident.map(({ anchor }) => side === "top" || side === "bottom" ? anchor.x : anchor.y);
+      expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    }
+  });
+
+  it("allocates fan-in and fan-out independently on opposite sides of one hub", () => {
+    const hub = node("two-sided-hub", 300, 200, 120, 80);
+    const leftLeaves = [0, 200, 400].map((y, index) =>
+      node(`left-leaf-${index}`, 0, y),
+    );
+    const rightLeaves = [0, 200, 400].map((y, index) =>
+      node(`right-leaf-${index}`, 620, y),
+    );
+    const incoming = leftLeaves.map((leaf, index) => connector(
+      `incoming-${index}`,
+      leaf.id,
+      hub.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 1,
+    ));
+    const outgoing = rightLeaves.map((leaf, index) => connector(
+      `outgoing-${index}`,
+      hub.id,
+      leaf.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 10,
+    ));
+
+    const all = [
+      hub,
+      ...leftLeaves,
+      ...rightLeaves,
+      ...incoming,
+      ...outgoing,
+    ];
+    const routes = resolveConnectorRoutes(room(all));
+    const reversed = resolveConnectorRoutes(room([...all].reverse()));
+
+    const incomingAnchors = incoming.map((edge) => routes[edge.id].end.normalizedAnchor!);
+    const outgoingAnchors = outgoing.map((edge) => routes[edge.id].start.normalizedAnchor!);
+    expect(incomingAnchors.map((anchor) => anchor.x)).toEqual([0, 0, 0]);
+    expect(incomingAnchors.map((anchor) => Number(anchor.y.toFixed(2)))).toEqual([0.16, 0.5, 0.84]);
+    expect(outgoingAnchors.map((anchor) => anchor.x)).toEqual([1, 1, 1]);
+    expect(outgoingAnchors.map((anchor) => Number(anchor.y.toFixed(2)))).toEqual([0.16, 0.5, 0.84]);
+    expect(reversed).toEqual(routes);
+  });
+
+  it("solves default auto label positions around prior labels and routes but preserves explicit positions", () => {
+    const first = connector(
+      "label-a",
+      "missing-a",
+      "missing-b",
+      normalizeConnectorRouting({ mode: "auto" }),
+      1,
+    );
+    first.start = { x: 0, y: 0, objectId: null };
+    first.end = { x: 600, y: 0, objectId: null };
+    first.label = "route label";
+    const second = connector(
+      "label-b",
+      "missing-c",
+      "missing-d",
+      normalizeConnectorRouting({ mode: "auto" }),
+      2,
+    );
+    second.start = { x: 0, y: 8, objectId: null };
+    second.end = { x: 600, y: 8, objectId: null };
+    second.label = first.label;
+    const explicit = connector(
+      "label-explicit",
+      "missing-e",
+      "missing-f",
+      normalizeConnectorRouting({ mode: "auto", labelPosition: 0.75 }),
+      3,
+    );
+    explicit.start = { x: 0, y: 16, objectId: null };
+    explicit.end = { x: 600, y: 16, objectId: null };
+    explicit.label = first.label;
+
+    const resolved = resolveConnectorRoutes(
+      room([first, second, explicit], false),
+      { maxCandidates: 1 },
+    );
+
+    expect(resolved[first.id].routing.labelPosition).toBe(0.5);
+    expect(resolved[second.id].routing.labelPosition).not.toBe(0.5);
+    expect(resolved[explicit.id].routing.labelPosition).toBe(0.75);
+    expect(resolved[first.id].routing.labelPositionSource).toBe("generated");
+    expect(resolved[second.id].routing.labelPositionSource).toBe("generated");
+    expect(resolved[explicit.id].routing.labelPositionSource).toBe("authored");
+    expect(resolved[first.id].labelBounds).not.toBeNull();
+    expect(resolved[second.id].labelBounds).not.toBeNull();
+    const a = resolved[first.id].labelBounds!;
+    const b = resolved[second.id].labelBounds!;
+    expect(a.x + a.width < b.x || b.x + b.width < a.x || a.y + a.height < b.y || b.y + b.height < a.y)
+      .toBe(true);
+
+    const persistedGenerated = {
+      ...second,
+      start: resolved[second.id].start,
+      end: resolved[second.id].end,
+      routing: resolved[second.id].routing,
+    };
+    const recomputed = resolveConnectorRoutes(
+      room([persistedGenerated], false),
+      { maxCandidates: 1 },
+    )[second.id];
+    expect(recomputed.routing).toMatchObject({
+      labelPosition: 0.5,
+      labelPositionSource: "generated",
+    });
+  });
+
+  it("counts shared-endpoint crossings away from the terminal but waives the shared terminal itself", () => {
+    const source = node("shared-source", 0, 0, 100, 100);
+    const upper = node("upper-target", 500, 0);
+    const lower = node("lower-target", 500, 200);
+    const upperEdge = connector(
+      "upper-edge",
+      source.id,
+      upper.id,
+      normalizeConnectorRouting({ mode: "straight" }),
+      1,
+    );
+    upperEdge.start = {
+      ...upperEdge.start,
+      normalizedAnchor: { x: 1, y: 0.8 },
+      isPrecise: true,
+    };
+    upperEdge.end = {
+      ...upperEdge.end,
+      normalizedAnchor: { x: 0, y: 0.8 },
+      isPrecise: true,
+    };
+    const crossingEdge = connector(
+      "crossing-edge",
+      source.id,
+      lower.id,
+      normalizeConnectorRouting({ mode: "straight" }),
+      2,
+    );
+    crossingEdge.start = {
+      ...crossingEdge.start,
+      normalizedAnchor: { x: 1, y: 0.2 },
+      isPrecise: true,
+    };
+    crossingEdge.end = {
+      ...crossingEdge.end,
+      normalizedAnchor: { x: 0, y: 0.2 },
+      isPrecise: true,
+    };
+
+    const crossed = resolveConnectorRoutes(room([source, upper, lower, upperEdge, crossingEdge]));
+    expect(crossed[crossingEdge.id].crossingCount).toBe(1);
+
+    crossingEdge.start.normalizedAnchor = { x: 1, y: 0.8 };
+    const terminalOnly = resolveConnectorRoutes(
+      room([source, upper, lower, upperEdge, crossingEdge]),
+    );
+    expect(terminalOnly[crossingEdge.id].crossingCount).toBe(0);
+  });
+
+  it("keeps author-bound auto ports while recomputing generated snap-none anchors", () => {
+    const left = node("bound-left", 0, 0);
+    const right = node("bound-right", 500, 0);
+    const edge = connector(
+      "bound-edge",
+      left.id,
+      right.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+    );
+    edge.start = {
+      ...edge.start,
+      normalizedAnchor: { x: 1, y: 0.2 },
+      isPrecise: true,
+      snap: "edge-point",
+    };
+    edge.end = {
+      ...edge.end,
+      normalizedAnchor: { x: 0.5, y: 0 },
+      isPrecise: true,
+      snap: "none",
+    };
+
+    const route = resolveConnectorRoutes(room([left, right, edge]))[edge.id];
+
+    expect(route.start).toMatchObject({
+      normalizedAnchor: { x: 1, y: 0.2 },
+      isPrecise: true,
+      snap: "edge-point",
+    });
+    expect(route.end).toMatchObject({
+      normalizedAnchor: { x: 0, y: 0.5 },
+      isPrecise: true,
+      snap: "none",
+    });
+  });
+
+  it("does not let an authored attachment displace an automatic singleton's generated port", () => {
+    const hub = node("hub", 0, 100);
+    const authoredTarget = node("authored-target", 500, 0);
+    const automaticTarget = node("automatic-target", 500, 200);
+    const authored = connector(
+      "authored-edge",
+      hub.id,
+      authoredTarget.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      1,
+    );
+    authored.start = {
+      ...authored.start,
+      normalizedAnchor: { x: 1, y: 0.2 },
+      isPrecise: true,
+      isExact: false,
+      snap: "edge-point",
+    };
+    const automatic = connector(
+      "automatic-edge",
+      hub.id,
+      automaticTarget.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      2,
+    );
+
+    const routes = resolveConnectorRoutes(room([
+      hub,
+      authoredTarget,
+      automaticTarget,
+      authored,
+      automatic,
+    ]));
+
+    expect(routes[authored.id].start.normalizedAnchor).toEqual({ x: 1, y: 0.2 });
+    const automaticAnchor = routes[automatic.id].start.normalizedAnchor!;
+    expect(automaticAnchor).toEqual(
+      cardinalNormalizedAnchor(connectorPortSide(automaticAnchor), 0.5),
+    );
+  });
+
+  it("routes a dense architecture fan-out deterministically across insertion orders", () => {
+    const api = node("api", 0, 240, 140, 100);
+    const services = Array.from({ length: 10 }, (_, index) =>
+      node(`service-${index}`, 620 + (index % 2) * 220, index * 72, 150, 58),
+    );
+    const edges = services.map((service, index) => {
+      const edge = connector(
+        `dense-edge-${String(index).padStart(2, "0")}`,
+        api.id,
+        service.id,
+        normalizeConnectorRouting({ mode: "auto" }),
+        100 + index,
+      );
+      edge.label = ["authorize", "status webhook", "assemble", "fulfill"][index % 4];
+      return edge;
+    });
+    const all = [api, ...services, ...edges];
+
+    const first = resolveConnectorRoutes(room(all));
+    const reversed = resolveConnectorRoutes(room([...all].reverse()));
+
+    expect(reversed).toEqual(first);
+    expect(Object.keys(first)).toHaveLength(edges.length);
+    expect(new Set(edges.map((edge) => {
+      const anchor = first[edge.id].start.normalizedAnchor!;
+      return `${anchor.x.toFixed(4)}:${anchor.y.toFixed(4)}`;
+    })).size).toBe(edges.length);
+    expect(Math.max(...Object.values(first).map((route) => route.candidateCount)))
+      .toBeLessThanOrEqual(CONNECTOR_ROUTING_LIMITS.maxCandidates);
   });
 });

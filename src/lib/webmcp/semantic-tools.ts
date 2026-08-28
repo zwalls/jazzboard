@@ -10,7 +10,15 @@ import {
   DEFAULT_AUTOMATIC_LAYOUT_VIEWPORT_PADDING,
   layoutDensityDefaults,
 } from "@/lib/domain/layout";
-import { normalizeConnectorRouting } from "@/lib/domain/connector-routing";
+import {
+  cardinalNormalizedAnchor,
+  materializeConnectorRoute,
+  normalizeConnectorRouting,
+} from "@/lib/domain/connector-routing";
+import {
+  analyzeDiagramVisualQuality,
+  type DiagramVisualQualityReport,
+} from "@/lib/domain/diagram-visual-quality";
 import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
   AgentEditProposalSummary,
@@ -40,10 +48,13 @@ const tempRef = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
 const finite = z.number().finite();
 const dimension = finite.positive().max(100_000);
 const point = z.object({ x: finite, y: finite }).strict();
+const normalizedAnchor = z
+  .object({ x: finite.min(0).max(1), y: finite.min(0).max(1) })
+  .strict();
 const nodeType = z.enum(["service", "component", "requirement", "decision", "open_question"]);
 const nodeStatus = z.enum(["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"]);
 const REVIEW_MODE_RESULT_NOTE =
-  " In review mode, `proposed` means no shared change until human approval.";
+  " Review outcome `proposed` is not applied.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
 const objectKind = z.enum(["text", "shape", "connector", "image", "draw"]);
 
@@ -78,7 +89,27 @@ const objectReference = z.union([
   z.object({ tempRef }).strict(),
 ]);
 
-const endpointReference = z.union([objectReference, point]);
+const endpointPort = z
+  .object({
+    side: z.enum(["top", "right", "bottom", "left"]),
+    position: z.number().finite().min(0).max(1).default(0.5),
+    exact: z.boolean().default(false),
+  })
+  .strict();
+
+const endpointReference = z.union([
+  z.object({ objectId: id, port: endpointPort.optional() }).strict(),
+  z.object({ tempRef, port: endpointPort.optional() }).strict(),
+  point,
+]);
+
+const connectorEndpointPatch = point.extend({
+  objectId: id.nullable(),
+  normalizedAnchor: normalizedAnchor.nullable().optional(),
+  isPrecise: z.boolean().nullable().optional(),
+  isExact: z.boolean().nullable().optional(),
+  snap: z.enum(["center", "edge-point", "edge", "none"]).nullable().optional(),
+});
 
 const objectPatch = z
   .object({
@@ -99,8 +130,8 @@ const objectPatch = z
     label: z.string().max(10_000).optional(),
     fill: z.string().min(1).max(32).optional(),
     stroke: z.string().min(1).max(32).optional(),
-    start: point.extend({ objectId: id.nullable() }).strict().optional(),
-    end: point.extend({ objectId: id.nullable() }).strict().optional(),
+    start: connectorEndpointPatch.strict().optional(),
+    end: connectorEndpointPatch.strict().optional(),
     routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     alt: z.string().max(2_000).optional(),
@@ -234,6 +265,19 @@ const transactionInput = z
   })
   .strict()
   .superRefine((input, context) => {
+    input.operations.forEach((operation, index) => {
+      if (
+        operation.op === "create_node" &&
+        operation.nodeMetadata &&
+        operation.nodeType !== operation.nodeMetadata.kind
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations", index, "nodeMetadata"],
+          message: "Node metadata kind must match nodeType.",
+        });
+      }
+    });
     const layouts = input.operations.flatMap((operation) => operation.op === "auto_layout" ? [operation] : []);
     if (layouts.length > 1) {
       context.addIssue({ code: "custom", path: ["operations"], message: "A transaction can contain at most one auto-layout operation." });
@@ -400,34 +444,90 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           {
             properties: { op: { const: "create_node" } },
             required: ["tempRef", "label", "nodeType"],
+            propertyNames: {
+              pattern: "^(?:op|tempRef|label|nodeType|nodeMetadata|x|y|width|height|rotation|zIndex|groupId)$",
+            },
+            allOf: [
+              { properties: { label: { minLength: 1 } } },
+              {
+                anyOf: [
+                  { not: { required: ["nodeMetadata"] } },
+                  {
+                    properties: {
+                      nodeType: { const: "decision" },
+                      nodeMetadata: { properties: { kind: { const: "decision" } } },
+                    },
+                    required: ["nodeMetadata"],
+                  },
+                  {
+                    properties: {
+                      nodeType: { const: "open_question" },
+                      nodeMetadata: { properties: { kind: { const: "open_question" } } },
+                    },
+                    required: ["nodeMetadata"],
+                  },
+                ],
+              },
+            ],
           },
           {
             properties: { op: { const: "create_shape" } },
             required: ["tempRef"],
+            propertyNames: {
+              pattern: "^(?:op|tempRef|label|shape|fill|stroke|x|y|width|height|rotation|zIndex|groupId)$",
+            },
           },
           {
             properties: { op: { const: "create_text" } },
             required: ["tempRef", "content"],
+            propertyNames: {
+              pattern: "^(?:op|tempRef|content|color|size|align|x|y|width|height|rotation|zIndex|groupId)$",
+            },
           },
           {
             properties: { op: { const: "connect" } },
             required: ["tempRef", "start", "end"],
+            propertyNames: {
+              pattern: "^(?:op|tempRef|start|end|direction|label|color|routing|zIndex)$",
+            },
+            allOf: [{ properties: { label: { maxLength: 2_000 } } }],
           },
           {
             properties: { op: { const: "update" } },
             required: ["objectId", "expectedRevision", "patch"],
+            propertyNames: {
+              pattern: "^(?:op|objectId|expectedRevision|leaseId|operation|patch)$",
+            },
           },
           {
             properties: { op: { const: "create_diagram" } },
             required: ["tempRef", "title"],
+            propertyNames: {
+              pattern: "^(?:op|tempRef|diagramId|title|description|diagramType|category|tags|members|connectors)$",
+            },
           },
           {
             properties: { op: { const: "edit_diagram" } },
             required: ["diagramId", "expectedRevision"],
+            propertyNames: {
+              pattern: "^(?:op|diagramId|expectedRevision|title|description|diagramType|category|tags|members|connectors)$",
+            },
+            anyOf: [
+              { required: ["title"] },
+              { required: ["description"] },
+              { required: ["diagramType"] },
+              { required: ["category"] },
+              { required: ["tags"] },
+              { required: ["members"] },
+              { required: ["connectors"] },
+            ],
           },
           {
             properties: { op: { const: "auto_layout" } },
             required: ["layout", "targets"],
+            propertyNames: {
+              pattern: "^(?:op|layout|layoutDirection|density|targets|diagramTempRef|origin|columns)$",
+            },
           },
         ],
       },
@@ -462,9 +562,44 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
     },
     endpoint: {
       oneOf: [
-        { $ref: "#/$defs/objectRef" },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["objectId"],
+          properties: {
+            objectId: { $ref: "#/$defs/id" },
+            port: { $ref: "#/$defs/port" },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["tempRef"],
+          properties: {
+            tempRef: { $ref: "#/$defs/tempRef" },
+            port: { $ref: "#/$defs/port" },
+          },
+        },
         { $ref: "#/$defs/point" },
       ],
+    },
+    port: {
+      type: "object",
+      additionalProperties: false,
+      required: ["side"],
+      properties: {
+        side: { enum: ["top", "right", "bottom", "left"] },
+        position: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          default: 0.5,
+        },
+        exact: {
+          type: "boolean",
+          default: false,
+        },
+      },
     },
     routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
     nodeType: {
@@ -475,39 +610,41 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       additionalProperties: false,
       required: ["kind"],
       properties: {
-        kind: { enum: ["decision", "open_question"] },
-        status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
+        kind: {},
+        status: {},
         owner: { $ref: "#/$defs/nodeOwner" },
-        resolution: { $ref: "#/$defs/nodeResolution" },
+        resolution: {},
       },
       oneOf: [
         {
           properties: {
             kind: { const: "decision" },
-            status: { enum: ["proposed", "accepted", "rejected", "superseded"] },
+            status: { const: "proposed" },
+            resolution: { type: "null" },
+          },
+        },
+        {
+          properties: {
+            kind: { const: "decision" },
+            status: { enum: ["accepted", "rejected", "superseded"] },
+            resolution: { $ref: "#/$defs/nodeResolutionText" },
+          },
+          required: ["status", "resolution"],
+        },
+        {
+          properties: {
+            kind: { const: "open_question" },
+            status: { const: "open" },
+            resolution: { type: "null" },
           },
         },
         {
           properties: {
             kind: { const: "open_question" },
-            status: { enum: ["open", "answered", "deferred", "closed"] },
+            status: { enum: ["answered", "deferred", "closed"] },
+            resolution: { $ref: "#/$defs/nodeResolutionText" },
           },
-        },
-      ],
-      allOf: [
-        {
-          if: { properties: { status: { enum: ["proposed", "open"] } }, required: ["status"] },
-          then: { properties: { resolution: { type: "null" } } },
-        },
-        {
-          if: {
-            properties: { status: { enum: ["accepted", "rejected", "superseded", "answered", "deferred", "closed"] } },
-            required: ["status"],
-          },
-          then: {
-            required: ["resolution"],
-            properties: { resolution: { $ref: "#/$defs/nodeResolutionText" } },
-          },
+          required: ["status", "resolution"],
         },
       ],
     },
@@ -518,12 +655,6 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       ],
     },
     nodeResolutionText: { type: "string", minLength: 1, maxLength: 10_000 },
-    nodeResolution: {
-      anyOf: [
-        { $ref: "#/$defs/nodeResolutionText" },
-        { type: "null" },
-      ],
-    },
     connectorEndpoint: {
       type: "object",
       additionalProperties: false,
@@ -532,6 +663,28 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         objectId: { anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }] },
         x: { type: "number" },
         y: { type: "number" },
+        normalizedAnchor: {
+          anyOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["x", "y"],
+              properties: {
+                x: { type: "number", minimum: 0, maximum: 1 },
+                y: { type: "number", minimum: 0, maximum: 1 },
+              },
+            },
+            { type: "null" },
+          ],
+        },
+        isPrecise: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+        isExact: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+        snap: {
+          anyOf: [
+            { enum: ["center", "edge-point", "edge", "none"] },
+            { type: "null" },
+          ],
+        },
       },
     },
     patch: TRANSACTION_PATCH_INPUT_SCHEMA,
@@ -607,6 +760,10 @@ const LAYOUT_TOOL_INPUT_SCHEMA = {
     intent: { type: "string", minLength: 1, maxLength: 1_000 },
     summary: { type: "string", minLength: 1, maxLength: 500 },
   },
+  dependentRequired: {
+    diagramId: ["expectedDiagramRevision"],
+    expectedDiagramRevision: ["diagramId"],
+  },
 } as const;
 
 const relationshipFilter = z
@@ -668,6 +825,13 @@ const readDiagramInput = z
     diagramId: id,
     includeObjects: z.boolean().default(true),
     includeConnectors: z.boolean().default(true),
+  })
+  .strict();
+
+const analyzeDiagramLayoutInput = z
+  .object({
+    diagramId: id,
+    expectedDiagramRevision: z.number().int().positive(),
   })
   .strict();
 
@@ -859,6 +1023,84 @@ function diagramOrThrow(room: RoomState, diagramId: string) {
   return diagram;
 }
 
+function exactDiagramOrThrow(room: RoomState, diagramId: string, expectedRevision: number) {
+  const diagram = diagramOrThrow(room, diagramId);
+  if (diagram.revision !== expectedRevision) {
+    throw new SemanticToolError(
+      "REVISION_CONFLICT",
+      `Diagram ${diagramId} changed from revision ${expectedRevision} to ${diagram.revision}.`,
+      { diagramId, expectedRevision, currentRevision: diagram.revision },
+    );
+  }
+  return diagram;
+}
+
+const AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT = 8;
+const AUTOMATIC_DIAGRAM_QUALITY_OMITTED_ID_LIMIT = 64;
+// A persisted Diagram can contain at most 500 connector IDs. Returning every
+// resolved route for a valid Diagram keeps the analyze -> preview -> correct
+// loop complete without introducing a second pagination protocol. The report
+// itself remains independently bounded by DIAGRAM_VISUAL_QUALITY_LIMITS.
+const ANALYZED_DIAGRAM_ROUTE_LIMIT = 500;
+const ANALYZED_DIAGRAM_OMITTED_ROUTE_ID_LIMIT = 64;
+
+function diagramQualityReports(room: RoomState, diagramIds: readonly string[]) {
+  const availableDiagramIds = [...new Set(diagramIds)]
+    .filter((diagramId) => Boolean(room.diagrams[diagramId]))
+    .sort();
+  const reportedDiagramIds = availableDiagramIds.slice(0, AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT);
+  const omittedDiagramCount = Math.max(0, availableDiagramIds.length - reportedDiagramIds.length);
+  const omittedDiagramIds = availableDiagramIds.slice(
+    AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT,
+    AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT + AUTOMATIC_DIAGRAM_QUALITY_OMITTED_ID_LIMIT,
+  );
+  return {
+    reports: reportedDiagramIds.map((diagramId) => analyzeDiagramVisualQuality(room, diagramId)),
+    omittedDiagramIds,
+    omittedDiagramCount,
+    omittedDiagramIdsTruncated: omittedDiagramIds.length < omittedDiagramCount,
+  };
+}
+
+function visualVerification(
+  reports: readonly DiagramVisualQualityReport[],
+  omittedDiagramIds: readonly string[] = [],
+  omittedDiagramCount = omittedDiagramIds.length,
+  omittedDiagramIdsTruncated = false,
+) {
+  if (!reports.length && !omittedDiagramCount) return null;
+  const partialGeometryDiagramIds = reports
+    .filter((report) => report.geometryCoverage.status === "partial")
+    .map((report) => report.diagramId);
+  const reportedGeometryQualityStatus = reports.some((report) => report.status === "fail")
+    ? "fail"
+    : reports.some((report) => report.status === "warning")
+      ? "warning"
+      : "pass";
+  const coverageIsPartial = omittedDiagramCount > 0 || partialGeometryDiagramIds.length > 0;
+  const geometryQualityStatus = reportedGeometryQualityStatus === "fail"
+    ? "fail" as const
+    : coverageIsPartial
+      ? "unknown" as const
+      : reportedGeometryQualityStatus;
+  return {
+    geometryQualityStatus,
+    coverageStatus: coverageIsPartial ? "partial" as const : "complete" as const,
+    partialGeometryDiagramIds,
+    omittedDiagramCount,
+    omittedDiagramIdsTruncated,
+    visualInspectionStatus: "not_performed" as const,
+    completionStatus: "verification_required" as const,
+    nextStep: omittedDiagramCount
+      ? `Run analyze_diagram_layout for omitted changed Diagrams (${omittedDiagramCount} total; bounded sample: ${omittedDiagramIds.join(", ") || "none returned"}${omittedDiagramIdsTruncated ? "; additional IDs omitted" : ""}). Then resolve every finding and inspect each exact preview.`
+      : partialGeometryDiagramIds.length
+        ? `Deterministic geometry coverage is partial for Diagrams with unsupported freehand stroke relationships: ${partialGeometryDiagramIds.join(", ")}. Resolve every returned finding, render each exact revision, and inspect all preview pixels including those strokes; report.status alone cannot certify complete geometry quality.`
+      : reportedGeometryQualityStatus === "pass"
+      ? "Geometry checks pass. Render each exact Diagram revision, capture its screenshotClip, inspect the pixels, and only then report visual QA."
+      : "Fix every deterministic visual-quality finding, rerun analyze_diagram_layout until it passes, then render and inspect the exact preview pixels.",
+  };
+}
+
 function nextZIndex(room: RoomState | null): number {
   return room ? Math.max(-1, ...Object.values(room.objects).map((object) => object.zIndex)) + 1 : 0;
 }
@@ -936,6 +1178,7 @@ export const JAZZBOARD_SEMANTIC_READ_TOOL_NAMES = [
   "find_diagrams",
   "read_diagram",
   "describe_diagram",
+  "analyze_diagram_layout",
 ] as const;
 
 export const JAZZBOARD_SEMANTIC_MUTATION_TOOL_NAMES = [
@@ -1208,6 +1451,64 @@ export function createJazzboardSemanticWebMcpTools(
         };
       },
     }),
+    defineTool({
+      name: "analyze_diagram_layout",
+      title: "Analyze exact diagram visual quality",
+      description:
+        "Return passive, intent-unaware conventional geometry signals, exact routes, and partial freehand coverage for one exact Diagram; the agent decides what is intentional and must inspect pixels.",
+      schema: analyzeDiagramLayoutInput,
+      annotations: readAnnotations,
+      async execute(input, signal) {
+        const room = await readRoom(signal);
+        const diagram = exactDiagramOrThrow(room, input.diagramId, input.expectedDiagramRevision);
+        const report = analyzeDiagramVisualQuality(room, diagram.id);
+        const connectorIds = [...diagram.connectorIds].sort();
+        const routes = connectorIds.slice(0, ANALYZED_DIAGRAM_ROUTE_LIMIT).flatMap((connectorId) => {
+          const connector = room.objects[connectorId];
+          if (!connector || connector.kind !== "connector") return [];
+          const route = materializeConnectorRoute(connector, room);
+          return [{
+            connectorId,
+            connectorRevision: connector.revision,
+            routing: route.routing,
+            start: route.start,
+            end: route.end,
+            points: route.points,
+            arc: route.arc,
+            labelPoint: route.labelPoint,
+            pathLength: route.pathLength,
+            pathBounds: route.pathBounds,
+            labelBounds: route.labelBounds,
+            bounds: route.bounds,
+          }];
+        });
+        const returnedConnectorIdSet = new Set(routes.map((route) => route.connectorId));
+        const omittedConnectorCount = Math.max(0, connectorIds.length - routes.length);
+        const omittedConnectorIds: string[] = [];
+        for (let index = 0; index < connectorIds.length; index += 1) {
+          const connectorId = connectorIds[index];
+          if (index < ANALYZED_DIAGRAM_ROUTE_LIMIT && returnedConnectorIdSet.has(connectorId)) continue;
+          omittedConnectorIds.push(connectorId);
+          if (omittedConnectorIds.length >= ANALYZED_DIAGRAM_OMITTED_ROUTE_ID_LIMIT) break;
+        }
+        return {
+          report,
+          routes,
+          routeCoverage: {
+            totalConnectorCount: connectorIds.length,
+            returnedConnectorCount: routes.length,
+            truncated: omittedConnectorCount > 0,
+            omittedConnectorCount,
+            omittedConnectorIds,
+            omittedConnectorIdsTruncated: omittedConnectorIds.length < omittedConnectorCount,
+          },
+          visualInspectionStatus: "not_performed",
+          nextStep: report.geometryCoverage.status === "partial"
+            ? "Compare each intent-unaware geometry finding with the user's requested composition; preserve deliberate overlap, routing, and spacing. Correct unintended problems, then call render_canvas_preview for this exact Diagram revision and inspect all captured pixels, including unsupported freehand strokes. Geometry analysis alone is not visual QA."
+            : "Compare each intent-unaware geometry finding with the user's requested composition; preserve deliberate overlap, routing, and spacing, and correct only unintended problems. Then call render_canvas_preview for this exact Diagram revision and inspect the captured pixels. Geometry analysis alone is not visual QA.",
+        };
+      },
+    }),
   ];
 
   if (binding.role !== "participant") return reads;
@@ -1251,7 +1552,15 @@ export function createJazzboardSemanticWebMcpTools(
           refs.set(operation.tempRef, value);
         }
 
-        const geometry = new Map<string, { id: string; kind: ObjectKind; x: number; y: number; width: number; height: number }>();
+        const geometry = new Map<string, {
+          id: string;
+          kind: ObjectKind;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          rotation: number;
+        }>();
         for (const object of Object.values(currentRoom?.objects ?? {})) geometry.set(object.id, object);
         const commands: CanvasCommand[] = [];
         const diagramCommands: DiagramCommand[] = [];
@@ -1348,7 +1657,12 @@ export function createJazzboardSemanticWebMcpTools(
             };
           }
           commands.push({ type: "create", object });
-          geometry.set(objectId, { ...position, id: objectId, kind: object.kind });
+          geometry.set(objectId, {
+            ...position,
+            id: objectId,
+            kind: object.kind,
+            rotation: object.rotation,
+          });
           createIndex += 1;
         }
 
@@ -1364,10 +1678,35 @@ export function createJazzboardSemanticWebMcpTools(
           if (target.kind === "connector") {
             throw new SemanticToolError("INVALID_OPERATION", "Connectors cannot target another connector.", { objectId });
           }
-          return {
-            objectId,
+          if (!reference.port) {
+            return {
+              objectId,
+              x: target.x + target.width / 2,
+              y: target.y + target.height / 2,
+            };
+          }
+          const normalizedAnchor = cardinalNormalizedAnchor(
+            reference.port.side,
+            reference.port.position,
+          );
+          const center = {
             x: target.x + target.width / 2,
             y: target.y + target.height / 2,
+          };
+          const local = {
+            x: target.x + target.width * normalizedAnchor.x,
+            y: target.y + target.height * normalizedAnchor.y,
+          };
+          const cosine = Math.cos(target.rotation);
+          const sine = Math.sin(target.rotation);
+          return {
+            objectId,
+            x: center.x + (local.x - center.x) * cosine - (local.y - center.y) * sine,
+            y: center.y + (local.x - center.x) * sine + (local.y - center.y) * cosine,
+            normalizedAnchor,
+            isPrecise: true,
+            isExact: reference.port.exact,
+            snap: "edge-point" as const,
           };
         };
 
@@ -1393,7 +1732,15 @@ export function createJazzboardSemanticWebMcpTools(
             color: operation.color,
           };
           commands.push({ type: "create", object });
-          geometry.set(objectId, { id: objectId, kind: "connector", x: object.x, y: object.y, width: object.width, height: object.height });
+          geometry.set(objectId, {
+            id: objectId,
+            kind: "connector",
+            x: object.x,
+            y: object.y,
+            width: object.width,
+            height: object.height,
+            rotation: object.rotation,
+          });
         }
         for (const operation of deferredUpdates) {
           const patch = {
@@ -1475,6 +1822,9 @@ export function createJazzboardSemanticWebMcpTools(
           },
           signal,
         );
+        const quality = response.outcome === "applied"
+          ? diagramQualityReports(response.room, response.changedDiagramIds)
+          : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
@@ -1485,6 +1835,16 @@ export function createJazzboardSemanticWebMcpTools(
           positions: response.positions,
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
+          visualQuality: quality.reports,
+          visualQualityOmittedDiagramIds: quality.omittedDiagramIds,
+          visualQualityOmittedDiagramCount: quality.omittedDiagramCount,
+          visualQualityOmittedDiagramIdsTruncated: quality.omittedDiagramIdsTruncated,
+          verification: visualVerification(
+            quality.reports,
+            quality.omittedDiagramIds,
+            quality.omittedDiagramCount,
+            quality.omittedDiagramIdsTruncated,
+          ),
           activity: response.activity,
           proposal: response.proposal,
         };
@@ -1504,6 +1864,9 @@ export function createJazzboardSemanticWebMcpTools(
           { action: "layout", layout, metadata: activityMetadata(input) },
           signal,
         );
+        const quality = response.outcome === "applied"
+          ? diagramQualityReports(response.room, response.changedDiagramIds)
+          : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
@@ -1512,6 +1875,16 @@ export function createJazzboardSemanticWebMcpTools(
           changedDiagramIds: response.changedDiagramIds,
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
+          visualQuality: quality.reports,
+          visualQualityOmittedDiagramIds: quality.omittedDiagramIds,
+          visualQualityOmittedDiagramCount: quality.omittedDiagramCount,
+          visualQualityOmittedDiagramIdsTruncated: quality.omittedDiagramIdsTruncated,
+          verification: visualVerification(
+            quality.reports,
+            quality.omittedDiagramIds,
+            quality.omittedDiagramCount,
+            quality.omittedDiagramIdsTruncated,
+          ),
           activity: response.activity,
           proposal: response.proposal,
         };
@@ -1546,10 +1919,23 @@ export function createJazzboardSemanticWebMcpTools(
           },
           signal,
         );
+        const quality = response.outcome === "applied"
+          ? diagramQualityReports(response.room, [diagramId])
+          : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
           diagram: response.room.diagrams?.[diagramId] ?? null,
+          visualQuality: quality.reports,
+          visualQualityOmittedDiagramIds: quality.omittedDiagramIds,
+          visualQualityOmittedDiagramCount: quality.omittedDiagramCount,
+          visualQualityOmittedDiagramIdsTruncated: quality.omittedDiagramIdsTruncated,
+          verification: visualVerification(
+            quality.reports,
+            quality.omittedDiagramIds,
+            quality.omittedDiagramCount,
+            quality.omittedDiagramIdsTruncated,
+          ),
           activity: response.activity,
           proposal: response.proposal,
         };
@@ -1575,10 +1961,23 @@ export function createJazzboardSemanticWebMcpTools(
           },
           signal,
         );
+        const quality = response.outcome === "applied"
+          ? diagramQualityReports(response.room, [diagramId])
+          : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
           diagram: response.room.diagrams?.[diagramId] ?? null,
+          visualQuality: quality.reports,
+          visualQualityOmittedDiagramIds: quality.omittedDiagramIds,
+          visualQualityOmittedDiagramCount: quality.omittedDiagramCount,
+          visualQualityOmittedDiagramIdsTruncated: quality.omittedDiagramIdsTruncated,
+          verification: visualVerification(
+            quality.reports,
+            quality.omittedDiagramIds,
+            quality.omittedDiagramCount,
+            quality.omittedDiagramIdsTruncated,
+          ),
           activity: response.activity,
           proposal: response.proposal,
         };

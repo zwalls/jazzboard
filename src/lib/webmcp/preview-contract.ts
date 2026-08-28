@@ -7,7 +7,10 @@ export const CANVAS_PREVIEW_DEFAULTS = {
 } as const;
 
 export const CANVAS_PREVIEW_LIMITS = {
-  maxTargets: 200,
+  // Diagram membership is bounded to 500 members plus 500 connectors. Keep a
+  // complete exact-Diagram preview possible while retaining a hard browser
+  // memory ceiling for arbitrary object scopes.
+  maxTargets: 1_000,
   maxPadding: 256,
   minDimension: 64,
   maxDimension: 4_096,

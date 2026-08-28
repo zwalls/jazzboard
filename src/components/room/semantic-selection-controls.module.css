@@ -1,0 +1,179 @@
+.overlay {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 320;
+}
+
+.frame {
+  border: 1.5px solid #3182ed;
+  box-sizing: border-box;
+  pointer-events: none;
+  position: absolute;
+}
+
+.overlay button.handle {
+  appearance: none;
+  background: #f9fafb;
+  border: 1.5px solid #3182ed;
+  border-radius: 2px;
+  box-shadow: none;
+  box-sizing: border-box;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  padding: 0;
+  pointer-events: auto;
+  position: absolute;
+  touch-action: none;
+  width: 8px;
+}
+
+.handle:hover,
+.handle:focus-visible {
+  background: #eaf3fe;
+  box-shadow: 0 0 0 3px rgba(49, 130, 237, 0.18);
+  outline: none;
+}
+
+.handle-north-west {
+  cursor: nwse-resize;
+  left: 0;
+  top: 0;
+}
+
+.handle-north {
+  cursor: ns-resize;
+  left: 50%;
+  top: 0;
+}
+
+.handle-north-east {
+  cursor: nesw-resize;
+  left: 100%;
+  top: 0;
+}
+
+.handle-east {
+  cursor: ew-resize;
+  left: 100%;
+  top: 50%;
+}
+
+.handle-south-east {
+  cursor: nwse-resize;
+  left: 100%;
+  top: 100%;
+}
+
+.handle-south {
+  cursor: ns-resize;
+  left: 50%;
+  top: 100%;
+}
+
+.handle-south-west {
+  cursor: nesw-resize;
+  left: 0;
+  top: 100%;
+}
+
+.handle-west {
+  cursor: ew-resize;
+  left: 0;
+  top: 50%;
+}
+
+.rotationStem {
+  background: #3182ed;
+  height: 20px;
+  left: 50%;
+  position: absolute;
+  top: -20px;
+  transform: translateX(-0.75px);
+  width: 1.5px;
+}
+
+.rotationHandle {
+  border-radius: 50%;
+  cursor: grab;
+  left: 50%;
+  top: -24px;
+}
+
+.rotationHandle:active {
+  cursor: grabbing;
+}
+
+.overlay button.connectorHandle {
+  background: #3182ed;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #3182ed;
+  cursor: crosshair;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  width: 10px;
+}
+
+.actionBar {
+  align-items: center;
+  backdrop-filter: blur(14px) saturate(1.2);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(201, 207, 220, 0.96);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(39, 47, 77, 0.16);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 4px;
+  pointer-events: auto;
+  position: absolute;
+  width: max-content;
+}
+
+.actionBar[data-selection-placement="above"] {
+  transform: translate(-50%, calc(-100% - 34px));
+}
+
+.actionBar[data-selection-placement="below"] {
+  transform: translate(-50%, 34px);
+}
+
+.actionBar button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #4f596f;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.actionBar button:hover,
+.actionBar button:focus-visible {
+  background: #eef0ff;
+  color: #4c59d8;
+  outline: none;
+}
+
+.actionBar .dangerAction:hover,
+.actionBar .dangerAction:focus-visible {
+  background: #fff0f1;
+  color: #c83d4f;
+}
+
+.styleControls {
+  align-items: center;
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+}

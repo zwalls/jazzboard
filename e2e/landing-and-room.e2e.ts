@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   createRoomFromLanding,
-  expectBuiltInTldrawWatermark,
   getRoom,
   joinRoomFromLanding,
   jsonBody,
@@ -23,10 +22,10 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
       };
     };
     const panel = document.querySelector('[data-testid="combined-left-panel"]');
-    const identity = panel?.firstElementChild ?? null;
-    const menu = panel?.querySelector(".tlui-menu-zone") ?? null;
+    const identity = panel?.querySelector('[data-testid="room-identity"]') ?? null;
+    const menu = panel?.querySelector('[data-testid="main-menu.button"]') ?? null;
     const controls = document.querySelector('[data-testid="room-controls"]');
-    const stylePanel = document.querySelector(".tlui-style-panel__wrapper");
+    const stylePanel = document.querySelector("[data-semantic-style-controls]");
     const overlaps = (first: Element, second: Element) => {
       const a = rect(first);
       const b = rect(second);
@@ -51,6 +50,15 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
   expect(layout.controls).not.toBeNull();
   expect(layout.panelControlsOverlap).toBe(false);
 
+  if (layout.viewportWidth > 720) {
+    expect(
+      Math.abs(layout.panel!.top - layout.controls!.top),
+      "left room card and right collaboration controls should share a top edge",
+    ).toBeLessThanOrEqual(1);
+  } else {
+    expect(layout.controls!.top).toBeGreaterThanOrEqual(layout.panel!.bottom + 8);
+  }
+
   for (const box of [layout.panel!, layout.controls!]) {
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(layout.viewportWidth);
@@ -60,13 +68,12 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
   expect(layout.identity!.right).toBeLessThanOrEqual(layout.panel!.right);
   expect(layout.menu!.left).toBeGreaterThanOrEqual(layout.panel!.left);
   expect(layout.menu!.right).toBeLessThanOrEqual(layout.panel!.right);
-  expect(layout.menu!.top).toBeGreaterThanOrEqual(layout.identity!.bottom - 1);
+  expect(layout.menu!.right).toBeLessThanOrEqual(layout.identity!.left);
+  expect(layout.menu!.top).toBeGreaterThanOrEqual(layout.panel!.top);
   expect(layout.menu!.bottom).toBeLessThanOrEqual(layout.panel!.bottom);
   if (layout.stylePanel) {
     expect(layout.stylePanel.top).toBeGreaterThanOrEqual(layout.controls!.bottom + 8);
     expect(layout.stylePanel.bottom).toBeLessThanOrEqual(layout.viewportHeight);
-  } else {
-    expect(layout.viewportWidth).toBeLessThanOrEqual(480);
   }
 }
 
@@ -135,7 +142,8 @@ test.describe("landing and room entry", () => {
 
     await expect(page.getByRole("button", { name: "Page 1", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Export", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /^Zoom/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Zoom out", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Zoom in", exact: true })).toBeVisible();
 
     await openBoardMenu(page);
     await expect(page.getByRole("menuitem", { name: "Canvas outline", exact: true })).toBeVisible();
@@ -189,8 +197,10 @@ test.describe("landing and room entry", () => {
   test("creates a room, remembers it locally, and joins it as a second participant", async ({ browser, page }) => {
     const host = await createRoomFromLanding(page, "Maya Host");
 
-    await expectBuiltInTldrawWatermark(page);
-
+    await expect(page.getByTestId("semantic-canvas")).toHaveAttribute(
+      "data-canvas-renderer",
+      "jazzboard-semantic-v1",
+    );
     expect(host.room.code).toMatch(/^\d{4}$/);
     expect(host.room.participants[host.participantId]).toMatchObject({
       displayName: "Maya Host",

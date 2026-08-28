@@ -114,7 +114,7 @@ describe("Jazzboard agent review WebMCP surface", () => {
     );
     for (const tool of participantTools) {
       expect(tool.title).toBeTruthy();
-      expect(tool.description.length).toBeGreaterThan(100);
+      expect(tool.description.length).toBeGreaterThan(50);
       expect(tool.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
     }
   });

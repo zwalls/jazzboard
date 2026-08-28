@@ -1,15 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Editor, TLShape, TLShapeId } from "tldraw";
 
-import { tldrawShapeId } from "@/lib/canvas/projection";
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import { safeDownloadStem } from "@/lib/export-filename";
 
 import {
   boundedRasterSize,
   downloadBlobFile,
   downloadCanvasPng,
-  liveCanvasObjectIds,
-  resolveCanvasPngShapeIds,
+  resolveCanvasPngObjectIds,
 } from "./download";
 
 describe("safeDownloadStem", () => {
@@ -41,20 +39,46 @@ describe("PNG raster bounds", () => {
 
 type TestBounds = { x: number; y: number; width: number; height: number };
 
-function pngEditor(input: {
+function pngRuntime(input: {
   bounds: Record<string, TestBounds | null>;
   result: { blob: Blob; width: number; height: number };
+  warnings?: readonly string[];
 }) {
-  const getShape = vi.fn((shapeId: TLShapeId) => (
-    Object.hasOwn(input.bounds, shapeId) ? { id: shapeId, type: "geo" } : undefined
-  ));
-  const getShapeMaskedPageBounds = vi.fn((shapeId: TLShapeId) => input.bounds[shapeId] ?? null);
-  const toImage = vi.fn().mockResolvedValue(input.result);
+  const hasObject = vi.fn((objectId: string) => Object.hasOwn(input.bounds, objectId));
+  const getVisibleBounds = vi.fn((objectIds: readonly string[]) => {
+    let result: TestBounds | null = null;
+    for (const objectId of objectIds) {
+      const next = input.bounds[objectId];
+      if (!next) continue;
+      if (!result) {
+        result = { ...next };
+        continue;
+      }
+      const maxX = Math.max(result.x + result.width, next.x + next.width);
+      const maxY = Math.max(result.y + result.height, next.y + next.height);
+      result.x = Math.min(result.x, next.x);
+      result.y = Math.min(result.y, next.y);
+      result.width = maxX - result.x;
+      result.height = maxY - result.y;
+    }
+    return result;
+  });
+  const renderPng = vi.fn().mockResolvedValue({
+    blob: input.result.blob,
+    logicalWidth: input.result.width,
+    logicalHeight: input.result.height,
+    warnings: input.warnings,
+  });
   return {
-    editor: { getShape, getShapeMaskedPageBounds, toImage } as unknown as Editor,
-    getShape,
-    getShapeMaskedPageBounds,
-    toImage,
+    runtime: {
+      capabilities: { renderPng: true },
+      hasObject,
+      getVisibleBounds,
+      renderPng,
+    } as unknown as CanvasRuntime,
+    hasObject,
+    getVisibleBounds,
+    renderPng,
   };
 }
 
@@ -90,31 +114,30 @@ describe("faithful live-canvas PNG downloads", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:canvas-png");
   });
 
-  it("maps exact semantic IDs, deduplicates them, and renders through Editor.toImage", async () => {
-    const imageId = tldrawShapeId("image-1");
-    const nodeId = tldrawShapeId("node-1");
+  it("maps exact semantic IDs, deduplicates them, and renders through CanvasRuntime", async () => {
     const png = new Blob(["faithful image pixels"], { type: "image/png" });
-    const runtime = pngEditor({
+    const runtime = pngRuntime({
       bounds: {
-        [imageId]: { x: 0, y: 0, width: 300, height: 200 },
-        [nodeId]: { x: 400, y: 100, width: 100, height: 100 },
+        "image-1": { x: 0, y: 0, width: 300, height: 200 },
+        "node-1": { x: 400, y: 100, width: 100, height: 100 },
       },
       result: { blob: png, width: 564, height: 264 },
+      warnings: ["One image used a placeholder."],
     });
 
     const result = await downloadCanvasPng({
-      editor: runtime.editor,
+      runtime: runtime.runtime,
       objectIds: ["image-1", "node-1", "image-1"],
       filename: "architecture",
     });
 
-    expect(runtime.toImage).toHaveBeenCalledWith([imageId, nodeId], {
-      format: "png",
+    expect(runtime.renderPng).toHaveBeenCalledWith(["image-1", "node-1"], {
       background: true,
       darkMode: false,
       padding: 32,
       pixelRatio: 2,
       scale: 1,
+      signal: undefined,
     });
     expect(createObjectURL).toHaveBeenCalledWith(png);
     expect(result).toEqual({
@@ -122,48 +145,13 @@ describe("faithful live-canvas PNG downloads", () => {
       width: 1_128,
       height: 528,
       byteLength: png.size,
-      warnings: [],
+      warnings: ["One image used a placeholder."],
     });
   });
 
-  it("reads acknowledged, local-first, and grouped objects from the live document", () => {
-    const acknowledged = {
-      id: tldrawShapeId("acknowledged"),
-      type: "text",
-      meta: { jazzboardId: "acknowledged" },
-    } as unknown as TLShape;
-    const local = {
-      id: "shape:local-first" as TLShapeId,
-      type: "text",
-      meta: {},
-    } as unknown as TLShape;
-    const child = {
-      id: "shape:group-child" as TLShapeId,
-      type: "geo",
-      meta: {},
-    } as unknown as TLShape;
-    const group = {
-      id: "shape:visual-group" as TLShapeId,
-      type: "group",
-      meta: {},
-    } as unknown as TLShape;
-    const editor = {
-      getCurrentPageShapesSorted: () => [acknowledged, local, group, child],
-      getSortedChildIdsForParent: () => [child.id],
-      getShape: (shapeId: TLShapeId) => shapeId === child.id ? child : undefined,
-    } as unknown as Editor;
-
-    expect(liveCanvasObjectIds(editor)).toEqual([
-      "acknowledged",
-      "local-first",
-      "group-child",
-    ]);
-  });
-
-  it("downscales oversized boards before tldraw rasterizes them", async () => {
-    const shapeId = tldrawShapeId("large-board");
-    const runtime = pngEditor({
-      bounds: { [shapeId]: { x: 0, y: 0, width: 20_000, height: 10_000 } },
+  it("downscales oversized boards before the canvas runtime rasterizes them", async () => {
+    const runtime = pngRuntime({
+      bounds: { "large-board": { x: 0, y: 0, width: 20_000, height: 10_000 } },
       result: {
         blob: new Blob(["bounded"], { type: "image/png" }),
         width: 1_024,
@@ -172,14 +160,14 @@ describe("faithful live-canvas PNG downloads", () => {
     });
 
     const result = await downloadCanvasPng({
-      editor: runtime.editor,
+      runtime: runtime.runtime,
       objectIds: ["large-board"],
       filename: "large-board.png",
       padding: 0,
       pixelRatio: 4,
     });
 
-    expect(runtime.toImage).toHaveBeenCalledWith([shapeId], expect.objectContaining({
+    expect(runtime.renderPng).toHaveBeenCalledWith(["large-board"], expect.objectContaining({
       padding: 0,
       pixelRatio: 4,
       scale: 0.0512,
@@ -193,62 +181,58 @@ describe("faithful live-canvas PNG downloads", () => {
   });
 
   it("rejects empty, missing, and entirely masked scopes without downloading", async () => {
-    const visibleId = tldrawShapeId("visible");
-    const maskedId = tldrawShapeId("masked");
-    const runtime = pngEditor({
+    const runtime = pngRuntime({
       bounds: {
-        [visibleId]: { x: 0, y: 0, width: 100, height: 100 },
-        [maskedId]: null,
+        visible: { x: 0, y: 0, width: 100, height: 100 },
+        masked: null,
       },
       result: { blob: new Blob(["unused"]), width: 100, height: 100 },
     });
 
-    expect(() => resolveCanvasPngShapeIds(runtime.editor, [])).toThrow("at least one");
-    expect(() => resolveCanvasPngShapeIds(runtime.editor, ["missing"])).toThrow("not available");
+    expect(() => resolveCanvasPngObjectIds(runtime.runtime, [])).toThrow("at least one");
+    expect(() => resolveCanvasPngObjectIds(runtime.runtime, ["missing"])).toThrow("not available");
     await expect(downloadCanvasPng({
-      editor: runtime.editor,
+      runtime: runtime.runtime,
       objectIds: ["masked"],
       filename: "masked.png",
     })).rejects.toThrow("visible export bounds");
-    expect(runtime.toImage).not.toHaveBeenCalled();
+    expect(runtime.renderPng).not.toHaveBeenCalled();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  it("discards an invalid tldraw render instead of downloading it", async () => {
-    const shapeId = tldrawShapeId("node");
-    const runtime = pngEditor({
-      bounds: { [shapeId]: { x: 0, y: 0, width: 100, height: 100 } },
+  it("discards an invalid renderer result instead of downloading it", async () => {
+    const runtime = pngRuntime({
+      bounds: { node: { x: 0, y: 0, width: 100, height: 100 } },
       result: { blob: new Blob([]), width: 100, height: 100 },
     });
 
     await expect(downloadCanvasPng({
-      editor: runtime.editor,
+      runtime: runtime.runtime,
       objectIds: ["node"],
       filename: "node.png",
     })).rejects.toThrow("empty PNG");
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  it("does not download when the caller cancels a slow tldraw render", async () => {
-    const shapeId = tldrawShapeId("slow-image");
-    const runtime = pngEditor({
-      bounds: { [shapeId]: { x: 0, y: 0, width: 100, height: 100 } },
+  it("does not download when the caller cancels a slow renderer", async () => {
+    const runtime = pngRuntime({
+      bounds: { "slow-image": { x: 0, y: 0, width: 100, height: 100 } },
       result: { blob: new Blob(["unused"]), width: 100, height: 100 },
     });
-    let finishRender!: (value: { blob: Blob; width: number; height: number }) => void;
-    runtime.toImage.mockImplementationOnce(() => new Promise((resolve) => {
+    let finishRender!: (value: { blob: Blob; logicalWidth: number; logicalHeight: number }) => void;
+    runtime.renderPng.mockImplementationOnce(() => new Promise((resolve) => {
       finishRender = resolve;
     }));
     const controller = new AbortController();
 
     const download = downloadCanvasPng({
-      editor: runtime.editor,
+      runtime: runtime.runtime,
       objectIds: ["slow-image"],
       filename: "slow-image.png",
       signal: controller.signal,
     });
     controller.abort();
-    finishRender({ blob: new Blob(["cancelled"]), width: 100, height: 100 });
+    finishRender({ blob: new Blob(["cancelled"]), logicalWidth: 100, logicalHeight: 100 });
 
     await expect(download).rejects.toMatchObject({ name: "AbortError" });
     expect(createObjectURL).not.toHaveBeenCalled();

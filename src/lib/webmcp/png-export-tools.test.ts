@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { RoomState } from "@/lib/domain/types";
+import type { ActorRef, CanvasObject, RoomState } from "@/lib/domain/types";
 
 import {
   createJazzboardPngExportWebMcpTools,
@@ -80,6 +80,85 @@ function room(): RoomState {
   };
 }
 
+function diagramShape(id: string, index: number, createdBy: ActorRef): CanvasObject {
+  return {
+    id,
+    kind: "shape",
+    x: index * 240,
+    y: 20,
+    width: 200,
+    height: 100,
+    rotation: 0,
+    zIndex: index + 1,
+    groupId: null,
+    diagramIds: ["diagram"],
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    createdBy,
+    lastEditedBy: createdBy,
+    shape: "rectangle",
+    nodeType: "component",
+    nodeMetadata: null,
+    label: `member ${index}`,
+    fill: "blue",
+    stroke: "blue",
+  };
+}
+
+function diagramConnector(
+  id: string,
+  index: number,
+  startObjectId: string,
+  endObjectId: string,
+  createdBy: ActorRef,
+): CanvasObject {
+  return {
+    id,
+    kind: "connector",
+    x: index * 240 + 200,
+    y: 70,
+    width: 40,
+    height: 1,
+    rotation: 0,
+    zIndex: index,
+    groupId: null,
+    diagramIds: ["diagram"],
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    createdBy,
+    lastEditedBy: createdBy,
+    start: { x: index * 240 + 200, y: 70, objectId: startObjectId },
+    end: { x: index * 240 + 240, y: 70, objectId: endObjectId },
+    direction: "end",
+    label: `route ${index}`,
+    color: "black",
+  };
+}
+
+function maximumDiagramRoom(): RoomState {
+  const current = room();
+  const createdBy = current.objects.image.createdBy;
+  const memberIds = Array.from({ length: 500 }, (_, index) => `member-${index}`);
+  const connectorIds = Array.from({ length: 500 }, (_, index) => `connector-${index}`);
+  const members = memberIds.map((id, index) => diagramShape(id, index, createdBy));
+  const connectors = connectorIds.map((id, index) => diagramConnector(
+    id,
+    index,
+    memberIds[index],
+    memberIds[(index + 1) % memberIds.length],
+    createdBy,
+  ));
+  current.objects = Object.fromEntries([...members, ...connectors].map((item) => [item.id, item]));
+  current.diagrams.diagram = {
+    ...current.diagrams.diagram,
+    memberObjectIds: memberIds,
+    connectorIds,
+  };
+  return current;
+}
+
 function artifact(): CanvasPreviewArtifact {
   const blob = new Blob(["faithful png"], { type: "image/png" });
   return {
@@ -101,6 +180,7 @@ function artifact(): CanvasPreviewArtifact {
         objectRevisions: [{ objectId: "image", revision: 3 }],
       },
       warnings: [],
+      visualQuality: null,
     },
   };
 }
@@ -217,6 +297,24 @@ describe("faithful PNG WebMCP export", () => {
     expect(state.saveCanvasPng).toHaveBeenCalledOnce();
   });
 
+  it("exports all 500 members and 500 connectors from a schema-maximum Diagram", async () => {
+    const state = fixture();
+    const maximum = maximumDiagramRoom();
+    const request = vi.fn().mockResolvedValue({ ok: true, room: maximum }) as unknown as WebMcpRequest;
+    const [tool] = createJazzboardPngExportWebMcpTools(state.binding, { request });
+
+    const result = await execute(tool, {
+      scope: { kind: "diagram", diagramId: "diagram", expectedRevision: 4 },
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const renderRequest = state.renderCanvasPreview.mock.calls[0]?.[0];
+    expect(renderRequest.objects).toHaveLength(1_000);
+    expect(renderRequest.objects.slice(0, 500).every((item: CanvasObject) => item.kind === "shape")).toBe(true);
+    expect(renderRequest.objects.slice(500).every((item: CanvasObject) => item.kind === "connector")).toBe(true);
+    expect(state.saveCanvasPng).toHaveBeenCalledOnce();
+  });
+
   it("rejects object scopes larger than the shared preview safety limit", async () => {
     const state = fixture();
     const [tool] = createJazzboardPngExportWebMcpTools(state.binding, { request: state.request });
@@ -224,7 +322,7 @@ describe("faithful PNG WebMCP export", () => {
     const result = await execute(tool, {
       scope: {
         kind: "objects",
-        targets: Array.from({ length: 201 }, (_, index) => ({
+        targets: Array.from({ length: 1_001 }, (_, index) => ({
           objectId: `object-${index}`,
           expectedRevision: 1,
         })),

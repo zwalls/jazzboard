@@ -1,11 +1,8 @@
-import type { Editor, TLShape, TLShapeId } from "tldraw";
-
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import {
-  isEquivalentTldrawProjection,
-  jazzboardMeta,
-  tldrawShapeId,
-  tldrawShapeToSemantic,
-} from "@/lib/canvas/projection";
+  analyzeDiagramVisualQuality,
+  type DiagramVisualQualityReport,
+} from "@/lib/domain/diagram-visual-quality";
 import type { CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
 import {
@@ -67,6 +64,8 @@ export type CanvasPreviewMetadata = {
     objectRevisions: Array<{ objectId: string; revision: number }>;
   };
   warnings: string[];
+  /** Deterministic geometry QA for Diagram scope; null for arbitrary object scope. */
+  visualQuality: DiagramVisualQualityReport | null;
 };
 
 export type CanvasPreviewArtifact = {
@@ -107,7 +106,7 @@ export interface CanvasPreviewTransportAdapter {
 }
 
 type CanvasPreviewRuntime = {
-  getEditor(): Editor | null;
+  getCanvasRuntime(): CanvasRuntime | null;
   getRoom(): RoomState | null;
   now?: () => number;
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
@@ -130,39 +129,6 @@ function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
     };
     signal.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-function isExactImageProjection(
-  editor: Editor,
-  shape: TLShape,
-  object: Extract<CanvasObject, { kind: "image" }>,
-): boolean {
-  const draft = tldrawShapeToSemantic(editor, shape);
-  if (!draft || draft.kind !== "image") return false;
-  return isEquivalentTldrawProjection(
-    {
-      ...object,
-      // tldraw stores the render asset identity, using the semantic object ID
-      // as the stable fallback, and does not project provenance-only sourceUrl.
-      assetId: object.assetId ?? object.id,
-      sourceUrl: null,
-    },
-    draft,
-  );
-}
-
-function isExactObjectProjection(editor: Editor, object: CanvasObject): boolean {
-  const shape = editor.getShape(tldrawShapeId(object.id));
-  if (!shape) return false;
-  const metadata = jazzboardMeta(shape);
-  if (
-    metadata.objectId !== object.id ||
-    metadata.revision !== object.revision ||
-    metadata.createdAt !== object.createdAt
-  ) return false;
-  if (object.kind === "image") return isExactImageProjection(editor, shape, object);
-  const draft = tldrawShapeToSemantic(editor, shape);
-  return Boolean(draft && isEquivalentTldrawProjection(object, draft));
 }
 
 function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRenderRequest): void {
@@ -230,7 +196,7 @@ function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRender
 }
 
 function isAuthoritativeScopeProjected(
-  editor: Editor,
+  canvas: CanvasRuntime,
   room: RoomState,
   request: CanvasPreviewRenderRequest,
 ): boolean {
@@ -245,7 +211,7 @@ function isAuthoritativeScopeProjected(
     return (
       current?.revision === expected.revision &&
       current.createdAt === expected.createdAt &&
-      isExactObjectProjection(editor, current)
+      canvas.isObjectProjectionExact(current)
     );
   });
 }
@@ -254,18 +220,18 @@ async function waitForAuthoritativeProjection(
   runtime: CanvasPreviewRuntime,
   request: CanvasPreviewRenderRequest,
   signal: AbortSignal,
-): Promise<{ editor: Editor; room: RoomState }> {
+): Promise<{ canvas: CanvasRuntime; room: RoomState }> {
   const now = runtime.now ?? Date.now;
   const wait = runtime.wait ?? defaultWait;
   const deadline = now() + CANVAS_PREVIEW_LIMITS.projectionTimeoutMs;
 
   while (true) {
     if (signal.aborted) throw abortError();
-    const editor = runtime.getEditor();
+    const canvas = runtime.getCanvasRuntime();
     const room = runtime.getRoom();
     if (room) assertScopeHasNotAdvanced(room, request);
-    if (editor && room && isAuthoritativeScopeProjected(editor, room, request)) {
-      return { editor, room };
+    if (canvas && room && isAuthoritativeScopeProjected(canvas, room, request)) {
+      return { canvas, room };
     }
     if (now() >= deadline) {
       throw new CanvasPreviewError(
@@ -282,38 +248,17 @@ async function waitForAuthoritativeProjection(
   }
 }
 
-function unionShapeBounds(editor: Editor, shapeIds: TLShapeId[]) {
-  let bounds: { x: number; y: number; width: number; height: number } | null = null;
-  for (const shapeId of shapeIds) {
-    const shapeBounds = editor.getShapeMaskedPageBounds(shapeId);
-    if (!shapeBounds) continue;
-    const next = {
-      x: shapeBounds.x,
-      y: shapeBounds.y,
-      width: shapeBounds.width,
-      height: shapeBounds.height,
-    };
-    if (!bounds) {
-      bounds = next;
-      continue;
-    }
-    const maxX = Math.max(bounds.x + bounds.width, next.x + next.width);
-    const maxY = Math.max(bounds.y + bounds.height, next.y + next.height);
-    bounds.x = Math.min(bounds.x, next.x);
-    bounds.y = Math.min(bounds.y, next.y);
-    bounds.width = maxX - bounds.x;
-    bounds.height = maxY - bounds.y;
-  }
-  return bounds;
-}
-
 function assertStillProjected(
   runtime: CanvasPreviewRuntime,
   request: CanvasPreviewRenderRequest,
-  editor: Editor,
+  canvas: CanvasRuntime,
 ): void {
   const room = runtime.getRoom();
-  if (!room || runtime.getEditor() !== editor || !isAuthoritativeScopeProjected(editor, room, request)) {
+  if (
+    !room ||
+    runtime.getCanvasRuntime() !== canvas ||
+    !isAuthoritativeScopeProjected(canvas, room, request)
+  ) {
     throw new CanvasPreviewError(
       "PREVIEW_SCOPE_CHANGED_DURING_RENDER",
       "The canvas changed while the preview was rendering; the potentially stale image was discarded.",
@@ -330,10 +275,24 @@ export async function renderCanvasPreview(
   if (!request.objects.length) {
     throw new CanvasPreviewError("PREVIEW_SCOPE_EMPTY", "A canvas preview must contain at least one exact object target.");
   }
+  if (request.objects.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_TOO_LARGE",
+      "A canvas preview cannot exceed the 1,000-target render limit.",
+      { targetCount: request.objects.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
+    );
+  }
 
-  const { editor } = await waitForAuthoritativeProjection(runtime, request, signal);
-  const shapeIds = request.objects.map((object) => tldrawShapeId(object.id));
-  const bounds = unionShapeBounds(editor, shapeIds);
+  const { canvas, room } = await waitForAuthoritativeProjection(runtime, request, signal);
+  if (!canvas.capabilities.renderPng) {
+    throw new CanvasPreviewError(
+      "PREVIEW_RENDERER_UNAVAILABLE",
+      "The active experimental canvas renderer cannot produce a faithful PNG preview yet.",
+      { rendererId: canvas.rendererId },
+    );
+  }
+  const objectIds = request.objects.map((object) => object.id);
+  const bounds = canvas.getVisibleBounds(objectIds);
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     throw new CanvasPreviewError(
       "PREVIEW_BOUNDS_UNAVAILABLE",
@@ -352,19 +311,19 @@ export async function renderCanvasPreview(
     throw new CanvasPreviewError("PREVIEW_DIMENSIONS_INVALID", "The requested preview dimensions are not renderable.");
   }
 
-  const result = await editor.toImage(shapeIds, {
-    format: "png",
+  const result = await canvas.renderPng(objectIds, {
     background: true,
     darkMode: false,
     padding: request.options.padding,
     pixelRatio: request.options.pixelRatio,
     scale,
+    signal,
   });
   if (signal.aborted) throw abortError();
-  assertStillProjected(runtime, request, editor);
+  assertStillProjected(runtime, request, canvas);
 
-  const width = Math.ceil(result.width * request.options.pixelRatio);
-  const height = Math.ceil(result.height * request.options.pixelRatio);
+  const width = Math.ceil(result.logicalWidth * request.options.pixelRatio);
+  const height = Math.ceil(result.logicalHeight * request.options.pixelRatio);
   if (width > request.options.maxWidth || height > request.options.maxHeight) {
     throw new CanvasPreviewError(
       "PREVIEW_DIMENSION_BUDGET_EXCEEDED",
@@ -380,7 +339,7 @@ export async function renderCanvasPreview(
     );
   }
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...(result.warnings ?? [])];
   if (scale < 1) warnings.push("The preview was downscaled to fit the requested dimensions.");
 
   return {
@@ -389,8 +348,8 @@ export async function renderCanvasPreview(
       mimeType: "image/png",
       width,
       height,
-      logicalWidth: result.width,
-      logicalHeight: result.height,
+      logicalWidth: result.logicalWidth,
+      logicalHeight: result.logicalHeight,
       byteLength: result.blob.size,
       renderedBounds: {
         x: bounds.x - request.options.padding,
@@ -409,6 +368,9 @@ export async function renderCanvasPreview(
         })),
       },
       warnings,
+      visualQuality: request.diagram
+        ? analyzeDiagramVisualQuality(room, request.diagram.id)
+        : null,
     },
   };
 }

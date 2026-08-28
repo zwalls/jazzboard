@@ -1,0 +1,470 @@
+.shell {
+  background-color: #fff;
+  height: 100%;
+  inset: 0;
+  overflow: hidden;
+  position: absolute;
+  touch-action: none;
+  user-select: none;
+  width: 100%;
+}
+
+.shell:focus-visible {
+  outline: 3px solid rgba(49, 130, 237, 0.42);
+  outline-offset: -3px;
+}
+
+.viewport {
+  cursor: grab;
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
+}
+
+.shell[data-active-tool="select"] .viewport {
+  cursor: default;
+}
+
+.shell[data-active-tool="hand"] .viewport {
+  cursor: grab;
+}
+
+.shell[data-active-tool="draw"] .viewport,
+.shell[data-active-tool="text"] .viewport,
+.shell[data-active-tool="rectangle"] .viewport,
+.shell[data-active-tool="ellipse"] .viewport,
+.shell[data-active-tool="diamond"] .viewport,
+.shell[data-active-tool="connector"] .viewport {
+  cursor: crosshair;
+}
+
+.shell[data-active-tool="image"] .viewport {
+  cursor: copy;
+}
+
+.panning .viewport {
+  cursor: grabbing;
+}
+
+.objectHitTarget {
+  cursor: pointer;
+  outline: none;
+}
+
+.objectHitTarget:focus-visible > :global(.semantic-focus-ring) {
+  opacity: 1;
+}
+
+.marquee {
+  fill: rgba(45, 147, 255, 0.12);
+  stroke: #3182ed;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
+}
+
+.empty {
+  color: #7a8398;
+  font-size: 13px;
+  left: 50%;
+  line-height: 1.5;
+  max-width: 310px;
+  position: absolute;
+  text-align: center;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Persistent chrome stays on the normal paint path so browser/pinch zoom cannot drop it. */
+.toolbar {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.985);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 12px;
+  bottom: 18px;
+  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  pointer-events: auto;
+  position: absolute;
+  right: 18px;
+  z-index: 390;
+}
+
+.toolbar button,
+.menuButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #4f596f;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  height: 32px;
+  justify-content: center;
+  min-width: 32px;
+  padding: 0 9px;
+}
+
+.toolbar button:hover,
+.toolbar button:focus-visible,
+.menuButton:hover,
+.menuButton:focus-visible {
+  background: #eef0ff;
+  color: #4c59d8;
+  outline: none;
+}
+
+.zoomValue {
+  color: #6d768a;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+  text-align: center;
+}
+
+.roomHeaderChrome {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  left: 16px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+  position: absolute;
+  top: 14px;
+  z-index: 390;
+}
+
+.combinedLeftPanel {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.985);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
+  display: flex;
+  height: 64px;
+  max-width: calc(100vw - 86px);
+  min-width: 280px;
+  position: relative;
+}
+
+.combinedLeftPanel:has(.roomTitleEditor) {
+  min-width: min(340px, calc(100vw - 86px));
+  width: min(340px, calc(100vw - 86px));
+}
+
+.backButton {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.985);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);
+  color: #4f596f;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.backButton:hover,
+.backButton:focus-visible {
+  background: #eef0ff;
+  color: #4c59d8;
+  outline: 2px solid #5965e8;
+  outline-offset: 2px;
+}
+
+.headerDivider {
+  background: rgba(201, 207, 220, 0.72);
+  flex: 0 0 auto;
+  height: 30px;
+  width: 1px;
+}
+
+.roomIdentity {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 14px 0 12px;
+}
+
+.brandMini {
+  align-items: center;
+  background: #5965e8;
+  border-radius: 11px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 17px;
+  font-weight: 800;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.roomIdentityText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.roomTitleText,
+.roomTitleButton {
+  color: #20283b;
+  font-size: 13px;
+  font-weight: 740;
+  letter-spacing: -0.018em;
+}
+
+.roomTitleText {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomTitleButton {
+  align-items: center;
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  display: flex;
+  font: inherit;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 3px 2px 0;
+  text-align: left;
+}
+
+.roomTitleButton > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomTitleButton:hover,
+.roomTitleButton:focus-visible {
+  background: rgba(89, 101, 232, 0.08);
+  color: #3541b7;
+  outline: none;
+}
+
+.roomTitleButton:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.24);
+}
+
+.roomTitleEditIcon {
+  flex: 0 0 auto;
+  opacity: 0.38;
+  transition: opacity 130ms ease;
+}
+
+.roomTitleButton:hover .roomTitleEditIcon,
+.roomTitleButton:focus-visible .roomTitleEditIcon {
+  opacity: 0.82;
+}
+
+.roomTitleEditor {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.roomTitleEditor input {
+  background: #fff;
+  border: 1px solid rgba(89, 101, 232, 0.52);
+  border-radius: 6px;
+  color: #20283b;
+  flex: 1 1 86px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 25px;
+  min-width: 0;
+  padding: 0 6px;
+}
+
+.roomTitleEditor input:focus {
+  border-color: #5965e8;
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.16);
+  outline: none;
+}
+
+.roomTitleEditor > button {
+  align-items: center;
+  background: #eef0ff;
+  border: 0;
+  border-radius: 6px;
+  color: #4652ca;
+  display: inline-flex;
+  flex: 0 0 25px;
+  height: 25px;
+  justify-content: center;
+  padding: 0;
+}
+
+.roomTitleEditor > button:hover,
+.roomTitleEditor > button:focus-visible {
+  background: #dfe3ff;
+  outline: none;
+}
+
+.roomTitleEditor > button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.22);
+}
+
+.roomTitleEditor > button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.roomTitleEditor > span {
+  color: #b42318;
+  flex: 1 0 100%;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.25;
+  margin-top: 1px;
+}
+
+.spin {
+  animation: semantic-canvas-spin 900ms linear infinite;
+}
+
+@keyframes semantic-canvas-spin {
+  to { transform: rotate(360deg); }
+}
+
+.roomIdentityText span {
+  color: #737d92;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.menuButton {
+  align-self: stretch;
+  border-radius: 15px 0 0 15px;
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0;
+  width: 48px;
+}
+
+.menu {
+  backdrop-filter: blur(18px) saturate(1.25);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(201, 207, 220, 0.92);
+  border-radius: 12px;
+  box-shadow: 0 14px 42px rgba(39, 47, 77, 0.18);
+  display: grid;
+  gap: 2px;
+  left: 0;
+  min-width: 190px;
+  padding: 6px;
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 391;
+}
+
+.menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #3f485c;
+  display: flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 9px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.menu button:hover,
+.menu button:focus-visible {
+  background: #f0f1ff;
+  color: #4c59d8;
+  outline: none;
+}
+
+.menu button:focus-visible,
+.toolbar button:focus-visible,
+.menuButton:focus-visible {
+  box-shadow: inset 0 0 0 2px #5965e8;
+}
+
+.srOnly {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .shell:focus-visible,
+  .backButton:focus-visible,
+  .toolbar button:focus-visible,
+  .menuButton:focus-visible,
+  .menu button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .objectHitTarget:focus-visible > :global(.semantic-focus-ring),
+  .objectHitTarget:focus-visible :global(.semantic-canvas-object__selection),
+  .viewport :global([data-connector-overlay-focused="true"] .semantic-canvas-object__selection) {
+    opacity: 1;
+    stroke: Highlight !important;
+    stroke-width: 3px;
+  }
+}
+
+@media (max-width: 800px) {
+  .roomHeaderChrome {
+    left: 10px;
+    max-width: calc(100vw - 20px);
+    top: 9px;
+  }
+
+  .combinedLeftPanel {
+    max-width: calc(100vw - 74px);
+    min-width: 0;
+  }
+
+  .combinedLeftPanel:has(.roomTitleEditor) {
+    min-width: min(340px, calc(100vw - 74px));
+    width: min(340px, calc(100vw - 74px));
+  }
+}
+
+@media (max-width: 720px) {
+  .roomHeaderChrome {
+    top: 9px;
+  }
+}

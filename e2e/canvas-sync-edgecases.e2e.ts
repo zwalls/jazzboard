@@ -80,7 +80,27 @@ async function seedComplexGroupMembers(page: Page, roomId: string) {
 }
 
 function renderedShape(page: Page, objectId: string) {
-  return page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  return page
+    .getByTestId("semantic-canvas")
+    .locator(`[data-object-id="${objectId}"][data-object-kind]`);
+}
+
+function semanticCanvas(page: Page) {
+  return page.getByTestId("semantic-canvas");
+}
+
+async function setSelectedShapeStroke(page: Page, color: "Red") {
+  await page.locator('button[data-color-field="shape-stroke"]').click();
+  const swatch = page.getByRole("button", { name: `${color} stroke`, exact: true });
+  await swatch.focus();
+  await swatch.press("Enter");
+}
+
+async function expectRenderedRevision(page: Page, objectId: string, revision: number) {
+  await expect(renderedShape(page, objectId)).toHaveAttribute(
+    "data-object-revision",
+    String(revision),
+  );
 }
 
 async function centerOf(page: Page, objectId: string) {
@@ -89,8 +109,22 @@ async function centerOf(page: Page, objectId: string) {
   return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
 }
 
+async function objectPagePosition(page: Page, objectId: string) {
+  return renderedShape(page, objectId).evaluate((element) => ({
+    x: Number(element.getAttribute("data-object-x")),
+    y: Number(element.getAttribute("data-object-y")),
+  }));
+}
+
+async function selectSemanticObject(page: Page, objectId: string) {
+  const object = renderedShape(page, objectId);
+  await object.focus();
+  await object.press("Enter");
+  await expect(object).toHaveAttribute("data-selected", "true");
+}
+
 async function selectPair(page: Page) {
-  await page.keyboard.press("Escape");
+  await semanticCanvas(page).press("Escape");
   const left = await renderedShape(page, LEFT_ID).boundingBox();
   const right = await renderedShape(page, RIGHT_ID).boundingBox();
   if (!left || !right) throw new Error("The pair is not rendered for marquee selection.");
@@ -110,10 +144,10 @@ async function selectPair(page: Page) {
 }
 
 async function selectObjects(page: Page, objectIds: readonly string[]) {
-  await page.keyboard.press("Escape");
+  await semanticCanvas(page).press("Escape");
   const first = await centerOf(page, objectIds[0]);
   await page.mouse.click(first.x, first.y);
-  await page.keyboard.press("Control+a");
+  await semanticCanvas(page).press("ControlOrMeta+a");
   await expect(page.getByTestId("canvas-selection-count")).toHaveText(`${objectIds.length} selected`);
 }
 
@@ -125,13 +159,44 @@ async function dragFrom(page: Page, objectId: string, dx: number, dy: number) {
   await page.mouse.up();
 }
 
-function semanticTransactionRequest(request: Request, roomId: string) {
+function atomicSemanticMoveRequest(request: Request, roomId: string) {
   const url = new URL(request.url());
-  return (
-    request.method() === "POST" &&
-    url.pathname === `/api/rooms/${encodeURIComponent(roomId)}/semantic` &&
-    (request.postDataJSON() as { action?: string }).action === "transaction"
-  );
+  if (request.method() !== "POST") return false;
+  const body = request.postDataJSON() as {
+    action?: string;
+    command?: { type?: string };
+  };
+  if (
+    url.pathname === `/api/rooms/${encodeURIComponent(roomId)}/commands`
+    && body.command?.type === "move"
+  ) return true;
+  return url.pathname === `/api/rooms/${encodeURIComponent(roomId)}/semantic`
+    && body.action === "transaction";
+}
+
+function semanticMoveTargets(request: Request) {
+  const body = request.postDataJSON() as {
+    command?: {
+      type?: string;
+      targets?: Array<{ objectId: string; expectedRevision?: number }>;
+    };
+    transaction?: {
+      commands?: Array<{
+        type?: string;
+        objectId?: string;
+        expectedRevision?: number;
+        targets?: Array<{ objectId: string; expectedRevision?: number }>;
+      }>;
+    };
+  };
+  if (body.command?.type === "move") return body.command.targets ?? [];
+  return (body.transaction?.commands ?? []).flatMap((command) => {
+    if (command.type === "move") return command.targets ?? [];
+    if (command.type === "update" && command.objectId) {
+      return [{ objectId: command.objectId, expectedRevision: command.expectedRevision }];
+    }
+    return [];
+  });
 }
 
 test.describe("canvas synchronization edge cases", () => {
@@ -141,7 +206,6 @@ test.describe("canvas synchronization edge cases", () => {
     await seedPair(page, host.room.id);
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
-    const baseline = (await getRoom(page.request, host.room.id)).room;
 
     let releaseReplay!: () => void;
     const replayGate = new Promise<void>((resolve) => {
@@ -213,6 +277,7 @@ test.describe("canvas synchronization edge cases", () => {
       // still ambiguous and its serialized queue task remains in flight.
       await dragFrom(page, LEFT_ID, 90, 45);
       const afterSecond = await centerOf(page, LEFT_ID);
+      const afterSecondPage = await objectPagePosition(page, LEFT_ID);
       expect(afterSecond.x - afterFirst.x).toBeGreaterThan(70);
 
       holdRefresh = true;
@@ -230,8 +295,8 @@ test.describe("canvas synchronization edge cases", () => {
         .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision)
         .toBe(3);
       const committed = (await getRoom(page.request, host.room.id)).room;
-      expect(Number(committed.objects[LEFT_ID].x) - Number(baseline.objects[LEFT_ID].x)).toBeCloseTo(155, 0);
-      expect(Number(committed.objects[LEFT_ID].y) - Number(baseline.objects[LEFT_ID].y)).toBeCloseTo(65, 0);
+      expect(Number(committed.objects[LEFT_ID].x)).toBeCloseTo(afterSecondPage.x, 1);
+      expect(Number(committed.objects[LEFT_ID].y)).toBeCloseTo(afterSecondPage.y, 1);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
@@ -244,7 +309,7 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
-  test("saves a multi-selection move as one atomic semantic transaction", async ({ page }) => {
+  test("saves a multi-selection move as one atomic semantic command", async ({ page }) => {
     const host = await createRoomViaApi(page.request, "Batch Mover", "Atomic multi-move");
     await seedPair(page, host.room.id);
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
@@ -253,16 +318,23 @@ test.describe("canvas synchronization edge cases", () => {
     const baseline = await getRoom(page.request, host.room.id);
 
     await selectPair(page);
-    const transactionRequest = page.waitForRequest((request) =>
-      semanticTransactionRequest(request, host.room.id),
+    const localBefore = {
+      left: await objectPagePosition(page, LEFT_ID),
+      right: await objectPagePosition(page, RIGHT_ID),
+    };
+    const moveRequest = page.waitForRequest((request) =>
+      atomicSemanticMoveRequest(request, host.room.id),
     );
     await dragFrom(page, LEFT_ID, 110, 65);
-    const request = await transactionRequest;
-    const transaction = request.postDataJSON() as {
-      transaction: { commands: Array<{ type: string; objectId?: string }> };
+    const localAfter = {
+      left: await objectPagePosition(page, LEFT_ID),
+      right: await objectPagePosition(page, RIGHT_ID),
     };
-    expect(transaction.transaction.commands).toHaveLength(2);
-    expect(new Set(transaction.transaction.commands.map((command) => command.objectId))).toEqual(
+    expect(localAfter.left.x).toBeGreaterThan(localBefore.left.x + 40);
+    expect(localAfter.right.x).toBeGreaterThan(localBefore.right.x + 40);
+    const targets = semanticMoveTargets(await moveRequest);
+    expect(targets).toHaveLength(2);
+    expect(new Set(targets.map((target) => target.objectId))).toEqual(
       new Set([LEFT_ID, RIGHT_ID]),
     );
 
@@ -272,9 +344,13 @@ test.describe("canvas synchronization edge cases", () => {
         return [room.objects[LEFT_ID]?.revision, room.objects[RIGHT_ID]?.revision];
       })
       .toEqual([2, 2]);
+    await expectRenderedRevision(page, LEFT_ID, 2);
+    await expectRenderedRevision(page, RIGHT_ID, 2);
     const saved = (await getRoom(page.request, host.room.id)).room;
-    expect(Number(saved.objects[LEFT_ID].x) - Number(baseline.room.objects[LEFT_ID].x)).toBeCloseTo(110, 0);
-    expect(Number(saved.objects[RIGHT_ID].x) - Number(baseline.room.objects[RIGHT_ID].x)).toBeCloseTo(110, 0);
+    expect(Number(saved.objects[LEFT_ID].x)).toBeCloseTo(localAfter.left.x, 1);
+    expect(Number(saved.objects[RIGHT_ID].x)).toBeCloseTo(localAfter.right.x, 1);
+    expect(Number(saved.objects[LEFT_ID].x)).toBeGreaterThan(Number(baseline.room.objects[LEFT_ID].x));
+    expect(Number(saved.objects[RIGHT_ID].x)).toBeGreaterThan(Number(baseline.room.objects[RIGHT_ID].x));
     await expect
       .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
       .toEqual([]);
@@ -287,7 +363,7 @@ test.describe("canvas synchronization edge cases", () => {
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(renderedShape(page, COMPLEX_GROUP_IDS[0])).toBeVisible({ timeout: 20_000 });
     await selectObjects(page, COMPLEX_GROUP_IDS);
-    await page.keyboard.press("Control+g");
+    await semanticCanvas(page).press("ControlOrMeta+g");
     await expect
       .poll(async () => {
         const objects = (await getRoom(page.request, host.room.id)).room.objects;
@@ -299,6 +375,12 @@ test.describe("canvas synchronization edge cases", () => {
       .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
       .toEqual([]);
     const baseline = (await getRoom(page.request, host.room.id)).room;
+    const localBefore = Object.fromEntries(
+      await Promise.all(COMPLEX_GROUP_NODE_IDS.map(async (objectId) => [
+        objectId,
+        await objectPagePosition(page, objectId),
+      ] as const)),
+    );
 
     const leaseRequests: Array<{ action?: string; targets?: Array<{ objectId: string }> }> = [];
     const failedLeaseStatuses: number[] = [];
@@ -316,14 +398,21 @@ test.describe("canvas synchronization edge cases", () => {
     page.on("request", recordRequest);
     page.on("response", recordResponse);
     try {
-      const transactionRequest = page.waitForRequest((request) =>
-        semanticTransactionRequest(request, host.room.id),
+      const moveRequest = page.waitForRequest((request) =>
+        atomicSemanticMoveRequest(request, host.room.id),
       );
       await dragFrom(page, COMPLEX_GROUP_IDS[4], 120, 70);
-      const transaction = (await transactionRequest).postDataJSON() as {
-        transaction: { commands: Array<{ objectId?: string }> };
-      };
-      expect(new Set(transaction.transaction.commands.map((command) => command.objectId))).toEqual(
+      const localAfter = Object.fromEntries(
+        await Promise.all(COMPLEX_GROUP_NODE_IDS.map(async (objectId) => [
+          objectId,
+          await objectPagePosition(page, objectId),
+        ] as const)),
+      );
+      for (const objectId of COMPLEX_GROUP_NODE_IDS) {
+        expect(localAfter[objectId].x).toBeGreaterThan(localBefore[objectId].x + 40);
+      }
+      const targets = semanticMoveTargets(await moveRequest);
+      expect(new Set(targets.map((target) => target.objectId))).toEqual(
         new Set(COMPLEX_GROUP_NODE_IDS),
       );
 
@@ -333,10 +422,14 @@ test.describe("canvas synchronization edge cases", () => {
           return COMPLEX_GROUP_IDS.map((objectId) => objects[objectId]?.revision);
         })
         .toEqual(COMPLEX_GROUP_IDS.map(() => 3));
+      for (const objectId of COMPLEX_GROUP_IDS) {
+        await expectRenderedRevision(page, objectId, 3);
+      }
       const moved = (await getRoom(page.request, host.room.id)).room;
       for (const objectId of COMPLEX_GROUP_NODE_IDS) {
-        expect(Number(moved.objects[objectId].x) - Number(baseline.objects[objectId].x)).toBeCloseTo(120, 0);
-        expect(Number(moved.objects[objectId].y) - Number(baseline.objects[objectId].y)).toBeCloseTo(70, 0);
+        expect(Number(moved.objects[objectId].x)).toBeCloseTo(localAfter[objectId].x, 1);
+        expect(Number(moved.objects[objectId].y)).toBeCloseTo(localAfter[objectId].y, 1);
+        expect(Number(moved.objects[objectId].x)).toBeGreaterThan(Number(baseline.objects[objectId].x));
       }
       for (const [index, objectId] of COMPLEX_GROUP_CONNECTOR_IDS.entries()) {
         const connector = moved.objects[objectId];
@@ -405,21 +498,7 @@ test.describe("canvas synchronization edge cases", () => {
         displayName: "Keyboard Lease Challenger",
         role: "participant",
       });
-      const left = await centerOf(page, LEFT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
@@ -440,7 +519,7 @@ test.describe("canvas synchronization edge cases", () => {
         };
         return body.action === "renew-many";
       });
-      await page.keyboard.press("ArrowRight");
+      await semanticCanvas(page).press("ArrowRight");
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases).sort())
         .toEqual([CONNECTOR_ID, LEFT_ID]);
@@ -487,7 +566,7 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
-  test("cancels a delayed lease when a keyboard edit returns to authoritative state", async ({
+  test("cancels a delayed lease when a pointer edit returns to authoritative state", async ({
     browser,
     page,
   }) => {
@@ -525,32 +604,22 @@ test.describe("canvas synchronization edge cases", () => {
         displayName: "Lease Cancellation Challenger",
         role: "participant",
       });
-      const left = await centerOf(page, LEFT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
       const baseline = (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID];
+      const start = await centerOf(page, LEFT_ID);
 
       await page.route(humanLeaseUrl, humanLeaseHandler);
-      await page.keyboard.press("ArrowRight");
-      await page.keyboard.press("ControlOrMeta+z");
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
       await firstAcquireBlocked;
-      // Let the exact-authority draft pass the debounce and settle as a no-op
-      // while lease acquisition is still blocked.
+      await page.mouse.move(start.x + 45, start.y + 20, { steps: 3 });
+      await page.mouse.move(start.x, start.y, { steps: 3 });
+      await page.mouse.up();
+      // Let the exact-authority gesture settle as a no-op while lease
+      // acquisition is still blocked.
       await page.waitForTimeout(350);
       releaseFirstAcquire();
 
@@ -677,32 +746,22 @@ test.describe("canvas synchronization edge cases", () => {
         displayName: "Lease Barrier Challenger",
         role: "participant",
       });
-      const left = await centerOf(page, LEFT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
       const baseline = (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID];
+      const start = await centerOf(page, LEFT_ID);
 
       await page.route(humanLeaseUrl, humanLeaseHandler);
       for (const url of mutationUrls) await page.route(url, mutationHandler);
 
-      await page.keyboard.press("ArrowRight");
-      await page.keyboard.press("ControlOrMeta+z");
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
       await firstAcquireBlocked;
+      await page.mouse.move(start.x + 45, start.y + 20, { steps: 3 });
+      await page.mouse.move(start.x, start.y, { steps: 3 });
+      await page.mouse.up();
       await page.waitForTimeout(350);
       releaseFirstAcquire();
       await staleCleanupBlocked;
@@ -723,7 +782,7 @@ test.describe("canvas synchronization edge cases", () => {
         };
         return body.action === "acquire" && body.objectId === LEFT_ID && body.operation === "edit";
       });
-      await page.getByRole("radio", { name: "Color — Red" }).click();
+      await setSelectedShapeStroke(page, "Red");
 
       // A broken implementation lets the new acquire overtake stale cleanup.
       // Exercise that ordering when it occurs; a serialized implementation
@@ -771,7 +830,6 @@ test.describe("canvas synchronization edge cases", () => {
         .toEqual([]);
       expect((await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]).toMatchObject({
         revision: 2,
-        fill: "red",
         stroke: "red",
       });
     } finally {
@@ -864,28 +922,14 @@ test.describe("canvas synchronization edge cases", () => {
         displayName: "Renewal Challenger",
         role: "participant",
       });
-      const left = await centerOf(page, LEFT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
 
       await page.route(humanLeaseUrl, humanLeaseHandler);
       for (const url of mutationUrls) await page.route(url, mutationHandler);
-      await page.getByRole("radio", { name: "Color — Red" }).click();
+      await setSelectedShapeStroke(page, "Red");
       await humanCommandBlocked;
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
@@ -924,11 +968,11 @@ test.describe("canvas synchronization edge cases", () => {
           const room = (await getRoom(page.request, host.room.id)).room;
           return {
             revision: room.objects[LEFT_ID]?.revision,
-            fill: room.objects[LEFT_ID]?.kind === "shape" ? room.objects[LEFT_ID].fill : null,
+            stroke: room.objects[LEFT_ID]?.kind === "shape" ? room.objects[LEFT_ID].stroke : null,
             leased: Boolean(room.leases[LEFT_ID]),
           };
         })
-        .toEqual({ revision: 2, fill: "red", leased: false });
+        .toEqual({ revision: 2, stroke: "red", leased: false });
 
       const agentLeaseResponse = await agentContext.request.post(
         `/api/rooms/${encodeURIComponent(host.room.id)}/agent/leases`,
@@ -1049,19 +1093,20 @@ test.describe("canvas synchronization edge cases", () => {
     try {
       await page.route(leaseUrl, leaseHandler);
       for (const url of mutationUrls) await page.route(url, mutationHandler);
-      await page.getByRole("radio", { name: "Color — Red" }).click();
+      await setSelectedShapeStroke(page, "Red");
       await mutationBlocked;
       await renewManySeen;
 
       await expect
         .poll(() => leaseActions.filter((item) => item.action === "renew").length)
         .toBeGreaterThanOrEqual(2);
+      if (!staleObjectId) throw new Error("The stale renewal target was not captured.");
+      const validSiblingId = staleObjectId === LEFT_ID ? RIGHT_ID : LEFT_ID;
       await expect
-        .poll(() => leaseActions.filter((item) => item.action === "release-many").length)
-        .toBeGreaterThanOrEqual(1);
-      await expect
-        .poll(() => leaseActions.filter((item) => item.action === "release").length)
-        .toBeGreaterThanOrEqual(2);
+        .poll(() => leaseActions
+          .filter((item) => item.action === "release")
+          .map((item) => item.objectId))
+        .toEqual([validSiblingId]);
       await expect
         .poll(async () => {
           const leases = (await getRoom(page.request, host.room.id)).room.leases;
@@ -1071,13 +1116,6 @@ test.describe("canvas synchronization edge cases", () => {
           };
         })
         .toEqual({ objectIds: [staleObjectId], replacementLeaseId });
-      expect(
-        new Set(
-          leaseActions
-            .filter((item) => item.action === "release")
-            .map((item) => item.objectId),
-        ),
-      ).toEqual(new Set([LEFT_ID, RIGHT_ID]));
       await expect(
         page.getByRole("alert").filter({ hasText: "Canvas changed elsewhere" }),
       ).toContainText("active-object lease is missing");
@@ -1141,22 +1179,7 @@ test.describe("canvas synchronization edge cases", () => {
         displayName: "Disjoint Keyboard Challenger",
         role: "participant",
       });
-      const left = await centerOf(page, LEFT_ID);
-      const right = await centerOf(page, RIGHT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
@@ -1177,9 +1200,9 @@ test.describe("canvas synchronization edge cases", () => {
       expect(agentLease?.objectId).toBe(LEFT_ID);
 
       await page.route(humanLeaseUrl, humanLeaseHandler);
-      await page.keyboard.press("ArrowRight");
-      await page.mouse.click(right.x, right.y);
-      await page.keyboard.press("ArrowRight");
+      await semanticCanvas(page).press("ArrowRight");
+      await selectSemanticObject(page, RIGHT_ID);
+      await semanticCanvas(page).press("ArrowRight");
       await acquireBlocked;
 
       // B must be able to save while A's unrelated lease acquisition remains
@@ -1250,26 +1273,13 @@ test.describe("canvas synchronization edge cases", () => {
 
     try {
       const left = await centerOf(page, LEFT_ID);
-      const selectionLeaseReleased = page.waitForResponse((response) => {
-        const request = response.request();
-        const url = new URL(request.url());
-        if (
-          request.method() !== "POST" ||
-          url.pathname !== `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
-        ) {
-          return false;
-        }
-        const body = request.postDataJSON() as { action?: string; objectId?: string };
-        return body.action === "release" && body.objectId === LEFT_ID;
-      });
-      await page.mouse.click(left.x, left.y);
-      await selectionLeaseReleased;
+      await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
 
       for (const url of mutationUrls) await page.route(url, mutationHandler);
-      await page.keyboard.press("ArrowRight");
+      await semanticCanvas(page).press("ArrowRight");
       await page.mouse.move(left.x, left.y);
       await page.mouse.down();
       pointerDown = true;
@@ -1432,7 +1442,7 @@ test.describe("canvas synchronization edge cases", () => {
       expect(agentLease?.objectId).toBe(LEFT_ID);
 
       await page.route(humanLeaseUrl, humanLeaseHandler);
-      await page.keyboard.press("ArrowRight");
+      await semanticCanvas(page).press("ArrowRight");
       await dragFrom(page, RIGHT_ID, 85, 45);
 
       await expect
@@ -1803,7 +1813,7 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
-  test("treats a tldraw duplicate as a new semantic object", async ({ page }) => {
+  test("treats a canvas duplicate as a new semantic object", async ({ page }) => {
     const host = await createRoomViaApi(page.request, "Clone Maker", "Duplicate identity");
     await seedPair(page, host.room.id);
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
@@ -1812,8 +1822,7 @@ test.describe("canvas synchronization edge cases", () => {
 
     const start = await centerOf(page, LEFT_ID);
     await page.mouse.click(start.x, start.y);
-    await page.mouse.click(start.x, start.y, { button: "right" });
-    await page.getByRole("menuitem", { name: /Duplicate/i }).click();
+    await semanticCanvas(page).press("ControlOrMeta+d");
 
     await expect
       .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.objects).length)
@@ -1828,6 +1837,7 @@ test.describe("canvas synchronization edge cases", () => {
       (object) => object.id !== LEFT_ID && object.id !== RIGHT_ID,
     );
     expect(clone).toMatchObject({ kind: "shape", label: "Left service", revision: 1 });
+    await expectRenderedRevision(page, clone!.id, 1);
   });
 
   test("duplicates a group with a fresh shared semantic group identity", async ({ page }) => {
@@ -1837,7 +1847,7 @@ test.describe("canvas synchronization edge cases", () => {
     await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
 
     await selectPair(page);
-    await page.keyboard.press("Control+g");
+    await semanticCanvas(page).press("ControlOrMeta+g");
     await expect
       .poll(async () => {
         const room = (await getRoom(page.request, host.room.id)).room;
@@ -1848,7 +1858,7 @@ test.describe("canvas synchronization edge cases", () => {
     const originalGroupId = grouped.objects[LEFT_ID].groupId;
     expect(originalGroupId).toBe(grouped.objects[RIGHT_ID].groupId);
 
-    await page.keyboard.press("Control+d");
+    await semanticCanvas(page).press("ControlOrMeta+d");
 
     await expect
       .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.objects).length)
@@ -1872,13 +1882,16 @@ test.describe("canvas synchronization edge cases", () => {
     await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
 
     await selectPair(page);
-    await page.keyboard.press("Control+g");
+    await semanticCanvas(page).press("ControlOrMeta+g");
     await expect
       .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.groupId)
       .toEqual(expect.any(String));
     const grouped = (await getRoom(page.request, host.room.id)).room;
     const groupId = grouped.objects[LEFT_ID].groupId;
     expect(groupId).toBe(grouped.objects[RIGHT_ID].groupId);
+    await expect
+      .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+      .toEqual([]);
 
     const leaseResponse = await page.request.post(
       `/api/rooms/${encodeURIComponent(host.room.id)}/agent/leases`,
@@ -1917,8 +1930,7 @@ test.describe("canvas synchronization edge cases", () => {
 
     const left = await centerOf(page, LEFT_ID);
     await page.mouse.click(left.x, left.y);
-    await page.mouse.click(left.x, left.y, { button: "right" });
-    await page.getByRole("menuitem", { name: /Duplicate/i }).click();
+    await semanticCanvas(page).press("ControlOrMeta+d");
     await expect
       .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.objects).length)
       .toBe(2);
@@ -1936,7 +1948,7 @@ test.describe("canvas synchronization edge cases", () => {
     await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
 
     await selectPair(page);
-    await page.keyboard.press("Control+g");
+    await semanticCanvas(page).press("ControlOrMeta+g");
     await expect
       .poll(async () => {
         const room = (await getRoom(page.request, host.room.id)).room;
@@ -1948,7 +1960,7 @@ test.describe("canvas synchronization edge cases", () => {
       .toEqual([]);
     const grouped = (await getRoom(page.request, host.room.id)).room;
 
-    await page.keyboard.press("ArrowRight");
+    await semanticCanvas(page).press("ArrowRight");
     await expect
       .poll(async () => {
         const room = (await getRoom(page.request, host.room.id)).room;
@@ -1974,14 +1986,15 @@ test.describe("canvas synchronization edge cases", () => {
 
     const center = await centerOf(page, LEFT_ID);
     await page.mouse.click(center.x, center.y);
-    await page.keyboard.press("Delete");
+    await semanticCanvas(page).press("Delete");
     await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID] ?? null).toBeNull();
 
-    await page.keyboard.press("Meta+z");
+    await semanticCanvas(page).press("ControlOrMeta+z");
     await expect(renderedShape(page, LEFT_ID)).toBeVisible();
     await expect
       .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision ?? null)
       .toBe(1);
+    await expectRenderedRevision(page, LEFT_ID, 1);
     const recreated = (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID];
     expect(Number(recreated.createdAt)).toBeGreaterThan(Number(baseline.createdAt));
 
@@ -1989,9 +2002,10 @@ test.describe("canvas synchronization edge cases", () => {
     await expect
       .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision ?? null)
       .toBe(2);
+    await expectRenderedRevision(page, LEFT_ID, 2);
   });
 
-  test("keeps an undone failed deletion locked until authoritative recovery completes", async ({
+  test("keeps a failed deletion tombstoned until authoritative recovery completes", async ({
     browser,
     page,
   }) => {
@@ -2064,17 +2078,18 @@ test.describe("canvas synchronization edge cases", () => {
           url.pathname === `/api/rooms/${encodeURIComponent(host.room.id)}/leases`
         );
       });
-      await page.keyboard.press("Delete");
+      await semanticCanvas(page).press("Delete");
       await busyResponse;
       await refreshBlocked;
+      await expect(
+        page.getByRole("alert").filter({ hasText: "Canvas changed elsewhere" }),
+      ).toContainText("Delete Lease Holder is currently deleting this object.");
 
-      await page.keyboard.press("Meta+z");
-      await expect(renderedShape(page, LEFT_ID)).toBeVisible();
-      const recoveringPosition = await centerOf(page, LEFT_ID);
-      await dragFrom(page, LEFT_ID, 90, 55);
-      const afterBlockedDrag = await centerOf(page, LEFT_ID);
-      expect(afterBlockedDrag.x).toBeCloseTo(recoveringPosition.x, 0);
-      expect(afterBlockedDrag.y).toBeCloseTo(recoveringPosition.y, 0);
+      // A rejected, unacknowledged mutation is not part of history. Until the
+      // authoritative refresh resolves, Undo must not replay it or discard its
+      // protected tombstone.
+      await semanticCanvas(page).press("ControlOrMeta+z");
+      await expect(renderedShape(page, LEFT_ID)).toHaveCount(0);
       expect((await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]).toMatchObject({
         revision: baseline.revision,
         x: baseline.x,
@@ -2091,6 +2106,13 @@ test.describe("canvas synchronization edge cases", () => {
       });
       releaseRefresh();
       await refreshResponse;
+      await expect(renderedShape(page, LEFT_ID)).toBeVisible();
+      await expectRenderedRevision(page, LEFT_ID, baseline.revision);
+      const recoveredPosition = await centerOf(page, LEFT_ID);
+      expect((await getRoom(page.request, host.room.id)).room.leases[LEFT_ID]).toMatchObject({
+        leaseId: agentLease?.leaseId,
+        actor: { displayName: "Delete Lease Holder" },
+      });
 
       const released = await agentContext.request.post(
         `/api/rooms/${encodeURIComponent(host.room.id)}/agent/leases`,
@@ -2115,6 +2137,9 @@ test.describe("canvas synchronization edge cases", () => {
           timeout: 10_000,
         })
         .toBe(2);
+      await expectRenderedRevision(page, LEFT_ID, 2);
+      const movedPosition = await centerOf(page, LEFT_ID);
+      expect(movedPosition.x - recoveredPosition.x).toBeGreaterThan(40);
     } finally {
       releaseRefresh();
       await page.unroute(roomUrl, roomHandler).catch(() => undefined);
@@ -2148,7 +2173,7 @@ test.describe("canvas synchronization edge cases", () => {
           url.pathname.endsWith(`/rooms/${encodeURIComponent(host.room.id)}/semantic`))
       );
     });
-    await page.keyboard.press("ArrowRight");
+    await semanticCanvas(page).press("ArrowRight");
     await page.getByLabel("Back to Jazzboard home").click();
     await saveRequest;
     await expect(page).toHaveURL(/\/$/);

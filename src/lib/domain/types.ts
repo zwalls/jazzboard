@@ -127,19 +127,20 @@ export type ShapeObject = CanvasObjectBase & {
 
 export type ConnectorEndpoint = Point & {
   objectId: string | null;
-  /** Exact tldraw v3 arrow-binding anchor; omitted on legacy persisted connectors. */
+  /** Normalized target-local anchor; omitted on legacy persisted connectors. */
   normalizedAnchor?: Point | null;
   /** Whether normalizedAnchor, rather than the target center, is authoritative. */
   isPrecise?: boolean | null;
   /** Whether the rendered connector may enter the target instead of stopping at its edge. */
   isExact?: boolean | null;
-  /** Exact tldraw v3 elbow-binding snap metadata. */
+  /** Endpoint snap intent retained across routing and rendering. */
   snap?: ConnectorEndpointSnap | null;
 };
 
 export type ConnectorEndpointSnap = "center" | "edge-point" | "edge" | "none";
 export type ConnectorRoutingMode = "auto" | "straight" | "curved" | "elbow";
 export type ConnectorRoutingKind = Exclude<ConnectorRoutingMode, "auto">;
+export type ConnectorLabelPositionSource = "generated" | "authored";
 
 /** Caller intent before the server resolves deterministic ports and obstacle avoidance. */
 export type ConnectorRoutingInput = {
@@ -149,13 +150,18 @@ export type ConnectorRoutingInput = {
   labelPosition?: number;
 };
 
-/** Canonical persisted intent plus the concrete tldraw-compatible resolution. */
+/** Canonical persisted intent plus its concrete renderer-neutral resolution. */
 export type ConnectorRouting = {
   mode: ConnectorRoutingMode;
   kind: ConnectorRoutingKind;
   bend: number;
   elbowMidPoint: number;
   labelPosition: number;
+  /**
+   * Distinguishes an automatic solver result from an explicit caller choice.
+   * Optional so rooms persisted before this marker remain readable.
+   */
+  labelPositionSource?: ConnectorLabelPositionSource;
 };
 
 export type ConnectorObject = CanvasObjectBase & {

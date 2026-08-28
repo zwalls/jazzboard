@@ -170,7 +170,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "list_activity",
       title: "List recent room activity",
       description:
-        "List authorized activity summaries by actor, object, Diagram, or revision cursor, including exact post-state guards.",
+        "List bounded room activity by actor, object, Diagram, or revision cursor with safe-revert guards.",
       schema: listActivityInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -194,7 +194,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "read_activity",
       title: "Read one room activity",
       description:
-        "Read one activity by stable ID with attribution, intent, affected object and Diagram IDs, bounds, and the exact guards required for a safe revert.",
+        "Read one activity's attribution, intent, affected IDs, bounds, and exact safe-revert guards.",
       schema: readActivityInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -214,7 +214,7 @@ export function createJazzboardActivityWebMcpTools(
       name: "revert_activity",
       title: "Safely revert one room activity",
       description:
-        "Compensate one activity without rewriting history. Supply every read_activity guard; conflicts fail atomically and review mode returns `proposed`.",
+        "Compensate one activity using every read_activity guard; conflicts reject atomically. Review mode may only propose.",
       schema: revertActivityInput,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {

@@ -1,9 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 import { existsSync } from "node:fs";
 
-const useInstalledChrome =
-  process.env.PLAYWRIGHT_USE_INSTALLED_CHROME === "1" ||
-  existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+const installedChromePreference = process.env.PLAYWRIGHT_USE_INSTALLED_CHROME;
+const useInstalledChrome = installedChromePreference === "1" || (
+  installedChromePreference !== "0"
+  && existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+);
 const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
 const baseURL = externalBaseUrl ?? "http://localhost:3000";
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === "1" || Boolean(externalBaseUrl);

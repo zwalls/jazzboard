@@ -26,6 +26,7 @@ function artifact(label: string): CanvasPreviewArtifact {
         objectRevisions: [{ objectId: "object-a", revision: 3 }],
       },
       warnings: [],
+      visualQuality: null,
     },
   };
 }

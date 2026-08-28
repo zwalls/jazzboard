@@ -23,6 +23,7 @@ import type {
   AgentActivity,
 } from "@/lib/domain/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
+import { reconcileRoomSnapshot } from "@/lib/client/room-reconciliation";
 import {
   connectRoomRealtime,
   type RoomRealtimeConnection,
@@ -91,6 +92,8 @@ export function shouldAcceptRoomRevision(currentRevision: number | null, nextRev
   return currentRevision === null || nextRevision > currentRevision;
 }
 
+export { reconcileRoomSnapshot } from "@/lib/client/room-reconciliation";
+
 export function useRoom(roomId: string) {
   const roomVisit = useMemo<RoomVisit>(() => ({ roomId }), [roomId]);
   const [roomState, setRoomState] = useState<ScopedValue<RoomState | null>>({
@@ -158,16 +161,13 @@ export function useRoom(roomId: string) {
   const acceptRoom = useCallback((next: RoomState) => {
     const activeVisit = roomVisitRef.current;
     if (!activeVisit || next.id !== activeVisit.roomId) return false;
-    const currentRevision = roomRef.current?.id === next.id
-      ? roomStateRevision(roomRef.current)
-      : null;
-    if (shouldAcceptRoomRevision(currentRevision, roomStateRevision(next))) {
-      const projected = projectTransientPresence(next);
-      roomRef.current = projected;
-      setRoomState({ visit: activeVisit, value: projected });
-      return true;
-    }
-    return false;
+    const current = roomRef.current?.id === next.id ? roomRef.current : null;
+    const reconciled = reconcileRoomSnapshot(current, next);
+    if (!reconciled) return false;
+    const projected = projectTransientPresence(reconciled);
+    roomRef.current = projected;
+    setRoomState({ visit: activeVisit, value: projected });
+    return true;
   }, [projectTransientPresence]);
 
   const acceptPresence = useCallback((delta: RoomPresenceDelta) => {

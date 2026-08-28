@@ -6,6 +6,7 @@ import type { RoomRealtimeOptions } from "@/lib/realtime/client";
 
 import {
   applyTransientHumanPresence,
+  reconcileRoomSnapshot,
   shouldAcceptRoomRevision,
   useRoom,
 } from "./use-room";
@@ -168,6 +169,90 @@ describe("shouldAcceptRoomRevision", () => {
 
   it("rejects an older room revision", () => {
     expect(shouldAcceptRoomRevision(4, 3)).toBe(false);
+  });
+});
+
+describe("reconcileRoomSnapshot", () => {
+  it("accepts a newer document that arrives behind newer presence without regressing coordination", () => {
+    const current = room("room-a", 1, ["participant-a"], 5);
+    current.participants["participant-a"] = {
+      ...current.participants["participant-a"],
+      lastSeenAt: 50,
+      human: {
+        ...current.participants["participant-a"].human,
+        cursor: { x: 90, y: 120 },
+        lastSeenAt: 50,
+      },
+    };
+    current.leases = {
+      node: {
+        leaseId: "lease-node",
+        objectId: "node",
+        actor: { participantId: "participant-a", displayName: "A", color: "blue", kind: "human" },
+        operation: "move",
+        objectRevision: 1,
+        acquiredAt: 20,
+        expiresAt: 60,
+      },
+    };
+    const next = room("room-a", 2, ["participant-a", "participant-b"], 4);
+    next.objects = {
+      note: {
+        id: "note",
+        kind: "text",
+        x: 10,
+        y: 20,
+        width: 120,
+        height: 50,
+        rotation: 0,
+        zIndex: 1,
+        revision: 1,
+        groupId: null,
+        diagramIds: [],
+        createdAt: 4,
+        updatedAt: 4,
+        createdBy: { participantId: "participant-a", displayName: "A", color: "blue", kind: "human" },
+        lastEditedBy: { participantId: "participant-a", displayName: "A", color: "blue", kind: "human" },
+        content: "New durable document",
+        color: "black",
+        size: "m",
+        align: "start",
+      },
+    };
+
+    const reconciled = reconcileRoomSnapshot(current, next);
+
+    expect(reconciled).toMatchObject({ roomRevision: 2, stateRevision: 5 });
+    expect(reconciled?.objects).toBe(next.objects);
+    expect(reconciled?.leases).toBe(current.leases);
+    expect(reconciled?.participants["participant-a"].human.cursor).toEqual({ x: 90, y: 120 });
+    expect(reconciled?.participants["participant-b"]).toBe(next.participants["participant-b"]);
+  });
+
+  it("accepts newer coordination behind a newer document without regressing the document", () => {
+    const current = room("room-a", 3, ["participant-a"], 7);
+    current.objects = { stable: { id: "stable", kind: "shape" } as RoomState["objects"][string] };
+    const next = room("room-a", 2, ["participant-a"], 8);
+    next.participants["participant-a"] = {
+      ...next.participants["participant-a"],
+      connected: false,
+      lastSeenAt: 80,
+    };
+
+    const reconciled = reconcileRoomSnapshot(current, next);
+
+    expect(reconciled).toMatchObject({ roomRevision: 3, stateRevision: 8 });
+    expect(reconciled?.objects).toBe(current.objects);
+    expect(reconciled?.participants["participant-a"]).toMatchObject({ connected: false, lastSeenAt: 80 });
+  });
+
+  it("returns the original newer snapshot when both planes advance and rejects dominated snapshots", () => {
+    const current = room("room-a", 2, ["participant-a"], 5);
+    const newer = room("room-a", 3, ["participant-a"], 6);
+
+    expect(reconcileRoomSnapshot(current, newer)).toBe(newer);
+    expect(reconcileRoomSnapshot(newer, current)).toBeNull();
+    expect(reconcileRoomSnapshot(current, structuredClone(current))).toBeNull();
   });
 });
 

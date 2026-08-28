@@ -6,7 +6,7 @@ test("holds an edit lease for a live human text gesture and gives an agent struc
   const host = await createRoomViaApi(page.request, "Hana Human", "Human lease conflict");
   await createCanvasObject(page.request, host.room.id, textObject("leased-copy", "Edit me live", 360, 250), "human");
   await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
-  await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("semantic-canvas")).toBeVisible({ timeout: 20_000 });
 
   const collaboratorContext = await browser.newContext({ baseURL: new URL(page.url()).origin });
   try {
@@ -16,7 +16,10 @@ test("holds an edit lease for a live human text gesture and gives an agent struc
       role: "participant",
     });
 
-    await page.getByTestId("canvas").getByText("Edit me live", { exact: true }).dblclick();
+    await page
+      .getByTestId("semantic-canvas")
+      .locator('[data-object-id="leased-copy"][data-object-kind]')
+      .dblclick();
     await expect
       .poll(async () => (await getRoom(page.request, host.room.id)).room.leases["leased-copy"]?.operation ?? null)
       .toBe("edit");

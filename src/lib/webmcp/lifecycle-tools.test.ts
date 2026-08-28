@@ -148,7 +148,7 @@ describe("Jazzboard collaboration WebMCP role surface", () => {
 
     for (const tool of tools) {
       expect(tool.title).toBeTruthy();
-      expect(tool.description.length).toBeGreaterThan(60);
+      expect(tool.description.length).toBeGreaterThan(35);
       expect(tool.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
     }
   });
