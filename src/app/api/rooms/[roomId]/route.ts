@@ -1,17 +1,23 @@
 import { z } from "zod";
 
 import { DomainError } from "@/lib/domain/errors";
+import { roomTitleSchema } from "@/lib/domain/schemas";
 import {
   CLIENT_CAPABILITIES_HEADER,
   SPLIT_STATE_CLIENT_CAPABILITY,
 } from "@/lib/realtime/protocol";
 import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
-import { readAuthorizedRoom, upgradeMembership } from "@/lib/server/room-service";
+import { readAuthorizedRoom, renameRoom, upgradeMembership } from "@/lib/server/room-service";
 import { requireGuestParticipantId } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ roomId: string }> };
+
+const roomPatchRequestSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("upgrade_role") }).strict(),
+  z.object({ action: z.literal("rename"), title: roomTitleSchema, expectedTitle: roomTitleSchema }).strict(),
+]);
 
 export async function GET(request: Request, context: Context): Promise<Response> {
   try {
@@ -40,15 +46,17 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = z.object({ action: z.literal("upgrade_role") }).parse(await readJsonBody(request));
+    const body = roomPatchRequestSchema.parse(await readJsonBody(request));
     const room = await runMutationRequest({
       request,
       participantId,
       roomId,
-      operation: "room.upgrade_role",
+      operation: body.action === "rename" ? "room.rename" : "room.upgrade_role",
       actorKind: "human",
       parsedBody: body,
-      execute: () => upgradeMembership(roomId, participantId),
+      execute: () => body.action === "rename"
+        ? renameRoom(roomId, participantId, body.title, body.expectedTitle)
+        : upgradeMembership(roomId, participantId),
     });
     return json({ ok: true, room, participantId, action: body.action });
   } catch (error) {

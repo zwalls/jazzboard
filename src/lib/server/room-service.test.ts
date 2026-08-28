@@ -10,6 +10,7 @@ import {
   listRoomActivities,
   readAuthorizedRoom,
   readRoomActivity,
+  renameRoom,
   runActivityRevert,
   runCanvasCommand,
   runLeaseAction,
@@ -102,6 +103,50 @@ describe("room service authorization", () => {
       participants: { p_spectator: { role: "spectator" } },
     });
     await expectDomainError(readAuthorizedRoom(room.id, "p_outsider"), "FORBIDDEN");
+  });
+
+  it("renames a room as a durable participant mutation without touching awareness", async () => {
+    const { store, room } = await seededRoom();
+    const before = await store.getRoom(room.id);
+    const events: RoomEvent[] = [];
+    const unsubscribe = subscribeToLocalRoomEvents((event) => events.push(event));
+
+    const renamed = await renameRoom(
+      room.id,
+      "p_owner",
+      "Architecture review",
+      "Authorization room",
+    );
+    unsubscribe();
+
+    expect(renamed.title).toBe("Architecture review");
+    expect(renamed.roomRevision).toBe((before?.roomRevision ?? 0) + 1);
+    expect(renamed.participants.p_owner.lastSeenAt).toBe(before?.participants.p_owner.lastSeenAt);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "room.updated",
+      actor: { participantId: "p_owner", kind: "human" },
+    });
+  });
+
+  it("rejects spectator and stale concurrent room renames", async () => {
+    const { store, room } = await seededRoom();
+
+    await expectDomainError(
+      renameRoom(room.id, "p_spectator", "Spectator title", "Authorization room"),
+      "FORBIDDEN",
+    );
+    await renameRoom(room.id, "p_owner", "First title", "Authorization room");
+    const conflict = await expectDomainError(
+      renameRoom(room.id, "p_owner", "Second title", "Authorization room"),
+      "REVISION_CONFLICT",
+    );
+
+    expect(conflict.details).toEqual({
+      expectedTitle: "Authorization room",
+      actualTitle: "First title",
+    });
+    await expect(store.getRoom(room.id)).resolves.toMatchObject({ title: "First title" });
   });
 
   it("attributes a membership join event to the joining guest", async () => {

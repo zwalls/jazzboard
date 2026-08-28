@@ -11,6 +11,7 @@ import {
   presenceRequestSchema,
   reviewProposalDecisionSchema,
   reviewProposalListQuerySchema,
+  roomTitleSchema,
   spotlightRequestSchema,
 } from "./schemas";
 
@@ -30,6 +31,13 @@ describe("room request schemas", () => {
       displayName: "Alice",
       title: "Untitled Jazzboard",
     });
+  });
+
+  it("normalizes room titles and enforces the shared length boundary", () => {
+    expect(roomTitleSchema.parse("  Architecture review  ")).toBe("Architecture review");
+    expect(roomTitleSchema.safeParse("   ").success).toBe(false);
+    expect(roomTitleSchema.safeParse("a".repeat(100)).success).toBe(true);
+    expect(roomTitleSchema.safeParse("a".repeat(101)).success).toBe(false);
   });
 
   it("accepts only a four-digit join code and an explicit role", () => {

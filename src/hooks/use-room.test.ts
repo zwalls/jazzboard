@@ -198,6 +198,30 @@ describe("applyTransientHumanPresence", () => {
 });
 
 describe("useRoom request ordering", () => {
+  it("sends a title-specific compare-and-set rename and accepts the returned room", async () => {
+    const current = room("room-a", 3, ["participant-a"]);
+    const renamed = { ...room("room-a", 4, ["participant-a"]), title: "Architecture review" };
+    mocks.apiRequest.mockResolvedValueOnce({ ok: true, room: renamed, participantId: "participant-a" });
+    const { result } = renderHook(() => useRoom("room-a"));
+    act(() => {
+      realtimeFor("room-a").onSnapshot(current, { cursor: null, replayTruncated: false });
+    });
+
+    await act(async () => {
+      await result.current.renameRoom("Architecture review", current.title);
+    });
+
+    expect(mocks.apiRequest).toHaveBeenCalledWith("/api/rooms/room-a", {
+      method: "PATCH",
+      body: JSON.stringify({
+        action: "rename",
+        title: "Architecture review",
+        expectedTitle: current.title,
+      }),
+    });
+    expect(result.current.room?.title).toBe("Architecture review");
+  });
+
   it("projects newer transient motion without advancing state and resists older durable keyframes", () => {
     const { result } = renderHook(() => useRoom("room-a"));
     const realtime = realtimeFor("room-a");
