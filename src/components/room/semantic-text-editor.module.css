@@ -6,13 +6,13 @@
 
 .editor {
   background: rgba(255, 255, 255, 0.96);
-  border: 2px solid #5965e8;
+  border: 1.5px solid #3182ed;
   border-radius: 4px;
-  box-shadow: 0 0 0 3px rgba(89, 101, 232, 0.18), 0 8px 24px rgba(28, 34, 58, 0.12);
+  box-shadow: 0 0 0 3px rgba(49, 130, 237, 0.16), 0 8px 24px rgba(28, 34, 58, 0.1);
   box-sizing: border-box;
   color: #182033;
   display: block;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Shantell Sans", "Comic Sans MS", "Comic Sans", cursive;
   height: 100%;
   margin: 0;
   min-height: 0;
@@ -27,7 +27,7 @@
 }
 
 .editor::selection {
-  background: rgba(89, 101, 232, 0.24);
+  background: rgba(49, 130, 237, 0.24);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -122,7 +122,7 @@ describe("semantic object schemas", () => {
           { x: 5, y: 5 },
         ],
       }),
-    ).toMatchObject({ color: "red", size: "m" });
+    ).toMatchObject({ color: "black", size: "m" });
   });
 
   it("rejects non-finite geometry, non-positive dimensions, and underspecified drawings", () => {

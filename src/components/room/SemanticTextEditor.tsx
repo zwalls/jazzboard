@@ -15,6 +15,13 @@ import {
   SEMANTIC_TEXT_EDIT_LIMITS,
   type SemanticTextEditableObject,
 } from "@/lib/canvas/semantic-text-edit-session";
+import {
+  SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
+  SEMANTIC_DRAW_FONT_FAMILY,
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_TEXT_FONT_SIZES,
+  SEMANTIC_TEXT_LINE_HEIGHT,
+} from "@/lib/canvas/semantic-visual-style";
 import type { Viewport } from "@/lib/domain/types";
 
 import styles from "./semantic-text-editor.module.css";
@@ -38,13 +45,6 @@ export type SemanticTextEditorProps = Readonly<{
 }>;
 
 type TerminalAction = "commit" | "cancel";
-
-const TEXT_FONT_SIZES = Object.freeze({
-  s: 16,
-  m: 20,
-  l: 28,
-  xl: 36,
-});
 
 function usableZoom(viewport: Viewport): number {
   return Number.isFinite(viewport.zoom) && viewport.zoom > 0 ? viewport.zoom : 1;
@@ -85,7 +85,13 @@ export function SemanticTextEditor({
   const topLeft = pageToViewportPoint({ x: object.x, y: object.y }, viewport);
   const field = object.kind === "text" ? "content" : object.kind === "image" ? "alt" : "label";
   const maxLength = SEMANTIC_TEXT_EDIT_LIMITS[field];
-  const fontSize = object.kind === "text" ? TEXT_FONT_SIZES[object.size] : 15;
+  const fontSize = object.kind === "text"
+    ? SEMANTIC_TEXT_FONT_SIZES[object.size]
+    : object.kind === "shape"
+      ? SEMANTIC_SHAPE_LABEL_FONT_SIZE
+      : object.kind === "connector"
+        ? SEMANTIC_CONNECTOR_LABEL_FONT_SIZE
+        : 14;
   const textAlign = object.kind === "text"
     ? object.align === "middle"
       ? "center"
@@ -105,8 +111,9 @@ export function SemanticTextEditor({
     zIndex: 370,
   };
   const editorStyle: CSSProperties = {
+    fontFamily: SEMANTIC_DRAW_FONT_FAMILY,
     fontSize: fontSize * zoom,
-    lineHeight: object.kind === "text" ? 1.25 : 1.2,
+    lineHeight: object.kind === "image" ? 1.2 : SEMANTIC_TEXT_LINE_HEIGHT,
     textAlign,
   };
 

@@ -911,7 +911,7 @@ export function createJazzboardWebMcpTools(
               zIndex: input.zIndex ?? nextZIndex(room),
               groupId: input.groupId ?? null,
               points: input.points.map((point) => ({ x: point.x - minX, y: point.y - minY })),
-              color: input.color ?? "red",
+              color: input.color ?? "black",
               size: input.size ?? "m",
             },
           },

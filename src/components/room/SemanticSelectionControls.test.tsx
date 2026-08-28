@@ -8,6 +8,7 @@ import type { ActorRef, CanvasObjectBase, ConnectorObject, ShapeObject, Viewport
 import {
   SEMANTIC_RESIZE_HANDLES,
   SemanticSelectionControls,
+  semanticSelectionActionBarPlacement,
   type SemanticSelectionControlsProps,
 } from "./SemanticSelectionControls";
 
@@ -129,6 +130,11 @@ afterEach(() => {
 });
 
 describe("SemanticSelectionControls", () => {
+  it("moves the action bar below when its preferred position enters the top chrome safe zone", () => {
+    expect(semanticSelectionActionBarPlacement(225, 80)).toBe("below");
+    expect(semanticSelectionActionBarPlacement(226, 80)).toBe("above");
+  });
+
   it("projects a rotated sole object's semantic geometry through pan and zoom", () => {
     render(<SemanticSelectionControls {...defaultProps} />);
 

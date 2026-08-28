@@ -135,6 +135,18 @@ function expectCode(action: () => unknown, code: string): void {
   }
 }
 
+function objectMarkup(svg: string, objectId: string): string {
+  const marker = `<g data-semantic-object-id="${objectId}">`;
+  const start = svg.indexOf(marker);
+  if (start < 0) return "";
+  const next = svg.indexOf('<g data-semantic-object-id="', start + marker.length);
+  return svg.slice(start, next < 0 ? svg.lastIndexOf("</svg>") : next);
+}
+
+function withoutMarkup(value: string): string {
+  return value.replace(/<[^>]*>/g, "");
+}
+
 describe("semantic PNG SVG generation", () => {
   it("renders only the exact ID scope in deterministic paint order with escaped text", () => {
     const current = scene();
@@ -162,9 +174,11 @@ describe("semantic PNG SVG generation", () => {
     expect(order).toEqual([...order].sort((left, right) => left - right));
     expect(result.svg).not.toContain("OUTSIDE_SECRET");
     expect(result.svg).not.toContain("<script");
-    expect(result.svg).toContain("&lt;/text&gt;&lt;script&gt;");
-    expect(result.svg).toContain("Rectangle</tspan>");
-    expect(result.svg).toContain("&lt;safe&gt;</tspan>");
+    expect(withoutMarkup(objectMarkup(result.svg, "text"))).toContain(
+      'Hello&lt;/text&gt;&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp;friends',
+    );
+    expect(withoutMarkup(objectMarkup(result.svg, "rectangle"))).toMatch(/^Rectang/);
+    expect(result.svg).not.toContain("<safe>");
     expect(result.svg).toContain("<ellipse");
     expect(result.svg).toContain("<polygon");
     expect(result.svg).toContain("<path d=\"M 120 35 L 300 35\"");
@@ -176,6 +190,44 @@ describe("semantic PNG SVG generation", () => {
     expect(result.svg).not.toMatch(/<(?:script|style|foreignObject|use)\b/i);
     expect(result.svg).not.toMatch(/href="(?:https?:|\/)/i);
     expect(result.warnings).toEqual([]);
+
+    const rectangle = objectMarkup(result.svg, "rectangle");
+    expect(rectangle).toContain(
+      'rx="7" fill="#f5eafa" stroke="#4465e9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
+    );
+    expect(rectangle).toContain(
+      'font-family="Shantell Sans,Comic Sans MS,Comic Sans,cursive" font-size="22" font-weight="400"',
+    );
+    expect(rectangle).toContain(
+      'stroke="#f5eafa" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"',
+    );
+    const connector = objectMarkup(result.svg, "connector");
+    expect(connector).toContain(
+      'stroke="#ae3ec9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
+    );
+    expect(connector).toContain('rx="4" fill="#f9fafb" stroke="none"');
+    expect(objectMarkup(result.svg, "draw")).toContain(
+      'stroke="#e03131" stroke-width="4.5"',
+    );
+  });
+
+  it("embeds only a bounded font data URL in the ephemeral SVG", () => {
+    const fontDataUrl = `data:font/woff2;base64,${Buffer.from([0x77, 0x4f, 0x46, 0x32]).toString("base64")}`;
+    const result = renderSemanticSceneSvg(scene(), ["text"], {
+      padding: 0,
+      fontDataUrl,
+    });
+
+    expect(result.svg).toContain(
+      `<style>@font-face{font-family:'Shantell Sans';font-style:normal;font-weight:400;src:url('${fontDataUrl}') format('woff2')}</style>`,
+    );
+    expect(result.svg).not.toMatch(/src:url\(['"]https?:/i);
+    expectCode(
+      () => renderSemanticSceneSvg(scene(), ["text"], {
+        fontDataUrl: "data:text/html;base64,PHNjcmlwdD4=",
+      }),
+      "RENDER_OPTIONS_INVALID",
+    );
   });
 
   it("derives exact scoped bounds and applies padding, scale, and pixel ratio", () => {

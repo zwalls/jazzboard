@@ -4,6 +4,25 @@ import {
   resolveConnectorRoutes,
   type ResolvedConnectorRoute,
 } from "@/lib/domain/connector-routing";
+import {
+  SEMANTIC_CANVAS_BACKGROUND,
+  SEMANTIC_CONNECTOR_ARROW_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT,
+  SEMANTIC_CONNECTOR_STROKE_WIDTH,
+  SEMANTIC_DRAW_FONT_FAMILY,
+  SEMANTIC_DRAW_STROKE_WIDTHS,
+  SEMANTIC_SHAPE_CORNER_RADIUS,
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
+  SEMANTIC_SHAPE_STROKE_WIDTH,
+  SEMANTIC_TEXT_FONT_SIZES,
+  SEMANTIC_TEXT_LINE_HEIGHT,
+  semanticFillColor,
+  semanticShapeLabelMaxCharacters,
+  semanticShapeLabelMaxLines,
+  semanticStrokeColor,
+} from "@/lib/canvas/semantic-visual-style";
 import { connectorLabelMetrics } from "@/lib/domain/layout";
 import type { RoomState } from "@/lib/domain/types";
 
@@ -20,26 +39,8 @@ type ArtifactObject = JazzboardArtifactV1["objects"][number];
 type Coordinate = { x: number; y: number };
 type ConnectorObject = Extract<ArtifactObject, { kind: "connector" }>;
 
-const CONNECTOR_LABEL_FONT_SIZE = 20;
-const CONNECTOR_LABEL_LINE_HEIGHT = 27;
 const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
 const CONNECTOR_LABEL_TOTAL_INSET = 9;
-
-const COLORS: Readonly<Record<string, string>> = {
-  black: "#1d1d1d",
-  grey: "#8b919a",
-  "light-violet": "#e9e7ff",
-  violet: "#7950f2",
-  blue: "#4263eb",
-  "light-blue": "#a5d8ff",
-  yellow: "#f5d90a",
-  orange: "#f08c00",
-  green: "#2f9e44",
-  "light-green": "#b2f2bb",
-  "light-red": "#ffc9c9",
-  red: "#e03131",
-  white: "#ffffff",
-};
 
 function number(value: number): string {
   const rounded = Math.round(value * 1_000) / 1_000;
@@ -56,14 +57,6 @@ function xmlText(value: string, maxLength = 2_000): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
-}
-
-function color(value: string, fallback: string, allowNone = false): string {
-  const normalized = value.toLowerCase();
-  if (allowNone && normalized === "none") return "none";
-  if (COLORS[normalized]) return COLORS[normalized];
-  if (/^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(normalized)) return normalized;
-  return fallback;
 }
 
 function rotation(object: ArtifactObject): string {
@@ -206,8 +199,8 @@ function connectorLabelLayout(object: ConnectorObject, route: ResolvedConnectorR
     height,
     centerX,
     firstTextY:
-      centerY - ((lines.length - 1) * CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
-      CONNECTOR_LABEL_FONT_SIZE * 0.35,
+      centerY - ((lines.length - 1) * SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
+      SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35,
     lines,
   };
 }
@@ -282,6 +275,8 @@ function textLines(
   anchor: "start" | "middle" | "end",
   fill: string,
   fontSize: number,
+  outlineColor?: string,
+  outlineWidth = 0,
 ): string {
   if (!lines.length) return "";
   const spans = lines
@@ -290,23 +285,26 @@ function textLines(
         `<tspan x="${number(x)}" dy="${index === 0 ? "0" : number(lineHeight)}">${xmlText(line, 500)}</tspan>`,
     )
     .join("");
-  return `<text x="${number(x)}" y="${number(firstY)}" fill="${fill}" font-family="ui-sans-serif,system-ui,sans-serif" font-size="${number(fontSize)}" text-anchor="${anchor}">${spans}</text>`;
+  const outline = outlineColor
+    ? ` stroke="${outlineColor}" stroke-width="${number(outlineWidth)}" stroke-linejoin="round" paint-order="stroke fill"`
+    : "";
+  return `<text class="jazzboard-draw-text" x="${number(x)}" y="${number(firstY)}" fill="${fill}" font-family="${SEMANTIC_DRAW_FONT_FAMILY}" font-size="${number(fontSize)}" font-weight="400" text-anchor="${anchor}"${outline}>${spans}</text>`;
 }
 
 function renderText(object: Extract<ArtifactObject, { kind: "text" }>): string {
-  const fontSize = { s: 16, m: 20, l: 28, xl: 36 }[object.size];
-  const lineHeight = fontSize * 1.25;
+  const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
+  const lineHeight = fontSize * SEMANTIC_TEXT_LINE_HEIGHT;
   const maxCharacters = Math.max(8, Math.floor(object.width / (fontSize * 0.58)));
   const lines = wrappedLines(object.content, maxCharacters);
   const x = object.align === "start" ? object.x : object.align === "end" ? object.x + object.width : object.x + object.width / 2;
   const firstY = object.y + Math.min(fontSize, object.height / 2);
-  return `<g${rotation(object)}>${textLines(lines, x, firstY, lineHeight, object.align, color(object.color, "#1d1d1d"), fontSize)}</g>`;
+  return `<g${rotation(object)}>${textLines(lines, x, firstY, lineHeight, object.align, semanticStrokeColor(object.color), fontSize)}</g>`;
 }
 
 function renderShape(object: Extract<ArtifactObject, { kind: "shape" }>): string {
-  const fill = color(object.fill, "#e9e7ff", true);
-  const stroke = color(object.stroke, "#4263eb");
-  const attributes = `fill="${fill}" stroke="${stroke}" stroke-width="2"`;
+  const fill = semanticFillColor(object.fill, "blue", true);
+  const stroke = semanticStrokeColor(object.stroke, "blue");
+  const attributes = `fill="${fill}" stroke="${stroke}" stroke-width="${number(SEMANTIC_SHAPE_STROKE_WIDTH)}" stroke-linecap="round" stroke-linejoin="round"`;
   let geometry: string;
   if (object.shape === "ellipse") {
     geometry = `<ellipse cx="${number(object.x + object.width / 2)}" cy="${number(object.y + object.height / 2)}" rx="${number(object.width / 2)}" ry="${number(object.height / 2)}" ${attributes}/>`;
@@ -319,12 +317,32 @@ function renderShape(object: Extract<ArtifactObject, { kind: "shape" }>): string
     ].join(" ");
     geometry = `<polygon points="${points}" ${attributes}/>`;
   } else {
-    geometry = `<rect x="${number(object.x)}" y="${number(object.y)}" width="${number(object.width)}" height="${number(object.height)}" rx="10" ${attributes}/>`;
+    const radius = Math.min(
+      SEMANTIC_SHAPE_CORNER_RADIUS,
+      object.width / 8,
+      object.height / 8,
+    );
+    geometry = `<rect x="${number(object.x)}" y="${number(object.y)}" width="${number(object.width)}" height="${number(object.height)}" rx="${number(radius)}" ${attributes}/>`;
   }
-  const lines = wrappedLines(object.label, Math.max(8, Math.floor(object.width / 9)), 5);
-  const lineHeight = 18;
-  const firstY = object.y + object.height / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
-  const label = textLines(lines, object.x + object.width / 2, firstY, lineHeight, "middle", stroke, 15);
+  const lines = wrappedLines(
+    object.label,
+    semanticShapeLabelMaxCharacters(object.width),
+    semanticShapeLabelMaxLines(object.height),
+  );
+  const firstY = object.y + object.height / 2 -
+    ((lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT) / 2 +
+    SEMANTIC_SHAPE_LABEL_FONT_SIZE * 0.35;
+  const label = textLines(
+    lines,
+    object.x + object.width / 2,
+    firstY,
+    SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
+    "middle",
+    stroke,
+    SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+    fill === "none" ? SEMANTIC_CANVAS_BACKGROUND : fill,
+    5,
+  );
   return `<g${rotation(object)}>${geometry}${label}</g>`;
 }
 
@@ -332,11 +350,28 @@ function routePath(points: readonly Coordinate[]): string {
   return points.map((point, index) => `${index ? "L" : "M"} ${number(point.x)} ${number(point.y)}`).join(" ");
 }
 
+function arrowHead(
+  tip: Coordinate,
+  neighbor: Coordinate,
+  size = SEMANTIC_CONNECTOR_ARROW_SIZE,
+): string {
+  const angle = Math.atan2(tip.y - neighbor.y, tip.x - neighbor.x);
+  const wing = size * 0.58;
+  const baseX = tip.x - Math.cos(angle) * size;
+  const baseY = tip.y - Math.sin(angle) * size;
+  const perpendicularX = -Math.sin(angle) * wing;
+  const perpendicularY = Math.cos(angle) * wing;
+  return [
+    `${number(tip.x)},${number(tip.y)}`,
+    `${number(baseX + perpendicularX)},${number(baseY + perpendicularY)}`,
+    `${number(baseX - perpendicularX)},${number(baseY - perpendicularY)}`,
+  ].join(" ");
+}
+
 function renderConnector(object: ConnectorObject, route: ResolvedConnectorRoute): string {
-  const stroke = color(object.color, "#1d1d1d");
-  const markerStart = object.direction === "both" ? ' marker-start="url(#jazzboard-arrow-start)"' : "";
-  const markerEnd = object.direction === "none" ? "" : ' marker-end="url(#jazzboard-arrow-end)"';
-  const strokeAttributes = `stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${markerStart}${markerEnd}`;
+  const stroke = semanticStrokeColor(object.color);
+  const points = route.points;
+  const strokeAttributes = `stroke="${stroke}" stroke-width="${number(SEMANTIC_CONNECTOR_STROKE_WIDTH)}" stroke-linecap="round" stroke-linejoin="round"`;
   let geometry: string;
   if (route.routing.kind === "straight") {
     geometry = `<line x1="${number(route.start.x)}" y1="${number(route.start.y)}" x2="${number(route.end.x)}" y2="${number(route.end.y)}" ${strokeAttributes}/>`;
@@ -348,19 +383,30 @@ function renderConnector(object: ConnectorObject, route: ResolvedConnectorRoute)
   } else {
     geometry = `<path d="${routePath(route.points)}" fill="none" ${strokeAttributes}/>`;
   }
+  const arrowheads: string[] = [];
+  if (object.direction === "both") {
+    arrowheads.push(
+      `<polygon points="${arrowHead(points[0], points[1])}" fill="${stroke}"/>`,
+    );
+  }
+  if (object.direction !== "none") {
+    arrowheads.push(
+      `<polygon points="${arrowHead(points.at(-1)!, points.at(-2)!)}" fill="${stroke}"/>`,
+    );
+  }
   const label = connectorLabelLayout(object, route);
-  if (!label) return geometry;
-  const background = `<rect x="${number(label.x)}" y="${number(label.y)}" width="${number(label.width)}" height="${number(label.height)}" rx="6" fill="#ffffff" stroke="#d7dce3" stroke-width="1"/>`;
+  if (!label) return `${geometry}${arrowheads.join("")}`;
+  const background = `<rect x="${number(label.x)}" y="${number(label.y)}" width="${number(label.width)}" height="${number(label.height)}" rx="4" fill="${SEMANTIC_CANVAS_BACKGROUND}" stroke="none"/>`;
   const text = textLines(
     label.lines,
     label.centerX,
     label.firstTextY,
-    CONNECTOR_LABEL_LINE_HEIGHT,
+    SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT,
     "middle",
     stroke,
-    CONNECTOR_LABEL_FONT_SIZE,
+    SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
   );
-  return `${geometry}<g>${background}${text}</g>`;
+  return `${geometry}${arrowheads.join("")}<g>${background}${text}</g>`;
 }
 
 function renderImage(object: Extract<ArtifactObject, { kind: "image" }>): string {
@@ -375,8 +421,7 @@ function renderImage(object: Extract<ArtifactObject, { kind: "image" }>): string
 
 function renderDraw(object: Extract<ArtifactObject, { kind: "draw" }>): string {
   const points = object.points.map((point) => `${number(point.x)},${number(point.y)}`).join(" ");
-  const width = { s: 2, m: 4, l: 7 }[object.size];
-  return `<polyline points="${points}" transform="${localRotation(object)}" fill="none" stroke="${color(object.color, "#e03131")}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<polyline points="${points}" transform="${localRotation(object)}" fill="none" stroke="${semanticStrokeColor(object.color, "red")}" stroke-width="${number(SEMANTIC_DRAW_STROKE_WIDTHS[object.size])}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function renderObject(
@@ -432,8 +477,7 @@ export function renderJazzboardSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${number(view.x)} ${number(view.y)} ${number(view.width)} ${number(view.height)}" role="img" aria-labelledby="jazzboard-title jazzboard-description">`,
     `<title id="jazzboard-title">${xmlText(artifact.title, 200)}</title>`,
     `<desc id="jazzboard-description">${xmlText(artifact.description || "Jazzboard semantic canvas export.", 1_000)}</desc>`,
-    '<defs><marker id="jazzboard-arrow-end" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#1d1d1d"/></marker><marker id="jazzboard-arrow-start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M9,0 L9,6 L0,3 z" fill="#1d1d1d"/></marker></defs>',
-    `<rect x="${number(view.x)}" y="${number(view.y)}" width="${number(view.width)}" height="${number(view.height)}" fill="#ffffff"/>`,
+    `<rect x="${number(view.x)}" y="${number(view.y)}" width="${number(view.width)}" height="${number(view.height)}" fill="${SEMANTIC_CANVAS_BACKGROUND}"/>`,
     objects,
     "</svg>",
   ].join("");

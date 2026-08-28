@@ -1049,7 +1049,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               shape: input.tool,
               nodeType: null,
               label: "",
-              fill: "light-violet",
+              fill: "blue",
               stroke: "blue",
             });
 

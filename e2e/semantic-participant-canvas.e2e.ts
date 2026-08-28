@@ -604,6 +604,19 @@ test.describe("first-party semantic participant canvas", () => {
       { timeout: 10_000 },
     ).toBeGreaterThan(beforeTransform.revision);
 
+    const selectionActions = page.getByRole("toolbar", { name: "Selection actions" });
+    await expect(selectionActions).toHaveAttribute("data-selection-placement", "below");
+    const [selectionActionsBox, roomCardBox] = await Promise.all([
+      selectionActions.boundingBox(),
+      page.getByTestId("combined-left-panel").boundingBox(),
+    ]);
+    expect(selectionActionsBox).not.toBeNull();
+    expect(roomCardBox).not.toBeNull();
+    if (!selectionActionsBox || !roomCardBox) {
+      throw new Error("The selection toolbar and room card must both have measurable bounds.");
+    }
+    expect(selectionActionsBox.y).toBeGreaterThanOrEqual(roomCardBox.y + roomCardBox.height);
+
     await page.getByRole("button", { name: /^Fill:/ }).click();
     const redFill = page.getByRole("button", { name: "Red fill", exact: true });
     await redFill.focus();

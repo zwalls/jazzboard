@@ -182,14 +182,14 @@ describe("buildSemanticScene", () => {
     expect(scene.objectsById.rotated.bounds.y).toBeCloseTo(-10);
     expect(scene.objectsById.rotated.bounds.width).toBeCloseTo(40);
     expect(scene.objectsById.rotated.bounds.height).toBeCloseTo(100);
-    expect(scene.objectsById.draw.bounds.x).toBeCloseTo(78);
-    expect(scene.objectsById.draw.bounds.y).toBeCloseTo(198);
-    expect(scene.objectsById.draw.bounds.width).toBeCloseTo(24);
-    expect(scene.objectsById.draw.bounds.height).toBeCloseTo(14);
+    expect(scene.objectsById.draw.bounds.x).toBeCloseTo(77.75);
+    expect(scene.objectsById.draw.bounds.y).toBeCloseTo(197.75);
+    expect(scene.objectsById.draw.bounds.width).toBeCloseTo(24.5);
+    expect(scene.objectsById.draw.bounds.height).toBeCloseTo(14.5);
     expect(scene.bounds?.x).toBeCloseTo(40);
     expect(scene.bounds?.y).toBeCloseTo(-10);
-    expect(scene.bounds?.width).toBeCloseTo(62);
-    expect(scene.bounds?.height).toBeCloseTo(222);
+    expect(scene.bounds?.width).toBeCloseTo(62.25);
+    expect(scene.bounds?.height).toBeCloseTo(222.25);
   });
 
   it("returns null scene bounds and an empty group index for an empty room", () => {

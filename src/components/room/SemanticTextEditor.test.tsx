@@ -108,7 +108,14 @@ describe("SemanticTextEditor", () => {
       transform: `rotate(${Math.PI / 6}rad)`,
       transformOrigin: "center center",
     });
-    expect(editor).toHaveStyle({ fontSize: "40px", textAlign: "center" });
+    expect(editor).toHaveStyle({
+      fontSize: "48px",
+      lineHeight: "1.35",
+      textAlign: "center",
+    });
+    expect(editor.style.fontFamily).toBe(
+      '"Shantell Sans", "Comic Sans MS", "Comic Sans", cursive',
+    );
     expect(frame).toHaveAttribute("data-object-id", "text-1");
     expect(frame).toHaveAttribute("data-edit-field", "content");
   });
@@ -310,6 +317,7 @@ describe("SemanticTextEditor", () => {
       name: "Edit shape label for object shape-1",
     });
     expect(shapeEditor.maxLength).toBe(SEMANTIC_TEXT_EDIT_LIMITS.label);
+    expect(shapeEditor).toHaveStyle({ fontSize: "22px", lineHeight: "1.35" });
     expect(shapeEditor.closest("[data-semantic-text-editor='true']"))
       .toHaveAttribute("data-edit-field", "label");
   });

@@ -109,6 +109,30 @@ describe("SemanticCanvasObject", () => {
       "transform",
       expect.stringContaining("rotate("),
     );
+    expect(container.querySelector("#text-auth .semantic-canvas-object__text")).toHaveAttribute(
+      "font-family",
+      "Shantell Sans,Comic Sans MS,Comic Sans,cursive",
+    );
+    expect(container.querySelector("#text-auth .semantic-canvas-object__text")).toHaveAttribute(
+      "font-size",
+      "24",
+    );
+    const rectangle = container.querySelector(
+      "#shape-rectangle rect.semantic-canvas-object__shape",
+    );
+    expect(rectangle).toHaveAttribute("fill", "#ddedfa");
+    expect(rectangle).toHaveAttribute("stroke", "#4465e9");
+    expect(rectangle).toHaveAttribute("stroke-width", "3.5");
+    expect(rectangle).toHaveAttribute("stroke-linecap", "round");
+    expect(rectangle).toHaveAttribute("stroke-linejoin", "round");
+    const rectangleLabel = container.querySelector(
+      "#shape-rectangle .semantic-canvas-object__label",
+    );
+    expect(rectangleLabel).toHaveAttribute("fill", "#4465e9");
+    expect(rectangleLabel).toHaveAttribute("font-size", "22");
+    expect(rectangleLabel).toHaveAttribute("stroke", "#ddedfa");
+    expect(rectangleLabel).toHaveAttribute("stroke-width", "5");
+    expect(rectangleLabel).toHaveAttribute("paint-order", "stroke fill");
   });
 
   it("renders the supplied curved connector path, label position, and arrowheads", () => {
@@ -147,8 +171,28 @@ describe("SemanticCanvasObject", () => {
       expect.stringContaining(" A "),
     );
     expect(container.querySelectorAll(".semantic-canvas-object__arrowhead")).toHaveLength(2);
+    expect(container.querySelector(".semantic-canvas-object__connector-path")).toHaveAttribute(
+      "stroke",
+      "#ae3ec9",
+    );
+    expect(container.querySelector(".semantic-canvas-object__connector-path")).toHaveAttribute(
+      "stroke-width",
+      "3.5",
+    );
+    const labelMask = container.querySelector(".semantic-canvas-object__connector-label rect");
+    expect(labelMask).toHaveAttribute("fill", "#f9fafb");
+    expect(labelMask).toHaveAttribute("stroke", "none");
+    expect(labelMask).toHaveAttribute("rx", "4");
     expect(container.querySelector(".semantic-canvas-object__connector-label-text")).toHaveTextContent(
       /signed\s*request/,
+    );
+    expect(container.querySelector(".semantic-canvas-object__connector-label-text")).toHaveAttribute(
+      "font-family",
+      "Shantell Sans,Comic Sans MS,Comic Sans,cursive",
+    );
+    expect(container.querySelector(".semantic-canvas-object__connector-label-text")).toHaveAttribute(
+      "font-size",
+      "20",
     );
     expect(screen.getByRole("img", { name: /Connector: signed request, client to api/ })).toHaveAttribute(
       "id",
@@ -181,7 +225,11 @@ describe("SemanticCanvasObject", () => {
     expect(onSelect).toHaveBeenNthCalledWith(2, "decision-one", false);
     expect(group).toHaveAttribute("aria-pressed", "true");
     expect(group).toHaveAttribute("data-focused", "true");
-    expect(container.querySelector("[data-selection-ring='true']")).not.toBeNull();
+    expect(container.querySelector("[data-selection-ring='true']")).toBeNull();
+    const focusRing = container.querySelector("[data-focus-ring='true']");
+    expect(focusRing).toHaveAttribute("stroke", "#3182ed");
+    expect(focusRing).toHaveAttribute("stroke-width", "1.5");
+    expect(focusRing).toHaveAttribute("stroke-dasharray", "5 4");
   });
 
   it("publishes renderer-neutral pointer starts and accessible text-edit requests", () => {
@@ -297,13 +345,14 @@ describe("SemanticCanvasObject", () => {
       kind: "draw",
       points: [{ x: 0, y: 0 }, { x: 30, y: 15 }, { x: 45, y: 2 }],
       color: "red",
-      size: "l",
+      size: "m",
     };
     const { container } = inSvg(<SemanticCanvasObject object={object} />);
     const line = container.querySelector("polyline")!;
 
     expect(line).toHaveAttribute("points", "0,0 30,15 45,2");
     expect(line).toHaveAttribute("transform", expect.stringContaining("translate(20 30) rotate("));
-    expect(line).toHaveAttribute("stroke-width", "7");
+    expect(line).toHaveAttribute("stroke-width", "4.5");
+    expect(line).toHaveAttribute("stroke", "#e03131");
   });
 });

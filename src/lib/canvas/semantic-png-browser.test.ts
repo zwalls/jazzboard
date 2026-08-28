@@ -99,6 +99,7 @@ function browserFixture(options: {
   const dependencies: SemanticPngBrowserDependencies = {
     fetch: fetch as unknown as typeof globalThis.fetch,
     baseUrl: "https://jazzboard.test/rooms/room-1",
+    fontDataUrl: null,
     createObjectUrl(blob) {
       blobs.push(blob);
       return `blob:test-${blobs.length}`;
@@ -200,6 +201,47 @@ describe("semantic PNG browser rasterization", () => {
     expect(svg).toContain('href="data:image/png;base64,iVBORw0KGgo="');
     expect(svg).not.toContain("/api/rooms/room-1/assets");
     expect(svg).not.toMatch(/href="https?:/i);
+  });
+
+  it("fetches the same-origin draw font with cache-safe restrictions and embeds it ephemerally", async () => {
+    const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32]);
+    const fixture = browserFixture({
+      response: new Response(woff2, {
+        status: 200,
+        headers: {
+          "content-type": "font/woff2",
+          "content-length": String(woff2.byteLength),
+        },
+      }),
+    });
+
+    await renderSemanticScenePng(
+      scene(),
+      ["text"],
+      { padding: 0 },
+      { ...fixture.dependencies, fontDataUrl: undefined },
+    );
+
+    expect(fixture.fetch).toHaveBeenCalledOnce();
+    expect(fixture.fetch).toHaveBeenCalledWith(
+      "https://jazzboard.test/fonts/shantell-sans-latin-400-normal.woff2",
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+        cache: "force-cache",
+        mode: "same-origin",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    const svg = await readBlob(fixture.blobs[0]);
+    expect(svg).toContain(
+      "@font-face{font-family:'Shantell Sans';font-style:normal;font-weight:400;" +
+      "src:url('data:font/woff2;base64,d09GMg==') format('woff2')}",
+    );
+    expect(svg).not.toContain("https://jazzboard.test/fonts/");
+    expect(fixture.revoked).toEqual(["blob:test-1"]);
   });
 
   it("renders image fetch failures as deterministic warnings and placeholders", async () => {

@@ -13,6 +13,7 @@ import type {
 } from "@/lib/domain/types";
 
 import {
+  SEMANTIC_STYLE_COLORS,
   SemanticStyleControls,
   type SemanticStyleControlsProps,
 } from "./SemanticStyleControls";
@@ -139,6 +140,42 @@ afterEach(() => {
 });
 
 describe("SemanticStyleControls", () => {
+  it("shows saturated ink swatches and matching pastel fill swatches", () => {
+    expect(SEMANTIC_STYLE_COLORS).toEqual([
+      { value: "black", label: "Black", hex: "#1d1d1d", fillHex: "#e8e8e8" },
+      { value: "grey", label: "Grey", hex: "#9fa8b2", fillHex: "#eceef0" },
+      { value: "white", label: "White", hex: "#ffffff", fillHex: "#f5f5f5" },
+      { value: "blue", label: "Blue", hex: "#4465e9", fillHex: "#dce1f8" },
+      { value: "light-blue", label: "Light blue", hex: "#4ba1f1", fillHex: "#ddedfa" },
+      { value: "violet", label: "Violet", hex: "#ae3ec9", fillHex: "#ecdcf2" },
+      { value: "light-violet", label: "Light violet", hex: "#e085f4", fillHex: "#f5eafa" },
+      { value: "green", label: "Green", hex: "#099268", fillHex: "#d3e9e3" },
+      { value: "light-green", label: "Light green", hex: "#4cb05e", fillHex: "#dbf0e0" },
+      { value: "yellow", label: "Yellow", hex: "#f1ac4b", fillHex: "#f9f0e6" },
+      { value: "orange", label: "Orange", hex: "#e16919", fillHex: "#f8e2d4" },
+      { value: "red", label: "Red", hex: "#e03131", fillHex: "#f4dadb" },
+      { value: "light-red", label: "Light red", hex: "#f87777", fillHex: "#f4dadb" },
+    ]);
+
+    renderControls([shape()]);
+    const fillTrigger = screen.getByRole("button", { name: "Fill: light-blue" });
+    const strokeTrigger = screen.getByRole("button", { name: "Stroke: blue" });
+    expect(
+      (fillTrigger.querySelector("span[style]") as HTMLElement).style.getPropertyValue(
+        "--semantic-style-swatch",
+      ),
+    ).toBe("#ddedfa");
+    expect(
+      (strokeTrigger.querySelector("span[style]") as HTMLElement).style.getPropertyValue(
+        "--semantic-style-swatch",
+      ),
+    ).toBe("#4465e9");
+
+    fireEvent.click(fillTrigger);
+    const blueFill = screen.getByRole("button", { name: "Blue fill" });
+    expect(blueFill.style.getPropertyValue("--semantic-style-swatch")).toBe("#dce1f8");
+  });
+
   it("reflects text fields and emits exact color, size, alignment, and content-edit intent", () => {
     const { rerender } = renderControls([text()]);
 

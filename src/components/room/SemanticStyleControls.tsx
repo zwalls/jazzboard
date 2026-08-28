@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import type { SemanticObjectStylePatch } from "@/lib/canvas/semantic-transform-session";
+import { SEMANTIC_COLOR_PALETTE } from "@/lib/canvas/semantic-visual-style";
 import type {
   CanvasObject,
   ConnectorObject,
@@ -40,19 +41,19 @@ import type {
 import styles from "./semantic-style-controls.module.css";
 
 export const SEMANTIC_STYLE_COLORS = [
-  { value: "black", label: "Black", hex: "#1d1d1d" },
-  { value: "grey", label: "Grey", hex: "#8b919a" },
-  { value: "white", label: "White", hex: "#ffffff" },
-  { value: "blue", label: "Blue", hex: "#4263eb" },
-  { value: "light-blue", label: "Light blue", hex: "#a5d8ff" },
-  { value: "violet", label: "Violet", hex: "#7950f2" },
-  { value: "light-violet", label: "Light violet", hex: "#e9e7ff" },
-  { value: "green", label: "Green", hex: "#2f9e44" },
-  { value: "light-green", label: "Light green", hex: "#b2f2bb" },
-  { value: "yellow", label: "Yellow", hex: "#f5d90a" },
-  { value: "orange", label: "Orange", hex: "#f08c00" },
-  { value: "red", label: "Red", hex: "#e03131" },
-  { value: "light-red", label: "Light red", hex: "#ffc9c9" },
+  { value: "black", label: "Black", hex: SEMANTIC_COLOR_PALETTE.black.solid, fillHex: SEMANTIC_COLOR_PALETTE.black.semi },
+  { value: "grey", label: "Grey", hex: SEMANTIC_COLOR_PALETTE.grey.solid, fillHex: SEMANTIC_COLOR_PALETTE.grey.semi },
+  { value: "white", label: "White", hex: SEMANTIC_COLOR_PALETTE.white.solid, fillHex: SEMANTIC_COLOR_PALETTE.white.semi },
+  { value: "blue", label: "Blue", hex: SEMANTIC_COLOR_PALETTE.blue.solid, fillHex: SEMANTIC_COLOR_PALETTE.blue.semi },
+  { value: "light-blue", label: "Light blue", hex: SEMANTIC_COLOR_PALETTE["light-blue"].solid, fillHex: SEMANTIC_COLOR_PALETTE["light-blue"].semi },
+  { value: "violet", label: "Violet", hex: SEMANTIC_COLOR_PALETTE.violet.solid, fillHex: SEMANTIC_COLOR_PALETTE.violet.semi },
+  { value: "light-violet", label: "Light violet", hex: SEMANTIC_COLOR_PALETTE["light-violet"].solid, fillHex: SEMANTIC_COLOR_PALETTE["light-violet"].semi },
+  { value: "green", label: "Green", hex: SEMANTIC_COLOR_PALETTE.green.solid, fillHex: SEMANTIC_COLOR_PALETTE.green.semi },
+  { value: "light-green", label: "Light green", hex: SEMANTIC_COLOR_PALETTE["light-green"].solid, fillHex: SEMANTIC_COLOR_PALETTE["light-green"].semi },
+  { value: "yellow", label: "Yellow", hex: SEMANTIC_COLOR_PALETTE.yellow.solid, fillHex: SEMANTIC_COLOR_PALETTE.yellow.semi },
+  { value: "orange", label: "Orange", hex: SEMANTIC_COLOR_PALETTE.orange.solid, fillHex: SEMANTIC_COLOR_PALETTE.orange.semi },
+  { value: "red", label: "Red", hex: SEMANTIC_COLOR_PALETTE.red.solid, fillHex: SEMANTIC_COLOR_PALETTE.red.semi },
+  { value: "light-red", label: "Light red", hex: SEMANTIC_COLOR_PALETTE["light-red"].solid, fillHex: SEMANTIC_COLOR_PALETTE["light-red"].semi },
 ] as const;
 
 export const SEMANTIC_NODE_TYPES = [
@@ -108,8 +109,11 @@ type ColorFieldProps = Readonly<{
   onSelect: (value: string) => void;
 }>;
 
-const COLOR_HEX_BY_NAME = Object.freeze(
+const SOLID_HEX_BY_NAME = Object.freeze(
   Object.fromEntries(SEMANTIC_STYLE_COLORS.map(({ value, hex }) => [value, hex])),
+) as Readonly<Record<string, string>>;
+const FILL_HEX_BY_NAME = Object.freeze(
+  Object.fromEntries(SEMANTIC_STYLE_COLORS.map(({ value, fillHex }) => [value, fillHex])),
 ) as Readonly<Record<string, string>>;
 
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
@@ -181,9 +185,9 @@ function normalizeHex(value: string): string | null {
   return HEX_COLOR_PATTERN.test(candidate) ? candidate : null;
 }
 
-function safeSwatchColor(value: string, mixed: boolean): string | null {
+function safeSwatchColor(value: string, mixed: boolean, fill: boolean): string | null {
   if (mixed || value === "none") return null;
-  return COLOR_HEX_BY_NAME[value.toLowerCase()] ?? normalizeHex(value);
+  return (fill ? FILL_HEX_BY_NAME : SOLID_HEX_BY_NAME)[value.toLowerCase()] ?? normalizeHex(value);
 }
 
 function stopCanvasEvent(event: SyntheticEvent): void {
@@ -216,9 +220,9 @@ function ColorField({
   onSelect,
 }: ColorFieldProps) {
   const dialogId = useId();
-  const [customHex, setCustomHex] = useState(() => normalizeHex(value) ?? "#5965e8");
+  const [customHex, setCustomHex] = useState(() => normalizeHex(value) ?? SEMANTIC_COLOR_PALETTE.blue.solid);
   const [customInvalid, setCustomInvalid] = useState(false);
-  const swatchColor = safeSwatchColor(value, mixed);
+  const swatchColor = safeSwatchColor(value, mixed, allowNone);
   const triggerStyle = swatchColor
     ? ({ "--semantic-style-swatch": swatchColor } as CSSProperties)
     : undefined;
@@ -305,7 +309,9 @@ function ColorField({
                 key={color.value}
                 type="button"
                 className={styles.swatch}
-                style={{ "--semantic-style-swatch": color.hex } as CSSProperties}
+                style={{
+                  "--semantic-style-swatch": allowNone ? color.fillHex : color.hex,
+                } as CSSProperties}
                 aria-label={`${color.label} ${label.toLowerCase()}`}
                 aria-pressed={!mixed && value.toLowerCase() === color.value}
                 disabled={disabled}

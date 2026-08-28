@@ -10,6 +10,27 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  SEMANTIC_CANVAS_BACKGROUND,
+  SEMANTIC_CONNECTOR_ARROW_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT,
+  SEMANTIC_CONNECTOR_STROKE_WIDTH,
+  SEMANTIC_DRAW_FONT_FAMILY,
+  SEMANTIC_DRAW_STROKE_WIDTHS,
+  SEMANTIC_SELECTION_COLOR,
+  SEMANTIC_SELECTION_STROKE_WIDTH,
+  SEMANTIC_SHAPE_CORNER_RADIUS,
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
+  SEMANTIC_SHAPE_STROKE_WIDTH,
+  SEMANTIC_TEXT_FONT_SIZES,
+  SEMANTIC_TEXT_LINE_HEIGHT,
+  semanticFillColor,
+  semanticShapeLabelMaxCharacters,
+  semanticShapeLabelMaxLines,
+  semanticStrokeColor,
+} from "@/lib/canvas/semantic-visual-style";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import { connectorLabelMetrics } from "@/lib/domain/layout";
 import type {
@@ -23,24 +44,6 @@ import type {
   TextObject,
 } from "@/lib/domain/types";
 
-const COLORS: Readonly<Record<string, string>> = {
-  black: "#1d1d1d",
-  grey: "#8b919a",
-  "light-violet": "#e9e7ff",
-  violet: "#7950f2",
-  blue: "#4263eb",
-  "light-blue": "#a5d8ff",
-  yellow: "#f5d90a",
-  orange: "#f08c00",
-  green: "#2f9e44",
-  "light-green": "#b2f2bb",
-  "light-red": "#ffc9c9",
-  red: "#e03131",
-  white: "#ffffff",
-};
-
-const CONNECTOR_LABEL_FONT_SIZE = 20;
-const CONNECTOR_LABEL_LINE_HEIGHT = 27;
 const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
 const CONNECTOR_LABEL_TOTAL_INSET = 9;
 
@@ -70,14 +73,6 @@ export type SemanticCanvasObjectProps = {
 function finiteNumber(value: number): string {
   const rounded = Math.round(value * 1_000) / 1_000;
   return Object.is(rounded, -0) ? "0" : String(rounded);
-}
-
-function semanticColor(value: string, fallback: string, allowNone = false): string {
-  const normalized = value.toLowerCase();
-  if (allowNone && normalized === "none") return "none";
-  if (COLORS[normalized]) return COLORS[normalized];
-  if (/^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(normalized)) return normalized;
-  return fallback;
 }
 
 function rotationTransform(object: CanvasObject): string | undefined {
@@ -139,6 +134,8 @@ function SvgTextLines({
   fill,
   fontSize,
   className,
+  outlineColor,
+  outlineWidth = 0,
 }: {
   lines: readonly string[];
   x: number;
@@ -148,6 +145,8 @@ function SvgTextLines({
   fill: string;
   fontSize: number;
   className: string;
+  outlineColor?: string;
+  outlineWidth?: number;
 }) {
   if (!lines.length) return null;
   return (
@@ -156,8 +155,13 @@ function SvgTextLines({
       x={x}
       y={firstY}
       fill={fill}
-      fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
+      fontFamily={SEMANTIC_DRAW_FONT_FAMILY}
       fontSize={fontSize}
+      fontWeight={400}
+      paintOrder={outlineColor ? "stroke fill" : undefined}
+      stroke={outlineColor}
+      strokeLinejoin={outlineColor ? "round" : undefined}
+      strokeWidth={outlineColor ? outlineWidth : undefined}
       textAnchor={anchor}
       pointerEvents="none"
     >
@@ -171,8 +175,8 @@ function SvgTextLines({
 }
 
 function TextPrimitive({ object }: { object: TextObject }) {
-  const fontSize = { s: 16, m: 20, l: 28, xl: 36 }[object.size];
-  const lineHeight = fontSize * 1.25;
+  const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
+  const lineHeight = fontSize * SEMANTIC_TEXT_LINE_HEIGHT;
   const lines = wrapLines(object.content, Math.max(8, Math.floor(object.width / (fontSize * 0.58))));
   const x = object.align === "start"
     ? object.x
@@ -198,7 +202,7 @@ function TextPrimitive({ object }: { object: TextObject }) {
         firstY={object.y + Math.min(fontSize, object.height / 2)}
         lineHeight={lineHeight}
         anchor={object.align}
-        fill={semanticColor(object.color, "#1d1d1d")}
+        fill={semanticStrokeColor(object.color)}
         fontSize={fontSize}
         className="semantic-canvas-object__text"
       />
@@ -206,31 +210,15 @@ function TextPrimitive({ object }: { object: TextObject }) {
   );
 }
 
-function hexLuminance(value: string): number | null {
-  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
-  if (!match) return null;
-  const full = match[1].length === 3
-    ? match[1].split("").map((character) => `${character}${character}`).join("")
-    : match[1];
-  const channels = [0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16) / 255);
-  const linear = channels.map((channel) => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
-  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
-}
-
-function shapeLabelColor(fill: string, stroke: string): string {
-  if (fill === "none") return stroke;
-  const luminance = hexLuminance(fill);
-  if (luminance === null || luminance > 0.45) return "#182033";
-  return "#ffffff";
-}
-
 function ShapePrimitive({ object }: { object: ShapeObject }) {
-  const fill = semanticColor(object.fill, "#e9e7ff", true);
-  const stroke = semanticColor(object.stroke, "#4263eb");
+  const fill = semanticFillColor(object.fill, "blue", true);
+  const stroke = semanticStrokeColor(object.stroke, "blue");
   const shared = {
     fill,
     stroke,
-    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: SEMANTIC_SHAPE_STROKE_WIDTH,
     className: "semantic-canvas-object__shape",
   } as const;
   let geometry: ReactNode;
@@ -264,13 +252,18 @@ function ShapePrimitive({ object }: { object: ShapeObject }) {
         y={object.y}
         width={object.width}
         height={object.height}
-        rx={Math.min(12, object.width / 8, object.height / 8)}
+        rx={Math.min(SEMANTIC_SHAPE_CORNER_RADIUS, object.width / 8, object.height / 8)}
       />
     );
   }
-  const lines = wrapLines(object.label, Math.max(8, Math.floor(object.width / 9)), 5);
-  const lineHeight = 18;
-  const firstY = object.y + object.height / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
+  const lines = wrapLines(
+    object.label,
+    semanticShapeLabelMaxCharacters(object.width),
+    semanticShapeLabelMaxLines(object.height),
+  );
+  const firstY = object.y + object.height / 2 -
+    ((lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT) / 2 +
+    SEMANTIC_SHAPE_LABEL_FONT_SIZE * 0.35;
   return (
     <g className="semantic-canvas-object__content" transform={rotationTransform(object)}>
       {geometry}
@@ -278,11 +271,13 @@ function ShapePrimitive({ object }: { object: ShapeObject }) {
         lines={lines}
         x={object.x + object.width / 2}
         firstY={firstY}
-        lineHeight={lineHeight}
+        lineHeight={SEMANTIC_SHAPE_LABEL_LINE_HEIGHT}
         anchor="middle"
-        fill={shapeLabelColor(fill, stroke)}
-        fontSize={15}
+        fill={stroke}
+        fontSize={SEMANTIC_SHAPE_LABEL_FONT_SIZE}
         className="semantic-canvas-object__label"
+        outlineColor={fill === "none" ? SEMANTIC_CANVAS_BACKGROUND : fill}
+        outlineWidth={5}
       />
     </g>
   );
@@ -299,7 +294,7 @@ function connectorPath(route: ResolvedConnectorRoute): string {
     .join(" ");
 }
 
-function arrowHead(tip: Point, neighbor: Point, size = 10): string {
+function arrowHead(tip: Point, neighbor: Point, size = SEMANTIC_CONNECTOR_ARROW_SIZE): string {
   const angle = Math.atan2(tip.y - neighbor.y, tip.x - neighbor.x);
   const wing = size * 0.58;
   const baseX = tip.x - Math.cos(angle) * size;
@@ -359,7 +354,7 @@ function ConnectorPrimitive({
   };
   const geometry = route ?? fallbackRoute;
   const path = connectorPath(geometry);
-  const stroke = semanticColor(object.color, "#1d1d1d");
+  const stroke = semanticStrokeColor(object.color);
   const startNeighbor = points[1] ?? points[0];
   const endNeighbor = points.at(-2) ?? points.at(-1)!;
   const metrics = connectorLabelMetrics(object.label);
@@ -371,7 +366,9 @@ function ConnectorPrimitive({
   } : null);
   const labelLines = labelBounds ? connectorLabelLines(object.label, labelBounds.width) : [];
   const firstTextY = labelBounds
-    ? geometry.labelPoint.y - ((labelLines.length - 1) * CONNECTOR_LABEL_LINE_HEIGHT) / 2 + CONNECTOR_LABEL_FONT_SIZE * 0.35
+    ? geometry.labelPoint.y -
+      ((labelLines.length - 1) * SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
+      SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35
     : 0;
 
   return (
@@ -390,7 +387,7 @@ function ConnectorPrimitive({
         d={path}
         fill="none"
         stroke={stroke}
-        strokeWidth={2}
+        strokeWidth={SEMANTIC_CONNECTOR_STROKE_WIDTH}
         strokeLinecap="round"
         strokeLinejoin="round"
         pointerEvents="none"
@@ -418,19 +415,18 @@ function ConnectorPrimitive({
             y={labelBounds.y}
             width={labelBounds.width}
             height={labelBounds.height}
-            rx={6}
-            fill="#ffffff"
-            stroke="#d7dce3"
-            strokeWidth={1}
+            rx={4}
+            fill={SEMANTIC_CANVAS_BACKGROUND}
+            stroke="none"
           />
           <SvgTextLines
             lines={labelLines}
             x={geometry.labelPoint.x}
             firstY={firstTextY}
-            lineHeight={CONNECTOR_LABEL_LINE_HEIGHT}
+            lineHeight={SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT}
             anchor="middle"
             fill={stroke}
-            fontSize={CONNECTOR_LABEL_FONT_SIZE}
+            fontSize={SEMANTIC_CONNECTOR_LABEL_FONT_SIZE}
             className="semantic-canvas-object__connector-label-text"
           />
         </g>
@@ -462,7 +458,7 @@ function ImagePrimitive({
         height={object.height}
         rx={8}
         fill="#f2f4f8"
-        stroke="#8b919a"
+        stroke="#9fa8b2"
         strokeWidth={failed ? 2 : 1}
         strokeDasharray={failed ? "8 6" : undefined}
       />
@@ -514,7 +510,7 @@ function ImagePrimitive({
         height={object.height}
         rx={8}
         fill="none"
-        stroke="#8b919a"
+        stroke="#9fa8b2"
         strokeWidth={1}
         pointerEvents="none"
       />
@@ -529,8 +525,8 @@ function DrawPrimitive({ object }: { object: DrawObject }) {
       points={object.points.map((point) => `${finiteNumber(point.x)},${finiteNumber(point.y)}`).join(" ")}
       transform={drawTransform(object)}
       fill="none"
-      stroke={semanticColor(object.color, "#e03131")}
-      strokeWidth={{ s: 2, m: 4, l: 7 }[object.size]}
+      stroke={semanticStrokeColor(object.color, "red")}
+      strokeWidth={SEMANTIC_DRAW_STROKE_WIDTHS[object.size]}
       strokeLinecap="round"
       strokeLinejoin="round"
     />
@@ -556,27 +552,25 @@ function defaultBounds(object: CanvasObject, route: ResolvedConnectorRoute | nul
   return { x: object.x, y: object.y, width: object.width, height: object.height };
 }
 
-function SelectionOutline({ bounds, focused, selected }: {
+function SelectionOutline({ bounds, focused }: {
   bounds: CanvasBounds;
   focused: boolean;
-  selected: boolean;
 }) {
-  if (!focused && !selected) return null;
+  if (!focused) return null;
   const inset = 5;
   return (
     <rect
-      className={`semantic-canvas-object__selection${focused ? " is-focused" : ""}${selected ? " is-selected" : ""}`}
-      data-focus-ring={focused ? "true" : undefined}
-      data-selection-ring={selected ? "true" : undefined}
+      className="semantic-canvas-object__selection is-focused"
+      data-focus-ring="true"
       x={bounds.x - inset}
       y={bounds.y - inset}
       width={Math.max(1, bounds.width + inset * 2)}
       height={Math.max(1, bounds.height + inset * 2)}
       rx={8}
       fill="none"
-      stroke={selected ? "#5965e8" : "#32b898"}
-      strokeWidth={focused ? 2.5 : 2}
-      strokeDasharray={focused && !selected ? "5 4" : undefined}
+      stroke={SEMANTIC_SELECTION_COLOR}
+      strokeWidth={SEMANTIC_SELECTION_STROKE_WIDTH}
+      strokeDasharray="5 4"
       vectorEffect="non-scaling-stroke"
       pointerEvents="none"
     />
@@ -700,7 +694,7 @@ function SemanticCanvasObjectComponent({
     >
       <title>{label}</title>
       {primitive}
-      <SelectionOutline bounds={bounds ?? defaultBounds(object, connectorRoute)} focused={showFocus} selected={selected} />
+      <SelectionOutline bounds={bounds ?? defaultBounds(object, connectorRoute)} focused={showFocus} />
     </g>
   );
 }

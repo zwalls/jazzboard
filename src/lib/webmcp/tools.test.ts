@@ -583,7 +583,6 @@ describe("semantic mutation handlers", () => {
         { x: 40, y: 70 },
         { x: 30, y: 100 },
       ],
-      color: "red",
       size: "l",
     });
 
@@ -606,7 +605,7 @@ describe("semantic mutation handlers", () => {
             { x: 50, y: 20 },
             { x: 40, y: 50 },
           ],
-          color: "red",
+          color: "black",
           size: "l",
         },
       },

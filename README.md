@@ -175,4 +175,4 @@ Create one Vercel project from this directory and configure `.env.example`:
 
 `vercel.json` enables Fluid compute, gives the native WebSocket route a five-minute duration, and schedules bounded private-asset cleanup once daily. Hobby cron timing is intentionally treated as approximate. A deployed instance fails closed when Redis is missing instead of silently switching to process-local state.
 
-Jazzboard's interactive canvas and local visual exports are implemented in first-party code over the authoritative semantic model. The production canvas has no third-party canvas SDK, vendor license key, runtime license validation, or required vendor watermark.
+Jazzboard's interactive canvas and local visual exports are implemented in first-party code over the authoritative semantic model. The production canvas has no third-party canvas SDK, vendor license key, runtime license validation, or required vendor watermark. Canvas typography self-hosts Shantell Sans under the SIL Open Font License; the bundled license is at `public/fonts/SHANTELL-SANS-LICENSE.txt`.

@@ -1,5 +1,5 @@
 .shell {
-  background-color: #f9fafc;
+  background-color: #f9fafb;
   background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
   background-position: var(--grid-x, 0px) var(--grid-y, 0px);
   background-size: var(--grid-size, 22px) var(--grid-size, 22px);
@@ -13,7 +13,7 @@
 }
 
 .shell:focus-visible {
-  outline: 3px solid rgba(89, 101, 232, 0.48);
+  outline: 3px solid rgba(49, 130, 237, 0.42);
   outline-offset: -3px;
 }
 
@@ -60,8 +60,8 @@
 }
 
 .marquee {
-  fill: rgba(89, 101, 232, 0.1);
-  stroke: #5965e8;
+  fill: rgba(45, 147, 255, 0.12);
+  stroke: #3182ed;
   stroke-dasharray: 5 4;
   stroke-width: 1.5;
 }

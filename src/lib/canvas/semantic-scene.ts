@@ -10,6 +10,8 @@ import type {
   RoomState,
 } from "@/lib/domain/types";
 
+import { SEMANTIC_DRAW_STROKE_WIDTHS } from "./semantic-visual-style";
+
 type SemanticSceneRoom = Pick<
   RoomState,
   "id" | "roomRevision" | "objects" | "diagrams"
@@ -44,12 +46,6 @@ export type SemanticScene = Readonly<{
   /** Persisted geometry, except explicitly requested optimistic routes during a local edit. */
   connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>;
 }>;
-
-const DRAW_STROKE_WIDTH: Readonly<Record<Extract<CanvasObject, { kind: "draw" }>["size"], number>> = {
-  s: 2,
-  m: 4,
-  l: 7,
-};
 
 function compareObjects(left: CanvasObject, right: CanvasObject): number {
   return left.zIndex - right.zIndex || left.id.localeCompare(right.id);
@@ -102,7 +98,7 @@ function drawObjectBounds(object: Extract<CanvasObject, { kind: "draw" }>): Canv
     const rotated = rotateAround(point, origin, object.rotation);
     return { x: object.x + rotated.x, y: object.y + rotated.y };
   });
-  return boundsForPoints(points, DRAW_STROKE_WIDTH[object.size] / 2);
+  return boundsForPoints(points, SEMANTIC_DRAW_STROKE_WIDTHS[object.size] / 2);
 }
 
 function unionBounds(left: CanvasBounds | null, right: CanvasBounds): CanvasBounds {

@@ -10,6 +10,25 @@ import type {
   TextObject,
 } from "@/lib/domain/types";
 
+import {
+  SEMANTIC_CANVAS_BACKGROUND,
+  SEMANTIC_CONNECTOR_ARROW_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
+  SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT,
+  SEMANTIC_CONNECTOR_STROKE_WIDTH,
+  SEMANTIC_DRAW_FONT_FAMILY,
+  SEMANTIC_DRAW_STROKE_WIDTHS,
+  SEMANTIC_SHAPE_CORNER_RADIUS,
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
+  SEMANTIC_SHAPE_STROKE_WIDTH,
+  SEMANTIC_TEXT_FONT_SIZES,
+  SEMANTIC_TEXT_LINE_HEIGHT,
+  semanticFillColor,
+  semanticShapeLabelMaxCharacters,
+  semanticShapeLabelMaxLines,
+  semanticStrokeColor,
+} from "./semantic-visual-style";
 import type { SemanticScene, SemanticSceneObject } from "./semantic-scene";
 
 export const SEMANTIC_PNG_LIMITS = {
@@ -21,6 +40,7 @@ export const SEMANTIC_PNG_LIMITS = {
   maxOutputBytes: 8_000_000,
   maxSourceImageBytes: 10 * 1_024 * 1_024,
   maxEmbeddedImageBytes: 20 * 1_024 * 1_024,
+  maxFontBytes: 128 * 1_024,
   maxSvgBytes: 32 * 1_024 * 1_024,
 } as const;
 
@@ -84,6 +104,8 @@ export type SemanticSvgRenderOptions = Readonly<{
   maxHeight?: number;
   maxSvgBytes?: number;
   images?: Readonly<Record<string, SemanticSvgImage>>;
+  /** A validated, ephemeral WOFF2 data URL used only by local rasterization. */
+  fontDataUrl?: string;
 }>;
 
 export type SemanticSvgRenderResult = Readonly<{
@@ -101,25 +123,9 @@ type NormalizedOptions = Required<Omit<SemanticSvgRenderOptions, "images">> & {
   images: Readonly<Record<string, SemanticSvgImage>>;
 };
 
-const COLORS: Readonly<Record<string, string>> = {
-  black: "#1d1d1d",
-  grey: "#8b919a",
-  "light-violet": "#e9e7ff",
-  violet: "#7950f2",
-  blue: "#4263eb",
-  "light-blue": "#a5d8ff",
-  yellow: "#f5d90a",
-  orange: "#f08c00",
-  green: "#2f9e44",
-  "light-green": "#b2f2bb",
-  "light-red": "#ffc9c9",
-  red: "#e03131",
-  white: "#ffffff",
-};
-
 const IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
-const CONNECTOR_LABEL_FONT_SIZE = 20;
-const CONNECTOR_LABEL_LINE_HEIGHT = 27;
+const FONT_DATA_URL_PATTERN = /^data:font\/woff2;base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_FONT_DATA_URL_LENGTH = 256_000;
 const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
 const CONNECTOR_LABEL_TOTAL_INSET = 9;
 
@@ -156,14 +162,6 @@ function xml(value: string, maxLength: number): string {
     .replace(/'/g, "&apos;");
 }
 
-function color(value: string, fallback: string, allowNone = false): string {
-  const normalized = value.toLowerCase();
-  if (allowNone && normalized === "none") return "none";
-  if (COLORS[normalized]) return COLORS[normalized];
-  if (/^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(normalized)) return normalized;
-  return fallback;
-}
-
 function normalizeOptions(options: SemanticSvgRenderOptions): NormalizedOptions {
   const normalized: NormalizedOptions = {
     padding: options.padding ?? 32,
@@ -175,6 +173,7 @@ function normalizeOptions(options: SemanticSvgRenderOptions): NormalizedOptions 
     maxHeight: options.maxHeight ?? SEMANTIC_PNG_LIMITS.maxDimension,
     maxSvgBytes: options.maxSvgBytes ?? SEMANTIC_PNG_LIMITS.maxSvgBytes,
     images: options.images ?? {},
+    fontDataUrl: options.fontDataUrl ?? "",
   };
   const invalid =
     !Number.isFinite(normalized.padding) ||
@@ -194,7 +193,9 @@ function normalizeOptions(options: SemanticSvgRenderOptions): NormalizedOptions 
     normalized.maxHeight > SEMANTIC_PNG_LIMITS.maxDimension ||
     !Number.isInteger(normalized.maxSvgBytes) ||
     normalized.maxSvgBytes < 1 ||
-    normalized.maxSvgBytes > SEMANTIC_PNG_LIMITS.maxSvgBytes;
+    normalized.maxSvgBytes > SEMANTIC_PNG_LIMITS.maxSvgBytes ||
+    normalized.fontDataUrl.length > MAX_FONT_DATA_URL_LENGTH ||
+    (normalized.fontDataUrl.length > 0 && !FONT_DATA_URL_PATTERN.test(normalized.fontDataUrl));
   if (invalid) {
     fail(
       "RENDER_OPTIONS_INVALID",
@@ -383,13 +384,18 @@ function textLines(
   anchor: "start" | "middle" | "end",
   fill: string,
   fontSize: number,
+  outlineColor?: string,
+  outlineWidth = 0,
 ): string {
   if (!lines.length) return "";
   const spans = lines.map(
     (line, index) =>
       `<tspan x="${formatNumber(x)}" dy="${index ? formatNumber(lineHeight) : "0"}">${xml(line, 2_000)}</tspan>`,
   ).join("");
-  return `<text x="${formatNumber(x)}" y="${formatNumber(firstY)}" fill="${fill}" font-family="Inter,ui-sans-serif,system-ui,sans-serif" font-size="${formatNumber(fontSize)}" text-anchor="${anchor}">${spans}</text>`;
+  const outline = outlineColor
+    ? ` stroke="${outlineColor}" stroke-width="${formatNumber(outlineWidth)}" stroke-linejoin="round" paint-order="stroke fill"`
+    : "";
+  return `<text class="jazzboard-draw-text" x="${formatNumber(x)}" y="${formatNumber(firstY)}" fill="${fill}" font-family="${SEMANTIC_DRAW_FONT_FAMILY}" font-size="${formatNumber(fontSize)}" font-weight="400" text-anchor="${anchor}"${outline}>${spans}</text>`;
 }
 
 function rotation(object: CanvasObject): string {
@@ -398,7 +404,7 @@ function rotation(object: CanvasObject): string {
 }
 
 function renderText(object: TextObject): string {
-  const fontSize = { s: 16, m: 20, l: 28, xl: 36 }[object.size];
+  const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
   const lines = wrapLines(
     object.content,
     Math.max(8, Math.floor(object.width / (fontSize * 0.58))),
@@ -412,36 +418,17 @@ function renderText(object: TextObject): string {
     lines,
     x,
     object.y + Math.min(fontSize, object.height / 2),
-    fontSize * 1.25,
+    fontSize * SEMANTIC_TEXT_LINE_HEIGHT,
     object.align,
-    color(object.color, "#1d1d1d"),
+    semanticStrokeColor(object.color),
     fontSize,
   )}</g>`;
 }
 
-function hexLuminance(value: string): number | null {
-  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
-  if (!match) return null;
-  const full = match[1].length === 3
-    ? match[1].split("").map((character) => `${character}${character}`).join("")
-    : match[1];
-  const channels = [0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16) / 255);
-  const linear = channels.map((channel) =>
-    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-  );
-  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
-}
-
-function shapeLabelColor(fill: string, stroke: string): string {
-  if (fill === "none") return stroke;
-  const luminance = hexLuminance(fill);
-  return luminance === null || luminance > 0.45 ? "#182033" : "#ffffff";
-}
-
 function renderShape(object: ShapeObject): string {
-  const fill = color(object.fill, "#e9e7ff", true);
-  const stroke = color(object.stroke, "#4263eb");
-  const attributes = `fill="${fill}" stroke="${stroke}" stroke-width="2"`;
+  const fill = semanticFillColor(object.fill, "blue", true);
+  const stroke = semanticStrokeColor(object.stroke, "blue");
+  const attributes = `fill="${fill}" stroke="${stroke}" stroke-width="${formatNumber(SEMANTIC_SHAPE_STROKE_WIDTH)}" stroke-linecap="round" stroke-linejoin="round"`;
   let geometry: string;
   if (object.shape === "ellipse") {
     geometry = `<ellipse cx="${formatNumber(object.x + object.width / 2)}" cy="${formatNumber(object.y + object.height / 2)}" rx="${formatNumber(object.width / 2)}" ry="${formatNumber(object.height / 2)}" ${attributes}/>`;
@@ -454,19 +441,27 @@ function renderShape(object: ShapeObject): string {
     ].join(" ");
     geometry = `<polygon points="${points}" ${attributes}/>`;
   } else {
-    const radius = Math.min(12, object.width / 8, object.height / 8);
+    const radius = Math.min(SEMANTIC_SHAPE_CORNER_RADIUS, object.width / 8, object.height / 8);
     geometry = `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="${formatNumber(radius)}" ${attributes}/>`;
   }
-  const lines = wrapLines(object.label, Math.max(8, Math.floor(object.width / 9)), 5);
-  const firstY = object.y + object.height / 2 - ((lines.length - 1) * 18) / 2 + 5;
+  const lines = wrapLines(
+    object.label,
+    semanticShapeLabelMaxCharacters(object.width),
+    semanticShapeLabelMaxLines(object.height),
+  );
+  const firstY = object.y + object.height / 2 -
+    ((lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT) / 2 +
+    SEMANTIC_SHAPE_LABEL_FONT_SIZE * 0.35;
   const label = textLines(
     lines,
     object.x + object.width / 2,
     firstY,
-    18,
+    SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
     "middle",
-    shapeLabelColor(fill, stroke),
-    15,
+    stroke,
+    SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+    fill === "none" ? SEMANTIC_CANVAS_BACKGROUND : fill,
+    5,
   );
   return `<g${rotation(object)}>${geometry}${label}</g>`;
 }
@@ -483,7 +478,7 @@ function connectorPath(object: ConnectorObject, scene: SemanticScene): string {
   ).join(" ");
 }
 
-function arrowHead(tip: Point, neighbor: Point, size = 10): string {
+function arrowHead(tip: Point, neighbor: Point, size = SEMANTIC_CONNECTOR_ARROW_SIZE): string {
   const angle = Math.atan2(tip.y - neighbor.y, tip.x - neighbor.x);
   const wing = size * 0.58;
   const baseX = tip.x - Math.cos(angle) * size;
@@ -500,11 +495,11 @@ function arrowHead(tip: Point, neighbor: Point, size = 10): string {
 function renderConnector(object: ConnectorObject, scene: SemanticScene): string {
   const route = scene.connectorRoutes[object.id];
   const points = route.points;
-  const stroke = color(object.color, "#1d1d1d");
+  const stroke = semanticStrokeColor(object.color);
   const startNeighbor = points[1];
   const endNeighbor = points.at(-2)!;
   const parts = [
-    `<path d="${connectorPath(object, scene)}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+    `<path d="${connectorPath(object, scene)}" fill="none" stroke="${stroke}" stroke-width="${formatNumber(SEMANTIC_CONNECTOR_STROKE_WIDTH)}" stroke-linecap="round" stroke-linejoin="round"/>`,
   ];
   if (object.direction === "both") {
     parts.push(`<polygon points="${arrowHead(points[0], startNeighbor)}" fill="${stroke}"/>`);
@@ -525,10 +520,11 @@ function renderConnector(object: ConnectorObject, scene: SemanticScene): string 
       Math.floor((labelBounds.width - CONNECTOR_LABEL_TOTAL_INSET) / CONNECTOR_LABEL_GRAPHEME_WIDTH),
     );
     const lines = wrapLines(object.label, maxGraphemes, 20);
-    const firstY = route.labelPoint.y - ((lines.length - 1) * CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
-      CONNECTOR_LABEL_FONT_SIZE * 0.35;
+    const firstY = route.labelPoint.y -
+      ((lines.length - 1) * SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
+      SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35;
     parts.push(
-      `<g><rect x="${formatNumber(labelBounds.x)}" y="${formatNumber(labelBounds.y)}" width="${formatNumber(labelBounds.width)}" height="${formatNumber(labelBounds.height)}" rx="6" fill="#ffffff" stroke="#d7dce3" stroke-width="1"/>${textLines(lines, route.labelPoint.x, firstY, CONNECTOR_LABEL_LINE_HEIGHT, "middle", stroke, CONNECTOR_LABEL_FONT_SIZE)}</g>`,
+      `<g><rect x="${formatNumber(labelBounds.x)}" y="${formatNumber(labelBounds.y)}" width="${formatNumber(labelBounds.width)}" height="${formatNumber(labelBounds.height)}" rx="4" fill="${SEMANTIC_CANVAS_BACKGROUND}" stroke="none"/>${textLines(lines, route.labelPoint.x, firstY, SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT, "middle", stroke, SEMANTIC_CONNECTOR_LABEL_FONT_SIZE)}</g>`,
     );
   }
   return parts.join("");
@@ -541,7 +537,7 @@ function renderDraw(object: DrawObject): string {
   const transform = `translate(${formatNumber(object.x)} ${formatNumber(object.y)})${
     object.rotation ? ` rotate(${formatNumber(object.rotation * (180 / Math.PI))})` : ""
   }`;
-  return `<polyline points="${points}" transform="${transform}" fill="none" stroke="${color(object.color, "#e03131")}" stroke-width="${{ s: 2, m: 4, l: 7 }[object.size]}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<polyline points="${points}" transform="${transform}" fill="none" stroke="${semanticStrokeColor(object.color, "red")}" stroke-width="${formatNumber(SEMANTIC_DRAW_STROKE_WIDTHS[object.size])}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function base64Prefix(payload: string, maximumBytes = 16): Uint8Array | null {
@@ -635,7 +631,7 @@ function imagePlaceholder(object: ImageObject): string {
     3,
   );
   const firstY = object.y + object.height / 2 - ((lines.length - 1) * 17) / 2 + 5;
-  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#f2f4f8" stroke="#8b919a" stroke-width="2" stroke-dasharray="8 6"/><line x1="${x}" y1="${y}" x2="${formatNumber(object.x + object.width)}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/><line x1="${formatNumber(object.x + object.width)}" y1="${y}" x2="${x}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/>${textLines(lines, object.x + object.width / 2, firstY, 17, "middle", "#596376", 14)}`;
+  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#f2f4f8" stroke="#9fa8b2" stroke-width="2" stroke-dasharray="8 6"/><line x1="${x}" y1="${y}" x2="${formatNumber(object.x + object.width)}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/><line x1="${formatNumber(object.x + object.width)}" y1="${y}" x2="${x}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/>${textLines(lines, object.x + object.width / 2, firstY, 17, "middle", "#596376", 14)}`;
 }
 
 function renderImage(
@@ -646,7 +642,7 @@ function renderImage(
   const resolved = embeddedImage(object, image);
   if (resolved.warning) warnings.push(resolved.warning);
   const content = resolved.href
-    ? `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="#f2f4f8"/><image href="${resolved.href}" x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" preserveAspectRatio="xMidYMid meet"/><rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="none" stroke="#8b919a" stroke-width="1"/>`
+    ? `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="#f2f4f8"/><image href="${resolved.href}" x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" preserveAspectRatio="xMidYMid meet"/><rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="none" stroke="#9fa8b2" stroke-width="1"/>`
     : imagePlaceholder(object);
   return `<g${rotation(object)}>${content}</g>`;
 }
@@ -736,13 +732,17 @@ export function renderSemanticSceneSvg(
     renderedObjects.push(renderedObject);
   }
   const objects = renderedObjects.join("");
+  const embeddedFont = normalized.fontDataUrl
+    ? `<style>@font-face{font-family:'Shantell Sans';font-style:normal;font-weight:400;src:url('${normalized.fontDataUrl}') format('woff2')}</style>`
+    : "";
   const background = normalized.background
-    ? `<rect x="${formatNumber(bounds.x)}" y="${formatNumber(bounds.y)}" width="${formatNumber(bounds.width)}" height="${formatNumber(bounds.height)}" fill="${normalized.darkMode ? "#181a20" : "#ffffff"}"/>`
+    ? `<rect x="${formatNumber(bounds.x)}" y="${formatNumber(bounds.y)}" width="${formatNumber(bounds.width)}" height="${formatNumber(bounds.height)}" fill="${normalized.darkMode ? "#181a20" : SEMANTIC_CANVAS_BACKGROUND}"/>`
     : "";
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelWidth}" height="${pixelHeight}" viewBox="${formatNumber(bounds.x)} ${formatNumber(bounds.y)} ${formatNumber(bounds.width)} ${formatNumber(bounds.height)}" role="img" aria-labelledby="semantic-png-title semantic-png-description">`,
     '<title id="semantic-png-title">Jazzboard semantic canvas</title>',
     '<desc id="semantic-png-description">Exact authorized semantic canvas scope rendered locally.</desc>',
+    embeddedFont,
     background,
     objects,
     "</svg>",

@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  useLayoutEffect,
+  useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -80,7 +83,23 @@ type SelectionFrame = Readonly<{
   rotation: number;
 }>;
 
+type SelectionActionBarPlacement = "above" | "below";
+
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"]);
+const ACTION_BAR_CLEARANCE = 34;
+const ACTION_BAR_ESTIMATED_HEIGHT = 48;
+const TOP_CHROME_SAFE_ZONE = 112;
+
+export function semanticSelectionActionBarPlacement(
+  selectionTop: number,
+  actionBarHeight: number,
+): SelectionActionBarPlacement {
+  const safeSelectionTop = finiteOr(selectionTop);
+  const safeActionBarHeight = Math.max(0, finiteOr(actionBarHeight));
+  return safeSelectionTop - ACTION_BAR_CLEARANCE - safeActionBarHeight < TOP_CHROME_SAFE_ZONE
+    ? "below"
+    : "above";
+}
 
 function finiteOr(value: number, fallback = 0): number {
   return Number.isFinite(value) ? value : fallback;
@@ -152,6 +171,64 @@ function pointStyle(point: Point, viewport: Viewport): CSSProperties {
   return { left: projected.x, top: projected.y };
 }
 
+function SelectionActionBar({
+  selectedBounds,
+  children,
+}: Readonly<{
+  selectedBounds: CanvasBounds;
+  children: ReactNode;
+}>) {
+  const actionBarRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<SelectionActionBarPlacement>(() =>
+    semanticSelectionActionBarPlacement(selectedBounds.y, ACTION_BAR_ESTIMATED_HEIGHT),
+  );
+
+  useLayoutEffect(() => {
+    const actionBar = actionBarRef.current;
+    if (!actionBar) return;
+
+    const updatePlacement = () => {
+      const next = semanticSelectionActionBarPlacement(
+        selectedBounds.y,
+        actionBar.getBoundingClientRect().height,
+      );
+      setPlacement((current) => current === next ? current : next);
+    };
+
+    updatePlacement();
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updatePlacement);
+    observer?.observe(actionBar);
+    window.addEventListener("resize", updatePlacement);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updatePlacement);
+    };
+  }, [selectedBounds.y]);
+
+  const style: CSSProperties = {
+    left: selectedBounds.x + selectedBounds.width / 2,
+    top: placement === "below"
+      ? selectedBounds.y + selectedBounds.height
+      : selectedBounds.y,
+  };
+
+  return (
+    <div
+      ref={actionBarRef}
+      className={styles.actionBar}
+      data-selection-placement={placement}
+      style={style}
+      role="toolbar"
+      aria-label="Selection actions"
+      onKeyDown={stopCanvasEvent}
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * Presentation-only controls for the first-party semantic canvas.
  *
@@ -197,11 +274,6 @@ export function SemanticSelectionControls({
     transform: `rotate(${frame.rotation}rad)`,
     transformOrigin: "center center",
   };
-  const actionBarStyle: CSSProperties = {
-    left: selectedBounds.x + selectedBounds.width / 2,
-    top: selectedBounds.y,
-  };
-
   function reportPointerStart(
     event: PointerEvent<HTMLButtonElement>,
     handle: SemanticTransformHandle,
@@ -308,13 +380,7 @@ export function SemanticSelectionControls({
         );
       }) : null}
 
-      <div
-        className={styles.actionBar}
-        style={actionBarStyle}
-        role="toolbar"
-        aria-label="Selection actions"
-        onKeyDown={stopCanvasEvent}
-      >
+      <SelectionActionBar selectedBounds={selectedBounds}>
         {styleControls ? <div className={styles.styleControls}>{styleControls}</div> : null}
         {onGroup && canGroup ? (
           <button type="button" onClick={() => invokeAction(onGroup)}>Group</button>
@@ -331,7 +397,7 @@ export function SemanticSelectionControls({
         {onDelete ? (
           <button type="button" className={styles.dangerAction} onClick={() => invokeAction(onDelete)}>Delete</button>
         ) : null}
-      </div>
+      </SelectionActionBar>
     </div>
   );
 }

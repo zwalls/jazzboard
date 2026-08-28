@@ -2,6 +2,7 @@ import { parseRoomAssetProxyReference } from "@/lib/assets/policy";
 import type { ImageObject } from "@/lib/domain/types";
 
 import type { SemanticScene } from "./semantic-scene";
+import { SEMANTIC_DRAW_FONT_URL } from "./semantic-visual-style";
 import {
   SEMANTIC_PNG_LIMITS,
   SemanticPngRenderError,
@@ -12,7 +13,7 @@ import {
   type SemanticSvgRenderOptions,
 } from "./semantic-png-svg";
 
-export type SemanticPngRenderOptions = Omit<SemanticSvgRenderOptions, "images"> &
+export type SemanticPngRenderOptions = Omit<SemanticSvgRenderOptions, "images" | "fontDataUrl"> &
   Readonly<{
     signal?: AbortSignal;
     maxBytes?: number;
@@ -35,10 +36,12 @@ export type SemanticPngBrowserDependencies = Readonly<{
   revokeObjectUrl?: (url: string) => void;
   loadImage?: (url: string, signal: AbortSignal) => Promise<CanvasImageSource>;
   createCanvas?: (width: number, height: number) => HTMLCanvasElement;
+  /** Tests/adapters may provide a validated font URL directly or null to disable embedding. */
+  fontDataUrl?: string | null;
 }>;
 
 type BrowserEnvironment = Required<
-  Omit<SemanticPngBrowserDependencies, "fetch" | "baseUrl">
+  Omit<SemanticPngBrowserDependencies, "fetch" | "baseUrl" | "fontDataUrl">
 > & Pick<SemanticPngBrowserDependencies, "fetch" | "baseUrl">;
 
 class ImageResolutionError extends Error {
@@ -369,6 +372,107 @@ async function resolveImages(
   return images;
 }
 
+function selectionNeedsDrawFont(
+  scene: SemanticScene,
+  objectIds: readonly string[],
+  images: Readonly<Record<string, SemanticSvgImage>>,
+): boolean {
+  return objectIds.some((objectId) => {
+    const object = scene.objectsById[objectId].object;
+    if (object.kind === "text") return Boolean(object.content.trim());
+    if (object.kind === "shape" || object.kind === "connector") return Boolean(object.label.trim());
+    if (object.kind === "image") return images[object.id]?.kind !== "embedded";
+    return false;
+  });
+}
+
+async function readBoundedFont(
+  response: Response,
+  signal: AbortSignal,
+): Promise<Uint8Array | null> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > SEMANTIC_PNG_LIMITS.maxFontBytes
+  ) return null;
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    throwIfAborted(signal);
+    return bytes.byteLength <= SEMANTIC_PNG_LIMITS.maxFontBytes ? bytes : null;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const result = await reader.read();
+      if (result.done) break;
+      byteLength += result.value.byteLength;
+      if (byteLength > SEMANTIC_PNG_LIMITS.maxFontBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function resolveDrawFont(
+  environment: BrowserEnvironment,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  if (!environment.fetch || !environment.baseUrl) return undefined;
+  let url: URL;
+  try {
+    url = new URL(SEMANTIC_DRAW_FONT_URL, environment.baseUrl);
+    if (url.origin !== new URL(environment.baseUrl).origin) return undefined;
+  } catch {
+    return undefined;
+  }
+  try {
+    const response = await environment.fetch(url.href, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "force-cache",
+      mode: "same-origin",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      signal,
+    });
+    if (!response.ok || response.type === "opaque") return undefined;
+    const mimeType = normalizeMimeType(response.headers.get("content-type"));
+    if (
+      mimeType &&
+      mimeType !== "font/woff2" &&
+      mimeType !== "application/font-woff2" &&
+      mimeType !== "application/octet-stream"
+    ) return undefined;
+    const bytes = await readBoundedFont(response, signal);
+    if (
+      !bytes ||
+      bytes.length < 4 ||
+      bytes[0] !== 0x77 ||
+      bytes[1] !== 0x4f ||
+      bytes[2] !== 0x46 ||
+      bytes[3] !== 0x32
+    ) return undefined;
+    return `data:font/woff2;base64,${bytesToBase64(bytes)}`;
+  } catch (error) {
+    if (isAbort(error, signal)) throw abortError();
+    return undefined;
+  }
+}
+
 function pngBlob(
   canvas: HTMLCanvasElement,
   signal: AbortSignal,
@@ -448,9 +552,15 @@ export async function renderSemanticScenePng(
   const environment = browserEnvironment(dependencies);
   const images = await resolveImages(scene, preflight.objectIds, environment, signal);
   throwIfAborted(signal);
+  const fontDataUrl = dependencies.fontDataUrl === null ||
+    !selectionNeedsDrawFont(scene, preflight.objectIds, images)
+    ? undefined
+    : dependencies.fontDataUrl ?? await resolveDrawFont(environment, signal);
+  throwIfAborted(signal);
   const rendered = renderSemanticSceneSvg(scene, preflight.objectIds, {
     ...svgOptions,
     images,
+    fontDataUrl,
   });
 
   const svgBlob = new Blob([rendered.svg], { type: "image/svg+xml;charset=utf-8" });

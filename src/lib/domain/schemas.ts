@@ -215,7 +215,7 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   baseObjectSchema.extend({
     kind: z.literal("draw"),
     points: z.array(pointSchema).min(2).max(20_000),
-    color: z.string().min(1).max(32).default("red"),
+    color: z.string().min(1).max(32).default("black"),
     size: z.enum(["s", "m", "l"]).default("m"),
   }),
 ]).superRefine((object, context) => {

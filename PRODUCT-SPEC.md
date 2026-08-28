@@ -307,6 +307,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - The server remains authoritative for membership, guest sessions, roles, permissions, private Ask messages and claims, agent edit policy, proposal review, object and Diagram revisions, lifecycle metadata, leases, transactions, activity guards, legacy snapshot expiry/revocation, template instantiation, and attribution.
 - The validated infinite-canvas renderer and human manipulation toolkit are implemented in first-party Jazzboard code over the authoritative semantic model, with no canvas-vendor license key, runtime validation, or required watermark.
 - The semantic model and first-party canvas projection preserve stable IDs, connectors, groups, images, drawings, z-order, structured decision/open-question state, and first-class Diagram metadata across human edits, agent edits, reviewed proposals, guarded compensation, reconnects, and layout operations.
+- The first-party renderer preserves Jazzboard's approachable hand-drawn visual language with a self-hosted OFL drawing font, pastel named fills paired with saturated semantic ink, medium-weight rounded strokes, quiet connector-label masks, and a lightweight blue selection treatment. Live canvas, text editing, local PNG rendering, and safe SVG use one shared visual contract so appearance does not drift across outputs.
 - Portable artifacts are projections, never authorization records. Safe JSON/Mermaid/SVG rendering and fresh-ID template planning live outside the interactive canvas. The separate visual PNG path uses the authorized first-party renderer locally, includes renderable images, and never persists the output.
 
 ## Intentional exclusions
@@ -352,6 +353,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Reusable Diagram templates omit audit/source/media state and instantiate atomically with fresh object, Diagram, and group IDs through the room's review policy.
 - [x] New hosted read-only snapshot issuance is absent from the visual UI and every room WebMCP surface; already-issued links retain their passive four-tool page only until expiry or revocation.
 - [x] Human and agent changes converge through the same server-authoritative model and first-party canvas projection.
+- [x] Live canvas, text editing, local PNG, and safe SVG share the same palette, drawing-font metrics, shape/connector strokes, labels, and default object styles.
 - [x] Comfortable automatic layout reserves readable connector-label corridors, compact density remains explicit, and connector labels contribute to Diagram and safe-export bounds.
 - [x] Exact-coordinate transactions preserve intentional overlap and freeform composition, while a transaction `auto_layout` operation can arrange temporary references atomically without double revisions or partial writes.
 - [x] Agent connectors default to deterministic obstacle-aware auto routing with clean ports, elbow corridors, lane offsets, and crossing reduction; explicit straight, curved, and elbow routes preserve deliberate composition.
