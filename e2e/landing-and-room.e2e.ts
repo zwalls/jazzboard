@@ -5,6 +5,8 @@ import {
   expectBuiltInTldrawWatermark,
   joinRoomFromLanding,
   jsonBody,
+  openBoardMenu,
+  selectBoardMenuItem,
   type ApiFailure,
 } from "./helpers";
 
@@ -130,8 +132,17 @@ test.describe("landing and room entry", () => {
     await expect(controls.getByText("In this room", { exact: true })).toBeVisible();
     await peopleButton.click();
 
-    await page.getByRole("button", { name: "Menu", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Page 1", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Export", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Zoom/ })).toBeVisible();
+
+    await openBoardMenu(page);
+    await expect(page.getByRole("menuitem", { name: "Canvas outline", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Export", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("menuitem", { name: /Export all as/i })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Ask agent", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("main-menu.button")).toBeFocused();
     await page.getByRole("button", { name: "Share board", exact: true }).click();
     await expect(page.getByRole("complementary", { name: "Share board" })).toBeVisible();
     await page.getByRole("button", { name: "Close share board" }).click();
@@ -191,7 +202,7 @@ test.describe("landing and room entry", () => {
     await expect(page.getByRole("tooltip")).toContainText("Your role: participant");
     await page.mouse.move(0, 0);
 
-    await page.getByRole("button", { name: "Canvas outline" }).click();
+    await selectBoardMenuItem(page, "Canvas outline");
     await expect(page.getByRole("complementary", { name: "Canvas outline" }).getByText("0 objects")).toBeVisible();
     await expect(page.getByText("Objects will appear here as people and agents add them.")).toBeVisible();
     await page.getByRole("button", { name: "Close canvas outline" }).click();

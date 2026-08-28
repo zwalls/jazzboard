@@ -9,6 +9,7 @@ import {
   getRoom,
   joinRoomViaApi,
   jsonBody,
+  openBoardMenu,
   shapeObject,
   type ApiFailure,
 } from "./helpers";
@@ -135,7 +136,8 @@ test("sends selected context through the private Ask inbox and exposes replies t
   if (!bounds) throw new Error(`Shape ${OBJECT_ID} has no rendered bounds.`);
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 
-  const askButton = page.getByRole("button", { name: /^Ask/ });
+  await openBoardMenu(page);
+  const askButton = page.getByRole("menuitem", { name: /^Ask agent/ });
   await expect(askButton).toContainText("1 selected");
   await askButton.click();
 
@@ -246,11 +248,12 @@ test("sends selected context through the private Ask inbox and exposes replies t
     await installWebMcpShim(spectatorPage);
     await spectatorPage.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(spectatorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
-    await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toBeVisible();
+    await openBoardMenu(spectatorPage);
+    await expect(spectatorPage.getByRole("menuitem", { name: "Become a participant" })).toBeVisible();
     await expect.poll(() => registeredToolNames(spectatorPage), { timeout: 15_000 }).toContain("read_room_state");
     const spectatorTools = await registeredToolNames(spectatorPage);
     for (const toolName of MESSAGE_TOOL_NAMES) expect(spectatorTools).not.toContain(toolName);
-    await expect(spectatorPage.getByRole("button", { name: /^Ask/ })).toHaveCount(0);
+    await expect(spectatorPage.getByRole("menuitem", { name: /^Ask agent/ })).toHaveCount(0);
     await expect(
       callWebMcpTool(spectatorPage, "list_agent_messages", { status: "all", limit: 20 }),
     ).rejects.toThrow("WebMCP tool list_agent_messages is not registered");

@@ -6,6 +6,8 @@ import {
   getRoom,
   joinRoomFromLanding,
   jsonBody,
+  openBoardMenu,
+  selectBoardMenuItem,
   textObject,
   type ApiFailure,
 } from "./helpers";
@@ -30,7 +32,9 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
     await spectatorPage.mouse.move(0, 0);
     await expect(spectatorPage.getByTestId("site-tools-status")).toHaveCount(0);
-    await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toBeVisible();
+    await openBoardMenu(spectatorPage);
+    await expect(spectatorPage.getByRole("menuitem", { name: "Become a participant" })).toBeVisible();
+    await spectatorPage.keyboard.press("Escape");
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toHaveCount(0);
 
     const deniedObject = textObject("spectator-denied-note", "This must not be created", 120, 120);
@@ -54,8 +58,7 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     expect(beforeUpgrade.room.objects).toEqual({});
     expect(beforeUpgrade.room.participants[spectator.participantId].agentActive).toBe(false);
 
-    await spectatorPage.getByRole("button", { name: "Become a participant" }).click();
-    await expect(spectatorPage.getByRole("button", { name: "Become a participant" })).toHaveCount(0);
+    await selectBoardMenuItem(spectatorPage, "Become a participant");
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
     await spectatorPeople.hover();
     await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: participant");
@@ -72,7 +75,7 @@ test("enforces spectator authorization until the person explicitly upgrades", as
       agentActive: true,
     });
 
-    await spectatorPage.getByRole("button", { name: "Canvas outline" }).click();
+    await selectBoardMenuItem(spectatorPage, "Canvas outline");
     const outline = spectatorPage.getByRole("complementary", { name: "Canvas outline" });
     await expect(outline.getByText("1 objects")).toBeVisible();
     await expect(outline.getByText("Upgrade unlocks semantic editing", { exact: true })).toBeVisible();

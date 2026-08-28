@@ -8,13 +8,9 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Download,
   Eye,
   Focus,
-  History,
-  ListTree,
   LoaderCircle,
-  MessageCircleQuestion,
   MousePointer2,
   Network,
   PencilLine,
@@ -23,8 +19,6 @@ import {
   Radio,
   RefreshCw,
   Share2,
-  ShieldCheck,
-  Sparkles,
   Users,
   X,
 } from "lucide-react";
@@ -59,10 +53,14 @@ import {
 import type { JazzboardWebMcpContext } from "@/lib/webmcp";
 import { useRoom } from "@/hooks/use-room";
 
-import { JazzboardCanvas, type JazzboardCanvasHandle } from "./JazzboardCanvas";
+import {
+  JazzboardCanvas,
+  type BoardMenuActions,
+  type JazzboardCanvasHandle,
+} from "./JazzboardCanvas";
 import { CanvasPreviewHost, type CanvasPreviewHostHandle } from "./CanvasPreviewHost";
 import { ActivityTimeline, type ActivityActorFilter } from "./ActivityTimeline";
-import { ASK_AGENT_PANEL_ID, AskAgentPanel } from "./AskAgentPanel";
+import { AskAgentPanel } from "./AskAgentPanel";
 import { DurabilityPanel, type DurabilityPanelMode } from "./DurabilityPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import styles from "./room.module.css";
@@ -158,7 +156,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const followTargetRef = useRef(followTarget);
   const previewHostRef = useRef<CanvasPreviewHostHandle | null>(null);
   const canvasRef = useRef<JazzboardCanvasHandle | null>(null);
-  const askButtonRef = useRef<HTMLButtonElement | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
   const [webMcpRegistrar] = useState(
     () => new JazzboardWebMcpRegistrar({ canvasPreviewTransport: previewTransport }),
@@ -186,7 +183,9 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
   const closeAskPanel = useCallback(() => {
     setAskSelection(null);
-    window.requestAnimationFrame(() => askButtonRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('[data-testid="main-menu.button"]')?.focus();
+    });
   }, []);
 
   useEffect(() => {
@@ -376,6 +375,36 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     setFollowOpen(false);
   }
 
+  function toggleCanvasOutline() {
+    setOutlineOpen((open) => !open);
+    setActivityOpen(false);
+    setDurabilityOpen(false);
+    setReviewOpen(false);
+    setAskSelection(null);
+    setPresenceOpen(false);
+    setFollowOpen(false);
+  }
+
+  function toggleActivity() {
+    setActivityOpen((open) => !open);
+    setOutlineOpen(false);
+    setDurabilityOpen(false);
+    setReviewOpen(false);
+    setAskSelection(null);
+    setPresenceOpen(false);
+    setFollowOpen(false);
+  }
+
+  function toggleAgentReview() {
+    setReviewOpen((open) => !open);
+    setOutlineOpen(false);
+    setActivityOpen(false);
+    setDurabilityOpen(false);
+    setAskSelection(null);
+    setPresenceOpen(false);
+    setFollowOpen(false);
+  }
+
   function follow(participantIdToFollow: string, kind: ActorKind) {
     if (participantIdToFollow === participantId && kind === "human") updateFollowTarget(null);
     else updateFollowTarget({ participantId: participantIdToFollow, kind });
@@ -509,6 +538,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     setActivityOpen(false);
     setDurabilityOpen(false);
     setReviewOpen(false);
+    setPresenceOpen(false);
+    setFollowOpen(false);
     setAskPreparationError(null);
     setAskPreparing(true);
     try {
@@ -528,6 +559,18 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       setAskPreparing(false);
     }
   }
+
+  const boardMenuActions: BoardMenuActions = {
+    askPreparing,
+    pendingReviewCount: room.reviewProposals.filter((proposal) => proposal.status === "pending").length,
+    selectionCount: selection.length,
+    onActivity: toggleActivity,
+    onAsk: () => void toggleAskPanel(),
+    onCanvasOutline: toggleCanvasOutline,
+    onExport: () => toggleDurability("export"),
+    onReview: toggleAgentReview,
+    onUpgradeRole: () => void controller.upgradeRole(),
+  };
 
   return (
     <main
@@ -759,6 +802,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
       <JazzboardCanvas
         ref={canvasRef}
+        boardMenuActions={boardMenuActions}
         room={room}
         self={self}
         followTarget={effectiveFollowTarget}
@@ -779,73 +823,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         onError={showError}
       />
       <CanvasPreviewHost ref={previewHostRef} />
-
-      <div className={styles.bottomActions}>
-        <button
-          onClick={() => {
-            setOutlineOpen((open) => !open);
-            setActivityOpen(false);
-            setDurabilityOpen(false);
-            setReviewOpen(false);
-            setAskSelection(null);
-          }}
-          aria-expanded={outlineOpen}
-        >
-          <ListTree size={16} /> Canvas outline
-          {selection.length ? <span>{selection.length} selected</span> : null}
-        </button>
-        <button
-          onClick={() => {
-            setActivityOpen((open) => !open);
-            setOutlineOpen(false);
-            setDurabilityOpen(false);
-            setReviewOpen(false);
-            setAskSelection(null);
-          }}
-          aria-expanded={activityOpen}
-        >
-          <History size={16} /> Activity
-          {roomActivity.activities.some((item) => item.actor.kind === "agent") ? <span>review agent work</span> : null}
-        </button>
-        <button
-          onClick={() => toggleDurability("export")}
-          aria-expanded={durabilityOpen && durabilityMode === "export"}
-        >
-          <Download size={16} /> Export
-        </button>
-        <button
-          onClick={() => {
-            setReviewOpen((open) => !open);
-            setOutlineOpen(false);
-            setActivityOpen(false);
-            setDurabilityOpen(false);
-            setAskSelection(null);
-          }}
-          aria-expanded={reviewOpen}
-        >
-          <ShieldCheck size={16} /> Agent review
-          {room.reviewProposals.some((proposal) => proposal.status === "pending") ? (
-            <span>{room.reviewProposals.filter((proposal) => proposal.status === "pending").length} pending</span>
-          ) : null}
-        </button>
-        {self.role === "participant" ? (
-          <button
-            ref={askButtonRef}
-            onClick={() => void toggleAskPanel()}
-            disabled={askPreparing}
-            aria-expanded={askSelection !== null}
-            aria-controls={ASK_AGENT_PANEL_ID}
-          >
-            {askPreparing ? <LoaderCircle className={styles.spin} size={16} /> : <MessageCircleQuestion size={16} />} {askPreparing ? "Preparing…" : "Ask"}
-            {selection.length ? <span>{selection.length} selected</span> : null}
-          </button>
-        ) : null}
-        {self.role === "spectator" ? (
-          <button className={styles.upgradeButton} onClick={() => void controller.upgradeRole()}>
-            <Sparkles size={15} /> Become a participant
-          </button>
-        ) : null}
-      </div>
 
       {askPreparationError ? (
         <div className={styles.askPreparationError} role="alert">
@@ -1108,6 +1085,9 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       <div className={styles.liveRegion} aria-live="polite">
         {diagramAnnouncement}
       </div>
+      <span className={styles.liveRegion} data-testid="canvas-selection-count">
+        {selection.length} selected
+      </span>
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { createRoomViaApi } from "./helpers";
+import { createRoomViaApi, selectBoardMenuItem } from "./helpers";
 
 test("shares the live board by private invite while keeping exports separate", async ({ browser, page }) => {
   const host = await createRoomViaApi(page.request, "Avery Host", "Architecture review");
@@ -61,7 +61,7 @@ test("shares the live board by private invite while keeping exports separate", a
   expect(new URL(inviteUrl!).hash).toBe(`#join=${host.room.code}`);
 
   await sharePanel.getByRole("button", { name: "Close share board" }).click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await selectBoardMenuItem(page, "Export");
   const exportPanel = page.getByRole("complementary", { name: "Export board" });
   await expect(exportPanel).toBeVisible();
   await expect(exportPanel.getByRole("button", { name: "Semantic JSON" })).toBeEnabled();
@@ -94,7 +94,7 @@ test("shares the live board by private invite while keeping exports separate", a
     await expect(spectatorShare.getByText("Share read-only")).toHaveCount(0);
 
     await spectatorShare.getByRole("button", { name: "Close share board" }).click();
-    await invitedPage.getByRole("button", { name: "Export", exact: true }).click();
+    await selectBoardMenuItem(invitedPage, "Export");
     const spectatorExport = invitedPage.getByRole("complementary", { name: "Export board" });
     await expect(spectatorExport.getByRole("button", { name: "Semantic JSON" })).toBeEnabled();
     await expect(spectatorExport.getByText(/Spectators can download passive exports/)).toBeVisible();

@@ -627,50 +627,6 @@ button.compactIndicator:hover {
   top: 80px;
 }
 
-.bottomActions {
-  align-items: center;
-  bottom: 16px;
-  display: flex;
-  gap: 8px;
-  left: 16px;
-  pointer-events: none;
-  position: absolute;
-  z-index: 390;
-}
-
-.bottomActions::-webkit-scrollbar {
-  display: none;
-}
-
-.bottomActions > button {
-  align-items: center;
-  backdrop-filter: blur(16px);
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-  color: #4f5a6f;
-  display: flex;
-  font-size: 11px;
-  font-weight: 680;
-  gap: 6px;
-  height: 38px;
-  padding: 0 11px;
-  pointer-events: auto;
-}
-
-.bottomActions button > span {
-  color: var(--ink-faint);
-  font-size: 9px;
-  margin-left: 3px;
-}
-
-.bottomActions > button.upgradeButton {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: white;
-}
-
 .askPreparationError {
   align-items: center;
   background: rgba(255, 245, 245, 0.98);
@@ -1727,19 +1683,6 @@ button.compactIndicator:hover {
   .outlinePanel {
     left: 10px;
     width: min(390px, calc(100vw - 20px));
-  }
-
-  .bottomActions {
-    bottom: 10px;
-    left: 10px;
-    max-width: calc(100vw - 20px);
-    overflow-x: auto;
-    pointer-events: auto;
-    scrollbar-width: none;
-  }
-
-  .bottomActions > button {
-    flex: 0 0 auto;
   }
 
   .modalBackdrop {

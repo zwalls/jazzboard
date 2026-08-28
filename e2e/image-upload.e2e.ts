@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-import { createRoomViaApi, getRoom } from "./helpers";
+import { createRoomViaApi, getRoom, selectBoardMenuItem } from "./helpers";
 
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGP8z7DlPwMewIRPcvgoAADJ3wLCTMjowgAAAABJRU5ErkJggg==",
@@ -40,7 +40,8 @@ test("adds a screenshot-style image through tldraw's standard media picker and l
   );
   await chooser.setFiles({ name: "website-screenshot.png", mimeType: "image/png", buffer: TINY_PNG });
   await storedAsset;
-  await expect(page.locator('.tl-shape[data-shape-type="image"]')).toBeVisible();
+  const imageShape = page.locator('.tl-shape[data-shape-type="image"]');
+  await expect(imageShape).toBeVisible();
 
   // The canvas is interactive before its font-gated persistence effect is
   // ready. Releasing the font after the image is already visible proves the
@@ -79,13 +80,25 @@ test("adds a screenshot-style image through tldraw's standard media picker and l
     )
     .toEqual(Object.keys(state.room.objects).map((id) => `shape:${id}`).sort());
 
-  await page.getByRole("button", { name: "Canvas outline", exact: true }).click();
+  const imageBounds = await imageShape.boundingBox();
+  expect(imageBounds).not.toBeNull();
+  await page.mouse.click(
+    imageBounds!.x + imageBounds!.width / 2,
+    imageBounds!.y + imageBounds!.height / 2,
+    { button: "right" },
+  );
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Download original" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Export/i })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await selectBoardMenuItem(page, /^Canvas outline/);
   const outline = page.getByRole("complementary", { name: "Canvas outline" });
   await expect(outline.getByText("1 objects")).toBeVisible();
   await expect(outline.getByText("website-screenshot.png", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Canvas outline", exact: true }).click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Close canvas outline" }).click();
+  await selectBoardMenuItem(page, "Export");
   const exportPanel = page.getByRole("complementary", { name: "Export board" });
   const [pngDownload] = await Promise.all([
     page.waitForEvent("download"),
