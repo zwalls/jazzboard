@@ -369,10 +369,6 @@ async function joinContext(
 
 test.describe("first-party semantic participant canvas", () => {
   test.describe.configure({ mode: "serial" });
-  test.skip(
-    process.env.NEXT_PUBLIC_JAZZBOARD_CANVAS_RENDERER !== "semantic-edit",
-    "Run with NEXT_PUBLIC_JAZZBOARD_CANVAS_RENDERER=semantic-edit.",
-  );
 
   test("never repaints stale grouped or text state while saves are delayed", async ({ browser, page }) => {
     test.setTimeout(90_000);

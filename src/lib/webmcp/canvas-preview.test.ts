@@ -106,7 +106,7 @@ function canvasFor(
   ]);
   const renderPng = vi.fn(async () => ({ blob, logicalWidth: 100, logicalHeight: 100, warnings }));
   const canvas = {
-    rendererId: "tldraw-v3",
+    rendererId: "jazzboard-semantic-v1",
     capabilities: { renderPng: true },
     isObjectProjectionExact: (candidate: CanvasObject) => projected.get(candidate.id) === candidate,
     getVisibleBounds: (objectIds: readonly string[]) => {

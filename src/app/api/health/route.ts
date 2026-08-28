@@ -54,7 +54,7 @@ export async function GET(): Promise<Response> {
         mode: capacityModeFromEnvironment(),
         limits: DEFAULT_CAPACITY_LIMITS,
       },
-      tldraw: { version: "3.15.6", licenseMode: "built-in-watermark" },
+      canvasRenderer: { id: "jazzboard-semantic-v1", ownership: "first-party" },
       checks: { ...checks, assetStorage },
       missing,
       warnings,

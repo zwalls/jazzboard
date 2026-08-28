@@ -18,29 +18,6 @@
   width: 100%;
 }
 
-.canvasRendererLoading {
-  background-color: #f9fafc;
-  background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
-  background-size: 22px 22px;
-}
-
-.canvasShell :global(.tl-container) {
-  /* Keep the SDK's required attribution above Jazzboard's presence, modal,
-     upload, and toast overlays without changing the watermark itself. */
-  --layer-watermark: 1000;
-  background-color: #f9fafc;
-  background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
-  background-size: 22px 22px;
-}
-
-.canvasShell :global(.tlui-layout__top__right) {
-  padding-top: var(--room-right-panel-top);
-}
-
-.canvasShell :global(.tlui-style-panel__wrapper) {
-  max-height: calc(100dvh - var(--room-right-panel-top) - 8px);
-}
-
 .roomHeader {
   align-items: flex-start;
   display: flex;
@@ -79,16 +56,6 @@
   min-width: 260px;
   overflow: visible;
   pointer-events: auto;
-}
-
-.combinedLeftPanel :global(.tlui-menu-zone) {
-  align-self: stretch;
-  background: transparent;
-  border: 0;
-  border-radius: 0 0 13px 13px;
-  border-top: 1px solid rgba(201, 207, 220, 0.72);
-  box-shadow: none;
-  width: auto;
 }
 
 .combinedRoomIdentity {

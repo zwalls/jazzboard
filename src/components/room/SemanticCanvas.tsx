@@ -2324,9 +2324,6 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         <button aria-label="Zoom in" onClick={() => zoomAtCenter(1.2)}><Plus size={15} /></button>
         <button aria-label="Fit board" onClick={fitBoard}><Maximize2 size={15} /></button>
       </div>
-      <div className={styles.experimentalBadge}>
-        First-party semantic renderer · {editingEnabled ? "editing canary" : "spectator canary"}
-      </div>
       <div className={styles.srOnly} aria-live="polite">
         {selection.length ? `${selection.length} canvas object${selection.length === 1 ? "" : "s"} selected.` : "Canvas selection cleared."}
       </div>

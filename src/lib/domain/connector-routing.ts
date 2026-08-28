@@ -3,7 +3,6 @@ import type {
   CanvasBounds,
   CanvasObject,
   ConnectorEndpoint,
-  ConnectorEndpointSnap,
   ConnectorObject,
   ConnectorRouting,
   ConnectorRoutingInput,
@@ -367,11 +366,9 @@ function anchorForEndpoint(
     objectId: target.id,
     normalizedAnchor,
     isPrecise: supplied ? true : options.persistPrecise,
-    // A generated cardinal port is an exact outline point when an auto curve
-    // needs tldraw to preserve the authoritative bend. Without this flag,
-    // tldraw applies a second non-exact clipping pass and can collapse a
-    // positive curve back to its source even though both bindings are valid.
-    // Explicit routes still preserve the caller's binding exactness.
+    // A generated cardinal port is an exact outline point when an automatic
+    // curve must retain its authoritative bend. Explicit routes still
+    // preserve the caller's binding exactness.
     isExact: supplied ? (endpoint.isExact ?? false) : options.persistExact,
     snap: endpoint.snap ?? "none",
   };
@@ -870,8 +867,7 @@ export function resolveConnectorRoute(
             startRotation: startObject?.rotation ?? 0,
             endRotation: endObject?.rotation ?? 0,
             midpoint,
-            // Jazzboard arrows always use tldraw's medium size, whose v3.15.6
-            // elbow expansion is exactly 36 page-space pixels.
+            // Jazzboard's canonical elbow expansion is 36 page-space pixels.
             legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
           });
           addCandidate({ kind: "elbow", bend: 0, elbowMidPoint: midpoint, start, end, points, arc: null });
@@ -1114,19 +1110,4 @@ export function resolveAffectedConnectorRoutes(
     );
   }
   return Object.fromEntries(resolved.map((route) => [route.connectorId, route]));
-}
-
-/** Exact tldraw defaults for a legacy/null endpoint binding. */
-export function connectorEndpointBindingDefaults(endpoint: ConnectorEndpoint): {
-  normalizedAnchor: Point;
-  isPrecise: boolean;
-  isExact: boolean;
-  snap: ConnectorEndpointSnap;
-} {
-  return {
-    normalizedAnchor: endpoint.normalizedAnchor ?? { x: 0.5, y: 0.5 },
-    isPrecise: endpoint.isPrecise ?? false,
-    isExact: endpoint.isExact ?? false,
-    snap: endpoint.snap ?? "none",
-  };
 }

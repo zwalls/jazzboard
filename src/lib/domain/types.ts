@@ -127,13 +127,13 @@ export type ShapeObject = CanvasObjectBase & {
 
 export type ConnectorEndpoint = Point & {
   objectId: string | null;
-  /** Exact tldraw v3 arrow-binding anchor; omitted on legacy persisted connectors. */
+  /** Normalized target-local anchor; omitted on legacy persisted connectors. */
   normalizedAnchor?: Point | null;
   /** Whether normalizedAnchor, rather than the target center, is authoritative. */
   isPrecise?: boolean | null;
   /** Whether the rendered connector may enter the target instead of stopping at its edge. */
   isExact?: boolean | null;
-  /** Exact tldraw v3 elbow-binding snap metadata. */
+  /** Endpoint snap intent retained across routing and rendering. */
   snap?: ConnectorEndpointSnap | null;
 };
 
@@ -149,7 +149,7 @@ export type ConnectorRoutingInput = {
   labelPosition?: number;
 };
 
-/** Canonical persisted intent plus the concrete tldraw-compatible resolution. */
+/** Canonical persisted intent plus its concrete renderer-neutral resolution. */
 export type ConnectorRouting = {
   mode: ConnectorRoutingMode;
   kind: ConnectorRoutingKind;

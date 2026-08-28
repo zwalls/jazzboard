@@ -19,7 +19,7 @@ describe("shared deterministic layout metrics", () => {
     });
   });
 
-  it("normalizes connector labels and conservatively clears a 20px tldraw label", () => {
+  it("normalizes connector labels and conservatively clears a 20px canvas label", () => {
     const metrics = connectorLabelMetrics("  authorize   signed cookie  ");
     expect(metrics.normalizedLines).toEqual(["authorize signed cookie"]);
     expect(metrics.width).toBe(262);

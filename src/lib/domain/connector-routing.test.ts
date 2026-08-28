@@ -14,7 +14,6 @@ import {
   CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
   LEGACY_CONNECTOR_ROUTING,
   cardinalNormalizedAnchor,
-  connectorEndpointBindingDefaults,
   connectorLabelBoundsForRoute,
   connectorRouteBounds,
   materializeConnectorRoutes,
@@ -154,17 +153,11 @@ describe("canonical connector routing", () => {
     });
   });
 
-  it("uses exact cardinal anchors and the tldraw v3 legacy binding defaults", () => {
+  it("uses exact cardinal anchors", () => {
     expect(cardinalNormalizedAnchor("top", 0.25)).toEqual({ x: 0.25, y: 0 });
     expect(cardinalNormalizedAnchor("right", 0.25)).toEqual({ x: 1, y: 0.25 });
     expect(cardinalNormalizedAnchor("bottom", 0.75)).toEqual({ x: 0.75, y: 1 });
     expect(cardinalNormalizedAnchor("left", 0.75)).toEqual({ x: 0, y: 0.75 });
-    expect(connectorEndpointBindingDefaults({ x: 1, y: 2, objectId: "node" })).toEqual({
-      normalizedAnchor: { x: 0.5, y: 0.5 },
-      isPrecise: false,
-      isExact: false,
-      snap: "none",
-    });
   });
 });
 
@@ -251,7 +244,7 @@ describe("deterministic route geometry", () => {
     ]);
   });
 
-  it("chooses a collision-free tldraw elbow around an unrelated service", () => {
+  it("chooses a collision-free elbow around an unrelated service", () => {
     const left = node("left", 0, 100);
     const blocker = node("blocker", 250, 100, 100, 80);
     const right = node("right", 500, 100);

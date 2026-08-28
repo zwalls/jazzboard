@@ -64,7 +64,7 @@ const CONNECTOR_LABEL_INSET = 9;
 const CONNECTOR_LABEL_MAX_WIDTH = 16 * CONNECTOR_LABEL_FONT_SIZE;
 
 /**
- * Conservative, platform-independent approximation of tldraw's medium arrow
+ * Conservative, platform-independent approximation of Jazzboard's connector
  * label measurement. It intentionally avoids DOM/font APIs so server layout,
  * export bounds, and client previews can share one deterministic contract.
  */

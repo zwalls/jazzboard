@@ -190,8 +190,6 @@ test.describe("landing and room entry", () => {
       "data-canvas-renderer",
       "jazzboard-semantic-v1",
     );
-    await expect(page.getByTitle("made with tldraw")).toHaveCount(0);
-
     expect(host.room.code).toMatch(/^\d{4}$/);
     expect(host.room.participants[host.participantId]).toMatchObject({
       displayName: "Maya Host",

@@ -41,7 +41,7 @@ function validatedSourceUrl(value: string | null | undefined): string | null {
 }
 
 /**
- * Renderer-neutral authorized image upload used by both canvas adapters.
+ * Authorized image upload for Jazzboard's first-party semantic canvas.
  *
  * It returns only a room-scoped proxy reference after server finalization;
  * callers never persist a public Blob URL or renderer asset record.
@@ -134,46 +134,4 @@ export async function uploadJazzboardRoomImage(
     storage: "vercel-blob-private",
     pathname: blob.pathname,
   });
-}
-
-type LegacyCanvasAsset = Readonly<{
-  props?: Readonly<Record<string, unknown>>;
-}>;
-
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-type JsonObject = { [key: string]: JsonValue | undefined };
-
-/** Structural legacy-adapter contract; no tldraw type crosses this module. */
-export type JazzboardLegacyCanvasAssetStore = Readonly<{
-  upload: (
-    asset: unknown,
-    file: File,
-    abortSignal?: AbortSignal,
-  ) => Promise<{ src: string; meta?: JsonObject }>;
-  resolve: (asset: LegacyCanvasAsset) => string | null;
-}>;
-
-export function createJazzboardAssetStore(
-  roomId: string,
-  onProgress?: (percentage: number) => void,
-): JazzboardLegacyCanvasAssetStore {
-  return {
-    async upload(_asset, file, abortSignal) {
-      const result = await uploadJazzboardRoomImage(roomId, file, {
-        signal: abortSignal,
-        onProgress,
-      });
-      return {
-        src: result.url,
-        meta: result.pathname
-          ? { storage: result.storage, pathname: result.pathname }
-          : { storage: result.storage, assetId: result.assetId ?? undefined },
-      };
-    },
-    resolve(asset) {
-      const src = asset.props?.src;
-      return typeof src === "string" ? src : null;
-    },
-  };
 }

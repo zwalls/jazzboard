@@ -48,7 +48,7 @@ export type CanvasSurfaceProps = {
   onError: (message: string, details?: unknown) => void;
 };
 
-/** Mutation capabilities supplied only to the explicit participant canary. */
+/** Mutation capabilities supplied only to authorized participants. */
 export type SemanticCanvasEditingHost = Pick<
   CanvasSurfaceProps,
   "command" | "semanticTransaction" | "lease" | "leaseMany" | "refresh" | "onError"

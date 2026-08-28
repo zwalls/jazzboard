@@ -168,7 +168,7 @@ function renderPanel(
   const selectedIds = [...new Set(options.selection ?? [])];
   const objectIds = Object.keys(sourceRoom.objects);
   const defaultRuntime = {
-    rendererId: "tldraw-v3",
+    rendererId: "jazzboard-semantic-v1",
     capabilities: { renderPng: true },
     getDocumentObjectIds: () => objectIds,
     getSelectedObjectIds: () => selectedIds,

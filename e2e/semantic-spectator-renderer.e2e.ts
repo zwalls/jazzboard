@@ -34,7 +34,6 @@ const SPECTATOR_TOOL_NAMES = [
   "read_neighborhood",
   "read_room_state",
   "read_selection",
-  "render_canvas_preview",
 ] as const;
 
 const MUTATION_TOOL_NAMES = [
@@ -82,7 +81,7 @@ async function seedSemanticScene(request: APIRequestContext, roomId: string): Pr
           {
             type: "create",
             object: {
-              ...shapeObject(DECISION_ID, "Ship the spectator canary", 880, 160, "violet"),
+              ...shapeObject(DECISION_ID, "Ship the spectator experience", 880, 160, "violet"),
               nodeType: "decision",
               shape: "diamond",
               nodeMetadata: {
@@ -217,17 +216,13 @@ function viewportTransform(page: Page) {
   return page.getByTestId("semantic-canvas").locator("svg > g").getAttribute("transform");
 }
 
-test("renders the feature-flagged first-party spectator canvas without mutation authority", async ({
+test("renders the first-party spectator canvas without mutation authority", async ({
   browser,
   page,
 }) => {
-  test.skip(
-    process.env.NEXT_PUBLIC_JAZZBOARD_CANVAS_RENDERER !== "semantic",
-    "Run with NEXT_PUBLIC_JAZZBOARD_CANVAS_RENDERER=semantic.",
-  );
   test.setTimeout(60_000);
 
-  const host = await createRoomViaApi(page.request, "Riley Host", "Semantic spectator canary");
+  const host = await createRoomViaApi(page.request, "Riley Host", "Semantic spectator acceptance");
   const seededRoom = await seedSemanticScene(page.request, host.room.id);
   expect(seededRoom.objects[CONNECTOR_ID]).toMatchObject({
     kind: "connector",
@@ -265,7 +260,6 @@ test("renders the feature-flagged first-party spectator canvas without mutation 
     const canvas = spectatorPage.getByTestId("semantic-canvas");
     await expect(canvas).toBeVisible({ timeout: 20_000 });
     await expect(canvas).toHaveAttribute("data-canvas-renderer", "jazzboard-semantic-v1");
-    await expect(spectatorPage.getByText("First-party semantic renderer · spectator canary")).toBeVisible();
     await expect(spectatorPage.getByTestId("jazzboard-canvas")).toHaveAttribute(
       "data-canvas-surface",
       "jazzboard-semantic-v1",
@@ -283,7 +277,7 @@ test("renders the feature-flagged first-party spectator canvas without mutation 
     await expect(note).toHaveAttribute("data-object-kind", "text");
     await expect(spectatorPage.getByRole("button", { name: "service: Gateway service" })).toBeVisible();
     await expect(spectatorPage.getByRole("button", { name: "component: Queue worker" })).toBeVisible();
-    await expect(spectatorPage.getByRole("button", { name: "decision: Ship the spectator canary" })).toBeVisible();
+    await expect(spectatorPage.getByRole("button", { name: "decision: Ship the spectator experience" })).toBeVisible();
     await expect(spectatorPage.getByRole("button", { name: "Text: Read-only semantic review" })).toBeVisible();
 
     const connectorPath = connector.locator(".semantic-canvas-object__connector-path");
@@ -304,7 +298,7 @@ test("renders the feature-flagged first-party spectator canvas without mutation 
     await spectatorPage.getByRole("button", { name: "Board menu" }).click();
     await spectatorPage.getByRole("menuitem", { name: "Canvas outline" }).click();
     const outline = spectatorPage.getByRole("complementary", { name: "Canvas outline" });
-    await outline.getByRole("button", { name: /decision Ship the spectator canary r1/i }).click();
+    await outline.getByRole("button", { name: /decision Ship the spectator experience r1/i }).click();
     await expect(decision).toHaveAttribute("data-selected", "true");
     await expect(service).toHaveAttribute("data-selected", "false");
     await expect(spectatorPage.getByTestId("canvas-selection-count")).toHaveText("1 selected");
@@ -344,7 +338,6 @@ test("renders the feature-flagged first-party spectator canvas without mutation 
     const tools = await registeredToolNames(spectatorPage);
     expect(tools.filter((name) => MUTATION_TOOL_NAMES.includes(name as never))).toEqual([]);
     expect(tools).toContain("export_canvas_png");
-    expect(tools).toContain("render_canvas_preview");
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toHaveCount(0);
 
     const downloadPromise = spectatorPage.waitForEvent("download");
@@ -357,17 +350,17 @@ test("renders the feature-flagged first-party spectator canvas without mutation 
           { objectId: DECISION_ID, expectedRevision: seededRoom.objects[DECISION_ID].revision },
         ],
       },
-      filename: "semantic-renderer-canary",
+      filename: "semantic-renderer-acceptance",
       pixelRatio: 1,
     });
     const [download, exportResult] = await Promise.all([downloadPromise, exportResultPromise]);
-    expect(download.suggestedFilename()).toBe("semantic-renderer-canary.png");
+    expect(download.suggestedFilename()).toBe("semantic-renderer-acceptance.png");
     expect(await download.failure()).toBeNull();
     expect(exportResult).toMatchObject({
       ok: true,
       tool: "export_canvas_png",
       data: {
-        filename: "semantic-renderer-canary.png",
+        filename: "semantic-renderer-acceptance.png",
         mimeType: "image/png",
         persistedByJazzboard: false,
       },

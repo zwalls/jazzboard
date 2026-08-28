@@ -4,7 +4,7 @@ import type { CanvasBounds, CanvasObject, Point, Viewport } from "@/lib/domain/t
  * Renderer identity is diagnostic only. Product code must branch on explicit
  * capabilities or feature flags, never on this value.
  */
-export type CanvasRendererId = "tldraw-v3" | "jazzboard-semantic-v1";
+export type CanvasRendererId = "jazzboard-semantic-v1";
 
 export type CanvasZoomOptions = {
   inset?: number;
@@ -36,8 +36,8 @@ export type CanvasPngRenderResult = {
  *
  * Every object is addressed by its authoritative Jazzboard semantic ID. Raw
  * renderer records, bindings, groups, and editor handles deliberately stay
- * behind an adapter so another renderer can implement the same product
- * behavior without emulating tldraw internals.
+ * behind the runtime boundary so product behavior does not depend on
+ * renderer-specific internals.
  */
 export interface CanvasRuntime {
   readonly rendererId: CanvasRendererId;

@@ -38,7 +38,7 @@ describe("deployment health asset storage", () => {
         mutationIdempotency: "participant-scoped-24h-receipts",
       },
       capacity: { mode: "warn", limits: { objects: 5_000, participants: 128 } },
-      tldraw: { version: "3.15.6", licenseMode: "built-in-watermark" },
+      canvasRenderer: { id: "jazzboard-semantic-v1", ownership: "first-party" },
       checks: {
         redis: true,
         blob: false,
@@ -67,14 +67,14 @@ describe("deployment health asset storage", () => {
     expect(await response.json()).toMatchObject({
       ok: true,
       assets: "vercel-blob",
-      tldraw: { version: "3.15.6", licenseMode: "built-in-watermark" },
+      canvasRenderer: { id: "jazzboard-semantic-v1", ownership: "first-party" },
       checks: { redis: true, blob: true, blobPrivate: true, assetStorage: true },
       missing: [],
       warnings: [],
     });
   });
 
-  it("does not require a key for watermarked tldraw and does not misreport Blob as missing", async () => {
+  it("does not misreport Blob as missing when the session secret is absent", async () => {
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("REDIS_URL", "redis://example.test:6379");
@@ -83,7 +83,6 @@ describe("deployment health asset storage", () => {
     vi.stubEnv("JAZZBOARD_ALLOW_REDIS_ASSET_FALLBACK", "1");
     vi.stubEnv("SESSION_SECRET", "");
     vi.stubEnv("CRON_SECRET", "c".repeat(32));
-    vi.stubEnv("NEXT_PUBLIC_TLDRAW_LICENSE_KEY", "");
 
     const response = await GET();
     const body = await response.json();
@@ -92,7 +91,7 @@ describe("deployment health asset storage", () => {
     expect(body).toMatchObject({
       ok: false,
       assets: "redis-fallback",
-      tldraw: { version: "3.15.6", licenseMode: "built-in-watermark" },
+      canvasRenderer: { id: "jazzboard-semantic-v1", ownership: "first-party" },
       checks: { assetStorage: true },
       missing: ["sessionSecret"],
       warnings: ["blob"],

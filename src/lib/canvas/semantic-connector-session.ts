@@ -575,7 +575,7 @@ function sameDraft(left: ConnectorDraft, right: ConnectorDraft): boolean {
 /**
  * Pure first-party connector gesture state machine.
  *
- * It owns no DOM records, tldraw values, timers, leases, persistence calls, or
+ * It owns no DOM records, renderer values, timers, leases, persistence calls, or
  * CanvasCommands. Hosts render `session.draft` / `previewRoute` immediately and
  * dispatch every returned lifecycle event synchronously in array order.
  */

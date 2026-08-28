@@ -686,7 +686,7 @@ function ImageControls({
  * Compact, renderer-neutral style controls for a homogeneous semantic selection.
  *
  * This component intentionally has no canvas, layout, lease, persistence, or
- * tldraw knowledge. It only reflects authoritative object fields and reports
+ * renderer-specific knowledge. It only reflects authoritative object fields and reports
  * typed user intent back to the owning canvas host.
  */
 export function SemanticStyleControls({
