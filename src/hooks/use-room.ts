@@ -530,6 +530,16 @@ export function useRoom(roomId: string) {
     return response.room;
   }, [acceptRoom, announceChange, roomId]);
 
+  const renameRoom = useCallback(async (title: string, expectedTitle: string) => {
+    const response = await apiRequest<RoomResponse>(`/api/rooms/${roomId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "rename", title, expectedTitle }),
+    });
+    acceptRoom(response.room);
+    announceChange();
+    return response.room;
+  }, [acceptRoom, announceChange, roomId]);
+
   const visibleRoom = roomState.visit === roomVisit ? roomState.value : null;
   const participantId = participant.visit === roomVisit ? participant.value : null;
   const connection = connectionState.visit === roomVisit ? connectionState.value : "connecting";
@@ -553,6 +563,7 @@ export function useRoom(roomId: string) {
     transientPresence,
     semanticTransaction,
     spotlight,
+    renameRoom,
     upgradeRole,
     acceptRoom,
     setConnection,

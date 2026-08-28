@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   createRoomFromLanding,
   expectBuiltInTldrawWatermark,
+  getRoom,
   joinRoomFromLanding,
   jsonBody,
   openBoardMenu,
@@ -197,6 +198,26 @@ test.describe("landing and room entry", () => {
     });
     await expect(page.getByTestId("combined-left-panel").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
     await expect(page.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+    const originalTitle = page.getByRole("button", {
+      name: "Edit room title, currently Untitled Jazzboard",
+    });
+    await originalTitle.click();
+    const titleInput = page.getByRole("textbox", { name: "Room name" });
+    await expect(titleInput).toBeFocused();
+    await expect(titleInput).toHaveValue("Untitled Jazzboard");
+    await titleInput.fill("Cancel this title");
+    await titleInput.press("Escape");
+    await expect(originalTitle).toBeFocused();
+
+    await originalTitle.click();
+    await titleInput.fill("  Architecture review  ");
+    await titleInput.press("Enter");
+    const renamedTitle = page.getByRole("button", {
+      name: "Edit room title, currently Architecture review",
+    });
+    await expect(renamedTitle).toBeVisible();
+    await expect(renamedTitle).toBeFocused();
+    await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.title).toBe("Architecture review");
     const hostPeopleButton = page.getByRole("button", { name: "Show people in this room" });
     await hostPeopleButton.hover();
     await expect(page.getByRole("tooltip")).toContainText("Your role: participant");
@@ -209,7 +230,7 @@ test.describe("landing and room entry", () => {
 
     await page.getByRole("link", { name: "Back to Jazzboard home" }).click();
     const recentLink = page.getByRole("link", {
-      name: `Open Untitled Jazzboard, room ${host.room.code}`,
+      name: `Open Architecture review, room ${host.room.code}`,
     });
     await expect(recentLink).toBeVisible();
     await expect(recentLink.getByText("Participant", { exact: true })).toBeVisible();
@@ -232,6 +253,9 @@ test.describe("landing and room entry", () => {
         role: "participant",
       });
       await expect(collaboratorPage.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+      await expect(collaboratorPage.getByRole("button", {
+        name: "Edit room title, currently Architecture review",
+      })).toBeVisible();
       await expect(collaboratorPage.getByRole("button", { name: "Show people in this room" })).toContainText("2");
 
       const peopleButton = collaboratorPage.getByRole("button", { name: "Show people in this room" });
@@ -239,6 +263,16 @@ test.describe("landing and room entry", () => {
       const peoplePopover = peopleButton.locator("..");
       await expect(peoplePopover.getByText("Maya Host", { exact: true })).toBeVisible();
       await expect(peoplePopover.getByText("Devon Collaborator (you)", { exact: true })).toBeVisible();
+
+      const collaboratorTitle = collaboratorPage.getByRole("button", {
+        name: "Edit room title, currently Architecture review",
+      });
+      await collaboratorTitle.click();
+      await collaboratorPage.getByRole("textbox", { name: "Room name" }).fill("Shared architecture review");
+      await collaboratorPage.getByRole("button", { name: "Save room name" }).click();
+      await expect(page.getByRole("button", {
+        name: "Edit room title, currently Shared architecture review",
+      })).toBeVisible({ timeout: 15_000 });
     } finally {
       await collaboratorContext.close();
     }

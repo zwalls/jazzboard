@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowLeft, Bot, LockKeyhole, MousePointer2 } from "lucide-react";
+import { ArrowLeft, Bot, Check, LoaderCircle, LockKeyhole, MousePointer2, Pencil, X } from "lucide-react";
 import Link from "next/link";
 import {
   ArrangeMenuSubmenu,
@@ -126,6 +126,7 @@ type Props = {
   lease: (action: LeaseAction, actorKind?: ActorKind) => Promise<LeaseResult>;
   leaseMany: (action: LeaseBatchAction, actorKind?: ActorKind) => Promise<LeaseBatchResult>;
   refresh: () => Promise<RoomState>;
+  renameRoom: (title: string, expectedTitle: string) => Promise<RoomState>;
   presence: (
     value: {
       cursor: { x: number; y: number } | null;
@@ -168,10 +169,138 @@ type RoomChromeContextValue = {
   boardMenuActions: BoardMenuActions;
   code: string;
   editable: boolean;
+  renameRoom(title: string, expectedTitle: string): Promise<RoomState>;
   title: string;
 };
 
 const RoomChromeContext = createContext<RoomChromeContextValue | null>(null);
+
+function InlineRoomTitle({ roomChrome }: { roomChrome: RoomChromeContextValue }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [draft, setDraft] = useState(roomChrome.title);
+  const [startingTitle, setStartingTitle] = useState(roomChrome.title);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const finishEditing = useCallback((focusTrigger: boolean) => {
+    setEditing(false);
+    setError(null);
+    if (focusTrigger) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  const saveTitle = useCallback(async () => {
+    if (saving) return;
+    const title = draft.trim();
+    if (!title) {
+      setError("Enter a room name.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
+    if (title === roomChrome.title) {
+      finishEditing(true);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await roomChrome.renameRoom(title, startingTitle);
+      setDraft(title);
+      finishEditing(true);
+    } catch (renameError) {
+      if (renameError instanceof JazzboardApiError && renameError.failure.code === "REVISION_CONFLICT") {
+        const actualTitle = renameError.failure.details?.actualTitle;
+        if (typeof actualTitle === "string") setStartingTitle(actualTitle);
+      }
+      setError(renameError instanceof Error ? renameError.message : "Jazzboard could not rename this room.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, finishEditing, roomChrome, saving, startingTitle]);
+
+  if (!roomChrome.editable) {
+    return <strong className={styles.roomTitleText}>{roomChrome.title}</strong>;
+  }
+
+  if (!editing) {
+    return (
+      <button
+        ref={triggerRef}
+        aria-label={`Edit room title, currently ${roomChrome.title}`}
+        className={styles.roomTitleButton}
+        onClick={() => {
+          setDraft(roomChrome.title);
+          setStartingTitle(roomChrome.title);
+          setError(null);
+          setEditing(true);
+        }}
+        title="Edit room title"
+        type="button"
+      >
+        <span>{roomChrome.title}</span>
+        <Pencil aria-hidden="true" className={styles.roomTitleEditIcon} size={12} />
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className={styles.roomTitleEditor}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void saveTitle();
+      }}
+    >
+      <input
+        ref={inputRef}
+        aria-describedby={error ? "room-title-error" : undefined}
+        aria-invalid={Boolean(error)}
+        aria-label="Room name"
+        disabled={saving}
+        maxLength={100}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (error) setError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            void saveTitle();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            finishEditing(true);
+          }
+        }}
+        value={draft}
+      />
+      <button aria-label="Save room name" disabled={saving} type="submit">
+        {saving ? <LoaderCircle aria-hidden="true" className={styles.spin} size={13} /> : <Check aria-hidden="true" size={13} />}
+      </button>
+      <button
+        aria-label="Cancel room name edit"
+        disabled={saving}
+        onClick={() => finishEditing(true)}
+        type="button"
+      >
+        <X aria-hidden="true" size={13} />
+      </button>
+      {error ? <span id="room-title-error" role="alert">{error}</span> : null}
+    </form>
+  );
+}
 
 function JazzboardMenuPanel() {
   const roomChrome = useContext(RoomChromeContext);
@@ -186,9 +315,9 @@ function JazzboardMenuPanel() {
         <span className={styles.brandMini} aria-hidden="true">
           J
         </span>
-        <div>
-          <strong>{roomChrome.title}</strong>
-          <span>Room {roomChrome.code}</span>
+        <div className={styles.roomIdentityText}>
+          <InlineRoomTitle roomChrome={roomChrome} />
+          <span className={styles.roomCode}>Room {roomChrome.code}</span>
         </div>
       </div>
       <DefaultMenuPanel />
@@ -481,6 +610,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   lease,
   leaseMany,
   refresh,
+  renameRoom,
   presence,
   transientPresence,
   connection,
@@ -545,8 +675,8 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     [room.id],
   );
   const roomChrome = useMemo<RoomChromeContextValue>(
-    () => ({ boardMenuActions, code: room.code, editable: self.role === "participant", title: room.title }),
-    [boardMenuActions, room.code, room.title, self.role],
+    () => ({ boardMenuActions, code: room.code, editable: self.role === "participant", renameRoom, title: room.title }),
+    [boardMenuActions, renameRoom, room.code, room.title, self.role],
   );
 
   useEffect(() => {

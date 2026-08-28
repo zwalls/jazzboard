@@ -811,6 +811,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         lease={controller.lease}
         leaseMany={controller.leaseMany}
         refresh={controller.refresh}
+        renameRoom={controller.renameRoom}
         presence={controller.presence}
         transientPresence={controller.transientPresence}
         connection={controller.connection}

@@ -307,9 +307,11 @@ export const canvasCommandSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+export const roomTitleSchema = z.string().trim().min(1).max(100);
+
 export const createRoomRequestSchema = z.object({
   displayName: z.string().trim().min(1).max(48),
-  title: z.string().trim().min(1).max(100).default("Untitled Jazzboard"),
+  title: roomTitleSchema.default("Untitled Jazzboard"),
 });
 
 export const joinRoomRequestSchema = z.object({
