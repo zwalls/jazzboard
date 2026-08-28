@@ -106,9 +106,7 @@ async function selectPair(page: Page) {
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 5 });
   await page.mouse.up();
-  await expect(
-    page.getByRole("button", { name: /Canvas outline/i }).getByText(/2 selected/i),
-  ).toBeVisible();
+  await expect(page.getByTestId("canvas-selection-count")).toHaveText("2 selected");
 }
 
 async function selectObjects(page: Page, objectIds: readonly string[]) {
@@ -116,11 +114,7 @@ async function selectObjects(page: Page, objectIds: readonly string[]) {
   const first = await centerOf(page, objectIds[0]);
   await page.mouse.click(first.x, first.y);
   await page.keyboard.press("Control+a");
-  await expect(
-    page
-      .getByRole("button", { name: /Canvas outline/i })
-      .getByText(new RegExp(`${objectIds.length} selected`, "i")),
-  ).toBeVisible();
+  await expect(page.getByTestId("canvas-selection-count")).toHaveText(`${objectIds.length} selected`);
 }
 
 async function dragFrom(page: Page, objectId: string, dx: number, dy: number) {

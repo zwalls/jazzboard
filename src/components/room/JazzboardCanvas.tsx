@@ -14,9 +14,21 @@ import {
 import { ArrowLeft, Bot, LockKeyhole, MousePointer2 } from "lucide-react";
 import Link from "next/link";
 import {
+  ArrangeMenuSubmenu,
+  ClipboardMenuGroup,
+  CopyAsMenuGroup,
+  DefaultContextMenu,
+  DefaultMainMenu,
   DefaultMenuPanel,
   DefaultFontFaces,
+  EditMenuSubmenu,
+  PreferencesGroup,
+  ReorderMenuSubmenu,
+  SelectAllMenuItem,
   Tldraw,
+  TldrawUiMenuActionItem,
+  TldrawUiMenuGroup,
+  TldrawUiMenuItem,
   type Editor,
   type TLComponents,
   type TLImageShape,
@@ -25,6 +37,8 @@ import {
   type TLShape,
   type TLShapeId,
   type TLUiOverrides,
+  useEditor,
+  useValue,
 } from "tldraw";
 
 import { JazzboardApiError } from "@/lib/client/api";
@@ -103,6 +117,7 @@ type DocumentRecordChanges = {
 };
 
 type Props = {
+  boardMenuActions: BoardMenuActions;
   room: RoomState;
   self: Participant;
   followTarget: FollowTarget;
@@ -137,7 +152,20 @@ export type JazzboardCanvasHandle = {
   prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
 };
 
+export type BoardMenuActions = {
+  askPreparing: boolean;
+  pendingReviewCount: number;
+  selectionCount: number;
+  onActivity(): void;
+  onAsk(): void;
+  onCanvasOutline(): void;
+  onExport(): void;
+  onReview(): void;
+  onUpgradeRole(): void;
+};
+
 type RoomChromeContextValue = {
+  boardMenuActions: BoardMenuActions;
   code: string;
   editable: boolean;
   title: string;
@@ -163,20 +191,136 @@ function JazzboardMenuPanel() {
           <span>Room {roomChrome.code}</span>
         </div>
       </div>
-      {roomChrome.editable ? <DefaultMenuPanel /> : null}
+      <DefaultMenuPanel />
     </div>
   );
 }
 
+function withCount(label: string, count: number, suffix: string): string {
+  return count ? `${label} · ${count} ${suffix}` : label;
+}
+
+function JazzboardMainMenu() {
+  const roomChrome = useContext(RoomChromeContext);
+  if (!roomChrome) return null;
+
+  const { boardMenuActions } = roomChrome;
+
+  return (
+    <DefaultMainMenu>
+      <TldrawUiMenuGroup id="jazzboard-board">
+        <TldrawUiMenuItem
+          id="canvas-outline"
+          label={withCount("Canvas outline", boardMenuActions.selectionCount, "selected")}
+          onSelect={boardMenuActions.onCanvasOutline}
+          readonlyOk
+        />
+        <TldrawUiMenuItem
+          id="activity"
+          label="Activity"
+          onSelect={boardMenuActions.onActivity}
+          readonlyOk
+        />
+        <TldrawUiMenuItem
+          id="export"
+          label="Export"
+          onSelect={boardMenuActions.onExport}
+          readonlyOk
+        />
+      </TldrawUiMenuGroup>
+      <TldrawUiMenuGroup id="jazzboard-agent">
+        {roomChrome.editable ? (
+          <TldrawUiMenuItem
+            disabled={boardMenuActions.askPreparing}
+            id="ask-agent"
+            label={boardMenuActions.askPreparing
+              ? "Preparing Ask…"
+              : withCount("Ask agent", boardMenuActions.selectionCount, "selected")}
+            onSelect={boardMenuActions.onAsk}
+            spinner={boardMenuActions.askPreparing}
+          />
+        ) : (
+          <TldrawUiMenuItem
+            id="become-participant"
+            label="Become a participant"
+            onSelect={boardMenuActions.onUpgradeRole}
+            readonlyOk
+          />
+        )}
+        <TldrawUiMenuItem
+          id="agent-review"
+          label={withCount("Agent review", boardMenuActions.pendingReviewCount, "pending")}
+          onSelect={boardMenuActions.onReview}
+          readonlyOk
+        />
+      </TldrawUiMenuGroup>
+      <PreferencesGroup />
+    </DefaultMainMenu>
+  );
+}
+
+function JazzboardContextMenuContent() {
+  const editor = useEditor();
+  const selectToolActive = useValue(
+    "jazzboard select tool active",
+    () => editor.getCurrentToolId() === "select",
+    [editor],
+  );
+  if (!selectToolActive) return null;
+
+  return (
+    <>
+      <TldrawUiMenuGroup id="modify">
+        <EditMenuSubmenu />
+        <ArrangeMenuSubmenu />
+        <ReorderMenuSubmenu />
+      </TldrawUiMenuGroup>
+      <ClipboardMenuGroup />
+      <CopyAsMenuGroup />
+      <DownloadOriginalMenuItem />
+      <TldrawUiMenuGroup id="select-all">
+        <SelectAllMenuItem />
+      </TldrawUiMenuGroup>
+    </>
+  );
+}
+
+function DownloadOriginalMenuItem() {
+  const editor = useEditor();
+  const hasSelectedImage = useValue(
+    "jazzboard selected image",
+    () => editor.getSelectedShapes().some((shape) => shape.type === "image"),
+    [editor],
+  );
+  if (!hasSelectedImage) return null;
+
+  return (
+    <TldrawUiMenuGroup id="original-media">
+      <TldrawUiMenuActionItem actionId="download-original" />
+    </TldrawUiMenuGroup>
+  );
+}
+
+function JazzboardContextMenu() {
+  return (
+    <DefaultContextMenu>
+      <JazzboardContextMenuContent />
+    </DefaultContextMenu>
+  );
+}
+
 const PARTICIPANT_COMPONENTS: TLComponents = {
+  ContextMenu: JazzboardContextMenu,
+  MainMenu: JazzboardMainMenu,
   MenuPanel: JazzboardMenuPanel,
+  PageMenu: null,
 };
 
 const SPECTATOR_COMPONENTS: TLComponents = {
   ActionsMenu: null,
   ContextMenu: null,
   ImageToolbar: null,
-  MainMenu: null,
+  MainMenu: JazzboardMainMenu,
   MenuPanel: JazzboardMenuPanel,
   PageMenu: null,
   QuickActions: null,
@@ -186,8 +330,15 @@ const SPECTATOR_COMPONENTS: TLComponents = {
   VideoToolbar: null,
 };
 
+const JAZZBOARD_TLDRAW_OPTIONS = { maxPages: 1 } as const;
+
 const SUPPORTED_TOOL_IDS = new Set(["select", "hand", "draw", "text", "note", "geo", "arrow", "eraser", "asset"]);
 const JAZZBOARD_UI_OVERRIDES: TLUiOverrides = {
+  translations: {
+    en: {
+      "menu.title": "Board menu",
+    },
+  },
   tools(_editor, tools) {
     return Object.fromEntries(Object.entries(tools).filter(([id]) => SUPPORTED_TOOL_IDS.has(id)));
   },
@@ -321,6 +472,7 @@ function semanticOperation(editor: Editor, shape: TLShape, current: RoomState["o
 }
 
 export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function JazzboardCanvas({
+  boardMenuActions,
   room,
   self,
   followTarget,
@@ -393,8 +545,8 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     [room.id],
   );
   const roomChrome = useMemo<RoomChromeContextValue>(
-    () => ({ code: room.code, editable: self.role === "participant", title: room.title }),
-    [room.code, room.title, self.role],
+    () => ({ boardMenuActions, code: room.code, editable: self.role === "participant", title: room.title }),
+    [boardMenuActions, room.code, room.title, self.role],
   );
 
   useEffect(() => {
@@ -2622,6 +2774,7 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
                 onEditorChange(mountedEditor);
               });
           }}
+          options={JAZZBOARD_TLDRAW_OPTIONS}
         />
       </RoomChromeContext.Provider>
       <CanvasPresenceOverlay editor={editor} room={room} selfId={self.participantId} />

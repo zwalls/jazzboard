@@ -8,6 +8,7 @@ import {
   joinRoomViaApi,
   jsonBody,
   shapeObject,
+  selectBoardMenuItem,
   textObject,
   type ApiFailure,
   type CommandResponse,
@@ -219,7 +220,7 @@ test("shares semantic agent edits, renders them for both people, and reports act
     );
     await jsonBody<LeaseResponse>(collaboratorReleaseResponse);
 
-    await page.getByRole("button", { name: "Canvas outline" }).click();
+    await selectBoardMenuItem(page, "Canvas outline");
     const hostOutline = page.getByRole("complementary", { name: "Canvas outline" });
     await expect(hostOutline.getByText("4 objects")).toBeVisible({ timeout: 10_000 });
     await expect(hostOutline.getByText("Checkout web", { exact: true })).toBeVisible();
@@ -227,7 +228,7 @@ test("shares semantic agent edits, renders them for both people, and reports act
     await expect(hostOutline.getByText("POST /orders", { exact: true })).toBeVisible();
     await expect(hostOutline.getByText("Decision: process payments asynchronously", { exact: true })).toBeVisible();
 
-    await collaboratorPage.getByRole("button", { name: "Canvas outline" }).click();
+    await selectBoardMenuItem(collaboratorPage, "Canvas outline");
     const collaboratorOutline = collaboratorPage.getByRole("complementary", { name: "Canvas outline" });
     await expect(collaboratorOutline.getByText("4 objects")).toBeVisible({ timeout: 10_000 });
     await expect(

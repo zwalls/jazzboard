@@ -124,6 +124,17 @@ export async function joinRoomFromLanding(
   return getRoom(page.request, roomId);
 }
 
+export async function openBoardMenu(page: Page): Promise<void> {
+  const trigger = page.getByTestId("main-menu.button");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(page.getByRole("menu")).toBeVisible();
+}
+
+export async function selectBoardMenuItem(page: Page, name: string | RegExp): Promise<void> {
+  await openBoardMenu(page);
+  await page.getByRole("menuitem", { name, exact: typeof name === "string" }).click();
+}
+
 export async function createRoomViaApi(
   request: APIRequestContext,
   displayName: string,
