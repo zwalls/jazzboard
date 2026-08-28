@@ -29,36 +29,36 @@ import {
 } from "./semantic-visual-style";
 
 describe("semantic canvas visual contract", () => {
-  it("locks the tldraw-derived light palette as saturated ink and pastel fill pairs", () => {
+  it("locks Jazzboard's light palette as saturated ink and pastel fill pairs", () => {
     expect(SEMANTIC_COLOR_PALETTE).toEqual({
-      black: { solid: "#1d1d1d", semi: "#e8e8e8" },
-      grey: { solid: "#9fa8b2", semi: "#eceef0" },
-      "light-violet": { solid: "#e085f4", semi: "#f5eafa" },
-      violet: { solid: "#ae3ec9", semi: "#ecdcf2" },
-      blue: { solid: "#4465e9", semi: "#dce1f8" },
-      "light-blue": { solid: "#4ba1f1", semi: "#ddedfa" },
-      yellow: { solid: "#f1ac4b", semi: "#f9f0e6" },
-      orange: { solid: "#e16919", semi: "#f8e2d4" },
-      green: { solid: "#099268", semi: "#d3e9e3" },
-      "light-green": { solid: "#4cb05e", semi: "#dbf0e0" },
-      "light-red": { solid: "#f87777", semi: "#f4dadb" },
-      red: { solid: "#e03131", semi: "#f4dadb" },
-      white: { solid: "#ffffff", semi: "#f5f5f5" },
+      black: { solid: "#20242c", semi: "#eaecf0" },
+      grey: { solid: "#8f99a8", semi: "#eef0f3" },
+      "light-violet": { solid: "#c96fe2", semi: "#f2e5f7" },
+      violet: { solid: "#9050c8", semi: "#e9dff3" },
+      blue: { solid: "#5266df", semi: "#dfe3f7" },
+      "light-blue": { solid: "#4f98dc", semi: "#deedf8" },
+      yellow: { solid: "#d99a35", semi: "#f8eedc" },
+      orange: { solid: "#d56d30", semi: "#f6e3d9" },
+      green: { solid: "#158b68", semi: "#d9ebe5" },
+      "light-green": { solid: "#51a568", semi: "#dff0e3" },
+      "light-red": { solid: "#eb7779", semi: "#f7dfe0" },
+      red: { solid: "#d9484a", semi: "#f6dcdd" },
+      white: { solid: "#ffffff", semi: "#f7f7f8" },
     });
-    expect(semanticPaletteColor(" BLUE ", "solid")).toBe("#4465e9");
-    expect(semanticPaletteColor("blue", "semi")).toBe("#dce1f8");
+    expect(semanticPaletteColor(" BLUE ", "solid")).toBe("#5266df");
+    expect(semanticPaletteColor("blue", "semi")).toBe("#dfe3f7");
     expect(semanticPaletteColor("not-a-token", "solid")).toBeNull();
   });
 
   it("resolves named ink and fills independently while preserving bounded custom hex", () => {
-    expect(semanticStrokeColor("light-blue")).toBe("#4ba1f1");
-    expect(semanticFillColor("light-blue")).toBe("#ddedfa");
+    expect(semanticStrokeColor("light-blue")).toBe("#4f98dc");
+    expect(semanticFillColor("light-blue")).toBe("#deedf8");
     expect(semanticStrokeColor(" #AbC ")).toBe("#abc");
     expect(semanticFillColor("#ABCDEF80")).toBe("#abcdef80");
     expect(semanticFillColor("none")).toBe("none");
-    expect(semanticFillColor("none", "violet", false)).toBe("#ecdcf2");
-    expect(semanticStrokeColor("unsafe-value", "green")).toBe("#099268");
-    expect(semanticFillColor("unsafe-value", "orange")).toBe("#f8e2d4");
+    expect(semanticFillColor("none", "violet", false)).toBe("#e9dff3");
+    expect(semanticStrokeColor("unsafe-value", "green")).toBe("#158b68");
+    expect(semanticFillColor("unsafe-value", "orange")).toBe("#f6e3d9");
     expect(semanticStrokeColor("unsafe-value", "#123456")).toBe("#123456");
     expect(semanticFillColor("unsafe-value", "#abcdef")).toBe("#abcdef");
   });
@@ -83,7 +83,7 @@ describe("semantic canvas visual contract", () => {
     expect(SEMANTIC_DRAW_STROKE_WIDTHS).toEqual({ s: 3, m: 4.5, l: 6 });
     expect(SEMANTIC_CONNECTOR_ARROW_SIZE).toBe(12);
     expect(SEMANTIC_SHAPE_CORNER_RADIUS).toBe(7);
-    expect(SEMANTIC_CANVAS_BACKGROUND).toBe("#f9fafb");
+    expect(SEMANTIC_CANVAS_BACKGROUND).toBe("#ffffff");
     expect(SEMANTIC_SELECTION_COLOR).toBe("#3182ed");
     expect(SEMANTIC_SELECTION_FILL).toBe("rgba(45, 147, 255, 0.24)");
     expect(SEMANTIC_SELECTION_STROKE_WIDTH).toBe(1.5);

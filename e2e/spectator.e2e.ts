@@ -36,6 +36,22 @@ test("enforces spectator authorization until the person explicitly upgrades", as
     await expect(spectatorPage.getByRole("menuitem", { name: "Become a participant" })).toBeVisible();
     await spectatorPage.keyboard.press("Escape");
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toHaveCount(0);
+    await expect(spectatorPage.getByTestId("combined-left-panel").getByText("Spectator review", { exact: true })).toBeVisible();
+    await expect(spectatorPage.getByRole("button", { name: /Edit room title/i })).toHaveCount(0);
+
+    const deniedRenameResponse = await spectatorContext.request.patch(
+      `/api/rooms/${encodeURIComponent(host.room.id)}`,
+      { data: { action: "rename", title: "Spectator title", expectedTitle: "Spectator review" } },
+    );
+    const deniedRename = await jsonBody<ApiFailure>(deniedRenameResponse, 403);
+    expect(deniedRename).toMatchObject({
+      ok: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "Spectators cannot rename the room.",
+        details: { role: "spectator" },
+      },
+    });
 
     const deniedObject = textObject("spectator-denied-note", "This must not be created", 120, 120);
     for (const endpoint of ["commands", "agent/commands"]) {
@@ -60,6 +76,9 @@ test("enforces spectator authorization until the person explicitly upgrades", as
 
     await selectBoardMenuItem(spectatorPage, "Become a participant");
     await expect(spectatorPage.getByRole("button", { name: "Spotlight", exact: true })).toBeVisible();
+    await expect(spectatorPage.getByRole("button", {
+      name: "Edit room title, currently Spectator review",
+    })).toBeVisible();
     await spectatorPeople.hover();
     await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: participant");
     await spectatorPage.mouse.move(0, 0);

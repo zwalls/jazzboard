@@ -22,6 +22,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         persistentChromeHost={props.persistentChromeHost}
         room={props.room}
         self={props.self}
+        renameRoom={props.renameRoom}
         followTarget={props.followTarget}
         presence={props.presence}
         transientPresence={props.transientPresence}

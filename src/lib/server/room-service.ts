@@ -1188,6 +1188,44 @@ export async function upgradeMembership(roomId: string, participantId: string): 
   );
 }
 
+export async function renameRoom(
+  roomId: string,
+  participantId: string,
+  title: string,
+  expectedTitle: string,
+): Promise<RoomState> {
+  return getRoomStore().transact(
+    roomId,
+    (room) => {
+      const participant = requireParticipant(room, participantId);
+      if (participant.role !== "participant") {
+        throw new DomainError("FORBIDDEN", "Spectators cannot rename the room.", {
+          role: participant.role,
+        });
+      }
+      if (room.title !== expectedTitle) {
+        throw new DomainError(
+          "REVISION_CONFLICT",
+          "The room name changed while you were editing it. Review the latest name and try again.",
+          { expectedTitle, actualTitle: room.title },
+        );
+      }
+      if (room.title === title) return { room, result: room, eventActor: actorFor(participant, "human") };
+
+      const now = Date.now();
+      room.title = title;
+      room.roomRevision += 1;
+      room.updatedAt = now;
+      return {
+        room,
+        result: room,
+        eventActor: actorFor(participant, "human"),
+      };
+    },
+    "room.updated",
+  );
+}
+
 export function activity(input: Omit<AgentActivity, "id" | "startedAt">): AgentActivity {
   return { ...input, id: randomUUID(), startedAt: Date.now() };
 }

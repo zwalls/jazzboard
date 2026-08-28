@@ -608,7 +608,7 @@ function imagePlaceholder(object: ImageObject): string {
     3,
   ).lines;
   const firstY = object.y + object.height / 2 - ((lines.length - 1) * 17) / 2 + 5;
-  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#f2f4f8" stroke="#9fa8b2" stroke-width="2" stroke-dasharray="8 6"/><line x1="${x}" y1="${y}" x2="${formatNumber(object.x + object.width)}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/><line x1="${formatNumber(object.x + object.width)}" y1="${y}" x2="${x}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/>${textLines(lines, object.x + object.width / 2, firstY, 17, "middle", "#596376", 14)}`;
+  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#f2f4f8" stroke="#8f99a8" stroke-width="2" stroke-dasharray="8 6"/><line x1="${x}" y1="${y}" x2="${formatNumber(object.x + object.width)}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/><line x1="${formatNumber(object.x + object.width)}" y1="${y}" x2="${x}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/>${textLines(lines, object.x + object.width / 2, firstY, 17, "middle", "#596376", 14)}`;
 }
 
 function renderImage(
@@ -619,7 +619,7 @@ function renderImage(
   const resolved = embeddedImage(object, image);
   if (resolved.warning) warnings.push(resolved.warning);
   const content = resolved.href
-    ? `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="#f2f4f8"/><image href="${resolved.href}" x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" preserveAspectRatio="xMidYMid meet"/><rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="none" stroke="#9fa8b2" stroke-width="1"/>`
+    ? `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="#f2f4f8"/><image href="${resolved.href}" x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" preserveAspectRatio="xMidYMid meet"/><rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="8" fill="none" stroke="#8f99a8" stroke-width="1"/>`
     : imagePlaceholder(object);
   return `<g${rotation(object)}>${content}</g>`;
 }

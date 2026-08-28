@@ -121,17 +121,17 @@ describe("SemanticCanvasObject", () => {
     const rectangle = container.querySelector(
       "#shape-rectangle rect.semantic-canvas-object__shape",
     );
-    expect(rectangle).toHaveAttribute("fill", "#ddedfa");
-    expect(rectangle).toHaveAttribute("stroke", "#4465e9");
+    expect(rectangle).toHaveAttribute("fill", "#deedf8");
+    expect(rectangle).toHaveAttribute("stroke", "#5266df");
     expect(rectangle).toHaveAttribute("stroke-width", "3.5");
     expect(rectangle).toHaveAttribute("stroke-linecap", "round");
     expect(rectangle).toHaveAttribute("stroke-linejoin", "round");
     const rectangleLabel = container.querySelector(
       "#shape-rectangle .semantic-canvas-object__label",
     );
-    expect(rectangleLabel).toHaveAttribute("fill", "#4465e9");
+    expect(rectangleLabel).toHaveAttribute("fill", "#5266df");
     expect(rectangleLabel).toHaveAttribute("font-size", "22");
-    expect(rectangleLabel).toHaveAttribute("stroke", "#ddedfa");
+    expect(rectangleLabel).toHaveAttribute("stroke", "#deedf8");
     expect(rectangleLabel).toHaveAttribute("stroke-width", "5");
     expect(rectangleLabel).toHaveAttribute("paint-order", "stroke fill");
   });
@@ -215,14 +215,14 @@ describe("SemanticCanvasObject", () => {
     expect(container.querySelectorAll(".semantic-canvas-object__arrowhead")).toHaveLength(2);
     expect(container.querySelector(".semantic-canvas-object__connector-path")).toHaveAttribute(
       "stroke",
-      "#ae3ec9",
+      "#9050c8",
     );
     expect(container.querySelector(".semantic-canvas-object__connector-path")).toHaveAttribute(
       "stroke-width",
       "3.5",
     );
     const labelMask = container.querySelector(".semantic-canvas-object__connector-label rect");
-    expect(labelMask).toHaveAttribute("fill", "#f9fafb");
+    expect(labelMask).toHaveAttribute("fill", "#ffffff");
     expect(labelMask).toHaveAttribute("stroke", "none");
     expect(labelMask).toHaveAttribute("rx", "4");
     expect(container.querySelector(".semantic-canvas-object__connector-label-text")).toHaveTextContent(
@@ -488,6 +488,6 @@ describe("SemanticCanvasObject", () => {
     expect(line).toHaveAttribute("points", "0,0 30,15 45,2");
     expect(line).toHaveAttribute("transform", expect.stringContaining("translate(20 30) rotate("));
     expect(line).toHaveAttribute("stroke-width", "4.5");
-    expect(line).toHaveAttribute("stroke", "#e03131");
+    expect(line).toHaveAttribute("stroke", "#d9484a");
   });
 });

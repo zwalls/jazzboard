@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   createRoomFromLanding,
+  getRoom,
   joinRoomFromLanding,
   jsonBody,
   openBoardMenu,
@@ -21,7 +22,7 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
       };
     };
     const panel = document.querySelector('[data-testid="combined-left-panel"]');
-    const identity = panel?.firstElementChild ?? null;
+    const identity = panel?.querySelector('[data-testid="room-identity"]') ?? null;
     const menu = panel?.querySelector('[data-testid="main-menu.button"]') ?? null;
     const controls = document.querySelector('[data-testid="room-controls"]');
     const stylePanel = document.querySelector("[data-semantic-style-controls]");
@@ -67,7 +68,8 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
   expect(layout.identity!.right).toBeLessThanOrEqual(layout.panel!.right);
   expect(layout.menu!.left).toBeGreaterThanOrEqual(layout.panel!.left);
   expect(layout.menu!.right).toBeLessThanOrEqual(layout.panel!.right);
-  expect(layout.menu!.top).toBeGreaterThanOrEqual(layout.identity!.bottom - 1);
+  expect(layout.menu!.right).toBeLessThanOrEqual(layout.identity!.left);
+  expect(layout.menu!.top).toBeGreaterThanOrEqual(layout.panel!.top);
   expect(layout.menu!.bottom).toBeLessThanOrEqual(layout.panel!.bottom);
   if (layout.stylePanel) {
     expect(layout.stylePanel.top).toBeGreaterThanOrEqual(layout.controls!.bottom + 8);
@@ -206,6 +208,26 @@ test.describe("landing and room entry", () => {
     });
     await expect(page.getByTestId("combined-left-panel").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
     await expect(page.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+    const originalTitle = page.getByRole("button", {
+      name: "Edit room title, currently Untitled Jazzboard",
+    });
+    await originalTitle.click();
+    const titleInput = page.getByRole("textbox", { name: "Room name" });
+    await expect(titleInput).toBeFocused();
+    await expect(titleInput).toHaveValue("Untitled Jazzboard");
+    await titleInput.fill("Cancel this title");
+    await titleInput.press("Escape");
+    await expect(originalTitle).toBeFocused();
+
+    await originalTitle.click();
+    await titleInput.fill("  Architecture review  ");
+    await titleInput.press("Enter");
+    const renamedTitle = page.getByRole("button", {
+      name: "Edit room title, currently Architecture review",
+    });
+    await expect(renamedTitle).toBeVisible();
+    await expect(renamedTitle).toBeFocused();
+    await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.title).toBe("Architecture review");
     const hostPeopleButton = page.getByRole("button", { name: "Show people in this room" });
     await hostPeopleButton.hover();
     await expect(page.getByRole("tooltip")).toContainText("Your role: participant");
@@ -218,7 +240,7 @@ test.describe("landing and room entry", () => {
 
     await page.getByRole("link", { name: "Back to Jazzboard home" }).click();
     const recentLink = page.getByRole("link", {
-      name: `Open Untitled Jazzboard, room ${host.room.code}`,
+      name: `Open Architecture review, room ${host.room.code}`,
     });
     await expect(recentLink).toBeVisible();
     await expect(recentLink.getByText("Participant", { exact: true })).toBeVisible();
@@ -241,6 +263,9 @@ test.describe("landing and room entry", () => {
         role: "participant",
       });
       await expect(collaboratorPage.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+      await expect(collaboratorPage.getByRole("button", {
+        name: "Edit room title, currently Architecture review",
+      })).toBeVisible();
       await expect(collaboratorPage.getByRole("button", { name: "Show people in this room" })).toContainText("2");
 
       const peopleButton = collaboratorPage.getByRole("button", { name: "Show people in this room" });
@@ -248,6 +273,16 @@ test.describe("landing and room entry", () => {
       const peoplePopover = peopleButton.locator("..");
       await expect(peoplePopover.getByText("Maya Host", { exact: true })).toBeVisible();
       await expect(peoplePopover.getByText("Devon Collaborator (you)", { exact: true })).toBeVisible();
+
+      const collaboratorTitle = collaboratorPage.getByRole("button", {
+        name: "Edit room title, currently Architecture review",
+      });
+      await collaboratorTitle.click();
+      await collaboratorPage.getByRole("textbox", { name: "Room name" }).fill("Shared architecture review");
+      await collaboratorPage.getByRole("button", { name: "Save room name" }).click();
+      await expect(page.getByRole("button", {
+        name: "Edit room title, currently Shared architecture review",
+      })).toBeVisible({ timeout: 15_000 });
     } finally {
       await collaboratorContext.close();
     }

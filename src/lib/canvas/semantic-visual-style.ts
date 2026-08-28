@@ -5,29 +5,29 @@ import type { CanvasObject } from "@/lib/domain/types";
  *
  * Named semantic colors intentionally resolve differently for ink and fill:
  * the solid value is used for strokes/text while the pastel value is used for
- * shape interiors. This preserves the visual meaning Jazzboard's color tokens
- * had when they were projected through tldraw's `solid` fill style.
+ * shape interiors. These pairs are Jazzboard's renderer-independent visual
+ * language, shared by the live canvas, previews, and exported images.
  */
 export const SEMANTIC_COLOR_PALETTE = Object.freeze({
-  black: { solid: "#1d1d1d", semi: "#e8e8e8" },
-  grey: { solid: "#9fa8b2", semi: "#eceef0" },
-  "light-violet": { solid: "#e085f4", semi: "#f5eafa" },
-  violet: { solid: "#ae3ec9", semi: "#ecdcf2" },
-  blue: { solid: "#4465e9", semi: "#dce1f8" },
-  "light-blue": { solid: "#4ba1f1", semi: "#ddedfa" },
-  yellow: { solid: "#f1ac4b", semi: "#f9f0e6" },
-  orange: { solid: "#e16919", semi: "#f8e2d4" },
-  green: { solid: "#099268", semi: "#d3e9e3" },
-  "light-green": { solid: "#4cb05e", semi: "#dbf0e0" },
-  "light-red": { solid: "#f87777", semi: "#f4dadb" },
-  red: { solid: "#e03131", semi: "#f4dadb" },
-  white: { solid: "#ffffff", semi: "#f5f5f5" },
+  black: { solid: "#20242c", semi: "#eaecf0" },
+  grey: { solid: "#8f99a8", semi: "#eef0f3" },
+  "light-violet": { solid: "#c96fe2", semi: "#f2e5f7" },
+  violet: { solid: "#9050c8", semi: "#e9dff3" },
+  blue: { solid: "#5266df", semi: "#dfe3f7" },
+  "light-blue": { solid: "#4f98dc", semi: "#deedf8" },
+  yellow: { solid: "#d99a35", semi: "#f8eedc" },
+  orange: { solid: "#d56d30", semi: "#f6e3d9" },
+  green: { solid: "#158b68", semi: "#d9ebe5" },
+  "light-green": { solid: "#51a568", semi: "#dff0e3" },
+  "light-red": { solid: "#eb7779", semi: "#f7dfe0" },
+  red: { solid: "#d9484a", semi: "#f6dcdd" },
+  white: { solid: "#ffffff", semi: "#f7f7f8" },
 } as const);
 
 export type SemanticColorName = keyof typeof SEMANTIC_COLOR_PALETTE;
 export type SemanticColorMode = "solid" | "semi";
 
-export const SEMANTIC_CANVAS_BACKGROUND = "#f9fafb";
+export const SEMANTIC_CANVAS_BACKGROUND = "#ffffff";
 export const SEMANTIC_DRAW_FONT_NAME = "Shantell Sans";
 export const SEMANTIC_DRAW_FONT_FAMILY =
   "Shantell Sans,Comic Sans MS,Comic Sans,cursive";

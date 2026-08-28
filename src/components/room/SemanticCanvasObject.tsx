@@ -551,7 +551,7 @@ function ImagePrimitive({
         height={object.height}
         rx={8}
         fill="#f2f4f8"
-        stroke="#9fa8b2"
+        stroke="#8f99a8"
         strokeWidth={failed ? 2 : 1}
         strokeDasharray={failed ? "8 6" : undefined}
       />
@@ -603,7 +603,7 @@ function ImagePrimitive({
         height={object.height}
         rx={8}
         fill="none"
-        stroke="#9fa8b2"
+        stroke="#8f99a8"
         strokeWidth={1}
         pointerEvents="none"
       />

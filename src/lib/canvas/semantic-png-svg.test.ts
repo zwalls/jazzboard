@@ -217,26 +217,26 @@ describe("semantic PNG SVG generation", () => {
 
     const rectangle = objectMarkup(result.svg, "rectangle");
     expect(rectangle).toContain(
-      'rx="7" fill="#f5eafa" stroke="#4465e9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
+      'rx="7" fill="#f2e5f7" stroke="#5266df" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
     );
     expect(rectangle).toContain(
       'font-family="Shantell Sans,Comic Sans MS,Comic Sans,cursive" font-size="22" font-weight="400"',
     );
     expect(rectangle).toContain(
-      'stroke="#f5eafa" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"',
+      'stroke="#f2e5f7" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"',
     );
     const connectorShaft = objectMarkup(result.svg, "connector", "connector-shaft");
     const connectorOverlay = objectMarkup(result.svg, "connector", "connector-overlay");
     expect(connectorShaft).toContain(
-      'stroke="#ae3ec9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
+      'stroke="#9050c8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
     );
     expect(connectorShaft).not.toContain("<polygon");
-    expect(connectorShaft).not.toContain('rx="4" fill="#f9fafb" stroke="none"');
+    expect(connectorShaft).not.toContain('rx="4" fill="#ffffff" stroke="none"');
     expect(connectorOverlay).not.toContain("<path");
     expect(connectorOverlay).toContain("<polygon");
-    expect(connectorOverlay).toContain('rx="4" fill="#f9fafb" stroke="none"');
+    expect(connectorOverlay).toContain('rx="4" fill="#ffffff" stroke="none"');
     expect(objectMarkup(result.svg, "draw")).toContain(
-      'stroke="#e03131" stroke-width="4.5"',
+      'stroke="#d9484a" stroke-width="4.5"',
     );
   });
 

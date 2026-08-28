@@ -421,12 +421,12 @@ describe("Jazzboard portable interchange", () => {
     const rendered = renderJazzboardSvg(artifact, { padding: 12, maxWidth: 800, maxHeight: 600 });
 
     expect(rendered.svg).toContain('x1="110" y1="80" x2="400" y2="80"');
-    expect(rendered.svg).toContain('fill="#f9fafb"');
+    expect(rendered.svg).toContain('fill="#ffffff"');
     expect(rendered.svg).toContain(
-      'fill="#f5eafa" stroke="#ae3ec9" stroke-width="3.5"',
+      'fill="#f2e5f7" stroke="#9050c8" stroke-width="3.5"',
     );
     expect(rendered.svg).toContain(
-      'fill="#dce1f8" stroke="#1d1d1d" stroke-width="3.5"',
+      'fill="#dfe3f7" stroke="#20242c" stroke-width="3.5"',
     );
     expect(rendered.svg).toContain(
       'font-family="Shantell Sans,Comic Sans MS,Comic Sans,cursive"',
@@ -435,7 +435,7 @@ describe("Jazzboard portable interchange", () => {
     expect(rendered.svg).toContain('stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"');
     expect(rendered.svg).toContain('font-size="24" font-weight="400"');
     expect(rendered.svg).toContain(
-      '<polygon points="400,80 388,86.96 388,73.04" fill="#1d1d1d"/>',
+      '<polygon points="400,80 388,86.96 388,73.04" fill="#20242c"/>',
     );
     expect(rendered.svg).toContain("&lt;script");
     expect(rendered.svg).toContain("src=&quot;https://private.invalid/x.js&quot;&gt;");
@@ -591,12 +591,12 @@ describe("Jazzboard portable interchange", () => {
       maxWidth: 8_192,
       maxHeight: 8_192,
     }).svg;
-    expect(connectorSvg).toContain('stroke="#4465e9" stroke-width="3.5"');
+    expect(connectorSvg).toContain('stroke="#5266df" stroke-width="3.5"');
     expect(connectorSvg).toContain(
-      '<polygon points="110,80 122,73.04 122,86.96" fill="#4465e9"/>',
+      '<polygon points="110,80 122,73.04 122,86.96" fill="#5266df"/>',
     );
     expect(connectorSvg).toContain(
-      '<polygon points="400,80 388,86.96 388,73.04" fill="#4465e9"/>',
+      '<polygon points="400,80 388,86.96 388,73.04" fill="#5266df"/>',
     );
     expect(connectorSvg).not.toContain("marker-");
 
@@ -666,9 +666,9 @@ describe("Jazzboard portable interchange", () => {
       maxWidth: 8_192,
       maxHeight: 8_192,
     }).svg;
-    expect(drawSvg).toContain('stroke="#e03131" stroke-width="3"');
-    expect(drawSvg).toContain('stroke="#e03131" stroke-width="4.5"');
-    expect(drawSvg).toContain('stroke="#e03131" stroke-width="6"');
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="3"');
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="4.5"');
+    expect(drawSvg).toContain('stroke="#d9484a" stroke-width="6"');
   });
 
   it("strips audit fields and plans a fresh, shifted, relationship-safe create transaction", () => {

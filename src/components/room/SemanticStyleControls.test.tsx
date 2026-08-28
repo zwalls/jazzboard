@@ -142,19 +142,19 @@ afterEach(() => {
 describe("SemanticStyleControls", () => {
   it("shows saturated ink swatches and matching pastel fill swatches", () => {
     expect(SEMANTIC_STYLE_COLORS).toEqual([
-      { value: "black", label: "Black", hex: "#1d1d1d", fillHex: "#e8e8e8" },
-      { value: "grey", label: "Grey", hex: "#9fa8b2", fillHex: "#eceef0" },
-      { value: "white", label: "White", hex: "#ffffff", fillHex: "#f5f5f5" },
-      { value: "blue", label: "Blue", hex: "#4465e9", fillHex: "#dce1f8" },
-      { value: "light-blue", label: "Light blue", hex: "#4ba1f1", fillHex: "#ddedfa" },
-      { value: "violet", label: "Violet", hex: "#ae3ec9", fillHex: "#ecdcf2" },
-      { value: "light-violet", label: "Light violet", hex: "#e085f4", fillHex: "#f5eafa" },
-      { value: "green", label: "Green", hex: "#099268", fillHex: "#d3e9e3" },
-      { value: "light-green", label: "Light green", hex: "#4cb05e", fillHex: "#dbf0e0" },
-      { value: "yellow", label: "Yellow", hex: "#f1ac4b", fillHex: "#f9f0e6" },
-      { value: "orange", label: "Orange", hex: "#e16919", fillHex: "#f8e2d4" },
-      { value: "red", label: "Red", hex: "#e03131", fillHex: "#f4dadb" },
-      { value: "light-red", label: "Light red", hex: "#f87777", fillHex: "#f4dadb" },
+      { value: "black", label: "Black", hex: "#20242c", fillHex: "#eaecf0" },
+      { value: "grey", label: "Grey", hex: "#8f99a8", fillHex: "#eef0f3" },
+      { value: "white", label: "White", hex: "#ffffff", fillHex: "#f7f7f8" },
+      { value: "blue", label: "Blue", hex: "#5266df", fillHex: "#dfe3f7" },
+      { value: "light-blue", label: "Light blue", hex: "#4f98dc", fillHex: "#deedf8" },
+      { value: "violet", label: "Violet", hex: "#9050c8", fillHex: "#e9dff3" },
+      { value: "light-violet", label: "Light violet", hex: "#c96fe2", fillHex: "#f2e5f7" },
+      { value: "green", label: "Green", hex: "#158b68", fillHex: "#d9ebe5" },
+      { value: "light-green", label: "Light green", hex: "#51a568", fillHex: "#dff0e3" },
+      { value: "yellow", label: "Yellow", hex: "#d99a35", fillHex: "#f8eedc" },
+      { value: "orange", label: "Orange", hex: "#d56d30", fillHex: "#f6e3d9" },
+      { value: "red", label: "Red", hex: "#d9484a", fillHex: "#f6dcdd" },
+      { value: "light-red", label: "Light red", hex: "#eb7779", fillHex: "#f7dfe0" },
     ]);
 
     renderControls([shape()]);
@@ -164,16 +164,16 @@ describe("SemanticStyleControls", () => {
       (fillTrigger.querySelector("span[style]") as HTMLElement).style.getPropertyValue(
         "--semantic-style-swatch",
       ),
-    ).toBe("#ddedfa");
+    ).toBe("#deedf8");
     expect(
       (strokeTrigger.querySelector("span[style]") as HTMLElement).style.getPropertyValue(
         "--semantic-style-swatch",
       ),
-    ).toBe("#4465e9");
+    ).toBe("#5266df");
 
     fireEvent.click(fillTrigger);
     const blueFill = screen.getByRole("button", { name: "Blue fill" });
-    expect(blueFill.style.getPropertyValue("--semantic-style-swatch")).toBe("#dce1f8");
+    expect(blueFill.style.getPropertyValue("--semantic-style-swatch")).toBe("#dfe3f7");
   });
 
   it("reflects text fields and emits exact color, size, alignment, and content-edit intent", () => {

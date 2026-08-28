@@ -53,72 +53,6 @@
   pointer-events: auto;
 }
 
-.combinedLeftPanel {
-  align-items: stretch;
-  background: var(--chrome);
-  border: 1px solid var(--chrome-line);
-  border-radius: 14px;
-  box-shadow: 0 8px 26px rgba(39, 47, 77, 0.1), 0 1px 3px rgba(39, 47, 77, 0.08);
-  box-sizing: border-box;
-  display: inline-flex;
-  flex-direction: column;
-  margin: 14px 0 0 16px;
-  max-width: calc(100vw - 32px);
-  min-width: 260px;
-  overflow: visible;
-  pointer-events: auto;
-}
-
-.combinedRoomIdentity {
-  align-items: center;
-  display: flex;
-  gap: 9px;
-  min-height: 51px;
-  padding: 6px 8px;
-}
-
-.combinedRoomIdentity > div {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  line-height: 1.15;
-  min-width: 0;
-}
-
-.combinedRoomIdentity strong {
-  font-size: 13px;
-  font-weight: 740;
-  letter-spacing: -0.018em;
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.combinedRoomIdentity div > span {
-  color: var(--ink-soft);
-  font-size: 10px;
-  font-weight: 670;
-  letter-spacing: 0.045em;
-  margin-top: 4px;
-  text-transform: uppercase;
-}
-
-.brandMini {
-  align-items: center;
-  background: linear-gradient(145deg, #626eec, #4753cf);
-  border-radius: 9px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-  color: white;
-  display: inline-flex;
-  flex: 0 0 34px;
-  font-size: 16px;
-  font-weight: 820;
-  height: 34px;
-  justify-content: center;
-  letter-spacing: -0.08em;
-}
-
 .roomControls {
   flex: 0 1 auto;
   gap: 5px;
@@ -1625,11 +1559,6 @@ button.compactIndicator:hover {
   .roomPage {
     --room-edge-inset: 10px;
     --room-right-panel-top: 74px;
-  }
-
-  .combinedLeftPanel {
-    margin: 9px 0 0 10px;
-    max-width: calc(100vw - 20px);
   }
 
   .roomHeader {

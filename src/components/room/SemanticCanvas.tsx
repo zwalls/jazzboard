@@ -20,15 +20,19 @@ import { createPortal } from "react-dom";
 import {
   Activity,
   ArrowLeft,
+  Check,
   Download,
   ListTree,
+  LoaderCircle,
   Maximize2,
   Menu,
   MessageCircle,
   Minus,
+  Pencil,
   Plus,
   ScanSearch,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -93,6 +97,7 @@ import {
 } from "@/lib/canvas/semantic-transform-session";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { SemanticCanvasEditEvent } from "@/lib/canvas/semantic-edit-events";
+import { JazzboardApiError } from "@/lib/client/api";
 import type {
   ConnectorRoutingInput,
   Point,
@@ -150,7 +155,10 @@ export type SemanticCanvasProps = Pick<
   | "onSelectionChange"
   | "onRuntimeChange"
   | "onExitFollow"
-> & { editing?: SemanticCanvasEditingHost | null };
+> & {
+  editing?: SemanticCanvasEditingHost | null;
+  renameRoom?: CanvasSurfaceProps["renameRoom"];
+};
 
 type PanState = {
   pointerId: number;
@@ -276,11 +284,148 @@ function viewportWithPhysicalSize(viewport: Viewport, width: number, height: num
   return { ...viewport, width: width / zoom, height: height / zoom, zoom };
 }
 
+function InlineRoomTitle({
+  editable,
+  renameRoom,
+  title,
+}: {
+  editable: boolean;
+  renameRoom?: CanvasSurfaceProps["renameRoom"];
+  title: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [draft, setDraft] = useState(title);
+  const [startingTitle, setStartingTitle] = useState(title);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editingTitle) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editingTitle]);
+
+  const finishEditing = useCallback((focusTrigger: boolean) => {
+    setEditingTitle(false);
+    setError(null);
+    if (focusTrigger) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  const saveTitle = useCallback(async () => {
+    if (saving || !renameRoom) return;
+    const nextTitle = draft.trim();
+    if (!nextTitle) {
+      setError("Enter a room name.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
+    if (nextTitle === title) {
+      finishEditing(true);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await renameRoom(nextTitle, startingTitle);
+      setDraft(nextTitle);
+      finishEditing(true);
+    } catch (renameError) {
+      if (renameError instanceof JazzboardApiError && renameError.failure.code === "REVISION_CONFLICT") {
+        const actualTitle = renameError.failure.details?.actualTitle;
+        if (typeof actualTitle === "string") setStartingTitle(actualTitle);
+      }
+      setError(renameError instanceof Error ? renameError.message : "Jazzboard could not rename this room.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, finishEditing, renameRoom, saving, startingTitle, title]);
+
+  if (!editable || !renameRoom) {
+    return <strong className={styles.roomTitleText}>{title}</strong>;
+  }
+
+  if (!editingTitle) {
+    return (
+      <button
+        ref={triggerRef}
+        aria-label={`Edit room title, currently ${title}`}
+        className={styles.roomTitleButton}
+        onClick={() => {
+          setDraft(title);
+          setStartingTitle(title);
+          setError(null);
+          setEditingTitle(true);
+        }}
+        title="Edit room title"
+        type="button"
+      >
+        <span>{title}</span>
+        <Pencil aria-hidden="true" className={styles.roomTitleEditIcon} size={12} />
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className={styles.roomTitleEditor}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void saveTitle();
+      }}
+    >
+      <input
+        ref={inputRef}
+        aria-describedby={error ? "semantic-room-title-error" : undefined}
+        aria-invalid={Boolean(error)}
+        aria-label="Room name"
+        disabled={saving}
+        maxLength={100}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (error) setError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            void saveTitle();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            finishEditing(true);
+          }
+        }}
+        value={draft}
+      />
+      <button aria-label="Save room name" disabled={saving} type="submit">
+        {saving
+          ? <LoaderCircle aria-hidden="true" className={styles.spin} size={13} />
+          : <Check aria-hidden="true" size={13} />}
+      </button>
+      <button
+        aria-label="Cancel room name edit"
+        disabled={saving}
+        onClick={() => finishEditing(true)}
+        type="button"
+      >
+        <X aria-hidden="true" size={13} />
+      </button>
+      {error ? <span id="semantic-room-title-error" role="alert">{error}</span> : null}
+    </form>
+  );
+}
+
 export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProps>(function SemanticCanvas({
   boardMenuActions,
   persistentChromeHost = null,
   room,
   self,
+  renameRoom,
   followTarget,
   presence,
   transientPresence,
@@ -2361,10 +2506,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
             <Menu size={20} />
           </button>
           <span className={styles.headerDivider} aria-hidden="true" />
-          <div className={styles.roomIdentity}>
+          <div className={styles.roomIdentity} data-testid="room-identity">
             <span className={styles.brandMini} aria-hidden="true">J</span>
             <div className={styles.roomIdentityText}>
-              <strong>{projectedRoom.title}</strong>
+              <InlineRoomTitle
+                editable={self.role === "participant"}
+                renameRoom={renameRoom}
+                title={projectedRoom.title}
+              />
               <span>Room {projectedRoom.code}</span>
             </div>
           </div>

@@ -31,6 +31,7 @@ export type CanvasSurfaceProps = {
   lease: (action: LeaseAction, actorKind?: ActorKind) => Promise<LeaseResult>;
   leaseMany: (action: LeaseBatchAction, actorKind?: ActorKind) => Promise<LeaseBatchResult>;
   refresh: () => Promise<RoomState>;
+  renameRoom: (title: string, expectedTitle: string) => Promise<RoomState>;
   presence: (
     value: {
       cursor: { x: number; y: number } | null;

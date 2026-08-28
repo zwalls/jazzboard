@@ -240,7 +240,7 @@ async function expectShapePalette(
   await expect(label).toHaveAttribute("font-family", FONT_FAMILY);
 }
 
-test("keeps the first-party canvas on Jazzboard's tldraw-inspired visual contract", async ({
+test("keeps the first-party canvas on Jazzboard's hand-drawn visual contract", async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -281,30 +281,30 @@ test("keeps the first-party canvas on Jazzboard's tldraw-inspired visual contrac
   const text = object(canvas, TEXT_ID).locator(".semantic-canvas-object__text");
   await expect(text).toHaveAttribute("font-family", FONT_FAMILY);
   await expect(text).toHaveAttribute("font-size", "24");
-  await expect(text).toHaveAttribute("fill", "#1d1d1d");
+  await expect(text).toHaveAttribute("fill", "#20242c");
 
-  await expectShapePalette(canvas, GENERIC_ID, { fill: "#dce1f8", stroke: "#4465e9" });
-  await expectShapePalette(canvas, SERVICE_ID, { fill: "#d3e9e3", stroke: "#099268" });
-  await expectShapePalette(canvas, REQUIREMENT_ID, { fill: "#f9f0e6", stroke: "#e16919" });
-  await expectShapePalette(canvas, DECISION_ID, { fill: "#ecdcf2", stroke: "#ae3ec9" });
-  await expectShapePalette(canvas, QUESTION_ID, { fill: "#f4dadb", stroke: "#e03131" });
+  await expectShapePalette(canvas, GENERIC_ID, { fill: "#dfe3f7", stroke: "#5266df" });
+  await expectShapePalette(canvas, SERVICE_ID, { fill: "#d9ebe5", stroke: "#158b68" });
+  await expectShapePalette(canvas, REQUIREMENT_ID, { fill: "#f8eedc", stroke: "#d56d30" });
+  await expectShapePalette(canvas, DECISION_ID, { fill: "#e9dff3", stroke: "#9050c8" });
+  await expectShapePalette(canvas, QUESTION_ID, { fill: "#f7dfe0", stroke: "#d9484a" });
 
   const connector = object(canvas, CONNECTOR_ID);
   const connectorOverlay = canvas.locator(`[data-connector-overlay-id="${CONNECTOR_ID}"]`);
   const connectorPath = connector.locator(".semantic-canvas-object__connector-path");
-  await expect(connectorPath).toHaveAttribute("stroke", "#e16919");
+  await expect(connectorPath).toHaveAttribute("stroke", "#d56d30");
   await expect(connectorPath).toHaveAttribute("stroke-width", "3.5");
   const connectorLabel = connectorOverlay.locator(".semantic-canvas-object__connector-label-text");
   await expect(connectorLabel).toHaveAttribute("font-family", FONT_FAMILY);
   await expect(connectorLabel).toHaveAttribute("font-size", "20");
-  await expect(connectorLabel).toHaveAttribute("fill", "#e16919");
+  await expect(connectorLabel).toHaveAttribute("fill", "#d56d30");
   const connectorMask = connectorOverlay.locator(".semantic-canvas-object__connector-label rect");
-  await expect(connectorMask).toHaveAttribute("fill", "#f9fafb");
+  await expect(connectorMask).toHaveAttribute("fill", "#ffffff");
   await expect(connectorMask).toHaveAttribute("stroke", "none");
   expect(await connectorMask.evaluate((element) => getComputedStyle(element).stroke)).toBe("none");
 
   const draw = object(canvas, DRAW_ID).locator(".semantic-canvas-object__draw");
-  await expect(draw).toHaveAttribute("stroke", "#099268");
+  await expect(draw).toHaveAttribute("stroke", "#158b68");
   await expect(draw).toHaveAttribute("stroke-width", "4.5");
 
   const generic = object(canvas, GENERIC_ID);
