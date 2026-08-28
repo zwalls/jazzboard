@@ -1,6 +1,4 @@
-import type { Editor, TLShape, TLShapeId } from "tldraw";
-
-import { tldrawShapeId } from "@/lib/canvas/projection";
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 
 export const PNG_RASTER_LIMITS = Object.freeze({
   defaultPadding: 32,
@@ -65,39 +63,6 @@ export function boundedRasterSize(
   };
 }
 
-function liveCanvasObjectId(shape: TLShape): string {
-  const storedId = (shape.meta as { jazzboardId?: unknown }).jazzboardId;
-  if (typeof storedId === "string" && shape.id === tldrawShapeId(storedId)) return storedId;
-  return String(shape.id).slice("shape:".length);
-}
-
-/**
- * Read semantic IDs from the live tldraw document, including locally-created
- * shapes that have not received their first server acknowledgement yet.
- * Group containers are expanded because they are not persisted canvas objects.
- */
-export function liveCanvasObjectIds(
-  editor: Editor,
-  roots: readonly TLShape[] = editor.getCurrentPageShapesSorted(),
-): string[] {
-  const objectIds: string[] = [];
-  const visited = new Set<TLShapeId>();
-  const visit = (shape: TLShape) => {
-    if (visited.has(shape.id)) return;
-    visited.add(shape.id);
-    if (shape.type === "group") {
-      for (const childId of editor.getSortedChildIdsForParent(shape)) {
-        const child = editor.getShape(childId);
-        if (child) visit(child);
-      }
-      return;
-    }
-    objectIds.push(liveCanvasObjectId(shape));
-  };
-  roots.forEach(visit);
-  return objectIds;
-}
-
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) return;
   throw signal.reason instanceof Error
@@ -105,70 +70,40 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
     : new DOMException("The PNG export was cancelled.", "AbortError");
 }
 
-function unionShapeBounds(editor: Editor, shapeIds: TLShapeId[]): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} | null {
-  let bounds: { x: number; y: number; width: number; height: number } | null = null;
-  for (const shapeId of shapeIds) {
-    const shapeBounds = editor.getShapeMaskedPageBounds(shapeId);
-    if (!shapeBounds) continue;
-    if (!bounds) {
-      bounds = {
-        x: shapeBounds.x,
-        y: shapeBounds.y,
-        width: shapeBounds.width,
-        height: shapeBounds.height,
-      };
-      continue;
-    }
-    const maxX = Math.max(bounds.x + bounds.width, shapeBounds.x + shapeBounds.width);
-    const maxY = Math.max(bounds.y + bounds.height, shapeBounds.y + shapeBounds.height);
-    bounds.x = Math.min(bounds.x, shapeBounds.x);
-    bounds.y = Math.min(bounds.y, shapeBounds.y);
-    bounds.width = maxX - bounds.x;
-    bounds.height = maxY - bounds.y;
-  }
-  return bounds;
-}
-
 /**
- * Resolve exact Jazzboard semantic object IDs to their live tldraw records.
+ * Resolve exact Jazzboard semantic object IDs against the mounted renderer.
  * Missing objects are rejected so an export can never silently omit part of
  * the requested board, Diagram, or selection.
  */
-export function resolveCanvasPngShapeIds(editor: Editor, objectIds: readonly string[]): TLShapeId[] {
+export function resolveCanvasPngObjectIds(runtime: CanvasRuntime, objectIds: readonly string[]): string[] {
   if (!objectIds.length) throw new Error("A PNG export must contain at least one canvas object.");
 
-  const shapeIds: TLShapeId[] = [];
-  const seen = new Set<TLShapeId>();
+  const resolved: string[] = [];
+  const seen = new Set<string>();
   for (const objectId of objectIds) {
     if (typeof objectId !== "string" || !objectId.trim()) {
       throw new Error("PNG object IDs must be non-empty strings.");
     }
-    const shapeId = tldrawShapeId(objectId);
-    if (seen.has(shapeId)) continue;
-    seen.add(shapeId);
-    if (!editor.getShape(shapeId)) {
+    if (seen.has(objectId)) continue;
+    seen.add(objectId);
+    if (!runtime.hasObject(objectId)) {
       throw new Error(`Canvas object ${objectId} is not available in the live canvas.`);
     }
-    shapeIds.push(shapeId);
+    resolved.push(objectId);
   }
-  return shapeIds;
+  return resolved;
 }
 
 /**
- * Render and download a faithful local PNG from the live tldraw editor.
+ * Render and download a faithful local PNG from the mounted canvas runtime.
  *
  * This deliberately bypasses Jazzboard's privacy-redacted SVG interchange
- * format. tldraw resolves the authorized editor assets into the image, so the
- * downloaded PNG contains the same images the person can see on the canvas.
- * Nothing is uploaded or persisted by this helper.
+ * format. The renderer resolves authorized live assets into the image, so the
+ * downloaded PNG contains the same images the person can see. Nothing is
+ * uploaded or persisted by this helper.
  */
 export async function downloadCanvasPng(input: {
-  editor: Editor;
+  runtime: CanvasRuntime;
   objectIds: readonly string[];
   filename: string;
   padding?: number;
@@ -176,6 +111,9 @@ export async function downloadCanvasPng(input: {
   signal?: AbortSignal;
 }): Promise<CanvasPngDownloadResult> {
   throwIfAborted(input.signal);
+  if (!input.runtime.capabilities.renderPng) {
+    throw new Error("This canvas renderer does not support faithful PNG export yet.");
+  }
   const filename = input.filename.trim();
   if (!filename) throw new Error("A PNG export filename is required.");
 
@@ -194,33 +132,38 @@ export async function downloadCanvasPng(input: {
     PNG_RASTER_LIMITS.maxPixelRatio,
   );
 
-  const shapeIds = resolveCanvasPngShapeIds(input.editor, input.objectIds);
-  const bounds = unionShapeBounds(input.editor, shapeIds);
+  const objectIds = resolveCanvasPngObjectIds(input.runtime, input.objectIds);
+  const bounds = input.runtime.getVisibleBounds(objectIds);
   if (!bounds) throw new Error("The requested canvas objects do not have visible export bounds.");
 
   const paddedWidth = bounds.width + padding * 2;
   const paddedHeight = bounds.height + padding * 2;
   const raster = boundedRasterSize(paddedWidth, paddedHeight, pixelRatio);
-  // Keep tldraw's DPR truthful for image asset resolution while using its
+  // Keep the renderer's DPR truthful for image asset resolution while using
   // logical scale to enforce our combined side and pixel budgets.
   const scale = raster.scale / pixelRatio;
-  const result = await input.editor.toImage(shapeIds, {
-    format: "png",
+  const result = await input.runtime.renderPng(objectIds, {
     background: true,
     darkMode: false,
     padding,
     pixelRatio,
     scale,
+    signal: input.signal,
   });
   throwIfAborted(input.signal);
 
-  if (!Number.isFinite(result.width) || result.width <= 0 || !Number.isFinite(result.height) || result.height <= 0) {
+  if (
+    !Number.isFinite(result.logicalWidth) ||
+    result.logicalWidth <= 0 ||
+    !Number.isFinite(result.logicalHeight) ||
+    result.logicalHeight <= 0
+  ) {
     throw new Error("The live canvas returned invalid PNG dimensions.");
   }
   if (!result.blob.size) throw new Error("The live canvas returned an empty PNG.");
 
-  const width = Math.max(1, Math.floor(result.width * pixelRatio));
-  const height = Math.max(1, Math.floor(result.height * pixelRatio));
+  const width = Math.max(1, Math.floor(result.logicalWidth * pixelRatio));
+  const height = Math.max(1, Math.floor(result.logicalHeight * pixelRatio));
   if (
     width > PNG_RASTER_LIMITS.maxSide ||
     height > PNG_RASTER_LIMITS.maxSide ||
@@ -233,7 +176,7 @@ export async function downloadCanvasPng(input: {
   throwIfAborted(input.signal);
   downloadBlobFile(result.blob, downloadFilename);
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...(result.warnings ?? [])];
   if (requestedPadding > padding) {
     warnings.push(`PNG padding was capped at ${PNG_RASTER_LIMITS.maxPadding} pixels.`);
   }

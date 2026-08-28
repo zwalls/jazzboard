@@ -48,9 +48,17 @@ type VisibleFrame = {
   shapes: Record<string, VisibleShape | null>;
 };
 
+type RenderedShape = VisibleShape & {
+  at: number;
+  objectX: number;
+  objectY: number;
+};
+
 type CanvasCommand = {
   type?: string;
   objectId?: string;
+  expectedRevision?: number;
+  targets?: Array<{ objectId?: string; expectedRevision?: number }>;
   [key: string]: unknown;
 };
 
@@ -114,25 +122,30 @@ async function seedPersistedDiagram(request: APIRequestContext, roomId: string):
 }
 
 function renderedShape(page: Page, objectId: string) {
-  return page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  return page
+    .getByTestId("semantic-canvas")
+    .locator(`[data-object-id="${objectId}"][data-object-kind]`);
 }
 
-async function readRenderedShape(page: Page, objectId: string): Promise<VisibleShape & { at: number }> {
+async function readRenderedShape(page: Page, objectId: string): Promise<RenderedShape> {
   return renderedShape(page, objectId).evaluate((element) => {
-    const visibleGeometry =
-      element.getAttribute("data-shape-type") === "arrow"
-        ? element.querySelector('svg.tl-svg-container g[stroke] path[stroke-width]')
-        : element;
-    const bounds = (visibleGeometry ?? element).getBoundingClientRect();
-    const editingText = element.querySelector('[contenteditable="true"]');
-    const renderedText = element.querySelector(".tl-text-shape > .tl-rich-text");
+    const bounds = element.getBoundingClientRect();
+    const objectId = element.getAttribute("data-object-id");
+    const editingText = objectId
+      ? document.querySelector<HTMLTextAreaElement>(
+          `[data-semantic-text-editor="true"][data-object-id="${CSS.escape(objectId)}"] textarea`,
+        )
+      : null;
+    const accessibleText = element.getAttribute("aria-label")?.replace(/^Text:\s*/, "");
     return {
       at: performance.now(),
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
-      text: (editingText?.textContent ?? renderedText?.textContent ?? element.textContent ?? "")
+      objectX: Number(element.getAttribute("data-object-x")),
+      objectY: Number(element.getAttribute("data-object-y")),
+      text: (editingText?.value ?? accessibleText ?? element.textContent ?? "")
         .replace(/\s+/g, " ")
         .trim(),
     };
@@ -156,17 +169,15 @@ async function startVisibleSampler(page: Page, objectIds: string[], key: string)
         const at = performance.now();
         const shapes = Object.fromEntries(
           ids.map((objectId) => {
-            const element = [...document.querySelectorAll<HTMLElement>(".tl-shape")].find(
-              (candidate) => candidate.dataset.shapeId === `shape:${objectId}`,
+            const element = document.querySelector<SVGGElement>(
+              `[data-testid="semantic-canvas"] [data-object-id="${CSS.escape(objectId)}"][data-object-kind]`,
             );
             if (!element) return [objectId, null];
-            const visibleGeometry =
-              element.dataset.shapeType === "arrow"
-                ? element.querySelector('svg.tl-svg-container g[stroke] path[stroke-width]')
-                : element;
-            const bounds = (visibleGeometry ?? element).getBoundingClientRect();
-            const editingText = element.querySelector('[contenteditable="true"]');
-            const renderedText = element.querySelector(".tl-text-shape > .tl-rich-text");
+            const bounds = element.getBoundingClientRect();
+            const editingText = document.querySelector<HTMLTextAreaElement>(
+              `[data-semantic-text-editor="true"][data-object-id="${CSS.escape(objectId)}"] textarea`,
+            );
+            const accessibleText = element.getAttribute("aria-label")?.replace(/^Text:\s*/, "");
             return [
               objectId,
               {
@@ -174,7 +185,7 @@ async function startVisibleSampler(page: Page, objectIds: string[], key: string)
                 y: bounds.y,
                 width: bounds.width,
                 height: bounds.height,
-                text: (editingText?.textContent ?? renderedText?.textContent ?? element.textContent ?? "")
+                text: (editingText?.value ?? accessibleText ?? element.textContent ?? "")
                   .replace(/\s+/g, " ")
                   .trim(),
               },
@@ -198,7 +209,7 @@ async function startVisibleSampler(page: Page, objectIds: string[], key: string)
       };
       animationFrame = window.requestAnimationFrame(captureFrame);
       const observer = new MutationObserver(capture);
-      observer.observe(document.querySelector('[data-testid="jazzboard-canvas"]') ?? document.body, {
+      observer.observe(document.querySelector('[data-testid="semantic-canvas"]') ?? document.body, {
         attributes: true,
         attributeFilter: ["style"],
         characterData: true,
@@ -271,7 +282,7 @@ async function delayHumanCommands(page: Page, roomId: string): Promise<DelayedHu
     release: releaseGate,
     async dispose() {
       releaseGate();
-      for (const url of urls) await page.unroute(url, handler);
+      for (const url of urls) await page.unroute(url, handler).catch(() => undefined);
     },
   };
 }
@@ -329,8 +340,8 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
     const host = await createRoomViaApi(page.request, "Mira Mover", "Local-first node move");
     await seedPersistedDiagram(page.request, host.room.id);
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
-    await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole("button", { name: "Zoom — 100%" })).toBeVisible();
+    await expect(page.getByTestId("semantic-canvas")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByLabel("Canvas zoom controls")).toContainText(/\d+%/);
     await expect(renderedShape(page, SOURCE_ID)).toBeVisible();
     await expect(renderedShape(page, CONNECTOR_ID)).toBeVisible();
 
@@ -351,7 +362,6 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
       const connectorBefore = baseline.room.objects[CONNECTOR_ID];
       const diagramBefore = baseline.room.diagrams[DIAGRAM_ID];
       const sourceBeforeX = Number(sourceBefore.x);
-      const sourceBeforeY = Number(sourceBefore.y);
       expect(sourceBefore).toMatchObject({ kind: "shape", revision: 1, x: 160, y: 190 });
       expect(connectorBefore).toMatchObject({
         kind: "connector",
@@ -470,23 +480,25 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
       const finalSource = finalState.room.objects[SOURCE_ID];
       const finalConnector = finalState.room.objects[CONNECTOR_ID];
       const finalDiagram = finalState.room.diagrams[DIAGRAM_ID];
-      const sourceUpdates = delayed.commands.filter(
-        (command) => command.type === "update" && command.objectId === SOURCE_ID,
-      );
-      expect(sourceUpdates.length).toBeGreaterThan(0);
-      expect(sourceUpdates.map((command) => command.expectedRevision)).toEqual(
-        sourceUpdates.map((_, index) => sourceBefore.revision + index),
+      const sourceMutations = delayed.commands.flatMap((command) => {
+        if (command.type === "update" && command.objectId === SOURCE_ID) return [command];
+        if (command.type !== "move") return [];
+        return (command.targets ?? []).filter((target) => target.objectId === SOURCE_ID);
+      });
+      expect(sourceMutations.length).toBeGreaterThan(0);
+      expect(sourceMutations.map((command) => command.expectedRevision)).toEqual(
+        sourceMutations.map((_, index) => sourceBefore.revision + index),
       );
       expect(finalSource).toMatchObject({
-        revision: sourceBefore.revision + sourceUpdates.length,
+        revision: sourceBefore.revision + sourceMutations.length,
         lastEditedBy: { participantId: host.participantId, kind: "human" },
       });
       expect(Number(finalSource.x)).toBeCloseTo(
-        sourceBeforeX + (localSource.x - sourceStart.x),
+        localSource.objectX,
         1,
       );
       expect(Number(finalSource.y)).toBeCloseTo(
-        sourceBeforeY + (localSource.y - sourceStart.y),
+        localSource.objectY,
         1,
       );
       expect(finalConnector).toMatchObject({
@@ -496,6 +508,14 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
       });
       expect(finalConnector.revision).toBeGreaterThan(connectorBefore.revision);
       expect(finalDiagram.revision).toBeGreaterThan(diagramBefore.revision);
+      await expect(renderedShape(page, SOURCE_ID)).toHaveAttribute(
+        "data-object-revision",
+        String(finalSource.revision),
+      );
+      await expect(renderedShape(page, CONNECTOR_ID)).toHaveAttribute(
+        "data-object-revision",
+        String(finalConnector.revision),
+      );
 
       const sourceSamples = framesSince(samples, SOURCE_ID, localSource.at);
       expect(sourceSamples.length).toBeGreaterThan(40);
@@ -536,7 +556,7 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
     const host = await createRoomViaApi(page.request, "Tess Typist", "Local-first text edit");
     await seedPersistedDiagram(page.request, host.room.id);
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
-    await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("semantic-canvas")).toBeVisible({ timeout: 20_000 });
     await expect(renderedShape(page, TEXT_ID)).toBeVisible();
 
     const baseline = await getRoom(page.request, host.room.id);
@@ -549,20 +569,22 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
     const samplerKey = "__jazzboard_local_first_text_samples__";
     let samples: VisibleFrame[] = [];
     try {
-      await page.getByTestId("canvas").getByText(ORIGINAL_TEXT, { exact: true }).dblclick();
+      await renderedShape(page, TEXT_ID).dblclick();
       await expect
         .poll(
           async () =>
             (await getRoom(page.request, host.room.id)).room.leases[TEXT_ID]?.operation ?? null,
         )
         .toBe("edit");
-      const editor = page.locator('[data-testid="rich-text-area"] [contenteditable="true"]');
+      const editor = page.locator(
+        `[data-semantic-text-editor="true"][data-object-id="${TEXT_ID}"] textarea`,
+      );
       await expect(editor).toBeVisible();
       await startVisibleSampler(page, [TEXT_ID], samplerKey);
       await editor.fill(EDITED_TEXT);
       const localText = await readRenderedShape(page, TEXT_ID);
       expect(localText.text).toBe(EDITED_TEXT);
-      await page.keyboard.press("Escape");
+      await editor.press("ControlOrMeta+Enter");
 
       const blockedAt = await delayed.firstBlockedAt;
       traffic.counts.polls = 0;
@@ -592,6 +614,10 @@ test.describe("persisted canvas changes stay local-first until acknowledged", ()
         lastEditedBy: { participantId: host.participantId, kind: "human" },
       });
       expect(finalState.room.diagrams[DIAGRAM_ID].revision).toBe(diagramBefore.revision + 1);
+      await expect(renderedShape(page, TEXT_ID)).toHaveAttribute(
+        "data-object-revision",
+        String(textBefore.revision + 1),
+      );
       expect(
         delayed.commands.some(
           (command) => command.type === "update" && command.objectId === TEXT_ID,

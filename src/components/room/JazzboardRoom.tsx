@@ -24,11 +24,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Editor } from "tldraw";
 
 import { JazzboardLogo } from "@/components/brand/JazzboardLogo";
 import { downloadBlobFile } from "@/lib/client/download";
-import { tldrawShapeId } from "@/lib/canvas/projection";
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type {
   ActorKind,
   CanvasObject,
@@ -53,11 +52,8 @@ import {
 import type { JazzboardWebMcpContext } from "@/lib/webmcp";
 import { useRoom } from "@/hooks/use-room";
 
-import {
-  JazzboardCanvas,
-  type BoardMenuActions,
-  type JazzboardCanvasHandle,
-} from "./JazzboardCanvas";
+import { CanvasSurface, type CanvasSurfaceHandle } from "./CanvasSurface";
+import type { BoardMenuActions } from "./canvas-surface-types";
 import { CanvasPreviewHost, type CanvasPreviewHostHandle } from "./CanvasPreviewHost";
 import { ActivityTimeline, type ActivityActorFilter } from "./ActivityTimeline";
 import { AskAgentPanel } from "./AskAgentPanel";
@@ -145,17 +141,17 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [nodeEditorId, setNodeEditorId] = useState<string | null>(null);
   const [diagramAnnouncement, setDiagramAnnouncement] = useState("");
   const [selection, setSelection] = useState<string[]>([]);
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const [canvasRuntime, setCanvasRuntime] = useState<CanvasRuntime | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [declinedSpotlight, setDeclinedSpotlight] = useState<number | null>(null);
   const spotlightJoinRef = useRef<number | null>(null);
   const roomStateRef = useRef(room);
   const selectionRef = useRef(selection);
-  const editorRef = useRef(editor);
+  const canvasRuntimeRef = useRef(canvasRuntime);
   const followTargetRef = useRef(followTarget);
   const previewHostRef = useRef<CanvasPreviewHostHandle | null>(null);
-  const canvasRef = useRef<JazzboardCanvasHandle | null>(null);
+  const canvasRef = useRef<CanvasSurfaceHandle | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
   const [webMcpRegistrar] = useState(
     () => new JazzboardWebMcpRegistrar({ canvasPreviewTransport: previewTransport }),
@@ -200,48 +196,40 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   useEffect(() => {
     roomStateRef.current = room;
     selectionRef.current = selection;
-    editorRef.current = editor;
+    canvasRuntimeRef.current = canvasRuntime;
     followTargetRef.current = followTarget;
-  }, [editor, followTarget, room, selection]);
+  }, [canvasRuntime, followTarget, room, selection]);
 
   useEffect(() => {
     const previewHost = previewHostRef.current;
+    const canRenderPng = canvasRuntimeRef.current?.capabilities.renderPng === true;
     const context: JazzboardWebMcpContext = {
       getRoom: () => roomStateRef.current,
       getSelection: () => selectionRef.current,
-      getViewport: () => {
-        const currentEditor = editorRef.current;
-        if (!currentEditor) return null;
-        const bounds = currentEditor.getViewportPageBounds();
-        return {
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-          zoom: currentEditor.getZoomLevel(),
-        };
-      },
+      getViewport: () => canvasRuntimeRef.current?.getViewport() ?? null,
       getFollowTarget: () => followTargetRef.current,
-      renderCanvasPreview: (request, signal) =>
-        renderCanvasPreview(
-          { getEditor: () => editorRef.current, getRoom: () => roomStateRef.current },
-          request,
-          signal,
-        ),
-      presentCanvasPreview: (artifact, signal) => {
-        const host = previewHostRef.current;
-        if (!host) {
-          throw new CanvasPreviewError(
-            "PREVIEW_PRESENTER_UNAVAILABLE",
-            "The temporary in-room preview surface is not available.",
-          );
-        }
-        return host.present(artifact, signal);
-      },
-      saveCanvasPng: async (artifact, filename, signal) => {
-        if (signal.aborted) throw new DOMException("The PNG export was cancelled.", "AbortError");
-        downloadBlobFile(artifact.blob, filename);
-      },
+      ...(canRenderPng ? {
+        renderCanvasPreview: (request, signal) =>
+          renderCanvasPreview(
+            { getCanvasRuntime: () => canvasRuntimeRef.current, getRoom: () => roomStateRef.current },
+            request,
+            signal,
+          ),
+        presentCanvasPreview: (artifact, signal) => {
+          const host = previewHostRef.current;
+          if (!host) {
+            throw new CanvasPreviewError(
+              "PREVIEW_PRESENTER_UNAVAILABLE",
+              "The temporary in-room preview surface is not available.",
+            );
+          }
+          return host.present(artifact, signal);
+        },
+        saveCanvasPng: async (artifact, filename, signal) => {
+          if (signal.aborted) throw new DOMException("The PNG export was cancelled.", "AbortError");
+          downloadBlobFile(artifact.blob, filename);
+        },
+      } : {}),
       acceptRoom: controller.acceptRoom,
       setFollowTarget: updateFollowTarget,
       setDeclinedSpotlight: updateDeclinedSpotlight,
@@ -257,6 +245,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     };
   }, [
     controller.acceptRoom,
+    canvasRuntime?.capabilities.renderPng,
+    canvasRuntime?.rendererId,
     leaveRoomView,
     participantId,
     updateDeclinedSpotlight,
@@ -412,15 +402,14 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }
 
   function focusObject(objectId: string) {
-    if (!editor) return;
-    const shapeId = tldrawShapeId(objectId);
-    const bounds = editor.getShapePageBounds(shapeId);
-    editor.select(shapeId);
+    if (!canvasRuntime) return;
+    const bounds = canvasRuntime.getObjectBounds(objectId);
+    canvasRuntime.selectObjects([objectId]);
     if (bounds) {
-      editor.zoomToBounds(bounds, {
+      canvasRuntime.zoomToBounds(bounds, {
         targetZoom: 1.25,
         inset: 220,
-        animation: { duration: 180 },
+        durationMs: 180,
       });
     }
     setOutlineOpen(false);
@@ -428,68 +417,40 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
   function focusDiagram(diagram: Diagram) {
     const currentRoom = roomStateRef.current;
-    if (!editor || !currentRoom) return;
-    const shapeIds = [...diagram.memberObjectIds, ...diagram.connectorIds]
-      .filter((objectId) => Boolean(currentRoom.objects[objectId]))
-      .map(tldrawShapeId);
-    if (shapeIds.length) editor.select(...shapeIds);
+    if (!canvasRuntime || !currentRoom) return;
+    const objectIds = [...diagram.memberObjectIds, ...diagram.connectorIds]
+      .filter((objectId) => Boolean(currentRoom.objects[objectId] && canvasRuntime.hasObject(objectId)));
+    if (objectIds.length) canvasRuntime.selectObjects(objectIds);
     if (diagram.bounds.width > 0 && diagram.bounds.height > 0) {
-      editor.zoomToBounds(
-        {
-          x: diagram.bounds.x,
-          y: diagram.bounds.y,
-          w: diagram.bounds.width,
-          h: diagram.bounds.height,
-        },
-        { inset: 120, animation: { duration: 180 } },
-      );
+      canvasRuntime.zoomToBounds(diagram.bounds, { inset: 120, durationMs: 180 });
     }
     setOutlineOpen(false);
   }
 
   function focusActivity(activity: RoomActivitySummary) {
     const currentRoom = roomStateRef.current;
-    if (!editor || !currentRoom) return;
-    const shapeIds = activity.affectedObjectIds
-      .filter((objectId) => Boolean(currentRoom.objects[objectId]))
-      .map(tldrawShapeId);
-    if (shapeIds.length) editor.select(...shapeIds);
+    if (!canvasRuntime || !currentRoom) return;
+    const objectIds = activity.affectedObjectIds
+      .filter((objectId) => Boolean(currentRoom.objects[objectId] && canvasRuntime.hasObject(objectId)));
+    if (objectIds.length) canvasRuntime.selectObjects(objectIds);
     if (activity.affectedBounds) {
-      editor.zoomToBounds(
-        {
-          x: activity.affectedBounds.x,
-          y: activity.affectedBounds.y,
-          w: activity.affectedBounds.width,
-          h: activity.affectedBounds.height,
-        },
-        { inset: 150, animation: { duration: 180 } },
-      );
+      canvasRuntime.zoomToBounds(activity.affectedBounds, { inset: 150, durationMs: 180 });
     }
   }
 
   function focusReviewObjects(objectIds: string[]) {
     const currentRoom = roomStateRef.current;
-    if (!editor || !currentRoom) return;
-    const shapeIds = objectIds
-      .filter((objectId) => Boolean(currentRoom.objects[objectId]))
-      .map(tldrawShapeId);
-    if (!shapeIds.length) {
+    if (!canvasRuntime || !currentRoom) return;
+    const visibleObjectIds = objectIds
+      .filter((objectId) => Boolean(currentRoom.objects[objectId] && canvasRuntime.hasObject(objectId)));
+    if (!visibleObjectIds.length) {
       setDiagramAnnouncement("Those objects have not been applied to the canvas yet.");
       window.setTimeout(() => setDiagramAnnouncement(""), 4_000);
       return;
     }
-    editor.select(...shapeIds);
-    const bounds = shapeIds.flatMap((shapeId) => editor.getShapePageBounds(shapeId) ?? []);
-    if (bounds.length) {
-      const minX = Math.min(...bounds.map((box) => box.x));
-      const minY = Math.min(...bounds.map((box) => box.y));
-      const maxX = Math.max(...bounds.map((box) => box.x + box.w));
-      const maxY = Math.max(...bounds.map((box) => box.y + box.h));
-      editor.zoomToBounds(
-        { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
-        { inset: 150, animation: { duration: 180 } },
-      );
-    }
+    canvasRuntime.selectObjects(visibleObjectIds);
+    const bounds = canvasRuntime.getVisibleBounds(visibleObjectIds);
+    if (bounds) canvasRuntime.zoomToBounds(bounds, { inset: 150, durationMs: 180 });
   }
 
   async function saveDiagram(transaction: SemanticTransaction, title: string) {
@@ -800,7 +761,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <JazzboardCanvas
+      <CanvasSurface
         ref={canvasRef}
         boardMenuActions={boardMenuActions}
         room={room}
@@ -815,7 +776,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         transientPresence={controller.transientPresence}
         connection={controller.connection}
         onSelectionChange={setSelection}
-        onEditorChange={setEditor}
+        onRuntimeChange={setCanvasRuntime}
         onExitFollow={() => {
           if (spotlightFollowTarget) void spotlightAction({ action: "leave" });
           else updateFollowTarget(null);
@@ -967,12 +928,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           room={room}
           role={self.role}
           selection={selection}
-          editor={editor}
+          runtime={canvasRuntime}
           getImportOrigin={() => {
-            const currentEditor = editorRef.current;
-            if (!currentEditor) return { x: 120, y: 120 };
-            const bounds = currentEditor.getViewportPageBounds();
-            return { x: bounds.x + 64, y: bounds.y + 64 };
+            const viewport = canvasRuntimeRef.current?.getViewport();
+            return viewport ? { x: viewport.x + 64, y: viewport.y + 64 } : { x: 120, y: 120 };
           }}
           acceptRoom={controller.acceptRoom}
           onClose={() => setDurabilityOpen(false)}

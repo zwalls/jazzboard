@@ -224,7 +224,7 @@ export function createJazzboardPngExportWebMcpTools(
     name: "export_canvas_png",
     title: "Download a faithful canvas PNG",
     description:
-      "Render an exact authorized board, Diagram, or object set through the live tldraw canvas and download a flattened PNG with images. The file stays in this browser and is never uploaded or persisted by Jazzboard.",
+      "Render an exact authorized board, Diagram, or object set through the active faithful canvas renderer and download a flattened PNG with images. The file stays in this browser and is never uploaded or persisted by Jazzboard.",
     inputSchema: z.toJSONSchema(pngExportInput, { io: "input", reused: "ref" }) as WebMCP.ModelContextTool["inputSchema"],
     // The download is a local browser side effect, so readOnlyHint would be
     // misleading even though shared Jazzboard state is never mutated.

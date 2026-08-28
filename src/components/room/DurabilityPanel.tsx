@@ -12,13 +12,12 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import type { Editor } from "tldraw";
 
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
-import { downloadCanvasPng, downloadTextFile, liveCanvasObjectIds } from "@/lib/client/download";
+import { downloadCanvasPng, downloadTextFile } from "@/lib/client/download";
 import { safeDownloadStem } from "@/lib/export-filename";
 import { buildRoomInvite } from "@/lib/client/room-invite";
-import { tldrawShapeId } from "@/lib/canvas/projection";
 import type { Point, RoomState } from "@/lib/domain/types";
 
 import styles from "./durability-panel.module.css";
@@ -70,7 +69,7 @@ export function DurabilityPanel({
   room,
   role,
   selection,
-  editor,
+  runtime,
   getImportOrigin,
   acceptRoom,
   onClose,
@@ -80,7 +79,7 @@ export function DurabilityPanel({
   room: RoomState;
   role: "participant" | "spectator";
   selection: string[];
-  editor: Editor | null;
+  runtime: CanvasRuntime | null;
   getImportOrigin(): Point;
   acceptRoom(room: RoomState): void;
   onClose(): void;
@@ -114,21 +113,18 @@ export function DurabilityPanel({
   }, []);
 
   useEffect(() => {
-    if (!editor) return;
-    return editor.store.listen(
-      () => setCanvasVersion((version) => version + 1),
-      { scope: "document" },
-    );
-  }, [editor]);
+    if (!runtime) return;
+    return runtime.onDocumentChange(() => setCanvasVersion((version) => version + 1));
+  }, [runtime]);
 
   const effectiveDiagramId = room.diagrams[diagramId] ? diagramId : diagrams[0]?.id ?? "";
   const selectedDiagram = room.diagrams[effectiveDiagramId] ?? null;
   const liveSelection = useMemo(
     () => {
       void canvasVersion;
-      return editor ? liveCanvasObjectIds(editor, editor.getSelectedShapes()) : validSelection;
+      return runtime ? [...runtime.getSelectedObjectIds()] : validSelection;
     },
-    [canvasVersion, editor, validSelection],
+    [canvasVersion, runtime, validSelection],
   );
   const effectiveScope: DurabilityScope =
     scope === "diagram" && !selectedDiagram
@@ -136,19 +132,19 @@ export function DurabilityPanel({
       : scope === "selection" && !liveSelection.length
         ? "room"
         : scope;
-  const scopeReady = effectiveScope === "room" || (effectiveScope === "diagram" ? Boolean(selectedDiagram) : validSelection.length > 0);
+  const scopeReady = effectiveScope === "room" || (effectiveScope === "diagram" ? Boolean(selectedDiagram) : liveSelection.length > 0);
 
   const pngObjectIds = useMemo(() => {
     void canvasVersion;
-    if (!editor) return [];
-    if (effectiveScope === "selection") return liveCanvasObjectIds(editor, editor.getSelectedShapes());
+    if (!runtime) return [];
+    if (effectiveScope === "selection") return [...runtime.getSelectedObjectIds()];
     if (effectiveScope === "diagram" && selectedDiagram) {
       return [...new Set([...selectedDiagram.memberObjectIds, ...selectedDiagram.connectorIds])]
-        .filter((objectId) => Boolean(room.objects[objectId] && editor.getShape(tldrawShapeId(objectId))));
+        .filter((objectId) => Boolean(room.objects[objectId] && runtime.hasObject(objectId)));
     }
-    return liveCanvasObjectIds(editor);
-  }, [canvasVersion, editor, effectiveScope, room.objects, selectedDiagram]);
-  const pngReady = Boolean(editor && pngObjectIds.length);
+    return [...runtime.getDocumentObjectIds()];
+  }, [canvasVersion, runtime, effectiveScope, room.objects, selectedDiagram]);
+  const pngReady = Boolean(runtime?.capabilities.renderPng && pngObjectIds.length);
 
   function artifactUrl(format: ArtifactFormat): string {
     return buildArtifactUrl({
@@ -168,15 +164,15 @@ export function DurabilityPanel({
     let exportController: AbortController | null = null;
     try {
       if (format === "png") {
-        const currentObjectIds = !editor
+        const currentObjectIds = !runtime
           ? []
           : effectiveScope === "selection"
-            ? liveCanvasObjectIds(editor, editor.getSelectedShapes())
+            ? [...runtime.getSelectedObjectIds()]
             : effectiveScope === "diagram" && selectedDiagram
               ? [...new Set([...selectedDiagram.memberObjectIds, ...selectedDiagram.connectorIds])]
-                .filter((objectId) => Boolean(room.objects[objectId] && editor.getShape(tldrawShapeId(objectId))))
-              : liveCanvasObjectIds(editor);
-        if (!editor || !currentObjectIds.length) {
+                .filter((objectId) => Boolean(room.objects[objectId] && runtime.hasObject(objectId)))
+              : [...runtime.getDocumentObjectIds()];
+        if (!runtime || !currentObjectIds.length) {
           throw new Error("This canvas scope has no visible objects to export.");
         }
         exportController = new AbortController();
@@ -188,7 +184,7 @@ export function DurabilityPanel({
             ? `${room.title} selection`
             : room.title;
         const result = await downloadCanvasPng({
-          editor,
+          runtime,
           objectIds: currentObjectIds,
           filename: `${safeDownloadStem(label, "jazzboard")}.png`,
           signal: exportController.signal,

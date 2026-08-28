@@ -163,29 +163,6 @@ export async function getRoom(request: APIRequestContext, roomId: string): Promi
   return jsonBody<RoomResponse>(response);
 }
 
-export async function expectBuiltInTldrawWatermark(page: Page): Promise<void> {
-  const watermark = page.getByTitle("made with tldraw");
-
-  await page.waitForTimeout(5_500);
-  await expect(watermark).toBeVisible();
-  await expect
-    .poll(() =>
-      watermark.evaluate((element) =>
-        Number.parseInt(getComputedStyle(element.parentElement as HTMLElement).zIndex, 10),
-      ),
-    )
-    .toBeGreaterThanOrEqual(1_000);
-  await watermark.locator("..").hover();
-  await page.waitForTimeout(450);
-
-  const isTopmostAtCenter = await watermark.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const topmost = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-    return topmost === element || element.contains(topmost);
-  });
-  expect(isTopmostAtCenter).toBe(true);
-}
-
 export async function createCanvasObject(
   request: APIRequestContext,
   roomId: string,

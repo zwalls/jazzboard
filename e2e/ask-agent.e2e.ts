@@ -130,11 +130,11 @@ test("sends selected context through the private Ask inbox and exposes replies t
     .poll(() => registeredToolNames(page), { timeout: 15_000 })
     .toEqual(expect.arrayContaining([...MESSAGE_TOOL_NAMES]));
 
-  const shape = page.locator(`.tl-shape[data-shape-id="shape:${OBJECT_ID}"]`);
+  const shape = page.locator(`[data-object-id="${OBJECT_ID}"]`);
   await expect(shape).toBeVisible({ timeout: 15_000 });
-  const bounds = await shape.boundingBox();
-  if (!bounds) throw new Error(`Shape ${OBJECT_ID} has no rendered bounds.`);
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await shape.focus();
+  await shape.press("Space");
+  await expect(shape).toHaveAttribute("data-selected", "true");
 
   await openBoardMenu(page);
   const askButton = page.getByRole("menuitem", { name: /^Ask agent/ });

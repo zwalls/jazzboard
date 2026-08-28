@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({ apiRequest: vi.fn(), upload: vi.fn() }));
 vi.mock("@vercel/blob/client", () => ({ upload: mocks.upload }));
 vi.mock("./api", () => ({ apiRequest: mocks.apiRequest }));
 
-import { createJazzboardAssetStore } from "./assets";
+import {
+  createJazzboardAssetStore,
+  uploadJazzboardRoomImage,
+} from "./assets";
 
 describe("Jazzboard private Blob client upload", () => {
   beforeEach(() => {
@@ -55,5 +58,39 @@ describe("Jazzboard private Blob client upload", () => {
       meta: { storage: "vercel-blob-private", pathname },
     });
     expect(progress.at(-1)).toBe(100);
+  });
+
+  it("returns renderer-neutral finalized metadata for the first-party canvas", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "diagram.webp", {
+      type: "image/webp",
+    });
+
+    const result = await uploadJazzboardRoomImage("room_a", file, {
+      sourceUrl: "https://images.example/diagram.webp",
+    });
+    const pathname = mocks.upload.mock.calls[0]?.[0] as string;
+
+    expect(result).toEqual({
+      url: `/api/rooms/room_a/assets?pathname=${encodeURIComponent(pathname)}`,
+      assetId: null,
+      mimeType: "image/webp",
+      sourceUrl: "https://images.example/diagram.webp",
+      storage: "vercel-blob-private",
+      pathname,
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+  });
+
+  it("rejects non-HTTP provenance before reserving or uploading bytes", async () => {
+    const file = new File([new Uint8Array([1])], "diagram.png", {
+      type: "image/png",
+    });
+
+    await expect(uploadJazzboardRoomImage("room_a", file, {
+      sourceUrl: "file:///private/diagram.png",
+    })).rejects.toThrow("Image source provenance must be an HTTP(S) URL.");
+
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

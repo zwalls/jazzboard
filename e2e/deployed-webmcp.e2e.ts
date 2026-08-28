@@ -3,7 +3,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-import { createRoomFromLanding, expectBuiltInTldrawWatermark, getRoom } from "./helpers";
+import { getRoom } from "./helpers";
 
 const LANDING_WEBMCP_TOOL_NAMES = [
   "create_room",
@@ -507,9 +507,35 @@ type RenderedConnectorData = {
   pathSegments: CanvasPointData[][];
   labelText: string;
   labelBounds: BrowserBounds;
+  semanticLabelBounds: BrowserBounds;
 };
 
 type RenderedRouteKey = "auto" | "straight" | "curved" | "elbow";
+
+function semanticCanvas(page: Page) {
+  return page.locator('[data-canvas-renderer="jazzboard-semantic-v1"]');
+}
+
+function renderedObject(page: Page, objectId: string) {
+  return semanticCanvas(page).locator(`[data-object-id="${objectId}"]`);
+}
+
+async function expectSemanticCanvas(page: Page): Promise<void> {
+  const canvas = semanticCanvas(page);
+  await expect(canvas).toBeVisible({ timeout: 20_000 });
+  await expect(canvas).toHaveAttribute("data-canvas-renderer", "jazzboard-semantic-v1");
+}
+
+async function createRoomFromLanding(page: Page, displayName: string) {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: /Make room for every idea/i })).toBeVisible();
+  await page.getByLabel("Your display name").fill(displayName);
+  await page.getByRole("button", { name: "Create my Jazzboard" }).click();
+  await expect(page).toHaveURL(/\/room\/room_[^/?#]+$/, { timeout: 20_000 });
+  await expectSemanticCanvas(page);
+  const roomId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1) ?? "");
+  return getRoom(page.request, roomId);
+}
 
 function expectRenderedConnectorParity(
   actual: RenderedConnectorData,
@@ -517,31 +543,20 @@ function expectRenderedConnectorParity(
   routeName: RenderedRouteKey,
 ): void {
   expect(actual.labelText, `${routeName} label text should match`).toBe(expected.labelText);
-  expect(
-    actual.pathSegments.map((segment) => segment.length),
-    `${routeName} should expose the same rendered path segments`,
-  ).toEqual(expected.pathSegments.map((segment) => segment.length));
-  const pointDeltas = actual.pathSegments.flatMap((segment, segmentIndex) =>
-    segment.map((point, pointIndex) => {
-      const reference = expected.pathSegments[segmentIndex]?.[pointIndex];
-      return reference ? Math.hypot(point.x - reference.x, point.y - reference.y) : Infinity;
-    }),
+  expect(actual.pathData, `${routeName} should expose the same semantic SVG route`).toBe(
+    expected.pathData,
   );
-  expect(
-    Math.max(...pointDeltas),
-    `${routeName} should render at the same page-space coordinates`,
-  ).toBeLessThanOrEqual(0.5);
-  const labelDeltas = (Object.keys(actual.labelBounds) as Array<keyof BrowserBounds>).map((key) =>
-    Math.abs(actual.labelBounds[key] - expected.labelBounds[key]),
-  );
+  const labelDeltas = (
+    Object.keys(actual.semanticLabelBounds) as Array<keyof BrowserBounds>
+  ).map((key) => Math.abs(actual.semanticLabelBounds[key] - expected.semanticLabelBounds[key]));
   expect(
     Math.max(...labelDeltas),
-    `${routeName} label should render at the same page-space bounds`,
-  ).toBeLessThanOrEqual(0.5);
+    `${routeName} label should occupy the same semantic canvas bounds`,
+  ).toBeLessThanOrEqual(0.001);
 }
 
 async function renderedShapeBounds(page: Page, objectId: string): Promise<BrowserBounds> {
-  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  const shape = renderedObject(page, objectId);
   await expect(shape).toBeVisible({ timeout: 15_000 });
   return shape.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
@@ -554,37 +569,25 @@ async function readRenderedConnector(
   objectId: string,
   expectedLabel: string,
 ): Promise<RenderedConnectorData> {
-  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  const shape = renderedObject(page, objectId);
   await expect(shape).toBeVisible({ timeout: 15_000 });
-  await expect(shape.locator(".tl-arrow-label")).toContainText(expectedLabel, {
+  await expect(shape).toHaveAttribute("data-object-kind", "connector");
+  await expect(shape.locator(".semantic-canvas-object__connector-label-text")).toContainText(expectedLabel, {
     timeout: 15_000,
   });
   return shape.evaluate((element) => {
-    const visiblePaths = [
-      ...element.querySelectorAll<SVGPathElement>("svg.tl-svg-container path"),
-    ].filter((path) => !path.closest("defs, clipPath, mask"));
-    const routedPaths = visiblePaths.filter((path) => path.hasAttribute("stroke-width"));
-    const candidates = (routedPaths.length > 0 ? routedPaths : visiblePaths)
-      .map((path) => {
-        try {
-          return { path, length: path.getTotalLength() };
-        } catch {
-          return { path, length: 0 };
-        }
-      })
-      .filter(({ path, length }) => {
-        if (length <= 0 || !path.getScreenCTM()) return false;
-        const style = getComputedStyle(path);
-        return style.display !== "none" && style.visibility !== "hidden";
-      })
-      .sort((left, right) => right.length - left.length);
-    const body = candidates[0];
-    if (!body) throw new Error(`Rendered connector ${element.getAttribute("data-shape-id")} has no path.`);
-    const matrix = body.path.getScreenCTM();
+    const path = element.querySelector<SVGPathElement>(
+      ".semantic-canvas-object__connector-path",
+    );
+    if (!path) {
+      throw new Error(`Rendered connector ${element.getAttribute("data-object-id")} has no path.`);
+    }
+    const length = path.getTotalLength();
+    const matrix = path.getScreenCTM();
     if (!matrix) throw new Error("Rendered connector path has no screen transform.");
-    const sampleCount = Math.max(128, Math.min(384, Math.ceil(body.length / 3)));
+    const sampleCount = Math.max(128, Math.min(384, Math.ceil(length / 3)));
     const points = Array.from({ length: sampleCount + 1 }, (_, index) => {
-      const point = body.path.getPointAtLength((body.length * index) / sampleCount);
+      const point = path.getPointAtLength((length * index) / sampleCount);
       const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(matrix);
       return { x: screenPoint.x, y: screenPoint.y };
     });
@@ -599,27 +602,27 @@ async function readRenderedConnector(
       if (distances[index - 1] > discontinuityThreshold) pathSegments.push([]);
       pathSegments.at(-1)!.push(points[index]);
     }
-    const label = element.querySelector<HTMLElement>(".tl-arrow-label");
-    if (!label) throw new Error("Rendered connector is missing its arrow label.");
-    const labelGeometry = [label, ...label.querySelectorAll<HTMLElement>("*")]
-      .map((candidate) => ({ candidate, bounds: candidate.getBoundingClientRect() }))
-      .filter(({ candidate, bounds }) => {
-        const style = getComputedStyle(candidate);
-        return (
-          bounds.width > 2 &&
-          bounds.height > 2 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        );
-      })
-      .sort(
-        (left, right) =>
-          right.bounds.width * right.bounds.height - left.bounds.width * left.bounds.height,
-      )[0];
-    if (!labelGeometry) throw new Error("Rendered connector label has no visible geometry.");
-    const labelBounds = labelGeometry.bounds;
+    const label = element.querySelector<SVGGElement>(
+      ".semantic-canvas-object__connector-label",
+    );
+    if (!label) throw new Error("Rendered connector is missing its semantic label.");
+    const labelBounds = label.getBoundingClientRect();
+    if (labelBounds.width <= 2 || labelBounds.height <= 2) {
+      throw new Error("Rendered connector label has no visible geometry.");
+    }
+    const labelBackground = label.querySelector<SVGRectElement>("rect");
+    if (!labelBackground) throw new Error("Rendered connector label has no semantic bounds.");
+    const semanticLabelBounds = {
+      x: Number(labelBackground.getAttribute("x")),
+      y: Number(labelBackground.getAttribute("y")),
+      width: Number(labelBackground.getAttribute("width")),
+      height: Number(labelBackground.getAttribute("height")),
+    };
+    if (Object.values(semanticLabelBounds).some((value) => !Number.isFinite(value))) {
+      throw new Error("Rendered connector label exposes invalid semantic bounds.");
+    }
     return {
-      pathData: body.path.getAttribute("d") ?? "",
+      pathData: path.getAttribute("d") ?? "",
       pathSegments,
       labelText: (label.textContent ?? "").replace(/\s+/g, " ").trim(),
       labelBounds: {
@@ -628,6 +631,7 @@ async function readRenderedConnector(
         width: labelBounds.width,
         height: labelBounds.height,
       },
+      semanticLabelBounds,
     };
   });
 }
@@ -637,79 +641,14 @@ async function waitForRenderedShapeRevision(
   objectId: string,
   expectedRevision: number,
 ): Promise<void> {
-  const shape = page.locator(`.tl-shape[data-shape-id="shape:${objectId}"]`);
+  const shape = renderedObject(page, objectId);
   await expect(shape).toBeVisible({ timeout: 15_000 });
   await expect
     .poll(
-      () =>
-        shape.evaluate((element) => {
-          type ReactFiber = {
-            memoizedProps?: unknown;
-            pendingProps?: unknown;
-            dependencies?: {
-              firstContext?: {
-                memoizedValue?: unknown;
-                next?: ReactFiber["dependencies"] extends { firstContext?: infer Context }
-                  ? Context
-                  : never;
-              } | null;
-            } | null;
-            return?: ReactFiber | null;
-          };
-          const shapeId = element.getAttribute("data-shape-id");
-          const revisionFromEditor = (value: unknown): number | null => {
-            if (!shapeId || !value || typeof value !== "object") return null;
-            const candidate = value as {
-              getShape?: (id: string) => { meta?: { jazzboardRevision?: unknown } } | undefined;
-            };
-            if (typeof candidate.getShape !== "function") return null;
-            const revision = candidate.getShape(shapeId)?.meta?.jazzboardRevision;
-            return typeof revision === "number" ? revision : null;
-          };
-          const editorRevisionFromValue = (value: unknown): number | null => {
-            const direct = revisionFromEditor(value);
-            if (direct !== null || !value || typeof value !== "object") return direct;
-            for (const nested of Object.values(value as Record<string, unknown>)) {
-              const revision = revisionFromEditor(nested);
-              if (revision !== null) return revision;
-            }
-            return null;
-          };
-          const revisionFromProps = (value: unknown): number | null => {
-            if (!value || typeof value !== "object") return null;
-            const shapeValue = (value as {
-              shape?: { meta?: { jazzboardRevision?: unknown } };
-            }).shape;
-            const revision = shapeValue?.meta?.jazzboardRevision;
-            return typeof revision === "number" ? revision : null;
-          };
-          const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber$"));
-          let fiber = fiberKey
-            ? ((element as unknown as Record<string, ReactFiber>)[fiberKey] ?? null)
-            : null;
-          const revisions: number[] = [];
-          while (fiber) {
-            const editorRevision =
-              editorRevisionFromValue(fiber.memoizedProps) ??
-              editorRevisionFromValue(fiber.pendingProps);
-            if (editorRevision !== null) return editorRevision;
-            let context = fiber.dependencies?.firstContext ?? null;
-            while (context) {
-              const contextRevision = editorRevisionFromValue(context.memoizedValue);
-              if (contextRevision !== null) return contextRevision;
-              context = context.next ?? null;
-            }
-            const memoizedRevision = revisionFromProps(fiber.memoizedProps);
-            const pendingRevision = revisionFromProps(fiber.pendingProps);
-            if (memoizedRevision !== null) revisions.push(memoizedRevision);
-            if (pendingRevision !== null) revisions.push(pendingRevision);
-            fiber = fiber.return ?? null;
-          }
-          return revisions.length ? Math.max(...revisions) : null;
-        }),
+      () => shape.getAttribute("data-object-revision").then((value) => Number(value)),
       {
         timeout: 15_000,
-        message: `tldraw shape ${objectId} should project authoritative revision ${expectedRevision}`,
+        message: `semantic object ${objectId} should project authoritative revision ${expectedRevision}`,
       },
     )
     .toBe(expectedRevision);
@@ -782,7 +721,7 @@ async function readAndAssertRenderedRoutes(
   await expect
     .poll(async () => renderedRouteReadiness(await readRendered(), sourceBounds, blockerBounds), {
       timeout: 15_000,
-      message: "tldraw should finish route and label layout without overlaps",
+      message: "the semantic canvas should finish route and label layout without overlaps",
     })
     .toEqual([]);
   const rendered = await readRendered();
@@ -880,7 +819,7 @@ test.describe("WebMCP browser acceptance", () => {
       role: "participant",
       room: { code: expect.stringMatching(/^\d{4}$/), title: "WebMCP semantic acceptance" },
     });
-    await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
+    await expectSemanticCanvas(page);
 
     const participantMetadata = await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
     await expect(page.getByTestId("site-tools-status")).toHaveCount(0);
@@ -1073,7 +1012,7 @@ test.describe("WebMCP browser acceptance", () => {
         transactionObjectById.get(refs.room_api)!.width);
     expect(longLabelClearance).toBeGreaterThan(300);
 
-    // A server-projected, bound tldraw arrow must settle. Binding geometry is
+    // A server-projected semantic connector must settle. Binding geometry is
     // derived UI state and must not echo back as perpetual human edits.
     await page.waitForTimeout(900);
     const settledProjection = await getRoom(page.request, created.room.id);
@@ -1624,7 +1563,7 @@ test.describe("WebMCP browser acceptance", () => {
         ),
       );
       expect(joined).toMatchObject({ room: { id: created.room.id }, role: "participant" });
-      await expect(collaboratorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
+      await expectSemanticCanvas(collaboratorPage);
       await expectRegisteredSurface(collaboratorPage, PARTICIPANT_ROOM_TOOL_NAMES);
 
       const collaboratorRoom = await getRoom(collaboratorContext.request, created.room.id);
@@ -1765,7 +1704,7 @@ test.describe("WebMCP browser acceptance", () => {
           /\/room\/room_[^/?#]+$/,
         ),
       );
-      await expect(spectatorPage.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
+      await expectSemanticCanvas(spectatorPage);
       const spectatorPeople = spectatorPage.getByRole("button", { name: "Show people in this room" });
       await spectatorPeople.hover();
       await expect(spectatorPage.getByRole("tooltip")).toContainText("Your role: spectator");
@@ -2166,9 +2105,7 @@ test.describe("WebMCP browser acceptance", () => {
           /\/room\/room_[^/?#]+$/,
         ),
       );
-      await expect(collaboratorPage.getByTestId("jazzboard-canvas")).toBeVisible({
-        timeout: 20_000,
-      });
+      await expectSemanticCanvas(collaboratorPage);
       await expectRegisteredSurface(collaboratorPage, PARTICIPANT_ROOM_TOOL_NAMES);
 
       const collaboratorDiagram = successData(
@@ -2194,11 +2131,9 @@ test.describe("WebMCP browser acceptance", () => {
         expectedRenderedRevisions,
       );
       for (const key of ["auto", "straight", "curved", "elbow"] as const) {
-        // Bound arrows may use different local SVG origins after one client
-        // moves nodes optimistically and another projects the authoritative
-        // result from scratch. Compare their transformed, page-space paths;
-        // raw `d` coordinates are an internal representation and can differ
-        // by the inverse container translation while rendering identically.
+        // Private camera state can place the same shared connector at different
+        // page coordinates. Compare exact semantic canvas geometry here; each
+        // client independently proves visual obstacle and label clearance above.
         expectRenderedConnectorParity(collaboratorRendering[key], hostRendering[key], key);
       }
     } finally {
@@ -2313,9 +2248,10 @@ test.describe("WebMCP browser acceptance", () => {
       expect.arrayContaining([expect.objectContaining({ kind: "text", content: WEBMCP_TEXT })]),
     );
 
-    await page.getByTestId("tools.draw").click();
-    const canvasBox = await page.getByTestId("canvas").boundingBox();
-    if (!canvasBox) throw new Error("The tldraw canvas has no browser layout box.");
+    await expectSemanticCanvas(page);
+    await page.getByRole("button", { name: "Draw tool" }).click();
+    const canvasBox = await semanticCanvas(page).boundingBox();
+    if (!canvasBox) throw new Error("The semantic canvas has no browser layout box.");
     const start = {
       x: canvasBox.x + canvasBox.width * 0.57,
       y: canvasBox.y + canvasBox.height * 0.58,
@@ -2344,13 +2280,19 @@ test.describe("WebMCP browser acceptance", () => {
 
     const [chooser] = await Promise.all([
       page.waitForEvent("filechooser"),
-      page.getByRole("button", { name: /Media/ }).click(),
+      page.getByRole("button", { name: "Image tool" }).click(),
     ]);
     await chooser.setFiles({
       name: "browser-acceptance.png",
       mimeType: "image/png",
       buffer: TINY_PNG,
     });
+    const imageReview = page.getByRole("dialog", { name: "Add an accessible image" });
+    await expect(imageReview.getByLabel("Image description")).toHaveValue("browser acceptance");
+    await imageReview
+      .getByLabel("I confirm this description truthfully identifies the image.")
+      .check();
+    await imageReview.getByRole("button", { name: "Add to canvas" }).click();
 
     await expect
       .poll(
@@ -2376,7 +2318,7 @@ test.describe("WebMCP browser acceptance", () => {
     const image = objects.find((object) => object.kind === "image");
     expect(image).toMatchObject({
       kind: "image",
-      alt: "browser-acceptance.png",
+      alt: "browser acceptance",
       mimeType: "image/png",
       createdBy: { kind: "human", participantId: host.participantId },
     });
@@ -2437,13 +2379,13 @@ test.describe("WebMCP browser acceptance", () => {
 
     await expect
       .poll(() =>
-        page.locator(".tl-shape:not(.tl-shape-background)").evaluateAll((elements) =>
-          [...new Set(elements.map((element) => element.getAttribute("data-shape-id")))].sort(),
+        semanticCanvas(page).locator("[data-object-id]").evaluateAll((elements) =>
+          [...new Set(elements.map((element) => element.getAttribute("data-object-id")))].sort(),
         ),
       )
-      .toEqual(objects.map((object) => `shape:${object.id}`).sort());
+      .toEqual(objects.map((object) => object.id).sort());
 
-    await expect(page.getByTestId("tools.select")).toBeVisible();
-    await expectBuiltInTldrawWatermark(page);
+    await expect(page.getByRole("button", { name: "Select tool" })).toBeVisible();
+    await expectSemanticCanvas(page);
   });
 });

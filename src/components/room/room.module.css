@@ -18,6 +18,12 @@
   width: 100%;
 }
 
+.canvasRendererLoading {
+  background-color: #f9fafc;
+  background-image: radial-gradient(circle, rgba(119, 128, 151, 0.22) 1px, transparent 1.15px);
+  background-size: 22px 22px;
+}
+
 .canvasShell :global(.tl-container) {
   /* Keep the SDK's required attribution above Jazzboard's presence, modal,
      upload, and toast overlays without changing the watermark itself. */

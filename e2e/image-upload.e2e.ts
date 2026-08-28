@@ -8,46 +8,32 @@ const TINY_PNG = Buffer.from(
   "base64",
 );
 
-test("adds a screenshot-style image through tldraw's standard media picker and local demo storage", async ({ page }) => {
-  let releaseDrawFont: () => void = () => undefined;
-  let reportDrawFontRequest: () => void = () => undefined;
-  const drawFontGate = new Promise<void>((resolve) => {
-    releaseDrawFont = resolve;
-  });
-  const drawFontRequested = new Promise<void>((resolve) => {
-    reportDrawFontRequest = resolve;
-  });
-  await page.route("**/fonts/Shantell_Sans-Informal_Regular.woff2", async (route) => {
-    reportDrawFontRequest();
-    await drawFontGate;
-    await route.continue();
-  });
-
+test("adds and exports an accessible screenshot-style image through the semantic canvas", async ({ page }) => {
   const host = await createRoomViaApi(page.request, "Iris Illustrator", "Image annotation");
   await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
   await expect(page.getByTestId("jazzboard-canvas")).toBeVisible({ timeout: 20_000 });
-  await drawFontRequested;
 
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
-    page.getByRole("button", { name: /Media/ }).click(),
+    page.getByRole("button", { name: "Image tool" }).click(),
   ]);
+  await chooser.setFiles({ name: "website-screenshot.png", mimeType: "image/png", buffer: TINY_PNG });
+  const imageDialog = page.getByRole("dialog", { name: "Add an accessible image" });
+  await expect(imageDialog).toBeVisible();
+  await imageDialog.getByLabel("Image description").fill("Website screenshot showing the Jazzboard home page");
+  await imageDialog
+    .getByLabel("I confirm this description truthfully identifies the image.")
+    .check();
   const storedAsset = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       new URL(response.url()).pathname === `/api/rooms/${host.room.id}/assets` &&
       response.ok(),
   );
-  await chooser.setFiles({ name: "website-screenshot.png", mimeType: "image/png", buffer: TINY_PNG });
+  await imageDialog.getByRole("button", { name: "Add to canvas" }).click();
   await storedAsset;
-  const imageShape = page.locator('.tl-shape[data-shape-type="image"]');
+  const imageShape = page.locator('[data-object-kind="image"]');
   await expect(imageShape).toBeVisible();
-
-  // The canvas is interactive before its font-gated persistence effect is
-  // ready. Releasing the font after the image is already visible proves the
-  // mount-time reconciliation sweep persists edits whose store events were
-  // necessarily earlier than the listener.
-  releaseDrawFont();
 
   const image = await expect
     .poll(
@@ -74,11 +60,11 @@ test("adds a screenshot-style image through tldraw's standard media picker and l
 
   await expect
     .poll(() =>
-      page.locator(".tl-shape:not(.tl-shape-background)").evaluateAll((elements) =>
-        [...new Set(elements.map((element) => element.getAttribute("data-shape-id")))].sort(),
+      page.locator("[data-object-id]").evaluateAll((elements) =>
+        [...new Set(elements.map((element) => element.getAttribute("data-object-id")))].sort(),
       ),
     )
-    .toEqual(Object.keys(state.room.objects).map((id) => `shape:${id}`).sort());
+    .toEqual(Object.keys(state.room.objects).sort());
 
   const imageBounds = await imageShape.boundingBox();
   expect(imageBounds).not.toBeNull();
@@ -95,7 +81,9 @@ test("adds a screenshot-style image through tldraw's standard media picker and l
   await selectBoardMenuItem(page, /^Canvas outline/);
   const outline = page.getByRole("complementary", { name: "Canvas outline" });
   await expect(outline.getByText("1 objects")).toBeVisible();
-  await expect(outline.getByText("website-screenshot.png", { exact: true })).toBeVisible();
+  await expect(
+    outline.getByText("Website screenshot showing the Jazzboard home page", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Close canvas outline" }).click();
   await selectBoardMenuItem(page, "Export");

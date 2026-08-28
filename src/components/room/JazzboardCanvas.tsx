@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowLeft, Bot, LockKeyhole, MousePointer2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import {
   ArrangeMenuSubmenu,
@@ -52,19 +52,19 @@ import {
   tldrawShapeId,
 } from "@/lib/canvas/projection";
 import { CanvasObjectSyncCoordinator } from "@/lib/canvas/sync-coordinator";
+import {
+  captureTldrawRendererParitySnapshot,
+  compareRendererParity,
+} from "@/lib/canvas/renderer-parity";
+import { buildSemanticScene } from "@/lib/canvas/semantic-scene";
+import { createTldrawCanvasRuntime } from "@/lib/canvas/tldraw-runtime";
 import type {
-  ActorKind,
   CanvasCommand,
-  FollowTarget,
   LeaseOperation,
   ObjectPatch,
   ObjectLease,
-  Participant,
   RoomState,
-  RoomPresenceDelta,
-  SemanticTransaction,
 } from "@/lib/domain/types";
-import type { ConnectionState, LeaseAction, LeaseBatchAction } from "@/hooks/use-room";
 import { roomStateRevision } from "@/lib/realtime/events";
 import {
   IDLE_PRESENCE_KEYFRAME_MS,
@@ -74,14 +74,28 @@ import {
 } from "@/lib/client/presence-cadence";
 
 import styles from "./room.module.css";
+import { CanvasPresenceOverlay as RuntimeCanvasPresenceOverlay } from "./CanvasPresenceOverlay";
+import type {
+  BoardMenuActions,
+  CanvasSurfaceHandle,
+  CanvasSurfaceProps,
+} from "./canvas-surface-types";
+
+export { shouldRenderLeaseDebugLabel } from "./CanvasPresenceOverlay";
+export type {
+  BoardMenuActions,
+  CanvasSurfaceHandle as JazzboardCanvasHandle,
+  CanvasSurfaceProps as JazzboardCanvasProps,
+} from "./canvas-surface-types";
+
+export const JAZZBOARD_RENDERER_PARITY_EVENT = "jazzboard:renderer-parity";
+
+type TldrawCanvasProps = CanvasSurfaceProps & {
+  /** Enables passive geometry comparison without changing the visible renderer. */
+  shadowParity?: boolean;
+};
 
 type CommandResult = { room: RoomState; changedObjectIds: string[] };
-type SemanticTransactionResult = CommandResult & {
-  changedDiagramIds: string[];
-  membershipObjectIds: string[];
-};
-type LeaseResult = { lease: ObjectLease | null; room: RoomState };
-type LeaseBatchResult = { leases: ObjectLease[]; room: RoomState };
 
 type ScheduledObjectSync = {
   objectId: string;
@@ -114,54 +128,6 @@ type DocumentRecordChanges = {
   added: Record<string, TLRecord>;
   updated: Record<string, [TLRecord, TLRecord]>;
   removed: Record<string, TLRecord>;
-};
-
-type Props = {
-  boardMenuActions: BoardMenuActions;
-  room: RoomState;
-  self: Participant;
-  followTarget: FollowTarget;
-  command: (command: CanvasCommand, actorKind?: ActorKind) => Promise<CommandResult>;
-  semanticTransaction: (transaction: SemanticTransaction) => Promise<SemanticTransactionResult>;
-  lease: (action: LeaseAction, actorKind?: ActorKind) => Promise<LeaseResult>;
-  leaseMany: (action: LeaseBatchAction, actorKind?: ActorKind) => Promise<LeaseBatchResult>;
-  refresh: () => Promise<RoomState>;
-  presence: (
-    value: {
-      cursor: { x: number; y: number } | null;
-      viewport: { x: number; y: number; zoom: number; width: number; height: number } | null;
-    },
-    actorKind?: ActorKind,
-  ) => Promise<RoomPresenceDelta>;
-  transientPresence: (value: {
-    cursor: { x: number; y: number } | null;
-    viewport: { x: number; y: number; zoom: number; width: number; height: number } | null;
-  }) => boolean;
-  connection: ConnectionState;
-  onSelectionChange: (objectIds: string[]) => void;
-  onEditorChange: (editor: Editor | null) => void;
-  onExitFollow: () => void;
-  onError: (message: string, details?: unknown) => void;
-};
-
-export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) {
-  return environment !== "production";
-}
-
-export type JazzboardCanvasHandle = {
-  prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
-};
-
-export type BoardMenuActions = {
-  askPreparing: boolean;
-  pendingReviewCount: number;
-  selectionCount: number;
-  onActivity(): void;
-  onAsk(): void;
-  onCanvasOutline(): void;
-  onExport(): void;
-  onReview(): void;
-  onUpgradeRole(): void;
 };
 
 type RoomChromeContextValue = {
@@ -471,7 +437,7 @@ function semanticOperation(editor: Editor, shape: TLShape, current: RoomState["o
   return "edit";
 }
 
-export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function JazzboardCanvas({
+export const JazzboardCanvas = forwardRef<CanvasSurfaceHandle, TldrawCanvasProps>(function JazzboardCanvas({
   boardMenuActions,
   room,
   self,
@@ -485,11 +451,19 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   transientPresence,
   connection,
   onSelectionChange,
-  onEditorChange,
+  onRuntimeChange,
   onExitFollow,
   onError,
-}: Props, ref) {
+  shadowParity = false,
+}: TldrawCanvasProps, ref) {
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [shadowParityStatus, setShadowParityStatus] = useState<"idle" | "match" | "mismatch">("idle");
+  const [shadowParitySummary, setShadowParitySummary] = useState<string | null>(null);
+  const [shadowParityDetails, setShadowParityDetails] = useState<string | null>(null);
+  const canvasRuntime = useMemo(
+    () => editor ? createTldrawCanvasRuntime(editor) : null,
+    [editor],
+  );
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const roomRef = useRef(room);
   const selfRef = useRef(self);
@@ -560,11 +534,62 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
   }, [room, self]);
 
   useEffect(() => {
+    if (!shadowParity || !editor) return;
+
+    let frame = 0;
+    let attempts = 0;
+    let cancelled = false;
+    const compareAfterProjectionSettles = () => {
+      if (cancelled || editor.isDisposed) return;
+      if (syncCoordinatorRef.current.protectedObjectIds().size) {
+        if (attempts < 120) {
+          attempts += 1;
+          frame = window.requestAnimationFrame(compareAfterProjectionSettles);
+        } else {
+          setShadowParityStatus("idle");
+        }
+        return;
+      }
+      try {
+        const report = compareRendererParity(
+          buildSemanticScene(roomRef.current),
+          captureTldrawRendererParitySnapshot(editor),
+        );
+        setShadowParityStatus(report.matches ? "match" : "mismatch");
+        setShadowParitySummary(
+          Object.entries(report.summary)
+            .filter(([, count]) => count > 0)
+            .map(([code, count]) => `${code}:${count}`)
+            .join(",") || "none",
+        );
+        setShadowParityDetails(JSON.stringify(report.diagnostics.slice(0, 12)));
+        window.dispatchEvent(new CustomEvent(JAZZBOARD_RENDERER_PARITY_EVENT, { detail: report }));
+      } catch {
+        setShadowParityStatus("mismatch");
+        setShadowParitySummary("capture_error:1");
+        setShadowParityDetails(null);
+      }
+    };
+    frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(compareAfterProjectionSettles);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [editor, room.id, room.roomRevision, shadowParity]);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    onRuntimeChange(canvasRuntime);
+    return () => onRuntimeChange(null);
+  }, [canvasRuntime, onRuntimeChange]);
 
   useEffect(() => {
     if (!editor) return;
@@ -2748,6 +2773,9 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     <div
       className={styles.canvasShell}
       data-testid="jazzboard-canvas"
+      data-renderer-parity={shadowParity ? shadowParityStatus : undefined}
+      data-renderer-parity-summary={shadowParity ? shadowParitySummary ?? "pending" : undefined}
+      data-renderer-parity-details={shadowParity ? shadowParityDetails ?? undefined : undefined}
       onPointerMove={handlePointerMove}
       onPointerDownCapture={handlePointerDown}
       onClickCapture={handleClickCapture}
@@ -2771,13 +2799,12 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
               .then(() => {
                 if (mountedEditor.isDisposed) return;
                 setEditor(mountedEditor);
-                onEditorChange(mountedEditor);
               });
           }}
           options={JAZZBOARD_TLDRAW_OPTIONS}
         />
       </RoomChromeContext.Provider>
-      <CanvasPresenceOverlay editor={editor} room={room} selfId={self.participantId} />
+      <RuntimeCanvasPresenceOverlay runtime={canvasRuntime} room={room} selfId={self.participantId} />
       {uploadProgress !== null ? (
         <div className={styles.uploadProgress} role="status">
           <span>Adding image</span>
@@ -2788,114 +2815,3 @@ export const JazzboardCanvas = forwardRef<JazzboardCanvasHandle, Props>(function
     </div>
   );
 });
-
-function CanvasPresenceOverlay({ editor, room, selfId }: { editor: Editor | null; room: RoomState; selfId: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 120);
-    return () => window.clearInterval(timer);
-  }, []);
-  if (!editor) return null;
-
-  return (
-    <div className={styles.presenceOverlay} aria-hidden="true">
-      {Object.values(room.participants).flatMap((participant) => {
-        const items: React.ReactNode[] = [];
-        if (participant.participantId !== selfId && participant.human.cursor && now - participant.human.lastSeenAt < 12_000) {
-          const point = editor.pageToViewport(participant.human.cursor);
-          items.push(
-            <div
-              className={styles.humanCursor}
-              key={`${participant.participantId}:human`}
-              style={{ transform: `translate(${point.x}px, ${point.y}px)`, color: participant.color }}
-            >
-              <MousePointer2 size={22} fill="white" strokeWidth={2.5} />
-              <span style={{ background: participant.color }}>{participant.displayName}</span>
-            </div>,
-          );
-        }
-        if (participant.agentActive && participant.agent.cursor) {
-          const activity = participant.agent.activity;
-          const elapsed = activity ? Math.max(now - activity.startedAt, 0) : 0;
-          const duration = activity?.durationMs ?? 1;
-          const progress = activity ? Math.min(elapsed / duration, 1) : 1;
-          const from = activity?.fromCursor ?? participant.agent.cursor;
-          const to = activity?.toCursor ?? participant.agent.cursor;
-          const cursor = {
-            x: from.x + (to.x - from.x) * progress,
-            y: from.y + (to.y - from.y) * progress,
-          };
-          const point = editor.pageToViewport(cursor);
-          items.push(
-            <div
-              className={styles.agentCursor}
-              data-testid={`agent-cursor-${participant.participantId}`}
-              data-activity-progress={Math.round(progress * 100)}
-              key={`${participant.participantId}:agent`}
-              style={{ transform: `translate(${point.x}px, ${point.y}px)`, color: participant.color }}
-            >
-              <Bot size={19} />
-              <span style={{ background: participant.color }}>
-                {participant.displayName} · agent
-                {activity && elapsed < duration + 1_600 ? ` · ${activity.label} · ${Math.round(progress * 100)}%` : ""}
-              </span>
-            </div>,
-          );
-          if (activity && elapsed < duration + 600) {
-            for (const objectId of activity.objectIds) {
-              const bounds = editor.getShapePageBounds(tldrawShapeId(objectId));
-              if (!bounds) continue;
-              const topLeft = editor.pageToViewport({ x: bounds.x, y: bounds.y });
-              const bottomRight = editor.pageToViewport({ x: bounds.maxX, y: bounds.maxY });
-              items.push(
-                <div
-                  className={styles.agentWorkOutline}
-                  key={`${participant.participantId}:work:${objectId}`}
-                  style={{
-                    left: topLeft.x,
-                    top: topLeft.y,
-                    width: Math.max(bottomRight.x - topLeft.x, 1),
-                    height: Math.max(bottomRight.y - topLeft.y, 1),
-                    borderColor: participant.color,
-                    color: participant.color,
-                    "--agent-progress": progress,
-                    "--agent-progress-percent": `${Math.round(progress * 100)}%`,
-                  } as React.CSSProperties}
-                />,
-              );
-            }
-          }
-        }
-        return items;
-      })}
-      {Object.values(room.leases).map((activeLease) => {
-        if (activeLease.expiresAt <= now) return null;
-        const bounds = editor.getShapePageBounds(tldrawShapeId(activeLease.objectId));
-        if (!bounds) return null;
-        const topLeft = editor.pageToViewport({ x: bounds.x, y: bounds.y });
-        const bottomRight = editor.pageToViewport({ x: bounds.maxX, y: bounds.maxY });
-        return (
-          <div
-            className={styles.leaseOutline}
-            key={activeLease.leaseId}
-            style={{
-              left: topLeft.x,
-              top: topLeft.y,
-              width: Math.max(bottomRight.x - topLeft.x, 1),
-              height: Math.max(bottomRight.y - topLeft.y, 1),
-              borderColor: activeLease.actor.color,
-            }}
-          >
-            {shouldRenderLeaseDebugLabel() ? (
-              <span style={{ background: activeLease.actor.color }}>
-                <LockKeyhole size={11} />
-                {activeLease.actor.displayName}
-                {activeLease.actor.kind === "agent" ? "’s agent" : ""} · {activeLease.operation}
-              </span>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
