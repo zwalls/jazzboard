@@ -4,7 +4,10 @@ import { z } from "zod";
 
 import { parseRoomAssetProxyReference } from "@/lib/assets/policy";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
-import { normalizeConnectorRouting } from "@/lib/domain/connector-routing";
+import {
+  cardinalNormalizedAnchor,
+  normalizeConnectorRouting,
+} from "@/lib/domain/connector-routing";
 import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
 import type {
   AgentEditProposalSummary,
@@ -33,6 +36,9 @@ const finite = z.number().finite();
 const positiveDimension = finite.positive().max(100_000);
 const colorSchema = z.string().min(1).max(32);
 const pointSchema = z.object({ x: finite, y: finite }).strict();
+const normalizedAnchorSchema = z
+  .object({ x: finite.min(0).max(1), y: finite.min(0).max(1) })
+  .strict();
 const agentImageUrlSchema = z
   .string()
   .max(8_192)
@@ -55,7 +61,7 @@ const AGENT_IMAGE_URL_SCHEMA = {
   ],
 } as const;
 const REVIEW_MODE_RESULT_NOTE =
-  " If the room requires review, Jazzboard queues the exact edit instead and returns outcome `proposed` plus its proposal; no canvas objects change until a human approves it.";
+  " Review outcome `proposed` is not applied.";
 const REVIEW_GATED_TOOL_NAMES = new Set([
   "create_text",
   "create_shape",
@@ -167,10 +173,26 @@ const createDrawingInputSchema = z
   })
   .strict();
 
+const endpointPortInputSchema = z
+  .object({
+    side: z.enum(["top", "right", "bottom", "left"]),
+    position: z.number().finite().min(0).max(1).default(0.5),
+    exact: z.boolean().default(false),
+  })
+  .strict();
+
 const endpointInputSchema = z.union([
-  z.object({ objectId: idSchema }).strict(),
+  z.object({ objectId: idSchema, port: endpointPortInputSchema.optional() }).strict(),
   pointSchema,
 ]);
+
+const connectorEndpointPatchSchema = pointSchema.extend({
+  objectId: idSchema.nullable(),
+  normalizedAnchor: normalizedAnchorSchema.nullable().optional(),
+  isPrecise: z.boolean().nullable().optional(),
+  isExact: z.boolean().nullable().optional(),
+  snap: z.enum(["center", "edge-point", "edge", "none"]).nullable().optional(),
+});
 
 const drawConnectionInputSchema = z
   .object({
@@ -207,8 +229,8 @@ const objectPatchSchema = z
     label: z.string().max(10_000).optional(),
     fill: colorSchema.optional(),
     stroke: colorSchema.optional(),
-    start: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
-    end: pointSchema.extend({ objectId: idSchema.nullable() }).optional(),
+    start: connectorEndpointPatchSchema.optional(),
+    end: connectorEndpointPatchSchema.optional(),
     routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     url: agentImageUrlSchema.optional(),
@@ -326,10 +348,10 @@ const ACTIVITY_METADATA_PROPERTIES = {
 const NODE_METADATA_JSON_SCHEMA = {
   type: "object",
   properties: {
-    kind: { enum: ["decision", "open_question"] },
-    status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
+    kind: {},
+    status: {},
     owner: { anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }] },
-    resolution: { anyOf: [{ type: "string", minLength: 1, maxLength: 10_000 }, { type: "null" }] },
+    resolution: {},
   },
   required: ["kind"],
   additionalProperties: false,
@@ -337,14 +359,32 @@ const NODE_METADATA_JSON_SCHEMA = {
     {
       properties: {
         kind: { const: "decision" },
-        status: { enum: ["proposed", "accepted", "rejected", "superseded"] },
+        status: { const: "proposed" },
+        resolution: { type: "null" },
+      },
+    },
+    {
+      properties: {
+        kind: { const: "decision" },
+        status: { enum: ["accepted", "rejected", "superseded"] },
+        resolution: { type: "string", minLength: 1, maxLength: 10_000 },
+      },
+      required: ["status", "resolution"],
+    },
+    {
+      properties: {
+        kind: { const: "open_question" },
+        status: { const: "open" },
+        resolution: { type: "null" },
       },
     },
     {
       properties: {
         kind: { const: "open_question" },
-        status: { enum: ["open", "answered", "deferred", "closed"] },
+        status: { enum: ["answered", "deferred", "closed"] },
+        resolution: { type: "string", minLength: 1, maxLength: 10_000 },
       },
+      required: ["status", "resolution"],
     },
   ],
 } as const;
@@ -525,10 +565,32 @@ function endpointFromInput(
         objectId: input.objectId,
       });
     }
-    return {
-      objectId: object.id,
+    if (!input.port) {
+      return {
+        objectId: object.id,
+        x: object.x + object.width / 2,
+        y: object.y + object.height / 2,
+      };
+    }
+    const normalizedAnchor = cardinalNormalizedAnchor(input.port.side, input.port.position);
+    const center = {
       x: object.x + object.width / 2,
       y: object.y + object.height / 2,
+    };
+    const local = {
+      x: object.x + object.width * normalizedAnchor.x,
+      y: object.y + object.height * normalizedAnchor.y,
+    };
+    const cosine = Math.cos(object.rotation);
+    const sine = Math.sin(object.rotation);
+    return {
+      objectId: object.id,
+      x: center.x + (local.x - center.x) * cosine - (local.y - center.y) * sine,
+      y: center.y + (local.x - center.x) * sine + (local.y - center.y) * cosine,
+      normalizedAnchor,
+      isPrecise: true,
+      isExact: input.port.exact,
+      snap: "edge-point",
     };
   }
   return { ...input, objectId: null };
@@ -606,7 +668,7 @@ export function createJazzboardWebMcpTools(
       name: "read_room_state",
       title: "Read Jazzboard room state",
       description:
-        "Read the authoritative semantic canvas state, including object IDs and revisions required for safe edits. Optionally restrict the result to specific object IDs.",
+        "Read authoritative room objects and revisions, optionally by object ID.",
       inputSchema: {
         type: "object",
         properties: { objectIds: { type: "array", items: ID, maxItems: 500 } },
@@ -650,7 +712,7 @@ export function createJazzboardWebMcpTools(
       name: "read_selection",
       title: "Read the current Jazzboard selection",
       description:
-        "Read the participant's currently selected semantic canvas objects with current server revisions. This does not infer selection from pixels.",
+        "Read this participant's selected objects and revisions.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: readSelectionInputSchema,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -675,7 +737,7 @@ export function createJazzboardWebMcpTools(
       name: "create_text",
       title: "Create semantic canvas text",
       description:
-        "Create freeform text in canvas world coordinates. Omitted coordinates place it in the current viewport; this creates a semantic object rather than simulating typing or clicks.",
+        "Create semantic text at coordinates or in the viewport.",
       inputSchema: {
         type: "object",
         properties: {
@@ -719,7 +781,7 @@ export function createJazzboardWebMcpTools(
       name: "create_shape",
       title: "Create a diagram shape",
       description:
-        "Create a semantic rectangle, ellipse, or diamond with an optional label. Omitted coordinates place it in the current viewport.",
+        "Create a labeled rectangle, ellipse, or diamond.",
       inputSchema: {
         type: "object",
         properties: {
@@ -763,7 +825,7 @@ export function createJazzboardWebMcpTools(
       name: "create_node",
       title: "Create an architecture node",
       description:
-        "Create a styled semantic diagram node for a component, service, requirement, decision, or open question.",
+        "Create a component, service, requirement, decision, or open-question node.",
       inputSchema: {
         type: "object",
         properties: {
@@ -775,6 +837,24 @@ export function createJazzboardWebMcpTools(
         },
         required: ["label"],
         additionalProperties: false,
+        anyOf: [
+          { not: { required: ["nodeMetadata"] } },
+          {
+            properties: {
+              nodeType: { const: "decision" },
+              nodeMetadata: { properties: { kind: { const: "decision" } } },
+            },
+            required: ["nodeType", "nodeMetadata"],
+          },
+          {
+            properties: {
+              nodeType: { const: "open_question" },
+              nodeMetadata: { properties: { kind: { const: "open_question" } } },
+            },
+            required: ["nodeType", "nodeMetadata"],
+          },
+          { not: { required: ["nodeType"] } },
+        ],
       },
       schema: createNodeInputSchema,
       annotations: { untrustedContentHint: true },
@@ -815,7 +895,7 @@ export function createJazzboardWebMcpTools(
       name: "add_image",
       title: "Add an image by HTTPS or authorized Jazzboard asset URL",
       description:
-        "Place an image from an accessible HTTPS URL or an authorized room-local Jazzboard asset reference as a semantic image object. Conversational local attachments are not accepted by this first-demo tool.",
+        "Place an HTTPS or authorized room asset as an accessible semantic image.",
       inputSchema: {
         type: "object",
         properties: {
@@ -861,7 +941,7 @@ export function createJazzboardWebMcpTools(
       name: "create_drawing",
       title: "Create a freehand canvas drawing",
       description:
-        "Create one semantic freehand stroke from 2–2,000 bounded canvas-world points. Jazzboard derives its world-space bounds and stores normalized local points for stable editing.",
+        "Create one semantic freehand stroke from 2–2,000 bounded canvas points.",
       inputSchema: {
         type: "object",
         properties: {
@@ -924,7 +1004,7 @@ export function createJazzboardWebMcpTools(
       name: "draw_connection",
       title: "Connect semantic canvas objects",
       description:
-        "Connect object IDs or points. Auto avoids node bounds; straight, signed-bend curved, and elbow routes are explicit.",
+        "Connect IDs or points with auto, straight, curved, or elbow routing.",
       inputSchema: {
         type: "object",
         properties: {
@@ -944,7 +1024,10 @@ export function createJazzboardWebMcpTools(
             oneOf: [
               {
                 type: "object",
-                properties: { objectId: ID },
+                properties: {
+                  objectId: ID,
+                  port: { $ref: "#/$defs/port" },
+                },
                 required: ["objectId"],
                 additionalProperties: false,
               },
@@ -955,6 +1038,16 @@ export function createJazzboardWebMcpTools(
                 additionalProperties: false,
               },
             ],
+          },
+          port: {
+            type: "object",
+            properties: {
+              side: { enum: ["top", "right", "bottom", "left"] },
+              position: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+              exact: { type: "boolean", default: false },
+            },
+            required: ["side"],
+            additionalProperties: false,
           },
           routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
         },
@@ -995,7 +1088,7 @@ export function createJazzboardWebMcpTools(
       name: "update_object",
       title: "Update a semantic canvas object",
       description:
-        "Revision- and lease-checked object edit, including explicit connector routing. Busy edits return OBJECT_BUSY.",
+        "Revision- and lease-checked edit; busy objects return OBJECT_BUSY.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1060,6 +1153,28 @@ export function createJazzboardWebMcpTools(
               x: COORDINATE,
               y: COORDINATE,
               objectId: { anyOf: [ID, { type: "null" }] },
+              normalizedAnchor: {
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {
+                      x: { type: "number", minimum: 0, maximum: 1 },
+                      y: { type: "number", minimum: 0, maximum: 1 },
+                    },
+                    required: ["x", "y"],
+                    additionalProperties: false,
+                  },
+                  { type: "null" },
+                ],
+              },
+              isPrecise: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+              isExact: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+              snap: {
+                anyOf: [
+                  { enum: ["center", "edge-point", "edge", "none"] },
+                  { type: "null" },
+                ],
+              },
             },
             required: ["x", "y", "objectId"],
             additionalProperties: false,
@@ -1094,7 +1209,7 @@ export function createJazzboardWebMcpTools(
       name: "move_objects",
       title: "Move semantic canvas objects",
       description:
-        "Atomically move one or more objects to canvas-world positions. Each target requires its current revision and optional active lease token.",
+        "Atomically move revision-checked objects; include any active lease token.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1124,7 +1239,7 @@ export function createJazzboardWebMcpTools(
       name: "group_objects",
       title: "Group or ungroup semantic objects",
       description:
-        "Atomically assign objects to one semantic group. Omit groupId to create a new group; pass null to ungroup. Every target requires its current revision.",
+        "Atomically group revision-checked objects; omit groupId to create one or pass null to ungroup.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1149,7 +1264,7 @@ export function createJazzboardWebMcpTools(
       name: "delete_objects",
       title: "Delete semantic canvas objects",
       description:
-        "Atomically delete one or more semantic objects using exact revisions. A busy target fails the whole operation with OBJECT_BUSY; nothing is queued or partially deleted.",
+        "Atomically delete revision-checked objects; any busy target rejects all.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1169,7 +1284,7 @@ export function createJazzboardWebMcpTools(
       name: "focus_viewport",
       title: "Focus the agent viewport",
       description:
-        "Move the connected agent's shared virtual viewport to semantic object IDs or an explicit canvas-world region. Followers of the agent track this focus.",
+        "Focus the agent viewport on IDs or a region; followers track it.",
       inputSchema: {
         type: "object",
         properties: {

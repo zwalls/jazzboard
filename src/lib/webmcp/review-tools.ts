@@ -115,7 +115,7 @@ export function createJazzboardReviewWebMcpTools(
       name: "list_agent_edit_proposals",
       title: "List agent edit proposals",
       description:
-        "List this authorized room's bounded review queue, filtered by status or exact agent ID. Returns concise purpose, attribution, revisions, outcome, and intent; never other rooms.",
+        "List this room's bounded review queue by status or agent, with purpose, attribution, revisions, and outcome.",
       schema: listInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -138,7 +138,7 @@ export function createJazzboardReviewWebMcpTools(
       name: "read_agent_edit_proposal",
       title: "Read agent edit proposal",
       description:
-        "Read one authorized proposal by stable ID: its exact original request, immutable agent attribution, baseline revision, intent, summary, status, and human review record.",
+        "Read one proposal's request, attribution, baseline revision, intent, status, and human review record.",
       schema: readInput,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
@@ -158,7 +158,7 @@ export function createJazzboardReviewWebMcpTools(
       name: "enable_agent_review",
       title: "Require review for agent edits",
       description:
-        "Tighten this room from live agent editing to review-before-apply. Agents cannot disable review or approve/reject proposals; those decisions remain human-participant-only.",
+        "Require review before agent edits apply. Only humans can disable review or decide proposals.",
       schema: emptyInput,
       annotations: { untrustedContentHint: true },
       async execute(_input, signal) {

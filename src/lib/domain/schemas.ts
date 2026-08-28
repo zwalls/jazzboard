@@ -152,6 +152,7 @@ export const connectorRoutingSchema = z
     bend: z.number().finite().min(-10_000).max(10_000),
     elbowMidPoint: z.number().finite().min(0).max(1),
     labelPosition: z.number().finite().min(0).max(1),
+    labelPositionSource: z.enum(["generated", "authored"]).optional(),
   })
   .strict()
   .superRefine((routing, context) => {

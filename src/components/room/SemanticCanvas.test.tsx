@@ -378,6 +378,78 @@ describe("SemanticCanvas", () => {
     })));
   });
 
+  it("paints connector shafts below nodes and connector adornments above them", () => {
+    const layeredRoom = structuredClone(room);
+    layeredRoom.objects["edge-a-b"] = {
+      id: "edge-a-b",
+      kind: "connector",
+      x: 280,
+      y: 140,
+      width: 40,
+      height: 1,
+      rotation: 0,
+      // Layering is intentional even when a connector has the highest
+      // semantic z-index.
+      zIndex: 999,
+      revision: 1,
+      groupId: null,
+      diagramIds: [],
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      start: { x: 280, y: 140, objectId: "node-a" },
+      end: { x: 320, y: 140, objectId: "node-b" },
+      routing: {
+        mode: "straight",
+        kind: "straight",
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+      },
+      direction: "end",
+      label: "authorized request",
+      color: "blue",
+    };
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        room={layeredRoom}
+        self={self}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
+        onExitFollow={vi.fn()}
+      />,
+    );
+
+    const shaft = document.querySelector<SVGGElement>('[data-object-id="edge-a-b"]')!;
+    const node = document.querySelector<SVGGElement>('[data-object-id="node-a"]')!;
+    const overlay = document.querySelector<SVGGElement>(
+      '[data-connector-overlay-id="edge-a-b"]',
+    )!;
+    expect(document.querySelectorAll('[data-object-id="edge-a-b"]')).toHaveLength(1);
+    expect(shaft.querySelector(".semantic-canvas-object__connector-path")).not.toBeNull();
+    expect(shaft.querySelector(".semantic-canvas-object__arrowhead")).toBeNull();
+    expect(overlay.querySelector(".semantic-canvas-object__connector-path")).toBeNull();
+    expect(overlay.querySelector(".semantic-canvas-object__arrowhead")).not.toBeNull();
+    expect(overlay.querySelector(".semantic-canvas-object__connector-label")).not.toBeNull();
+    expect(overlay).toHaveAttribute("data-connector-overlay-focused", "false");
+    expect(shaft.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(node.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    fireEvent.pointerDown(overlay.querySelector(".semantic-canvas-object__connector-label")!, {
+      button: 0,
+      pointerId: 7,
+      clientX: 300,
+      clientY: 140,
+    });
+    expect(shaft).toHaveAttribute("data-selected", "true");
+  });
+
   it("reuses the semantic scene for presence-only room envelopes and invalidates it for document edits", async () => {
     let runtime: CanvasRuntime | null = null;
     const props = {

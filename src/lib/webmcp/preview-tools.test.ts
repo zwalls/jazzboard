@@ -8,6 +8,7 @@ import { InRoomCanvasPreviewTransport } from "./in-room-preview-transport";
 import { createJazzboardPreviewWebMcpTools } from "./preview-tools";
 import type {
   CanvasPreviewArtifact,
+  CanvasPreviewRenderRequest,
   CanvasPreviewTransportAdapter,
 } from "./canvas-preview";
 import type {
@@ -64,6 +65,56 @@ function object(id: string, revision: number): CanvasObject {
   };
 }
 
+function connectorObject(id: string, index: number, startObjectId: string, endObjectId: string): CanvasObject {
+  return {
+    id,
+    kind: "connector",
+    x: index * 240 + 200,
+    y: 70,
+    width: 40,
+    height: 1,
+    rotation: 0,
+    zIndex: index,
+    revision: 1,
+    groupId: null,
+    diagramIds: ["diagram-1"],
+    createdAt: NOW,
+    updatedAt: NOW,
+    createdBy: actor(),
+    lastEditedBy: actor(),
+    start: { x: index * 240 + 200, y: 70, objectId: startObjectId },
+    end: { x: index * 240 + 240, y: 70, objectId: endObjectId },
+    direction: "end",
+    label: `route ${index}`,
+    color: "black",
+  };
+}
+
+function maximumDiagramRoom(extraMemberCount = 0): RoomState {
+  const memberIds = Array.from({ length: 500 + extraMemberCount }, (_, index) => `member-${index}`);
+  const connectorIds = Array.from({ length: 500 }, (_, index) => `connector-${index}`);
+  const members = memberIds.map((objectId, index) => ({
+    ...object(objectId, 1),
+    x: index * 240,
+    diagramIds: ["diagram-1"],
+  }));
+  const connectors = connectorIds.map((connectorId, index) =>
+    connectorObject(
+      connectorId,
+      index,
+      memberIds[index % memberIds.length],
+      memberIds[(index + 1) % memberIds.length],
+    ));
+  const current = room();
+  current.objects = Object.fromEntries([...members, ...connectors].map((item) => [item.id, item]));
+  current.diagrams["diagram-1"] = {
+    ...diagram(),
+    memberObjectIds: memberIds,
+    connectorIds,
+  };
+  return current;
+}
+
 function diagram(revision = 4): Diagram {
   return {
     id: "diagram-1",
@@ -104,7 +155,9 @@ function room(): RoomState {
   };
 }
 
-function artifact(): CanvasPreviewArtifact {
+function artifact(
+  visualQuality: CanvasPreviewArtifact["metadata"]["visualQuality"] = null,
+): CanvasPreviewArtifact {
   return {
     blob: new Blob(["png"], { type: "image/png" }),
     metadata: {
@@ -124,6 +177,7 @@ function artifact(): CanvasPreviewArtifact {
         objectRevisions: [{ objectId: "object-a", revision: 3 }],
       },
       warnings: [],
+      visualQuality,
     },
   };
 }
@@ -168,6 +222,146 @@ async function execute(tool: WebMCP.ModelContextTool, input: Record<string, unkn
 }
 
 describe("render_canvas_preview WebMCP tool", () => {
+  it("reports deterministic Diagram geometry without claiming that pixels were inspected", async () => {
+    const transport = new InRoomCanvasPreviewTransport();
+    const visualQuality: NonNullable<CanvasPreviewArtifact["metadata"]["visualQuality"]> = {
+      schemaVersion: 1,
+      diagramId: "diagram-1",
+      diagramRevision: 4,
+      roomRevision: 12,
+      status: "pass",
+      summary: "Deterministic geometry checks passed.",
+      geometryCoverage: {
+        status: "complete",
+        analyzedMemberObjectCount: 1,
+        unsupportedDrawObjectCount: 0,
+        unsupportedDrawObjectIds: [],
+        omittedUnsupportedDrawObjectIdCount: 0,
+        unsupportedDrawObjectIdsTruncated: false,
+      },
+      findings: [],
+      metrics: {
+        memberObjectCount: 1,
+        unsupportedDrawMemberCount: 0,
+        connectorCount: 0,
+        findingCount: 0,
+        returnedFindingCount: 0,
+        omittedFindingCount: 0,
+        findingsTruncated: false,
+        failCount: 0,
+        warningCount: 0,
+        minimumMemberSpacing: null,
+        crossingPairCount: 0,
+        sharedSegmentPairCount: 0,
+        congestedPortCount: 0,
+        truncatedConnectorLabelCount: 0,
+        truncatedShapeLabelCount: 0,
+        truncatedTextContentCount: 0,
+        findingsByCode: {},
+      },
+    };
+
+    const result = await transport.emit(
+      artifact(visualQuality),
+      async () => ({
+        previewId: "preview-quality",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 90_000,
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result).toMatchObject({
+      data: {
+        geometryQualityStatus: "pass",
+        geometryCoverageStatus: "complete",
+        visualQuality,
+        visualInspectionStatus: "not_performed",
+      },
+    });
+  });
+
+  it("does not promote a partial freehand geometry report to a quality pass", async () => {
+    const transport = new InRoomCanvasPreviewTransport();
+    const visualQuality: NonNullable<CanvasPreviewArtifact["metadata"]["visualQuality"]> = {
+      schemaVersion: 1,
+      diagramId: "diagram-1",
+      diagramRevision: 4,
+      roomRevision: 12,
+      status: "pass",
+      summary: "Supported deterministic geometry has no findings; coverage is partial.",
+      geometryCoverage: {
+        status: "partial",
+        analyzedMemberObjectCount: 1,
+        unsupportedDrawObjectCount: 1,
+        unsupportedDrawObjectIds: ["draw-1"],
+        omittedUnsupportedDrawObjectIdCount: 0,
+        unsupportedDrawObjectIdsTruncated: false,
+      },
+      findings: [],
+      metrics: {
+        memberObjectCount: 2,
+        unsupportedDrawMemberCount: 1,
+        connectorCount: 0,
+        findingCount: 0,
+        returnedFindingCount: 0,
+        omittedFindingCount: 0,
+        findingsTruncated: false,
+        failCount: 0,
+        warningCount: 0,
+        minimumMemberSpacing: null,
+        crossingPairCount: 0,
+        sharedSegmentPairCount: 0,
+        congestedPortCount: 0,
+        truncatedConnectorLabelCount: 0,
+        truncatedShapeLabelCount: 0,
+        truncatedTextContentCount: 0,
+        findingsByCode: {},
+      },
+    };
+
+    const result = await transport.emit(
+      artifact(visualQuality),
+      async () => ({
+        previewId: "preview-partial-quality",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 90_000,
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result).toMatchObject({
+      data: {
+        geometryQualityStatus: "unknown",
+        geometryCoverageStatus: "partial",
+        visualInspectionStatus: "not_performed",
+        nextStep: expect.stringMatching(/freehand drawing strokes require pixel inspection/i),
+      },
+    });
+
+    const failedResult = await transport.emit(
+      artifact({
+        ...visualQuality,
+        status: "fail",
+        summary: "Supported deterministic geometry has a blocking finding; coverage is partial.",
+      }),
+      async () => ({
+        previewId: "preview-partial-failure",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 90_000,
+      }),
+      new AbortController().signal,
+    );
+    expect(failedResult).toMatchObject({
+      data: {
+        geometryQualityStatus: "fail",
+        geometryCoverageStatus: "partial",
+        visualInspectionStatus: "not_performed",
+        nextStep: expect.stringMatching(/known failure[^]*fix every finding/i),
+      },
+    });
+  });
+
   it("registers only for a participant with both render and presentation transports", () => {
     const ready = fixture();
     const transport = new InRoomCanvasPreviewTransport();
@@ -238,7 +432,9 @@ describe("render_canvas_preview WebMCP tool", () => {
           height: 180,
         },
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
-        nextStep: expect.stringContaining("screenshotClip"),
+        visualInspectionStatus: "not_performed",
+        geometryQualityStatus: "unknown",
+        nextStep: expect.stringMatching(/Rendering is not visual QA.*screenshotClip.*Do not report visual QA as passed/),
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");
@@ -262,6 +458,48 @@ describe("render_canvas_preview WebMCP tool", () => {
       }),
       expect.any(AbortSignal),
     );
+  });
+
+  it("previews the schema-maximum 500-member and 500-connector Diagram without truncation", async () => {
+    const current = maximumDiagramRoom();
+    const state = fixture();
+    const [tool] = createJazzboardPreviewWebMcpTools(state.binding, {
+      request: requestMock(current),
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+
+    const result = await execute(tool, {
+      scope: { kind: "diagram", diagramId: "diagram-1", expectedRevision: 4 },
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const renderCalls = state.renderCanvasPreview.mock.calls as unknown as CanvasPreviewRenderRequest[][];
+    const renderRequest = renderCalls[0]?.[0];
+    expect(renderRequest?.objects).toHaveLength(1_000);
+    expect(renderRequest?.objects.slice(0, 500).every((item) => item.kind === "shape")).toBe(true);
+    expect(renderRequest?.objects.slice(500).every((item) => item.kind === "connector")).toBe(true);
+  });
+
+  it("rejects a defensive 1,001-target Diagram before invoking the renderer", async () => {
+    const current = maximumDiagramRoom(1);
+    const state = fixture();
+    const [tool] = createJazzboardPreviewWebMcpTools(state.binding, {
+      request: requestMock(current),
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+
+    const result = await execute(tool, {
+      scope: { kind: "diagram", diagramId: "diagram-1", expectedRevision: 4 },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "PREVIEW_SCOPE_TOO_LARGE",
+        details: { targetCount: 1_001, maxTargets: 1_000 },
+      },
+    });
+    expect(state.renderCanvasPreview).not.toHaveBeenCalled();
   });
 
   it("fails truthfully before rendering when an object revision is stale", async () => {

@@ -129,6 +129,7 @@ const connectorRouting = z
     bend: finite.min(-10_000).max(10_000),
     elbowMidPoint: finite.min(0).max(1),
     labelPosition: finite.min(0).max(1),
+    labelPositionSource: z.enum(["generated", "authored"]).optional(),
   })
   .strict()
   .superRefine((routing, context) => {
@@ -151,6 +152,13 @@ const connectorRouting = z
         code: "custom",
         path: ["bend"],
         message: "Canonical curved routing bend must be at least 8 canvas units from zero.",
+      });
+    }
+    if (routing.mode !== "auto" && routing.labelPositionSource !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["labelPositionSource"],
+        message: "Only automatic routing may carry label-position provenance.",
       });
     }
   });

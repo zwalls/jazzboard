@@ -101,6 +101,8 @@ export type PortableConnectorRouting = {
   bend: number;
   elbowMidPoint: number;
   labelPosition: number;
+  /** Whether an automatic route's label position came from the solver or the author. */
+  labelPositionSource?: "generated" | "authored";
 };
 
 /** A v1 connector without routing predates routed arrows and was straight. */

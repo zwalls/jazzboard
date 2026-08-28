@@ -109,6 +109,20 @@ function connectorPairKey(connector: Extract<CanvasObject, { kind: "connector" }
   return start <= end ? `${start}\u0000${end}` : `${end}\u0000${start}`;
 }
 
+function autoIncidentSignature(object: CanvasObject | undefined): string | null {
+  if (object?.kind !== "connector" || normalizeConnectorRouting(object.routing).mode !== "auto") {
+    return null;
+  }
+  return `${object.start.objectId ?? ""}\u0000${object.end.objectId ?? ""}`;
+}
+
+function boundEndpointObjectIds(object: CanvasObject | undefined): string[] {
+  if (object?.kind !== "connector") return [];
+  return [object.start.objectId, object.end.objectId].filter(
+    (objectId): objectId is string => Boolean(objectId),
+  );
+}
+
 function connectorRouteInputChanged(
   before: CanvasObject | undefined,
   after: CanvasObject | undefined,
@@ -346,13 +360,38 @@ export function computeAffectedConnectorIds({
     if (affectedPairKeys.has(connectorPairKey(connector))) affected.add(connector.id);
   }
 
+  // Automatic ports are assigned as a stable cohort for every object side.
+  // Adding, deleting, rebinding, or changing the routing mode of one auto
+  // connector can therefore move every other automatic port incident to the
+  // same object, even when the connectors do not share the same endpoint pair.
+  const changedIncidentObjectIds = new Set<string>();
+  for (const objectId of touchedObjectIds) {
+    const before = baseline.objects[objectId];
+    const after = current.objects[objectId];
+    if (autoIncidentSignature(before) === autoIncidentSignature(after)) continue;
+    for (const endpointObjectId of [...boundEndpointObjectIds(before), ...boundEndpointObjectIds(after)]) {
+      changedIncidentObjectIds.add(endpointObjectId);
+    }
+  }
+  if (changedIncidentObjectIds.size) {
+    for (const connector of currentConnectors) {
+      if (
+        normalizeConnectorRouting(connector.routing).mode === "auto" &&
+        [connector.start.objectId, connector.end.objectId].some(
+          (objectId) => objectId && changedIncidentObjectIds.has(objectId),
+        )
+      ) {
+        affected.add(connector.id);
+      }
+    }
+  }
+
   // Crossing scores are ordered. Only later auto routes whose influence region
   // overlaps a changed route can depend on that changed route.
   const queue: Array<{
     connectorId: string;
     order: number;
     bounds: CanvasBounds;
-    endpointObjectIds: ReadonlySet<string>;
   }> = [];
   for (const connectorId of affected) {
     const connector = current.objects[connectorId];
@@ -369,9 +408,6 @@ export function computeAffectedConnectorIds({
       connectorId,
       order: order.get(connectorId) ?? -1,
       bounds,
-      endpointObjectIds: new Set(
-        [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
-      ),
     });
   }
   for (const objectId of touchedObjectIds) {
@@ -385,9 +421,6 @@ export function computeAffectedConnectorIds({
       connectorId: deleted.id,
       order: (firstLaterIndex < 0 ? currentConnectors.length : firstLaterIndex) - 1,
       bounds: connectorInfluenceBounds(baseline, deleted, baselineRoutes[deleted.id]),
-      endpointObjectIds: new Set(
-        [deleted.start.objectId, deleted.end.objectId].filter((id): id is string => Boolean(id)),
-      ),
     });
   }
   for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
@@ -396,10 +429,7 @@ export function computeAffectedConnectorIds({
       if (
         affected.has(connector.id) ||
         connector.routing?.mode !== "auto" ||
-        (order.get(connector.id) ?? -1) <= impact.order ||
-        [connector.start.objectId, connector.end.objectId].some(
-          (objectId) => objectId && impact.endpointObjectIds.has(objectId),
-        )
+        (order.get(connector.id) ?? -1) <= impact.order
       ) {
         continue;
       }
@@ -410,9 +440,6 @@ export function computeAffectedConnectorIds({
         connectorId: connector.id,
         order: order.get(connector.id) ?? -1,
         bounds: candidateBounds,
-        endpointObjectIds: new Set(
-          [connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)),
-        ),
       });
     }
   }

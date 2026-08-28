@@ -299,11 +299,12 @@ describe("Jazzboard portable interchange", () => {
     const source = room.objects.connector_ab;
     if (source.kind !== "connector") throw new Error("Missing connector fixture.");
     source.routing = {
-      mode: "elbow",
+      mode: "auto",
       kind: "elbow",
       bend: 0,
       elbowMidPoint: 0.35,
       labelPosition: 0.7,
+      labelPositionSource: "generated",
     };
     source.start = {
       ...source.start,

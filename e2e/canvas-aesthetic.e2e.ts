@@ -290,14 +290,15 @@ test("keeps the first-party canvas on Jazzboard's tldraw-inspired visual contrac
   await expectShapePalette(canvas, QUESTION_ID, { fill: "#f4dadb", stroke: "#e03131" });
 
   const connector = object(canvas, CONNECTOR_ID);
+  const connectorOverlay = canvas.locator(`[data-connector-overlay-id="${CONNECTOR_ID}"]`);
   const connectorPath = connector.locator(".semantic-canvas-object__connector-path");
   await expect(connectorPath).toHaveAttribute("stroke", "#e16919");
   await expect(connectorPath).toHaveAttribute("stroke-width", "3.5");
-  const connectorLabel = connector.locator(".semantic-canvas-object__connector-label-text");
+  const connectorLabel = connectorOverlay.locator(".semantic-canvas-object__connector-label-text");
   await expect(connectorLabel).toHaveAttribute("font-family", FONT_FAMILY);
   await expect(connectorLabel).toHaveAttribute("font-size", "20");
   await expect(connectorLabel).toHaveAttribute("fill", "#e16919");
-  const connectorMask = connector.locator(".semantic-canvas-object__connector-label rect");
+  const connectorMask = connectorOverlay.locator(".semantic-canvas-object__connector-label rect");
   await expect(connectorMask).toHaveAttribute("fill", "#f9fafb");
   await expect(connectorMask).toHaveAttribute("stroke", "none");
   expect(await connectorMask.evaluate((element) => getComputedStyle(element).stroke)).toBe("none");

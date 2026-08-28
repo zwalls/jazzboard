@@ -94,6 +94,13 @@ function exactObject(room: RoomState, objectId: string, expectedRevision: number
 
 function diagramObjects(room: RoomState, diagram: Diagram): CanvasObject[] {
   const objectIds = [...new Set([...diagram.memberObjectIds, ...diagram.connectorIds])];
+  if (objectIds.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_TOO_LARGE",
+      `Diagram ${diagram.id} exceeds the PNG target limit.`,
+      { diagramId: diagram.id, targetCount: objectIds.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
+    );
+  }
   const missingObjectIds = objectIds.filter((objectId) => !room.objects[objectId]);
   if (missingObjectIds.length) {
     throw new CanvasPreviewError(
@@ -122,9 +129,17 @@ function resolveScope(room: RoomState, input: PngExportInput): {
         },
       );
     }
+    const objects = Object.values(room.objects);
+    if (objects.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+      throw new CanvasPreviewError(
+        "PREVIEW_SCOPE_TOO_LARGE",
+        "The room exceeds the PNG target limit; export one Diagram or an exact object set instead.",
+        { targetCount: objects.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
+      );
+    }
     return {
       source: input.scope,
-      objects: Object.values(room.objects),
+      objects,
       diagram: null,
       defaultName: room.title,
     };
@@ -224,7 +239,7 @@ export function createJazzboardPngExportWebMcpTools(
     name: "export_canvas_png",
     title: "Download a faithful canvas PNG",
     description:
-      "Render an exact authorized board, Diagram, or object set through the active faithful canvas renderer and download a flattened PNG with images. The file stays in this browser and is never uploaded or persisted by Jazzboard.",
+      "Download a local PNG of an exact board, Diagram, or object set (up to 1,000 targets); Jazzboard stores nothing.",
     inputSchema: z.toJSONSchema(pngExportInput, { io: "input", reused: "ref" }) as WebMCP.ModelContextTool["inputSchema"],
     // The download is a local browser side effect, so readOnlyHint would be
     // misleading even though shared Jazzboard state is never mutated.

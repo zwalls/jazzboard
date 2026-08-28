@@ -101,6 +101,36 @@ function connector(id: string, startId: string, endId: string): CanvasObject {
   };
 }
 
+function sizedNode(id: string, width: number, height: number): CanvasObject {
+  return { ...node(id, 0, 0), width, height };
+}
+
+function unlabeledConnector(id: string, startId: string, endId: string): CanvasObject {
+  const edge = connector(id, startId, endId);
+  if (edge.kind !== "connector") throw new Error("Expected connector fixture.");
+  return { ...edge, label: "" };
+}
+
+function crossingCount(
+  edges: ReadonlyArray<readonly [string, string]>,
+  secondaryPosition: ReadonlyMap<string, number>,
+): number {
+  let crossings = 0;
+  for (let leftIndex = 0; leftIndex < edges.length; leftIndex += 1) {
+    const [leftStart, leftEnd] = edges[leftIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < edges.length; rightIndex += 1) {
+      const [rightStart, rightEnd] = edges[rightIndex];
+      if (leftStart === rightStart || leftEnd === rightEnd) continue;
+      const startDelta =
+        (secondaryPosition.get(leftStart) ?? 0) - (secondaryPosition.get(rightStart) ?? 0);
+      const endDelta =
+        (secondaryPosition.get(leftEnd) ?? 0) - (secondaryPosition.get(rightEnd) ?? 0);
+      if (startDelta * endDelta < 0) crossings += 1;
+    }
+  }
+  return crossings;
+}
+
 function diagram(memberObjectIds: string[], connectorIds: string[] = []): Diagram {
   return {
     id: "diagram-main",
@@ -164,6 +194,190 @@ function captureDomainError(run: () => unknown): DomainError {
   }
   throw new Error("Expected DomainError");
 }
+
+describe("deterministic hierarchy layout", () => {
+  it("uses barycentric rank ordering to remove crossings caused by target order", () => {
+    const ids = ["source-a", "source-b", "target-b", "target-a"];
+    const edges = [
+      ["source-a", "target-a"],
+      ["source-b", "target-b"],
+    ] as const;
+    const source = room([
+      ...ids.map((id) => node(id, 0, 0)),
+      ...edges.map(([start, end]) => unlabeledConnector(`${start}-${end}`, start, end)),
+    ]);
+
+    const result = applyLayoutCommand(source, "alice", "agent", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "comfortable",
+      origin: { x: 0, y: 0 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    });
+    const before = new Map(ids.map((id, index) => [id, index]));
+    const after = new Map(result.positions.map((position) => [position.objectId, position.y]));
+
+    expect(crossingCount(edges, before)).toBe(1);
+    expect(crossingCount(edges, after)).toBe(0);
+    expect(after.get("target-a")).toBeLessThan(after.get("target-b")!);
+  });
+
+  it("optimizes a long edge against connectors on every intermediate rank boundary", () => {
+    const ids = ["source-a", "source-b", "middle-c", "middle-d", "sink-e", "sink-f"];
+    const source = room([
+      ...ids.map((id) => node(id, 0, 0)),
+      unlabeledConnector("long-a-f", "source-a", "sink-f"),
+      unlabeledConnector("b-c", "source-b", "middle-c"),
+      unlabeledConnector("b-d", "source-b", "middle-d"),
+      unlabeledConnector("c-e", "middle-c", "sink-e"),
+      unlabeledConnector("d-e", "middle-d", "sink-e"),
+      unlabeledConnector("d-f", "middle-d", "sink-f"),
+    ]);
+
+    const result = applyLayoutCommand(source, "alice", "agent", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "comfortable",
+      origin: { x: 0, y: 0 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    });
+    const secondary = new Map(result.positions.map((position) => [position.objectId, position.y]));
+
+    // The long source-a→sink-f edge crosses source-b→middle-c in the input
+    // order. Accounting for its intermediate rank segment moves source-b up.
+    expect(secondary.get("source-b")).toBeLessThan(secondary.get("source-a")!);
+    expect(secondary.get("middle-c")).toBeLessThan(secondary.get("middle-d")!);
+    expect(secondary.get("sink-e")).toBeLessThan(secondary.get("sink-f")!);
+  });
+
+  it("centers hubs and retains optimized branch ordering across three ranks", () => {
+    const ids = ["hub", "api-a", "api-b", "api-c", "store-c", "store-b", "store-a"];
+    const edges = [
+      ["hub", "api-a"],
+      ["hub", "api-b"],
+      ["hub", "api-c"],
+      ["api-a", "store-a"],
+      ["api-b", "store-b"],
+      ["api-c", "store-c"],
+    ] as const;
+    const source = room([
+      ...ids.map((id) => node(id, 0, 0)),
+      ...edges.map(([start, end]) => unlabeledConnector(`${start}-${end}`, start, end)),
+    ]);
+
+    const result = applyLayoutCommand(source, "alice", "agent", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "comfortable",
+      origin: { x: 50, y: 25 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    });
+    const positions = new Map(result.positions.map((position) => [position.objectId, position]));
+    const secondary = new Map(result.positions.map((position) => [position.objectId, position.y]));
+
+    expect(positions.get("hub")).toMatchObject({ x: 50, y: 225 });
+    expect(secondary.get("store-a")).toBeLessThan(secondary.get("store-b")!);
+    expect(secondary.get("store-b")).toBeLessThan(secondary.get("store-c")!);
+    expect(crossingCount(edges.slice(3), secondary)).toBe(0);
+  });
+
+  it("packs disconnected components and isolated nodes into non-overlapping bands", () => {
+    const ids = ["first-a", "first-b", "fork", "leaf-a", "leaf-b", "isolated"];
+    const source = room([
+      ...ids.map((id) => node(id, 0, 0)),
+      unlabeledConnector("first-edge", "first-a", "first-b"),
+      unlabeledConnector("fork-a", "fork", "leaf-a"),
+      unlabeledConnector("fork-b", "fork", "leaf-b"),
+    ]);
+
+    const result = applyLayoutCommand(source, "alice", "agent", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "comfortable",
+      origin: { x: 0, y: 0 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    });
+    const positions = new Map(result.positions.map((position) => [position.objectId, position]));
+
+    expect(positions.get("first-a")).toMatchObject({ x: 0, y: 0 });
+    expect(positions.get("fork")).toMatchObject({ x: 0, y: 300 });
+    expect(positions.get("leaf-a")).toMatchObject({ x: 360, y: 200 });
+    expect(positions.get("leaf-b")).toMatchObject({ x: 360, y: 400 });
+    expect(positions.get("isolated")).toMatchObject({ x: 0, y: 600 });
+  });
+
+  it("uses actual node dimensions for rank gaps and centering", () => {
+    const ids = ["short", "tall", "destination"];
+    const source = room([
+      sizedNode("short", 120, 60),
+      sizedNode("tall", 240, 100),
+      sizedNode("destination", 180, 160),
+      unlabeledConnector("short-destination", "short", "destination"),
+      unlabeledConnector("tall-destination", "tall", "destination"),
+    ]);
+
+    const result = applyLayoutCommand(source, "alice", "agent", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "compact",
+      origin: { x: 10, y: 10 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    });
+
+    expect(result.positions).toEqual([
+      { objectId: "short", x: 10, y: 10 },
+      { objectId: "tall", x: 10, y: 118 },
+      { objectId: "destination", x: 322, y: 34 },
+    ]);
+  });
+
+  it("produces identical hierarchy positions for identical inputs", () => {
+    const ids = ["root-b", "root-a", "middle-b", "middle-a", "sink"];
+    const objects = [
+      ...ids.map((id) => node(id, 0, 0)),
+      unlabeledConnector("a-middle", "root-a", "middle-a"),
+      unlabeledConnector("b-middle", "root-b", "middle-b"),
+      unlabeledConnector("a-sink", "middle-a", "sink"),
+      unlabeledConnector("b-sink", "middle-b", "sink"),
+    ];
+    const command = {
+      layout: "hierarchy",
+      direction: "down",
+      density: "comfortable",
+      origin: { x: 25, y: 50 },
+      targets: ids.map((objectId) => ({ objectId, expectedRevision: 1 })),
+    } as const;
+
+    const first = applyLayoutCommand(room(structuredClone(objects)), "alice", "agent", command);
+    const second = applyLayoutCommand(room(structuredClone(objects)), "alice", "agent", command);
+
+    expect(first.positions).toEqual(second.positions);
+  });
+
+  it("continues to reject directed cycles atomically", () => {
+    const source = room([
+      node("a", 0, 0),
+      node("b", 0, 0),
+      unlabeledConnector("a-b", "a", "b"),
+      unlabeledConnector("b-a", "b", "a"),
+    ]);
+    const before = structuredClone(source);
+
+    const error = captureDomainError(() =>
+      applyLayoutCommand(source, "alice", "agent", {
+        layout: "hierarchy",
+        direction: "right",
+        targets: ["a", "b"].map((objectId) => ({ objectId, expectedRevision: 1 })),
+      }),
+    );
+
+    expect(error).toMatchObject({
+      code: "INVALID_OPERATION",
+      details: { cyclicObjectIds: ["a", "b"] },
+    });
+    expect(source).toEqual(before);
+  });
+});
 
 describe("atomic semantic transactions", () => {
   it("aborts every object, revision, room, and agent-presence change on a stale target", () => {
@@ -283,6 +497,66 @@ describe("atomic semantic transactions", () => {
       revision: 2,
       lastEditedBy: actor(alice, "agent"),
     });
+  });
+
+  it("redistributes persisted ports when fan-out connectors are added sequentially", () => {
+    const firstEdge = connector("fan-edge-a", "hub", "leaf-a");
+    if (firstEdge.kind !== "connector") throw new Error("Expected connector fixture.");
+    firstEdge.routing = normalizeConnectorRouting({ mode: "auto" });
+    const source = persistAuthoritativeConnectorRoutes(
+      room([node("hub", 0, 100), node("leaf-a", 500, 0), node("leaf-b", 500, 200), firstEdge]),
+    );
+    const initialFirst = source.objects[firstEdge.id];
+    const initialAnchor = structuredClone(
+      initialFirst.kind === "connector"
+        ? initialFirst.start.normalizedAnchor
+        : null,
+    );
+
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "create",
+          object: {
+            id: "fan-edge-b",
+            kind: "connector",
+            x: 200,
+            y: 150,
+            width: 300,
+            height: 1,
+            rotation: 0,
+            zIndex: 0,
+            groupId: null,
+            start: { x: 200, y: 150, objectId: "hub" },
+            end: { x: 500, y: 250, objectId: "leaf-b" },
+            routing: normalizeConnectorRouting({ mode: "auto" }),
+            direction: "end",
+            label: "second fan-out",
+            color: "black",
+          },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 115,
+    );
+    const persistedFirst = result.room.objects[firstEdge.id];
+    const persistedSecond = result.room.objects["fan-edge-b"];
+    if (persistedFirst.kind !== "connector" || persistedSecond.kind !== "connector") {
+      throw new Error("Expected persisted connector fixtures.");
+    }
+
+    expect(persistedFirst.start.normalizedAnchor).not.toEqual(initialAnchor);
+    expect(persistedFirst.start.normalizedAnchor).not.toEqual(
+      persistedSecond.start.normalizedAnchor,
+    );
+    expect(persistedFirst.revision).toBe(2);
+    expect(persistedSecond.revision).toBe(1);
+    expect(result.changedObjectIds).toEqual(
+      expect.arrayContaining([firstEdge.id, persistedSecond.id]),
+    );
   });
 
   it("rolls back a blocker move when its derived auto-route change is foreign-leased", () => {

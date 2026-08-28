@@ -47,7 +47,7 @@ function scene(): SemanticScene {
       align: "start",
     },
     {
-      ...base("text", 1, 10, 100, 180, 60),
+      ...base("text", 1, 10, 100, 180, 320),
       kind: "text",
       content: 'Hello </text><script>alert("x")</script> & friends',
       color: "black",
@@ -135,12 +135,23 @@ function expectCode(action: () => unknown, code: string): void {
   }
 }
 
-function objectMarkup(svg: string, objectId: string): string {
-  const marker = `<g data-semantic-object-id="${objectId}">`;
+function objectMarkup(
+  svg: string,
+  objectId: string,
+  layer: "object" | "connector-shaft" | "connector-overlay" = "object",
+): string {
+  const identity = layer === "connector-overlay"
+    ? `data-semantic-connector-overlay-id="${objectId}"`
+    : `data-semantic-object-id="${objectId}"`;
+  const marker = `<g ${identity} data-semantic-layer="${layer}">`;
   const start = svg.indexOf(marker);
   if (start < 0) return "";
-  const next = svg.indexOf('<g data-semantic-object-id="', start + marker.length);
-  return svg.slice(start, next < 0 ? svg.lastIndexOf("</svg>") : next);
+  const boundaries = [
+    svg.indexOf('<g data-semantic-object-id="', start + marker.length),
+    svg.indexOf('<g data-semantic-connector-overlay-id="', start + marker.length),
+  ].filter((index) => index >= 0);
+  const end = boundaries.length ? Math.min(...boundaries) : svg.lastIndexOf("</svg>");
+  return svg.slice(start, end);
 }
 
 function withoutMarkup(value: string): string {
@@ -170,8 +181,21 @@ describe("semantic PNG SVG generation", () => {
       "draw",
       "image",
     ]);
-    const order = result.objectIds.map((id) => result.svg.indexOf(`data-semantic-object-id="${id}"`));
-    expect(order).toEqual([...order].sort((left, right) => left - right));
+    const shaftIndex = result.svg.indexOf(
+      'data-semantic-object-id="connector" data-semantic-layer="connector-shaft"',
+    );
+    const ordinaryOrder = result.objectIds
+      .filter((id) => id !== "connector")
+      .map((id) => result.svg.indexOf(
+        `data-semantic-object-id="${id}" data-semantic-layer="object"`,
+      ));
+    const overlayIndex = result.svg.indexOf(
+      'data-semantic-connector-overlay-id="connector" data-semantic-layer="connector-overlay"',
+    );
+    expect(shaftIndex).toBeGreaterThanOrEqual(0);
+    expect(ordinaryOrder).toEqual([...ordinaryOrder].sort((left, right) => left - right));
+    expect(shaftIndex).toBeLessThan(Math.min(...ordinaryOrder));
+    expect(overlayIndex).toBeGreaterThan(Math.max(...ordinaryOrder));
     expect(result.svg).not.toContain("OUTSIDE_SECRET");
     expect(result.svg).not.toContain("<script");
     expect(withoutMarkup(objectMarkup(result.svg, "text"))).toContain(
@@ -201,14 +225,89 @@ describe("semantic PNG SVG generation", () => {
     expect(rectangle).toContain(
       'stroke="#f5eafa" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"',
     );
-    const connector = objectMarkup(result.svg, "connector");
-    expect(connector).toContain(
+    const connectorShaft = objectMarkup(result.svg, "connector", "connector-shaft");
+    const connectorOverlay = objectMarkup(result.svg, "connector", "connector-overlay");
+    expect(connectorShaft).toContain(
       'stroke="#ae3ec9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
     );
-    expect(connector).toContain('rx="4" fill="#f9fafb" stroke="none"');
+    expect(connectorShaft).not.toContain("<polygon");
+    expect(connectorShaft).not.toContain('rx="4" fill="#f9fafb" stroke="none"');
+    expect(connectorOverlay).not.toContain("<path");
+    expect(connectorOverlay).toContain("<polygon");
+    expect(connectorOverlay).toContain('rx="4" fill="#f9fafb" stroke="none"');
     expect(objectMarkup(result.svg, "draw")).toContain(
       'stroke="#e03131" stroke-width="4.5"',
     );
+  });
+
+  it("matches the live renderer's six-line text and twenty-line connector-label limits", () => {
+    const longText: CanvasObject = {
+      ...base("png-long-text", 0, 0, 0, 160, 320),
+      kind: "text",
+      content: Array.from({ length: 7 }, (_, index) => `line${index + 1}`).join("\n"),
+      color: "black",
+      size: "m",
+      align: "start",
+    };
+    const longConnector: CanvasObject = {
+      ...base("png-long-connector", 1, 0, 250, 400, 1),
+      kind: "connector",
+      start: { x: 0, y: 250, objectId: null },
+      end: { x: 400, y: 250, objectId: null },
+      routing: { mode: "straight", kind: "straight", bend: 0, elbowMidPoint: 0.5, labelPosition: 0.5 },
+      direction: "end",
+      label: Array.from({ length: 21 }, (_, index) =>
+        String.fromCharCode(97 + index)).join("\n"),
+      color: "black",
+    };
+    const current = buildSemanticScene({
+      id: "room-text-limits",
+      roomRevision: 1,
+      objects: {
+        [longText.id]: longText,
+        [longConnector.id]: longConnector,
+      },
+      diagrams: {},
+    });
+    const result = renderSemanticSceneSvg(
+      current,
+      [longText.id, longConnector.id],
+      { padding: 0 },
+    );
+    const textMarkup = objectMarkup(result.svg, longText.id);
+    const connectorLabelMarkup = objectMarkup(
+      result.svg,
+      longConnector.id,
+      "connector-overlay",
+    );
+
+    expect(textMarkup.match(/<tspan\b/g)).toHaveLength(6);
+    expect(withoutMarkup(textMarkup)).toContain("line6...");
+    expect(connectorLabelMarkup.match(/<tspan\b/g)).toHaveLength(20);
+    expect(withoutMarkup(connectorLabelMarkup)).toContain("t...");
+  });
+
+  it("ellipsizes PNG text at the height-aware baseline limit", () => {
+    const shortText: CanvasObject = {
+      ...base("png-short-text", 0, 0, 0, 160, 96),
+      kind: "text",
+      content: "one\ntwo\nthree\nfour",
+      color: "black",
+      size: "m",
+      align: "start",
+    };
+    const current = buildSemanticScene({
+      id: "room-short-text",
+      roomRevision: 1,
+      objects: { [shortText.id]: shortText },
+      diagrams: {},
+    });
+    const result = renderSemanticSceneSvg(current, [shortText.id], { padding: 0 });
+    const textMarkup = objectMarkup(result.svg, shortText.id);
+
+    expect(textMarkup.match(/<tspan\b/g)).toHaveLength(3);
+    expect(withoutMarkup(textMarkup)).toContain("three...");
+    expect(withoutMarkup(textMarkup)).not.toContain("four");
   });
 
   it("embeds only a bounded font data URL in the ephemeral SVG", () => {
@@ -283,7 +382,7 @@ describe("semantic PNG SVG generation", () => {
       "SCOPE_OBJECT_NOT_FOUND",
     );
     expectCode(
-      () => renderSemanticSceneSvg(current, Array.from({ length: 201 }, (_, index) => `id-${index}`)),
+      () => renderSemanticSceneSvg(current, Array.from({ length: 1_001 }, (_, index) => `id-${index}`)),
       "SCOPE_TOO_LARGE",
     );
   });

@@ -154,6 +154,24 @@ describe("connector dependency closure", () => {
     })]).toEqual(["edge"]);
   });
 
+  it("reroutes the full automatic incident cohort when a fan-out edge is added", () => {
+    const hub = node("hub", 0, 100);
+    const firstLeaf = node("first-leaf", 500, 0);
+    const secondLeaf = node("second-leaf", 500, 200);
+    const first = connector("first-edge", hub, firstLeaf, 2);
+    const baseline = room([hub, firstLeaf, secondLeaf, first]);
+    const second = connector("second-edge", hub, secondLeaf, 3);
+    const current = changedRoom(baseline, (next) => {
+      next.objects[second.id] = second;
+    });
+
+    expect(computeAffectedConnectorIds({
+      baseline,
+      current,
+      touchedObjectIds: new Set([second.id]),
+    })).toEqual(new Set([second.id, first.id]));
+  });
+
   it("includes an auto route when a moved shape crosses its obstacle corridor", () => {
     const left = node("left", 0, 0);
     const right = node("right", 500, 0);

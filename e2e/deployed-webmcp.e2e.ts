@@ -22,6 +22,7 @@ const SHARED_ROOM_READ_TOOL_NAMES = [
   "find_diagrams",
   "read_diagram",
   "describe_diagram",
+  "analyze_diagram_layout",
   "list_activity",
   "read_activity",
   "export_canvas_artifact",
@@ -177,6 +178,9 @@ type TransactionData = {
 
 type CanvasPreviewData = {
   previewId: string;
+  visualInspectionStatus: "not_performed";
+  geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
+  nextStep: string;
   screenshotClip: {
     coordinateSpace: "viewport-css-pixels";
     x: number;
@@ -572,10 +576,11 @@ async function readRenderedConnector(
   const shape = renderedObject(page, objectId);
   await expect(shape).toBeVisible({ timeout: 15_000 });
   await expect(shape).toHaveAttribute("data-object-kind", "connector");
-  await expect(shape.locator(".semantic-canvas-object__connector-label-text")).toContainText(expectedLabel, {
+  const overlay = page.locator(`[data-connector-overlay-id="${objectId}"]`);
+  await expect(overlay.locator(".semantic-canvas-object__connector-label-text")).toContainText(expectedLabel, {
     timeout: 15_000,
   });
-  return shape.evaluate((element) => {
+  return shape.evaluate((element, connectorId) => {
     const path = element.querySelector<SVGPathElement>(
       ".semantic-canvas-object__connector-path",
     );
@@ -602,9 +607,9 @@ async function readRenderedConnector(
       if (distances[index - 1] > discontinuityThreshold) pathSegments.push([]);
       pathSegments.at(-1)!.push(points[index]);
     }
-    const label = element.querySelector<SVGGElement>(
-      ".semantic-canvas-object__connector-label",
-    );
+    const label = element.ownerDocument
+      .querySelector<SVGGElement>(`[data-connector-overlay-id="${CSS.escape(connectorId)}"]`)
+      ?.querySelector<SVGGElement>(".semantic-canvas-object__connector-label");
     if (!label) throw new Error("Rendered connector is missing its semantic label.");
     const labelBounds = label.getBoundingClientRect();
     if (labelBounds.width <= 2 || labelBounds.height <= 2) {
@@ -633,7 +638,7 @@ async function readRenderedConnector(
       },
       semanticLabelBounds,
     };
-  });
+  }, objectId);
 }
 
 async function waitForRenderedShapeRevision(
@@ -775,13 +780,13 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 47 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 48 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(47);
-    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(14);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(48);
+    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(15);
 
     await installWebMcpShim(page);
     await page.goto("/");
@@ -1042,6 +1047,9 @@ test.describe("WebMCP browser acceptance", () => {
     );
     expect(preview).toMatchObject({
       previewId: expect.stringMatching(/^preview_/),
+      visualInspectionStatus: "not_performed",
+      geometryQualityStatus: "pass",
+      nextStep: expect.stringMatching(/Rendering is not visual QA.*screenshotClip/),
       screenshotClip: {
         coordinateSpace: "viewport-css-pixels",
         x: expect.any(Number),

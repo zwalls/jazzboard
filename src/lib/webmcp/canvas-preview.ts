@@ -1,4 +1,8 @@
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
+import {
+  analyzeDiagramVisualQuality,
+  type DiagramVisualQualityReport,
+} from "@/lib/domain/diagram-visual-quality";
 import type { CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
 import {
@@ -60,6 +64,8 @@ export type CanvasPreviewMetadata = {
     objectRevisions: Array<{ objectId: string; revision: number }>;
   };
   warnings: string[];
+  /** Deterministic geometry QA for Diagram scope; null for arbitrary object scope. */
+  visualQuality: DiagramVisualQualityReport | null;
 };
 
 export type CanvasPreviewArtifact = {
@@ -269,8 +275,15 @@ export async function renderCanvasPreview(
   if (!request.objects.length) {
     throw new CanvasPreviewError("PREVIEW_SCOPE_EMPTY", "A canvas preview must contain at least one exact object target.");
   }
+  if (request.objects.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_TOO_LARGE",
+      "A canvas preview cannot exceed the 1,000-target render limit.",
+      { targetCount: request.objects.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
+    );
+  }
 
-  const { canvas } = await waitForAuthoritativeProjection(runtime, request, signal);
+  const { canvas, room } = await waitForAuthoritativeProjection(runtime, request, signal);
   if (!canvas.capabilities.renderPng) {
     throw new CanvasPreviewError(
       "PREVIEW_RENDERER_UNAVAILABLE",
@@ -355,6 +368,9 @@ export async function renderCanvasPreview(
         })),
       },
       warnings,
+      visualQuality: request.diagram
+        ? analyzeDiagramVisualQuality(room, request.diagram.id)
+        : null,
     },
   };
 }

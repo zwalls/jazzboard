@@ -292,7 +292,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "read_collaboration_state",
       title: "Read Jazzboard collaboration state",
       description:
-        "Read the signed session's room role, live human-and-agent presence, private Follow target, complete Spotlight lifecycle state, and current live-versus-review agent edit policy without changing shared state.",
+        "Read this session's role, presence, Follow, Spotlight, and agent-edit policy.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -310,7 +310,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "follow_participant",
       title: "Privately follow a room participant",
       description:
-        "Make this browser privately follow the exact in-room participant's human cursor or active agent viewport. If this browser is in Spotlight, it leaves Spotlight first.",
+        "Privately follow a human cursor or agent viewport; leave Spotlight first.",
       inputSchema: {
         type: "object",
         properties: {
@@ -353,7 +353,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "stop_following",
       title: "Stop following in Jazzboard",
       description:
-        "Stop this browser's private Follow target and, when currently following an active Spotlight, explicitly leave that Spotlight as one conflict-free lifecycle action.",
+        "Stop private Follow and leave any followed Spotlight.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -380,7 +380,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "start_spotlight",
       title: "Start a Jazzboard Spotlight",
       description:
-        "Start Spotlight as this participant, presenting either the human cursor or this participant's active agent viewport to the room after the normal five-second invitation window.",
+        "Present this human cursor or agent viewport after Spotlight's invitation.",
       inputSchema: {
         type: "object",
         properties: { target: { enum: ["human", "agent"] } },
@@ -400,7 +400,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "request_spotlight",
       title: "Request a Jazzboard Spotlight handoff",
       description:
-        "Request that the current presenter hand Spotlight to this participant's human cursor or active agent viewport; the presenter must explicitly approve the request.",
+        "Request Spotlight handoff; the presenter must approve.",
       inputSchema: {
         type: "object",
         properties: { target: { enum: ["human", "agent"] } },
@@ -418,7 +418,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "stop_spotlight",
       title: "Stop the active Jazzboard Spotlight",
       description:
-        "Stop the active Spotlight when this signed participant is its current presenter. Server authorization rejects every other caller.",
+        "Stop Spotlight as its authorized presenter.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -432,7 +432,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "join_spotlight",
       title: "Join the active Jazzboard Spotlight",
       description:
-        "Follow the current presenter through the active Spotlight and clear any earlier decline for this Spotlight in the visual room experience.",
+        "Follow the Spotlight presenter and clear a prior decline.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -447,7 +447,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "leave_spotlight",
       title: "Leave the active Jazzboard Spotlight",
       description:
-        "Decline or leave the current shared Spotlight for this participant while keeping the room open and preserving any separately chosen private Follow target.",
+        "Leave Spotlight while preserving private Follow.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -461,7 +461,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "approve_spotlight_handoff",
       title: "Approve the waiting Spotlight handoff",
       description:
-        "Approve the current Spotlight handoff request when this participant is the presenter, making the waiting requester the new presenter after server authorization.",
+        "Approve the waiting handoff as Spotlight presenter.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -474,7 +474,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "dismiss_spotlight_request",
       title: "Dismiss the waiting Spotlight request",
       description:
-        "Dismiss the current handoff request while retaining this participant's active Spotlight; only the signed current presenter is authorized.",
+        "Dismiss the waiting handoff as Spotlight presenter.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       annotations: { untrustedContentHint: true },
@@ -487,7 +487,7 @@ export function createJazzboardLifecycleWebMcpTools(
       name: "leave_room",
       title: "Leave the current Jazzboard room view",
       description:
-        "Navigate this browser back to Jazzboard home without deleting the private room or revoking this signed guest session's existing membership.",
+        "Return home without deleting the room or membership.",
       inputSchema: EMPTY_OBJECT_SCHEMA,
       schema: emptyInputSchema,
       async execute(_input, signal) {

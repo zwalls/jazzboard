@@ -31,6 +31,13 @@ import {
   semanticShapeLabelMaxLines,
   semanticStrokeColor,
 } from "@/lib/canvas/semantic-visual-style";
+import {
+  layoutSemanticText,
+  SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
+  semanticConnectorLabelMaximumCharacters,
+  semanticTextMaximumCharacters,
+  semanticTextMaximumLines,
+} from "@/lib/canvas/semantic-text-layout";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import { connectorLabelMetrics } from "@/lib/domain/layout";
 import type {
@@ -44,8 +51,13 @@ import type {
   TextObject,
 } from "@/lib/domain/types";
 
-const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
-const CONNECTOR_LABEL_TOTAL_INSET = 9;
+type CanvasObjectPointerStartInput = Readonly<{
+  objectId: string;
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  additive: boolean;
+}>;
 
 export type SemanticCanvasObjectProps = {
   object: CanvasObject;
@@ -58,17 +70,28 @@ export type SemanticCanvasObjectProps = {
   className?: string;
   tabIndex?: number;
   onSelect?: (objectId: string, additive: boolean) => void;
-  onPointerStart?: (input: Readonly<{
-    objectId: string;
-    pointerId: number;
-    clientX: number;
-    clientY: number;
-    additive: boolean;
-  }>) => void;
+  onPointerStart?: (input: CanvasObjectPointerStartInput) => void;
   onEditRequested?: (objectId: string) => void;
   onFocus?: (objectId: string) => void;
   onBlur?: (objectId: string) => void;
+  /**
+   * The semantic canvas paints connector shafts below ordinary objects and
+   * their arrowheads/labels in a separate foreground overlay. Standalone
+   * callers keep the complete connector by default.
+   */
+  connectorLayer?: "all" | "shaft";
 };
+
+export type SemanticCanvasConnectorOverlayProps = Readonly<{
+  object: ConnectorObject;
+  /** Canonical, page-space connector geometry from the semantic scene. */
+  connectorRoute?: ResolvedConnectorRoute | null;
+  /** Page-space visual bounds used for the foreground focus outline. */
+  bounds?: CanvasBounds;
+  focused?: boolean;
+  onSelect?: (objectId: string, additive: boolean) => void;
+  onPointerStart?: (input: CanvasObjectPointerStartInput) => void;
+}>;
 
 function finiteNumber(value: number): string {
   const rounded = Math.round(value * 1_000) / 1_000;
@@ -85,44 +108,6 @@ function drawTransform(object: DrawObject): string {
   const translate = `translate(${finiteNumber(object.x)} ${finiteNumber(object.y)})`;
   if (!object.rotation) return translate;
   return `${translate} rotate(${finiteNumber(object.rotation * (180 / Math.PI))})`;
-}
-
-function wrapLines(value: string, maxCharacters: number, maxLines = 6): string[] {
-  const paragraphs = value
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const lines: string[] = [];
-
-  for (const paragraph of paragraphs) {
-    let current = "";
-    for (const sourceWord of paragraph.split(" ")) {
-      const words: string[] = [];
-      const graphemes = Array.from(sourceWord);
-      for (let offset = 0; offset < graphemes.length; offset += maxCharacters) {
-        words.push(graphemes.slice(offset, offset + maxCharacters).join(""));
-      }
-      for (const word of words) {
-        if (!current) current = word;
-        else if (Array.from(`${current} ${word}`).length <= maxCharacters) current = `${current} ${word}`;
-        else {
-          lines.push(current);
-          current = word;
-        }
-        if (lines.length >= maxLines) break;
-      }
-      if (lines.length >= maxLines) break;
-    }
-    if (lines.length < maxLines && current) lines.push(current);
-    if (lines.length >= maxLines) break;
-  }
-
-  const normalized = paragraphs.join(" ");
-  if (lines.length && Array.from(lines.join(" ")).length < Array.from(normalized).length) {
-    const last = lines.length - 1;
-    lines[last] = `${Array.from(lines[last]).slice(0, Math.max(1, maxCharacters - 1)).join("")}…`;
-  }
-  return lines;
 }
 
 function SvgTextLines({
@@ -177,7 +162,11 @@ function SvgTextLines({
 function TextPrimitive({ object }: { object: TextObject }) {
   const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
   const lineHeight = fontSize * SEMANTIC_TEXT_LINE_HEIGHT;
-  const lines = wrapLines(object.content, Math.max(8, Math.floor(object.width / (fontSize * 0.58))));
+  const lines = layoutSemanticText(
+    object.content,
+    semanticTextMaximumCharacters(object.width, fontSize),
+    semanticTextMaximumLines(object.height, fontSize),
+  ).lines;
   const x = object.align === "start"
     ? object.x
     : object.align === "end"
@@ -256,11 +245,11 @@ function ShapePrimitive({ object }: { object: ShapeObject }) {
       />
     );
   }
-  const lines = wrapLines(
+  const lines = layoutSemanticText(
     object.label,
     semanticShapeLabelMaxCharacters(object.width),
     semanticShapeLabelMaxLines(object.height),
-  );
+  ).lines;
   const firstY = object.y + object.height / 2 -
     ((lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT) / 2 +
     SEMANTIC_SHAPE_LABEL_FONT_SIZE * 0.35;
@@ -309,20 +298,32 @@ function arrowHead(tip: Point, neighbor: Point, size = SEMANTIC_CONNECTOR_ARROW_
 }
 
 function connectorLabelLines(value: string, availableWidth: number): string[] {
-  const maxGraphemes = Math.max(
-    1,
-    Math.floor((availableWidth - CONNECTOR_LABEL_TOTAL_INSET) / CONNECTOR_LABEL_GRAPHEME_WIDTH),
-  );
-  return wrapLines(value, maxGraphemes, 20);
+  return [...layoutSemanticText(
+    value,
+    semanticConnectorLabelMaximumCharacters(availableWidth),
+    SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
+  ).lines];
 }
 
-function ConnectorPrimitive({
+type ConnectorPresentation = Readonly<{
+  geometry: ResolvedConnectorRoute;
+  path: string;
+  stroke: string;
+  points: readonly Point[];
+  startNeighbor: Point | undefined;
+  endNeighbor: Point;
+  labelBounds: CanvasBounds | null;
+  labelLines: readonly string[];
+  firstTextY: number;
+}>;
+
+function connectorPresentation({
   object,
   route,
 }: {
   object: ConnectorObject;
   route: ResolvedConnectorRoute | null | undefined;
-}) {
+}): ConnectorPresentation {
   const fallbackPoints = [object.start, object.end];
   const points = route?.points?.length ? route.points : fallbackPoints;
   const fallbackRoute: ResolvedConnectorRoute = {
@@ -371,8 +372,26 @@ function ConnectorPrimitive({
       SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35
     : 0;
 
+  return {
+    geometry,
+    path,
+    stroke,
+    points,
+    startNeighbor,
+    endNeighbor,
+    labelBounds,
+    labelLines,
+    firstTextY,
+  };
+}
+
+function ConnectorShaftPrimitive({
+  path,
+  stroke,
+  labelBounds,
+}: Pick<ConnectorPresentation, "path" | "stroke" | "labelBounds">) {
   return (
-    <g className="semantic-canvas-object__content semantic-canvas-object__connector">
+    <g className="semantic-canvas-object__connector-shaft" data-semantic-layer="connector-shaft">
       <path
         className="semantic-canvas-object__connector-hit-target"
         d={path}
@@ -392,6 +411,47 @@ function ConnectorPrimitive({
         strokeLinejoin="round"
         pointerEvents="none"
       />
+      {labelBounds ? (
+        <rect
+          className="semantic-canvas-object__connector-label-hit-target"
+          x={labelBounds.x}
+          y={labelBounds.y}
+          width={labelBounds.width}
+          height={labelBounds.height}
+          rx={4}
+          fill="transparent"
+          pointerEvents="fill"
+        />
+      ) : null}
+    </g>
+  );
+}
+
+function ConnectorOverlayPrimitive({
+  object,
+  presentation,
+  onLabelPointerDown,
+}: {
+  object: ConnectorObject;
+  presentation: ConnectorPresentation;
+  onLabelPointerDown?: (event: PointerEvent<SVGGElement>) => void;
+}) {
+  const {
+    geometry,
+    stroke,
+    points,
+    startNeighbor,
+    endNeighbor,
+    labelBounds,
+    labelLines,
+    firstTextY,
+  } = presentation;
+  return (
+    <g
+      className="semantic-canvas-object__connector-overlay"
+      data-semantic-layer="connector-overlay"
+      pointerEvents="none"
+    >
       {object.direction === "both" && startNeighbor ? (
         <polygon
           className="semantic-canvas-object__arrowhead semantic-canvas-object__arrowhead--start"
@@ -409,7 +469,12 @@ function ConnectorPrimitive({
         />
       ) : null}
       {labelBounds ? (
-        <g className="semantic-canvas-object__connector-label" pointerEvents="none">
+        <g
+          className="semantic-canvas-object__connector-label"
+          data-connector-interaction-id={object.id}
+          pointerEvents={onLabelPointerDown ? "all" : "none"}
+          onPointerDown={onLabelPointerDown}
+        >
           <rect
             x={labelBounds.x}
             y={labelBounds.y}
@@ -435,6 +500,30 @@ function ConnectorPrimitive({
   );
 }
 
+function ConnectorPrimitive({
+  object,
+  route,
+  layer,
+}: {
+  object: ConnectorObject;
+  route: ResolvedConnectorRoute | null | undefined;
+  layer: "all" | "shaft";
+}) {
+  const presentation = connectorPresentation({ object, route });
+  return (
+    <g className="semantic-canvas-object__content semantic-canvas-object__connector">
+      <ConnectorShaftPrimitive
+        path={presentation.path}
+        stroke={presentation.stroke}
+        labelBounds={presentation.labelBounds}
+      />
+      {layer === "all" ? (
+        <ConnectorOverlayPrimitive object={object} presentation={presentation} />
+      ) : null}
+    </g>
+  );
+}
+
 function ImagePrimitive({
   object,
   failed,
@@ -445,7 +534,11 @@ function ImagePrimitive({
   onError: () => void;
 }) {
   const label = object.alt.trim() || "Image unavailable";
-  const lines = wrapLines(label, Math.max(10, Math.floor(object.width / 9)), 3);
+  const lines = layoutSemanticText(
+    label,
+    Math.max(10, Math.floor(object.width / 9)),
+    3,
+  ).lines;
   const lineHeight = 17;
   const firstY = object.y + object.height / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
   return (
@@ -590,6 +683,7 @@ function SemanticCanvasObjectComponent({
   onEditRequested,
   onFocus,
   onBlur,
+  connectorLayer = "all",
 }: SemanticCanvasObjectProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const [locallyFocused, setLocallyFocused] = useState(false);
@@ -655,7 +749,7 @@ function SemanticCanvasObjectComponent({
   if (object.kind === "text") primitive = <TextPrimitive object={object} />;
   else if (object.kind === "shape") primitive = <ShapePrimitive object={object} />;
   else if (object.kind === "connector") {
-    primitive = <ConnectorPrimitive object={object} route={connectorRoute} />;
+    primitive = <ConnectorPrimitive object={object} route={connectorRoute} layer={connectorLayer} />;
   } else if (object.kind === "image") {
     primitive = (
       <ImagePrimitive
@@ -694,9 +788,75 @@ function SemanticCanvasObjectComponent({
     >
       <title>{label}</title>
       {primitive}
-      <SelectionOutline bounds={bounds ?? defaultBounds(object, connectorRoute)} focused={showFocus} />
+      <SelectionOutline
+        bounds={bounds ?? defaultBounds(object, connectorRoute)}
+        focused={showFocus && (object.kind !== "connector" || connectorLayer === "all")}
+      />
     </g>
   );
+}
+
+/**
+ * Non-interactive foreground connector adornments. The authoritative semantic
+ * object and its hit target live in the shaft layer, so this overlay never
+ * duplicates IDs, accessibility nodes, or pointer handling.
+ */
+function SemanticCanvasConnectorOverlayComponent({
+  object,
+  connectorRoute,
+  bounds,
+  focused = false,
+  onSelect,
+  onPointerStart,
+}: SemanticCanvasConnectorOverlayProps) {
+  const presentation = connectorPresentation({ object, route: connectorRoute });
+  function handleLabelPointerDown(event: PointerEvent<SVGGElement>) {
+    if (event.button !== 0) return;
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    onSelect?.(object.id, additive);
+    if (onPointerStart) {
+      event.preventDefault();
+      onPointerStart({
+        objectId: object.id,
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        additive,
+      });
+    }
+    event.stopPropagation();
+  }
+  return (
+    <g
+      className="semantic-canvas-connector-overlay"
+      data-connector-overlay-id={object.id}
+      data-connector-overlay-focused={focused ? "true" : "false"}
+      aria-hidden="true"
+      pointerEvents="none"
+    >
+      <ConnectorOverlayPrimitive
+        object={object}
+        presentation={presentation}
+        onLabelPointerDown={onSelect || onPointerStart ? handleLabelPointerDown : undefined}
+      />
+      <SelectionOutline
+        bounds={bounds ?? defaultBounds(object, connectorRoute)}
+        focused={focused}
+      />
+    </g>
+  );
+}
+
+function semanticCanvasConnectorOverlayPropsEqual(
+  previous: SemanticCanvasConnectorOverlayProps,
+  next: SemanticCanvasConnectorOverlayProps,
+): boolean {
+  return previous.object === next.object
+    && previous.connectorRoute === next.connectorRoute
+    && previous.bounds === next.bounds
+    && previous.focused === next.focused
+    && Boolean(previous.onSelect) === Boolean(next.onSelect)
+    && Boolean(previous.onPointerStart) === Boolean(next.onPointerStart);
 }
 
 export function semanticCanvasObjectPropsEqual(
@@ -710,6 +870,7 @@ export function semanticCanvasObjectPropsEqual(
     && previous.focused === next.focused
     && previous.className === next.className
     && previous.tabIndex === next.tabIndex
+    && previous.connectorLayer === next.connectorLayer
     // Canvas handlers are intentionally ref-driven. Their availability can
     // change at a role boundary, but aggregate presence envelopes must not
     // invalidate every object merely by recreating parent closures.
@@ -722,3 +883,9 @@ export function semanticCanvasObjectPropsEqual(
 
 export const SemanticCanvasObject = memo(SemanticCanvasObjectComponent, semanticCanvasObjectPropsEqual);
 SemanticCanvasObject.displayName = "SemanticCanvasObject";
+
+export const SemanticCanvasConnectorOverlay = memo(
+  SemanticCanvasConnectorOverlayComponent,
+  semanticCanvasConnectorOverlayPropsEqual,
+);
+SemanticCanvasConnectorOverlay.displayName = "SemanticCanvasConnectorOverlay";

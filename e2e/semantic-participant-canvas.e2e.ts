@@ -23,6 +23,10 @@ import {
   type CommandResponse,
   type RoomState,
 } from "./helpers";
+import {
+  SEMANTIC_CONNECTOR_ARROW_SIZE,
+  SEMANTIC_CONNECTOR_STROKE_WIDTH,
+} from "../src/lib/canvas/semantic-visual-style";
 
 const SOURCE_ID = "semantic-edit-source";
 const TARGET_ID = "semantic-edit-target";
@@ -30,6 +34,7 @@ const CONNECTOR_ID = "semantic-edit-connector";
 const TEXT_ID = "semantic-edit-text";
 const GROUP_ID = "semantic-edit-group";
 const DIAGRAM_ID = "semantic-edit-diagram";
+const DENSE_DIAGRAM_ID = "dense-webmcp-architecture";
 const ORIGINAL_TEXT = "Authoritative decision before the local edit";
 const EDITED_TEXT = "Authoritative decision after the local-first edit";
 const TINY_PNG = Buffer.from(
@@ -47,6 +52,44 @@ const PARTICIPANT_MUTATION_TOOLS = [
   "stop_following",
   "update_object",
 ] as const;
+
+const DENSE_NODES = [
+  ["users", "Customers & operators", "component"],
+  ["web", "Next.js web", "service"],
+  ["api", "Room APIs", "service"],
+  ["identity", "Identity & access", "service"],
+  ["domain", "Board domain", "component"],
+  ["jobs", "Scheduled jobs", "service"],
+  ["database", "PostgreSQL · Prisma", "component"],
+  ["payments", "Stripe payments", "service"],
+  ["exporter", "PNG exporter", "service"],
+  ["ai", "Agent tools", "service"],
+  ["storage", "Asset storage", "component"],
+  ["realtime", "Realtime presence", "service"],
+] as const;
+
+const DENSE_CONNECTIONS = [
+  ["opens", "users", "web", "opens"],
+  ["calls", "web", "api", "HTTPS / JSON"],
+  ["sessions", "api", "identity", "sessions"],
+  ["commands", "api", "domain", "commands"],
+  ["schedules", "api", "jobs", "schedules"],
+  ["identity_store", "identity", "database", "identity state"],
+  ["billing", "domain", "payments", "billing"],
+  ["exports", "domain", "exporter", "renders"],
+  ["automation", "domain", "ai", "semantic tools"],
+  ["assets", "exporter", "storage", "assets"],
+  ["presence", "jobs", "realtime", "presence"],
+  ["domain_store", "domain", "database", "board state"],
+] as const;
+
+type PreviewPageBounds = { x: number; y: number; width: number; height: number };
+
+type PreviewRoute = {
+  connectorId: string;
+  points: Array<{ x: number; y: number }>;
+  labelBounds: PreviewPageBounds | null;
+};
 
 type SemanticTransactionResponse = {
   ok: true;
@@ -356,6 +399,209 @@ async function sourceColorPixels(page: Page, png: Buffer): Promise<number> {
     }
     return count;
   }, png.toString("base64"));
+}
+
+async function renderedDiagramPixelStats(
+  page: Page,
+  png: Buffer,
+  geometry: { pageBounds: PreviewPageBounds; routes: PreviewRoute[] },
+) {
+  return page.evaluate(async ({ base64, pageBounds, routes, arrowSize, strokeWidth }) => {
+    const response = await fetch(`data:image/png;base64,${base64}`);
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas decoding is unavailable.");
+    context.drawImage(bitmap, 0, 0);
+    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    const columns = 6;
+    const rows = 4;
+    const inkByCell = Array.from({ length: columns * rows }, () => 0);
+    let inkPixels = 0;
+    let darkPixels = 0;
+    let chromaticPixels = 0;
+    let minX = bitmap.width;
+    let minY = bitmap.height;
+    let maxX = -1;
+    let maxY = -1;
+    const isDarkPixel = (x: number, y: number) => {
+      const roundedX = Math.round(x);
+      const roundedY = Math.round(y);
+      if (roundedX < 0 || roundedY < 0 || roundedX >= bitmap.width || roundedY >= bitmap.height) return false;
+      const index = (roundedY * bitmap.width + roundedX) * 4;
+      return pixels[index + 3] > 200 && (pixels[index] + pixels[index + 1] + pixels[index + 2]) / 3 < 170;
+    };
+    const scaleX = bitmap.width / pageBounds.width;
+    const scaleY = bitmap.height / pageBounds.height;
+    const worldToPixel = (point: { x: number; y: number }) => ({
+      x: (point.x - pageBounds.x) * scaleX,
+      y: (point.y - pageBounds.y) * scaleY,
+    });
+    const hasDarkPixelNear = (point: { x: number; y: number }, radius: number) => {
+      for (let y = Math.floor(point.y - radius); y <= Math.ceil(point.y + radius); y += 1) {
+        for (let x = Math.floor(point.x - radius); x <= Math.ceil(point.x + radius); x += 1) {
+          if (Math.hypot(x - point.x, y - point.y) <= radius + 0.5 && isDarkPixel(x, y)) return true;
+        }
+      }
+      return false;
+    };
+    const pointInsideBounds = (
+      point: { x: number; y: number },
+      bounds: PreviewPageBounds | null,
+      inset = 0,
+    ) => Boolean(bounds) && point.x >= bounds!.x - inset && point.x <= bounds!.x + bounds!.width + inset &&
+      point.y >= bounds!.y - inset && point.y <= bounds!.y + bounds!.height + inset;
+    const pointInsideTriangle = (
+      point: { x: number; y: number },
+      first: { x: number; y: number },
+      second: { x: number; y: number },
+      third: { x: number; y: number },
+    ) => {
+      const sign = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }) =>
+        (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y);
+      const firstSign = sign(point, first, second);
+      const secondSign = sign(point, second, third);
+      const thirdSign = sign(point, third, first);
+      return !((firstSign < 0 || secondSign < 0 || thirdSign < 0) &&
+        (firstSign > 0 || secondSign > 0 || thirdSign > 0));
+    };
+    const signedDistanceToLine = (
+      point: { x: number; y: number },
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+    ) => {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      return length ? ((point.x - start.x) * -dy + (point.y - start.y) * dx) / length : 0;
+    };
+    for (let y = 0; y < bitmap.height; y += 1) {
+      for (let x = 0; x < bitmap.width; x += 1) {
+        const index = (y * bitmap.width + x) * 4;
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const alpha = pixels[index + 3];
+        if (alpha < 220) continue;
+        const isInk = red < 246 || green < 246 || blue < 246;
+        if (!isInk) continue;
+        inkPixels += 1;
+        if ((red + green + blue) / 3 < 135) darkPixels += 1;
+        if (Math.max(red, green, blue) - Math.min(red, green, blue) > 20) chromaticPixels += 1;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+        const column = Math.min(columns - 1, Math.floor(x / Math.max(1, bitmap.width / columns)));
+        const row = Math.min(rows - 1, Math.floor(y / Math.max(1, bitmap.height / rows)));
+        inkByCell[row * columns + column] += 1;
+      }
+    }
+    const connectorPathsWithInk = routes.filter((route) => {
+      const candidates: Array<{ x: number; y: number }> = [];
+      for (let index = 1; index < route.points.length; index += 1) {
+        const start = route.points[index - 1];
+        const end = route.points[index];
+        const length = Math.hypot(end.x - start.x, end.y - start.y);
+        if (length < 8) continue;
+        for (const fraction of [0.2, 0.4, 0.6, 0.8]) {
+          const point = {
+            x: start.x + (end.x - start.x) * fraction,
+            y: start.y + (end.y - start.y) * fraction,
+          };
+          if (!pointInsideBounds(point, route.labelBounds, 3)) candidates.push(point);
+        }
+      }
+      const requiredMatches = Math.min(2, candidates.length);
+      const searchRadius = Math.max(1.5, Math.ceil(Math.max(scaleX, scaleY) * strokeWidth));
+      return requiredMatches > 0 && candidates.filter((point) => hasDarkPixelNear(worldToPixel(point), searchRadius)).length >= requiredMatches;
+    }).map((route) => route.connectorId);
+    const connectorLabelsWithText = routes.filter((route) => {
+      if (!route.labelBounds) return false;
+      const topLeft = worldToPixel(route.labelBounds);
+      const bottomRight = worldToPixel({
+        x: route.labelBounds.x + route.labelBounds.width,
+        y: route.labelBounds.y + route.labelBounds.height,
+      });
+      const darkRows = new Set<number>();
+      const darkColumns = new Set<number>();
+      let labelDarkPixels = 0;
+      for (let y = Math.max(0, Math.floor(topLeft.y)); y <= Math.min(bitmap.height - 1, Math.ceil(bottomRight.y)); y += 1) {
+        for (let x = Math.max(0, Math.floor(topLeft.x)); x <= Math.min(bitmap.width - 1, Math.ceil(bottomRight.x)); x += 1) {
+          if (!isDarkPixel(x, y)) continue;
+          labelDarkPixels += 1;
+          darkRows.add(y);
+          darkColumns.add(x);
+        }
+      }
+      return labelDarkPixels >= 6 && darkRows.size >= 3 && darkColumns.size >= 3;
+    }).map((route) => route.connectorId);
+    const arrowheadsWithInk = routes.filter((route) => {
+      if (route.points.length < 2) return false;
+      const tip = route.points.at(-1)!;
+      const neighbor = route.points.at(-2)!;
+      const length = Math.hypot(tip.x - neighbor.x, tip.y - neighbor.y);
+      if (!length) return false;
+      const unitX = (tip.x - neighbor.x) / length;
+      const unitY = (tip.y - neighbor.y) / length;
+      const base = { x: tip.x - unitX * arrowSize, y: tip.y - unitY * arrowSize };
+      const wing = arrowSize * 0.58;
+      const firstWing = { x: base.x - unitY * wing, y: base.y + unitX * wing };
+      const secondWing = { x: base.x + unitY * wing, y: base.y - unitX * wing };
+      const triangle = [worldToPixel(tip), worldToPixel(firstWing), worldToPixel(secondWing)] as const;
+      const pixelBase = worldToPixel(base);
+      const pixelTip = triangle[0];
+      const arrowAxis = { x: pixelTip.x - pixelBase.x, y: pixelTip.y - pixelBase.y };
+      const arrowAxisLengthSquared = arrowAxis.x ** 2 + arrowAxis.y ** 2;
+      const minimumX = Math.max(0, Math.floor(Math.min(...triangle.map((point) => point.x))));
+      const maximumX = Math.min(bitmap.width - 1, Math.ceil(Math.max(...triangle.map((point) => point.x))));
+      const minimumY = Math.max(0, Math.floor(Math.min(...triangle.map((point) => point.y))));
+      const maximumY = Math.min(bitmap.height - 1, Math.ceil(Math.max(...triangle.map((point) => point.y))));
+      const shaftHalfWidth = Math.max(0.6, strokeWidth * (scaleX + scaleY) / 4);
+      let positiveInk = 0;
+      let negativeInk = 0;
+      for (let y = minimumY; y <= maximumY; y += 1) {
+        for (let x = minimumX; x <= maximumX; x += 1) {
+          const point = { x: x + 0.5, y: y + 0.5 };
+          if (!pointInsideTriangle(point, ...triangle) || !isDarkPixel(x, y)) continue;
+          // Ignore the last quarter nearest the bound node. A node border can
+          // be dark at the connector tip; off-axis ink nearer the wing base
+          // can only come from the filled arrowhead rather than the shaft or
+          // endpoint object.
+          const axialProgress = arrowAxisLengthSquared
+            ? ((point.x - pixelBase.x) * arrowAxis.x + (point.y - pixelBase.y) * arrowAxis.y) /
+              arrowAxisLengthSquared
+            : 1;
+          if (axialProgress > 0.75) continue;
+          const distance = signedDistanceToLine(point, pixelBase, pixelTip);
+          if (distance > shaftHalfWidth) positiveInk += 1;
+          if (distance < -shaftHalfWidth) negativeInk += 1;
+        }
+      }
+      return positiveInk > 0 && negativeInk > 0;
+    }).map((route) => route.connectorId);
+    const minimumCellInk = Math.max(30, Math.floor((bitmap.width * bitmap.height) / (columns * rows) * 0.002));
+    return {
+      width: bitmap.width,
+      height: bitmap.height,
+      inkPixels,
+      darkPixels,
+      chromaticPixels,
+      occupiedCells: inkByCell.filter((count) => count >= minimumCellInk).length,
+      inkSpanWidth: maxX >= minX ? maxX - minX + 1 : 0,
+      inkSpanHeight: maxY >= minY ? maxY - minY + 1 : 0,
+      connectorPathsWithInk,
+      connectorLabelsWithText,
+      arrowheadsWithInk,
+    };
+  }, {
+    base64: png.toString("base64"),
+    ...geometry,
+    arrowSize: SEMANTIC_CONNECTOR_ARROW_SIZE,
+    strokeWidth: SEMANTIC_CONNECTOR_STROKE_WIDTH,
+  });
 }
 
 async function joinContext(
@@ -797,5 +1043,202 @@ test.describe("first-party semantic participant canvas", () => {
     } finally {
       await spectatorContext.close();
     }
+  });
+
+  test("creates, analyzes, renders, and pixel-checks a dense diagram through page WebMCP", async ({ page }) => {
+    test.setTimeout(120_000);
+    const host = await createRoomViaApi(page.request, "Dara Diagram", "Dense WebMCP visual-quality acceptance");
+    await installWebMcpShim(page);
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+    await expectSemanticParticipant(page);
+    await expect.poll(() => webMcpToolNames(page), { timeout: 15_000 }).toEqual(
+      expect.arrayContaining(["apply_canvas_transaction", "layout_objects", "analyze_diagram_layout", "render_canvas_preview"]),
+    );
+
+    const created = successData(await callWebMcpTool<{
+      temporaryReferences: Record<string, string>;
+      objects: Array<{ id: string; revision: number }>;
+      diagrams: Array<{ id: string; revision: number }>;
+    }>(page, "apply_canvas_transaction", {
+      intent: "Create a readable service architecture for visual verification",
+      operations: [
+        ...DENSE_NODES.map(([tempRef, label, nodeType]) => ({
+          op: "create_node",
+          tempRef,
+          label,
+          nodeType,
+          x: 120,
+          y: 100,
+          width: 260,
+          height: 128,
+        })),
+        ...DENSE_CONNECTIONS.map(([tempRef, start, end, label]) => ({
+          op: "connect",
+          tempRef,
+          start: { tempRef: start },
+          end: { tempRef: end },
+          label,
+          routing: { mode: "auto" },
+        })),
+        {
+          op: "create_diagram",
+          tempRef: "architecture",
+          diagramId: DENSE_DIAGRAM_ID,
+          title: "Dense WebMCP architecture",
+          description: "A realistic fan-out service graph used to verify semantic layout, routes, labels, and rendered pixels.",
+          diagramType: "architecture",
+          category: "acceptance",
+          tags: ["dense", "webmcp", "visual-quality"],
+          members: DENSE_NODES.map(([tempRef]) => ({ tempRef })),
+          connectors: DENSE_CONNECTIONS.map(([tempRef]) => ({ tempRef })),
+        },
+      ],
+    }));
+    expect(created.objects).toHaveLength(DENSE_NODES.length + DENSE_CONNECTIONS.length);
+
+    const diagramBeforeLayout = successData(await callWebMcpTool<{
+      diagram: { revision: number; memberObjectIds: string[]; connectorIds: string[] };
+      objects: Array<{ id: string; revision: number }>;
+    }>(page, "read_diagram", { diagramId: DENSE_DIAGRAM_ID }));
+    expect(diagramBeforeLayout.diagram.memberObjectIds).toHaveLength(DENSE_NODES.length);
+    expect(diagramBeforeLayout.diagram.connectorIds).toHaveLength(DENSE_CONNECTIONS.length);
+
+    const analysisBeforeLayout = successData(await callWebMcpTool<{
+      report: {
+        status: "pass" | "warning" | "fail";
+        findings: Array<{ code: string }>;
+        metrics: { findingsByCode: Record<string, number> };
+      };
+    }>(page, "analyze_diagram_layout", {
+      diagramId: DENSE_DIAGRAM_ID,
+      expectedDiagramRevision: diagramBeforeLayout.diagram.revision,
+    }));
+    expect(analysisBeforeLayout.report.status).toBe("fail");
+    expect(analysisBeforeLayout.report.findings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "MEMBER_OBJECT_OVERLAP" })]),
+    );
+    expect(analysisBeforeLayout.report.metrics.findingsByCode.MEMBER_OBJECT_OVERLAP).toBeGreaterThan(0);
+
+    const layout = successData(await callWebMcpTool<{
+      outcome: "applied";
+      diagrams: Array<{ id: string; revision: number }>;
+      objects: Array<{ id: string; revision: number; x: number; y: number }>;
+    }>(page, "layout_objects", {
+      layout: "hierarchy",
+      direction: "right",
+      density: "comfortable",
+      primaryGap: 360,
+      secondaryGap: 180,
+      origin: { x: 120, y: 100 },
+      targets: diagramBeforeLayout.objects.map((object) => ({
+        objectId: object.id,
+        expectedRevision: object.revision,
+      })),
+      diagramId: DENSE_DIAGRAM_ID,
+      expectedDiagramRevision: diagramBeforeLayout.diagram.revision,
+      intent: "Give every rank, route, and connector label readable whitespace",
+    }));
+    expect(layout.outcome).toBe("applied");
+
+    const diagramAfterLayout = successData(await callWebMcpTool<{
+      diagram: { revision: number; bounds: { width: number; height: number } };
+    }>(page, "read_diagram", { diagramId: DENSE_DIAGRAM_ID }));
+    const analysis = successData(await callWebMcpTool<{
+      report: {
+        status: "pass" | "warning" | "fail";
+        findings: Array<{ code: string }>;
+        metrics: {
+          memberObjectCount: number;
+          connectorCount: number;
+          findingCount: number;
+          returnedFindingCount: number;
+          omittedFindingCount: number;
+          findingsTruncated: boolean;
+        };
+      };
+      routes: PreviewRoute[];
+      routeCoverage: {
+        totalConnectorCount: number;
+        returnedConnectorCount: number;
+        truncated: boolean;
+      };
+      visualInspectionStatus: "not_performed";
+    }>(page, "analyze_diagram_layout", {
+      diagramId: DENSE_DIAGRAM_ID,
+      expectedDiagramRevision: diagramAfterLayout.diagram.revision,
+    }));
+    expect(analysis.report).toMatchObject({
+      status: "pass",
+      findings: [],
+      metrics: {
+        memberObjectCount: DENSE_NODES.length,
+        connectorCount: DENSE_CONNECTIONS.length,
+        findingCount: 0,
+        returnedFindingCount: 0,
+        omittedFindingCount: 0,
+        findingsTruncated: false,
+      },
+    });
+    expect(analysis.routes).toHaveLength(DENSE_CONNECTIONS.length);
+    expect(analysis.routes.every((route) => route.points.length >= 2 && route.labelBounds !== null)).toBe(true);
+    expect(analysis.routeCoverage).toEqual({
+      totalConnectorCount: DENSE_CONNECTIONS.length,
+      returnedConnectorCount: DENSE_CONNECTIONS.length,
+      truncated: false,
+      omittedConnectorCount: 0,
+      omittedConnectorIds: [],
+      omittedConnectorIdsTruncated: false,
+    });
+    expect(analysis.visualInspectionStatus).toBe("not_performed");
+
+    const preview = successData(await callWebMcpTool<{
+      screenshotClip: { x: number; y: number; width: number; height: number };
+      pageBounds: PreviewPageBounds;
+      geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
+      visualInspectionStatus: "not_performed";
+      width: number;
+      height: number;
+    }>(page, "render_canvas_preview", {
+      scope: {
+        kind: "diagram",
+        diagramId: DENSE_DIAGRAM_ID,
+        expectedRevision: diagramAfterLayout.diagram.revision,
+      },
+      padding: 48,
+      maxWidth: 1_600,
+      maxHeight: 1_000,
+      pixelRatio: 1,
+      maxBytes: 4_000_000,
+    }));
+    expect(preview).toMatchObject({
+      pageBounds: {
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+      geometryQualityStatus: "pass",
+      visualInspectionStatus: "not_performed",
+      width: expect.any(Number),
+      height: expect.any(Number),
+    });
+    const previewPng = await page.screenshot({ clip: preview.screenshotClip });
+    const pixels = await renderedDiagramPixelStats(page, previewPng, {
+      pageBounds: preview.pageBounds,
+      routes: analysis.routes,
+    });
+    expect(pixels.width).toBeGreaterThan(700);
+    expect(pixels.height).toBeGreaterThan(350);
+    expect(pixels.inkPixels).toBeGreaterThan(pixels.width * pixels.height * 0.02);
+    expect(pixels.darkPixels).toBeGreaterThan(1_000);
+    expect(pixels.chromaticPixels).toBeGreaterThan(5_000);
+    expect(pixels.occupiedCells).toBeGreaterThanOrEqual(10);
+    expect(pixels.inkSpanWidth).toBeGreaterThan(pixels.width * 0.75);
+    expect(pixels.inkSpanHeight).toBeGreaterThan(pixels.height * 0.65);
+    const renderedConnectorIds = analysis.routes.map((route) => route.connectorId).sort();
+    expect(pixels.connectorPathsWithInk.sort()).toEqual(renderedConnectorIds);
+    expect(pixels.connectorLabelsWithText.sort()).toEqual(renderedConnectorIds);
+    expect(pixels.arrowheadsWithInk.sort()).toEqual(renderedConnectorIds);
+    await page.getByRole("button", { name: "Dismiss canvas preview" }).click();
   });
 });

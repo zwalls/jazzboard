@@ -208,7 +208,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "export_canvas_artifact",
     title: "Export semantic canvas artifact",
     description:
-      "Export this authorized room, one Diagram, or an exact selection as redacted semantic JSON, safe Mermaid, or fixed-vocabulary SVG. Omits room/session secrets, presence, leases, colors, and private image URLs. Use export_canvas_png for a separate image-faithful local download.",
+      "Export an authorized room, Diagram, or exact selection as redacted JSON, safe Mermaid, or fixed-vocabulary SVG; use export_canvas_png for image-faithful output.",
     schema: exportArtifactInput,
     readOnly: true,
     async execute(input, signal) {
@@ -236,7 +236,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "create_diagram_template",
     title: "Create reusable Diagram template",
     description:
-      "Read one exact authorized Diagram as a strict create-only template. Preserves semantic node types, lifecycle metadata, groups, connectors, layout, and Diagram metadata; strips revisions, attribution, room/session state, and media. Image-bearing Diagrams are rejected.",
+      "Create a strict reusable template from one exact Diagram. Preserves semantics and layout, strips room state and media, and rejects images.",
     schema: createTemplateInput,
     readOnly: true,
     async execute(input, signal) {
@@ -260,7 +260,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "instantiate_diagram_template",
     title: "Instantiate reusable Diagram template",
     description:
-      "Instantiate a strict template at an origin through the normal agent-edit policy using the exact room revision. Live mode applies one atomic create-only transaction with fresh IDs and attribution; review mode returns a human proposal. Any conflict rejects all changes.",
+      "Instantiate a strict template at an origin and exact room revision. Live mode creates fresh IDs atomically; review mode returns a proposal.",
     schema: instantiateTemplateInput,
     inputSchema: compactInstantiateTemplateInputSchema(),
     async execute(input, signal) {

@@ -112,7 +112,10 @@ import {
   type SemanticCanvasContextMenuActionId,
   type SemanticCanvasContextMenuItem,
 } from "./SemanticCanvasContextMenu";
-import { SemanticCanvasObject } from "./SemanticCanvasObject";
+import {
+  SemanticCanvasConnectorOverlay,
+  SemanticCanvasObject,
+} from "./SemanticCanvasObject";
 import {
   SemanticImagePicker,
   type SemanticImagePickerHandle,
@@ -1824,7 +1827,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       || Boolean(
         canvasSvg
         && (target === canvasSvg || canvasSvg.contains(target))
-        && !target.closest("[data-object-id]"),
+        && !target.closest("[data-object-id], [data-connector-interaction-id]"),
       );
     if (event.button === 1 || (event.button === 0 && spaceHeldRef.current)) {
       event.preventDefault();
@@ -2250,10 +2253,13 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
     const target = event.target as Element;
     const objectElement = target.closest<SVGElement>("[data-object-id]");
+    const connectorProxy = target.closest<SVGElement>("[data-connector-interaction-id]");
     const selectedObjectId = target.closest("[data-semantic-selection-controls='true']")
       ? selectionRef.current[0]
       : null;
-    const objectId = objectElement?.dataset.objectId ?? selectedObjectId;
+    const objectId = objectElement?.dataset.objectId
+      ?? connectorProxy?.dataset.connectorInteractionId
+      ?? selectedObjectId;
     if (objectId) {
       if (!selectionRef.current.includes(objectId)) selectObject(objectId, false);
       if (editingEnabled) setActiveTool("select");
@@ -2429,12 +2435,13 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     >
       <svg className={styles.viewport} width="100%" height="100%" aria-label="Board objects">
         <g transform={`translate(${-viewport.x * viewport.zoom} ${-viewport.y * viewport.zoom}) scale(${viewport.zoom})`}>
-          {scene.objects.map(({ object, bounds }) => (
+          {scene.objects.map(({ object, bounds }) => object.kind === "connector" ? (
             <SemanticCanvasObject
-              key={object.id}
+              key={`connector-shaft:${object.id}`}
               object={object}
               bounds={bounds}
               connectorRoute={scene.connectorRoutes[object.id]}
+              connectorLayer="shaft"
               selected={selectionSet.has(object.id)}
               focused={focusedObjectId === object.id}
               tabIndex={effectiveTabStopObjectId === object.id ? 0 : -1}
@@ -2445,7 +2452,34 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               onFocus={handleObjectFocus}
               onBlur={(objectId) => setFocusedObjectId((current) => current === objectId ? null : current)}
             />
-          ))}
+          ) : null)}
+          {scene.objects.map(({ object, bounds }) => object.kind !== "connector" ? (
+            <SemanticCanvasObject
+              key={`object:${object.id}`}
+              object={object}
+              bounds={bounds}
+              selected={selectionSet.has(object.id)}
+              focused={focusedObjectId === object.id}
+              tabIndex={effectiveTabStopObjectId === object.id ? 0 : -1}
+              className={styles.objectHitTarget}
+              onSelect={handleObjectSelect}
+              onPointerStart={controller ? handleObjectPointerStart : undefined}
+              onEditRequested={controller ? requestTextEdit : undefined}
+              onFocus={handleObjectFocus}
+              onBlur={(objectId) => setFocusedObjectId((current) => current === objectId ? null : current)}
+            />
+          ) : null)}
+          {scene.objects.map(({ object, bounds }) => object.kind === "connector" ? (
+            <SemanticCanvasConnectorOverlay
+              key={`connector-overlay:${object.id}`}
+              object={object}
+              bounds={bounds}
+              connectorRoute={scene.connectorRoutes[object.id]}
+              focused={focusedObjectId === object.id}
+              onSelect={handleObjectSelect}
+              onPointerStart={controller ? handleObjectPointerStart : undefined}
+            />
+          ) : null)}
           {activeMarqueeSession ? (
             <rect
               className={styles.marquee}

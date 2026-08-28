@@ -214,7 +214,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.5.0");
+    expect(AGENT_DOC_VERSION).toBe("1.6.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -240,8 +240,13 @@ describe("agent-readable content", () => {
       "`isPrecise`",
       "`isExact`",
       "`snap`",
+      "`port.side`",
+      "`port.position`",
+      "`port.exact`",
       "deliberate overlap",
       "Diagram membership",
+      "graph-aware",
+      "`analyze_diagram_layout`",
       "`render_canvas_preview`",
     ]) {
       expect(corpus).toContain(phrase);
@@ -249,10 +254,43 @@ describe("agent-readable content", () => {
 
     expect(guide).toContain("`routing.mode`");
     expect(guide).toContain("`routing.kind`");
-    expect(guide).toContain("after creating, laying out, or rerouting a diagram");
+    expect(guide).toContain("## Close the diagram-quality loop");
     expect(reference).toContain("Mermaid remains topology-only");
     expect(skill).toContain("Routing and endpoint metadata survive Diagram membership");
     expect(skill).toContain("SVG renders resolved route geometry and labels");
+  });
+
+  it("requires deterministic Diagram analysis and actual pixel inspection as separate gates", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      homepage: makeHomepageMarkdown(),
+      guide: makeAgentGuideMarkdown(),
+      reference: makeWebMcpMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits deterministic analysis`).toContain("`analyze_diagram_layout`");
+      expect(body, `${name} omits exact pass gate`).toMatch(/report\.status[^\n]*pass/i);
+      expect(body, `${name} omits deterministic coverage`).toContain("geometryCoverage");
+      expect(body, `${name} omits partial freehand coverage`).toMatch(
+        /partial[^\n]*(?:freehand|unsupportedDraw)/i,
+      );
+      expect(body, `${name} omits preview rendering`).toContain("`render_canvas_preview`");
+      expect(body, `${name} omits screenshot capture`).toContain("`screenshotClip`");
+      expect(body, `${name} omits pixel inspection`).toMatch(/inspect[^\n]*pixels|pixel inspection/i);
+      expect(body, `${name} conflates rendering and inspection`).toMatch(
+        /rendering[^\n]*(?:not|isn't|does not)[^\n]*(?:inspection|visual QA)|render[^\n]*not[^\n]*visual inspection/i,
+      );
+    }
+
+    const guide = documents.guide;
+    expect(guide).toContain("`warning` is not a pass");
+    expect(guide).toContain("visualInspectionStatus: not_performed");
+    expect(guide).toContain("graph-aware hierarchy layout");
+    expect(guide).toContain("explicit ports");
+    expect(guide).toMatch(/repeat from step 1/i);
   });
 
   it("states the privacy and runtime-authority boundaries across detailed guidance", () => {

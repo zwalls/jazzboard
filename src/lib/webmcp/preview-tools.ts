@@ -233,7 +233,7 @@ export function createJazzboardPreviewWebMcpTools(
       name: "render_canvas_preview",
       title: "Render an exact Jazzboard canvas preview",
       description:
-        "Render exact object or Diagram revisions into a temporary PNG. Screenshot the returned viewport clip before expiry; explicit scope is required.",
+        "Render up to 1,000 exact object or Diagram targets into a temporary PNG; capture and inspect its screenshot because rendering is not visual QA.",
       inputSchema: {
         type: "object",
         properties: {

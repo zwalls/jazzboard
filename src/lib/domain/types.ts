@@ -140,6 +140,7 @@ export type ConnectorEndpoint = Point & {
 export type ConnectorEndpointSnap = "center" | "edge-point" | "edge" | "none";
 export type ConnectorRoutingMode = "auto" | "straight" | "curved" | "elbow";
 export type ConnectorRoutingKind = Exclude<ConnectorRoutingMode, "auto">;
+export type ConnectorLabelPositionSource = "generated" | "authored";
 
 /** Caller intent before the server resolves deterministic ports and obstacle avoidance. */
 export type ConnectorRoutingInput = {
@@ -156,6 +157,11 @@ export type ConnectorRouting = {
   bend: number;
   elbowMidPoint: number;
   labelPosition: number;
+  /**
+   * Distinguishes an automatic solver result from an explicit caller choice.
+   * Optional so rooms persisted before this marker remain readable.
+   */
+  labelPositionSource?: ConnectorLabelPositionSource;
 };
 
 export type ConnectorObject = CanvasObjectBase & {

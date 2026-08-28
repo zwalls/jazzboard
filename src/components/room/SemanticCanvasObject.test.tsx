@@ -5,6 +5,7 @@ import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import type { ActorRef, CanvasObject, CanvasObjectBase } from "@/lib/domain/types";
 
 import {
+  SemanticCanvasConnectorOverlay,
   SemanticCanvasObject,
   semanticCanvasObjectPropsEqual,
 } from "./SemanticCanvasObject";
@@ -135,6 +136,47 @@ describe("SemanticCanvasObject", () => {
     expect(rectangleLabel).toHaveAttribute("paint-order", "stroke fill");
   });
 
+  it("uses the shared six-line live-render limit for text content", () => {
+    const object: CanvasObject = {
+      ...base("long-live-text", "text"),
+      kind: "text",
+      height: 320,
+      content: Array.from({ length: 7 }, (_, index) => `line${index + 1}`).join("\n"),
+      color: "black",
+      size: "m",
+      align: "start",
+    };
+    const { container } = inSvg(<SemanticCanvasObject object={object} />);
+    const lines = [...container.querySelectorAll(
+      "#long-live-text .semantic-canvas-object__text tspan",
+    )].map((line) => line.textContent);
+
+    expect(lines).toHaveLength(6);
+    expect(lines.at(-1)).toBe("line6…");
+  });
+
+  it("ellipsizes live text before its baselines exceed a short object", () => {
+    const object: CanvasObject = {
+      ...base("short-live-text", "text"),
+      kind: "text",
+      height: 96,
+      content: "one\ntwo\nthree\nfour",
+      color: "black",
+      size: "m",
+      align: "start",
+    };
+    const { container } = inSvg(<SemanticCanvasObject object={object} />);
+    const lines = [...container.querySelectorAll(
+      "#short-live-text .semantic-canvas-object__text tspan",
+    )].map((line) => line.textContent);
+
+    expect(lines).toEqual(["one", "two", "three…"]);
+    const text = container.querySelector("#short-live-text .semantic-canvas-object__text");
+    expect(text).toHaveAttribute("y", "54");
+    const lineHeight = Number(text?.querySelectorAll("tspan")[2]?.getAttribute("dy"));
+    expect(54 + lineHeight * 2).toBeLessThanOrEqual(object.y + object.height);
+  });
+
   it("renders the supplied curved connector path, label position, and arrowheads", () => {
     const connector: CanvasObject = {
       ...base("connector-auth", "connector"),
@@ -198,6 +240,99 @@ describe("SemanticCanvasObject", () => {
       "id",
       "connector-auth",
     );
+
+    const split = inSvg(
+      <>
+        <SemanticCanvasObject
+          object={connector}
+          connectorRoute={route}
+          connectorLayer="shaft"
+          focused
+        />
+        <SemanticCanvasConnectorOverlay
+          object={connector}
+          connectorRoute={route}
+          bounds={route.bounds}
+          focused
+          onSelect={vi.fn()}
+        />
+      </>,
+    );
+    expect(split.container.querySelectorAll('[data-object-id="connector-auth"]')).toHaveLength(1);
+    expect(
+      split.container.querySelector(
+        '[data-object-id="connector-auth"] .semantic-canvas-object__connector-path',
+      ),
+    ).not.toBeNull();
+    expect(
+      split.container.querySelector(
+        '[data-object-id="connector-auth"] .semantic-canvas-object__connector-label-hit-target',
+      ),
+    ).not.toBeNull();
+    expect(
+      split.container.querySelector(
+        '[data-object-id="connector-auth"] .semantic-canvas-object__arrowhead',
+      ),
+    ).toBeNull();
+    const overlay = split.container.querySelector('[data-connector-overlay-id="connector-auth"]');
+    expect(overlay).toHaveAttribute("aria-hidden", "true");
+    expect(overlay).toHaveAttribute("pointer-events", "none");
+    expect(overlay).toHaveAttribute("data-connector-overlay-focused", "true");
+    expect(overlay?.querySelector(".semantic-canvas-object__connector-label")).toHaveAttribute(
+      "pointer-events",
+      "all",
+    );
+    expect(overlay?.querySelector(".semantic-canvas-object__connector-path")).toBeNull();
+    expect(overlay?.querySelectorAll(".semantic-canvas-object__arrowhead")).toHaveLength(2);
+    expect(overlay?.querySelector(".semantic-canvas-object__connector-label")).not.toBeNull();
+    expect(overlay?.querySelector("[data-focus-ring='true']")).not.toBeNull();
+    expect(
+      split.container.querySelector(
+        '[data-object-id="connector-auth"] [data-focus-ring="true"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the shared twenty-line live-render limit for connector labels", () => {
+    const label = Array.from({ length: 21 }, (_, index) =>
+      String.fromCharCode(97 + index)).join("\n");
+    const connector: CanvasObject = {
+      ...base("long-live-connector", "connector"),
+      kind: "connector",
+      rotation: 0,
+      start: { x: 0, y: 0, objectId: null },
+      end: { x: 400, y: 0, objectId: null },
+      routing: { mode: "straight", kind: "straight", bend: 0, elbowMidPoint: 0.5, labelPosition: 0.5 },
+      direction: "end",
+      label,
+      color: "black",
+    };
+    const route: ResolvedConnectorRoute = {
+      connectorId: connector.id,
+      routing: connector.routing!,
+      start: connector.start,
+      end: connector.end,
+      points: [connector.start, connector.end],
+      arc: null,
+      labelPoint: { x: 200, y: 0 },
+      pathLength: 400,
+      pathBounds: { x: 0, y: 0, width: 400, height: 0 },
+      labelBounds: { x: 190, y: -290, width: 20, height: 580 },
+      bounds: { x: 0, y: -290, width: 400, height: 580 },
+      collisionObjectIds: [],
+      crossingCount: 0,
+      laneIndex: 0,
+      candidateCount: 1,
+    };
+    const { container } = inSvg(
+      <SemanticCanvasObject object={connector} connectorRoute={route} />,
+    );
+    const lines = [...container.querySelectorAll(
+      "#long-live-connector .semantic-canvas-object__connector-label-text tspan",
+    )].map((line) => line.textContent);
+
+    expect(lines).toHaveLength(20);
+    expect(lines.at(-1)).toBe("t…");
   });
 
   it("supports pointer and keyboard selection with visible focus and selection state", () => {

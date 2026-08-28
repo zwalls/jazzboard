@@ -20,6 +20,7 @@ const CONNECTOR_ID = "semantic-spectator-route";
 const GROUP_ID = "semantic-spectator-group";
 
 const SPECTATOR_TOOL_NAMES = [
+  "analyze_diagram_layout",
   "describe_diagram",
   "export_canvas_artifact",
   "export_canvas_png",
@@ -271,6 +272,7 @@ test("renders the first-party spectator canvas without mutation authority", asyn
     const decision = canvas.locator(`[data-object-id="${DECISION_ID}"]`);
     const note = canvas.locator(`[data-object-id="${NOTE_ID}"]`);
     const connector = canvas.locator(`[data-object-id="${CONNECTOR_ID}"]`);
+    const connectorOverlay = canvas.locator(`[data-connector-overlay-id="${CONNECTOR_ID}"]`);
 
     await expect(service).toHaveAttribute("data-node-type", "service");
     await expect(worker).toHaveAttribute("data-node-type", "component");
@@ -285,10 +287,10 @@ test("renders the first-party spectator canvas without mutation authority", asyn
     await expect(connectorPath).toBeVisible();
     const pathData = await connectorPath.getAttribute("d");
     expect(pathData).toMatch(/^M [-\d.]+ [-\d.]+(?: L [-\d.]+ [-\d.]+){2,}$/);
-    await expect(connector.locator(".semantic-canvas-object__connector-label-text")).toHaveText(
+    await expect(connectorOverlay.locator(".semantic-canvas-object__connector-label-text")).toHaveText(
       "authoritative elbow route",
     );
-    await expect(connector.locator(".semantic-canvas-object__arrowhead--end")).toHaveCount(1);
+    await expect(connectorOverlay.locator(".semantic-canvas-object__arrowhead--end")).toHaveCount(1);
 
     await service.click();
     await expect(service).toHaveAttribute("data-selected", "true");

@@ -29,10 +29,18 @@ import {
   semanticShapeLabelMaxLines,
   semanticStrokeColor,
 } from "./semantic-visual-style";
+import {
+  layoutSemanticText,
+  SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
+  semanticConnectorLabelMaximumCharacters,
+  semanticTextMaximumCharacters,
+  semanticTextMaximumLines,
+} from "./semantic-text-layout";
 import type { SemanticScene, SemanticSceneObject } from "./semantic-scene";
 
 export const SEMANTIC_PNG_LIMITS = {
-  maxTargets: 200,
+  // Matches the largest valid semantic Diagram (500 members + 500 connectors).
+  maxTargets: 1_000,
   maxPadding: 256,
   maxPixelRatio: 2,
   maxDimension: 4_096,
@@ -126,9 +134,6 @@ type NormalizedOptions = Required<Omit<SemanticSvgRenderOptions, "images">> & {
 const IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const FONT_DATA_URL_PATTERN = /^data:font\/woff2;base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_FONT_DATA_URL_LENGTH = 256_000;
-const CONNECTOR_LABEL_GRAPHEME_WIDTH = 11;
-const CONNECTOR_LABEL_TOTAL_INSET = 9;
-
 function fail(
   code: SemanticPngErrorCode,
   message: string,
@@ -340,42 +345,6 @@ function unionBounds(items: readonly SemanticSceneObject[], padding: number): Ca
   };
 }
 
-function wrapLines(value: string, maxCharacters: number, maxLines = 6): string[] {
-  const paragraphs = value
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const lines: string[] = [];
-  for (const paragraph of paragraphs) {
-    let current = "";
-    for (const sourceWord of paragraph.split(" ")) {
-      const graphemes = Array.from(sourceWord);
-      const words = Array.from(
-        { length: Math.ceil(graphemes.length / maxCharacters) },
-        (_, index) => graphemes.slice(index * maxCharacters, (index + 1) * maxCharacters).join(""),
-      );
-      for (const word of words) {
-        if (!current) current = word;
-        else if (Array.from(`${current} ${word}`).length <= maxCharacters) current = `${current} ${word}`;
-        else {
-          lines.push(current);
-          current = word;
-        }
-        if (lines.length >= maxLines) break;
-      }
-      if (lines.length >= maxLines) break;
-    }
-    if (lines.length < maxLines && current) lines.push(current);
-    if (lines.length >= maxLines) break;
-  }
-  const normalized = paragraphs.join(" ");
-  if (lines.length && Array.from(lines.join(" ")).length < Array.from(normalized).length) {
-    const last = lines.length - 1;
-    lines[last] = `${Array.from(lines[last]).slice(0, Math.max(1, maxCharacters - 1)).join("")}…`;
-  }
-  return lines;
-}
-
 function textLines(
   lines: readonly string[],
   x: number,
@@ -405,10 +374,11 @@ function rotation(object: CanvasObject): string {
 
 function renderText(object: TextObject): string {
   const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
-  const lines = wrapLines(
+  const lines = layoutSemanticText(
     object.content,
-    Math.max(8, Math.floor(object.width / (fontSize * 0.58))),
-  );
+    semanticTextMaximumCharacters(object.width, fontSize),
+    semanticTextMaximumLines(object.height, fontSize),
+  ).lines;
   const x = object.align === "start"
     ? object.x
     : object.align === "end"
@@ -444,11 +414,11 @@ function renderShape(object: ShapeObject): string {
     const radius = Math.min(SEMANTIC_SHAPE_CORNER_RADIUS, object.width / 8, object.height / 8);
     geometry = `<rect x="${formatNumber(object.x)}" y="${formatNumber(object.y)}" width="${formatNumber(object.width)}" height="${formatNumber(object.height)}" rx="${formatNumber(radius)}" ${attributes}/>`;
   }
-  const lines = wrapLines(
+  const lines = layoutSemanticText(
     object.label,
     semanticShapeLabelMaxCharacters(object.width),
     semanticShapeLabelMaxLines(object.height),
-  );
+  ).lines;
   const firstY = object.y + object.height / 2 -
     ((lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT) / 2 +
     SEMANTIC_SHAPE_LABEL_FONT_SIZE * 0.35;
@@ -492,40 +462,47 @@ function arrowHead(tip: Point, neighbor: Point, size = SEMANTIC_CONNECTOR_ARROW_
   ].join(" ");
 }
 
-function renderConnector(object: ConnectorObject, scene: SemanticScene): string {
+function renderConnector(
+  object: ConnectorObject,
+  scene: SemanticScene,
+  layer: "all" | "shaft" | "overlay" = "all",
+): string {
   const route = scene.connectorRoutes[object.id];
   const points = route.points;
   const stroke = semanticStrokeColor(object.color);
   const startNeighbor = points[1];
   const endNeighbor = points.at(-2)!;
-  const parts = [
+  const parts: string[] = [];
+  if (layer !== "overlay") parts.push(
     `<path d="${connectorPath(object, scene)}" fill="none" stroke="${stroke}" stroke-width="${formatNumber(SEMANTIC_CONNECTOR_STROKE_WIDTH)}" stroke-linecap="round" stroke-linejoin="round"/>`,
-  ];
-  if (object.direction === "both") {
-    parts.push(`<polygon points="${arrowHead(points[0], startNeighbor)}" fill="${stroke}"/>`);
-  }
-  if (object.direction !== "none") {
-    parts.push(`<polygon points="${arrowHead(points.at(-1)!, endNeighbor)}" fill="${stroke}"/>`);
-  }
-  const metrics = connectorLabelMetrics(object.label);
-  if (metrics.normalizedLines.length) {
-    const labelBounds = route.labelBounds ?? {
-      x: route.labelPoint.x - metrics.width / 2,
-      y: route.labelPoint.y - metrics.height / 2,
-      width: metrics.width,
-      height: metrics.height,
-    };
-    const maxGraphemes = Math.max(
-      1,
-      Math.floor((labelBounds.width - CONNECTOR_LABEL_TOTAL_INSET) / CONNECTOR_LABEL_GRAPHEME_WIDTH),
-    );
-    const lines = wrapLines(object.label, maxGraphemes, 20);
-    const firstY = route.labelPoint.y -
-      ((lines.length - 1) * SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
-      SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35;
-    parts.push(
-      `<g><rect x="${formatNumber(labelBounds.x)}" y="${formatNumber(labelBounds.y)}" width="${formatNumber(labelBounds.width)}" height="${formatNumber(labelBounds.height)}" rx="4" fill="${SEMANTIC_CANVAS_BACKGROUND}" stroke="none"/>${textLines(lines, route.labelPoint.x, firstY, SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT, "middle", stroke, SEMANTIC_CONNECTOR_LABEL_FONT_SIZE)}</g>`,
-    );
+  );
+  if (layer !== "shaft") {
+    if (object.direction === "both") {
+      parts.push(`<polygon points="${arrowHead(points[0], startNeighbor)}" fill="${stroke}"/>`);
+    }
+    if (object.direction !== "none") {
+      parts.push(`<polygon points="${arrowHead(points.at(-1)!, endNeighbor)}" fill="${stroke}"/>`);
+    }
+    const metrics = connectorLabelMetrics(object.label);
+    if (metrics.normalizedLines.length) {
+      const labelBounds = route.labelBounds ?? {
+        x: route.labelPoint.x - metrics.width / 2,
+        y: route.labelPoint.y - metrics.height / 2,
+        width: metrics.width,
+        height: metrics.height,
+      };
+      const lines = layoutSemanticText(
+        object.label,
+        semanticConnectorLabelMaximumCharacters(labelBounds.width),
+        SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
+      ).lines;
+      const firstY = route.labelPoint.y -
+        ((lines.length - 1) * SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT) / 2 +
+        SEMANTIC_CONNECTOR_LABEL_FONT_SIZE * 0.35;
+      parts.push(
+        `<g><rect x="${formatNumber(labelBounds.x)}" y="${formatNumber(labelBounds.y)}" width="${formatNumber(labelBounds.width)}" height="${formatNumber(labelBounds.height)}" rx="4" fill="${SEMANTIC_CANVAS_BACKGROUND}" stroke="none"/>${textLines(lines, route.labelPoint.x, firstY, SEMANTIC_CONNECTOR_LABEL_LINE_HEIGHT, "middle", stroke, SEMANTIC_CONNECTOR_LABEL_FONT_SIZE)}</g>`,
+      );
+    }
   }
   return parts.join("");
 }
@@ -625,11 +602,11 @@ function imagePlaceholder(object: ImageObject): string {
   const y = formatNumber(object.y);
   const width = formatNumber(object.width);
   const height = formatNumber(object.height);
-  const lines = wrapLines(
+  const lines = layoutSemanticText(
     object.alt.trim() || "Image unavailable",
     Math.max(10, Math.floor(object.width / 9)),
     3,
-  );
+  ).lines;
   const firstY = object.y + object.height / 2 - ((lines.length - 1) * 17) / 2 + 5;
   return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#f2f4f8" stroke="#9fa8b2" stroke-width="2" stroke-dasharray="8 6"/><line x1="${x}" y1="${y}" x2="${formatNumber(object.x + object.width)}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/><line x1="${formatNumber(object.x + object.width)}" y1="${y}" x2="${x}" y2="${formatNumber(object.y + object.height)}" stroke="#c2c7d0"/>${textLines(lines, object.x + object.width / 2, firstY, 17, "middle", "#596376", 14)}`;
 }
@@ -652,14 +629,28 @@ function renderObject(
   scene: SemanticScene,
   image: SemanticSvgImage | undefined,
   warnings: SemanticPngWarning[],
+  layer: "object" | "connector-shaft" | "connector-overlay" = "object",
 ): string {
   let content: string;
   if (object.kind === "text") content = renderText(object);
   else if (object.kind === "shape") content = renderShape(object);
-  else if (object.kind === "connector") content = renderConnector(object, scene);
+  else if (object.kind === "connector") {
+    content = renderConnector(
+      object,
+      scene,
+      layer === "connector-shaft"
+        ? "shaft"
+        : layer === "connector-overlay"
+          ? "overlay"
+          : "all",
+    );
+  }
   else if (object.kind === "image") content = renderImage(object, image, warnings);
   else content = renderDraw(object);
-  return `<g data-semantic-object-id="${xml(object.id, 128)}">${content}</g>`;
+  const identity = layer === "connector-overlay"
+    ? `data-semantic-connector-overlay-id="${xml(object.id, 128)}"`
+    : `data-semantic-object-id="${xml(object.id, 128)}"`;
+  return `<g ${identity} data-semantic-layer="${layer}">${content}</g>`;
 }
 
 /**
@@ -713,13 +704,28 @@ export function renderSemanticSceneSvg(
   const encoder = new TextEncoder();
   const renderedObjects: string[] = [];
   let renderedObjectBytes = 0;
-  for (const { object } of selected) {
+  const paintQueue: Array<Readonly<{
+    item: SemanticSceneObject;
+    layer: "object" | "connector-shaft" | "connector-overlay";
+  }>> = [
+    ...selected
+      .filter(({ object }) => object.kind === "connector")
+      .map((item) => ({ item, layer: "connector-shaft" as const })),
+    ...selected
+      .filter(({ object }) => object.kind !== "connector")
+      .map((item) => ({ item, layer: "object" as const })),
+    ...selected
+      .filter(({ object }) => object.kind === "connector")
+      .map((item) => ({ item, layer: "connector-overlay" as const })),
+  ];
+  for (const { item: { object }, layer } of paintQueue) {
     const hasImage = Object.prototype.hasOwnProperty.call(normalized.images, object.id);
     const renderedObject = renderObject(
       object,
       scene,
       hasImage ? normalized.images[object.id] : undefined,
       warnings,
+      layer,
     );
     renderedObjectBytes += encoder.encode(renderedObject).byteLength;
     if (renderedObjectBytes > normalized.maxSvgBytes) {

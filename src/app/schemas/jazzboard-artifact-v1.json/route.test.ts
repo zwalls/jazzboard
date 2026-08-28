@@ -42,6 +42,7 @@ describe("public Jazzboard artifact schema", () => {
     expect(encoded).toContain(JAZZBOARD_ARTIFACT_FORMAT);
     expect(encoded).toContain(String(JAZZBOARD_ARTIFACT_VERSION));
     expect(encoded).toContain('"routing"');
+    expect(encoded).toContain('"labelPositionSource"');
     expect(encoded).toContain("private_or_external_source_omitted");
     expect(encoded).not.toContain('"url"');
     expect(encoded).not.toContain("participantId");
