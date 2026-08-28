@@ -197,6 +197,9 @@ describe("Jazzboard semantic WebMCP surface", () => {
 
     expect(drawSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
     expect(updateSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
+    expect(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA.properties.mode.description).toContain(
+      "delegates routing",
+    );
     expect(drawSchema.$defs?.port).toMatchObject({
       required: ["side"],
       properties: {

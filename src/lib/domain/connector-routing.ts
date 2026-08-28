@@ -93,7 +93,7 @@ export type ConnectorRoutingContext = {
   obstacleIdsByConnector: ReadonlyMap<string, ReadonlySet<string>>;
   laneIndexByConnector: ReadonlyMap<string, number>;
   laneDirectionByConnector: ReadonlyMap<string, 1 | -1>;
-  /** Stable, geometry-ordered ports for automatic incident edges on every candidate side. */
+  /** Stable, geometry-ordered ports grouped by each automatic edge's natural side. */
   portPositionByEndpointSide?: ReadonlyMap<string, number>;
 };
 
@@ -310,10 +310,14 @@ type PortIncident = {
 
 /**
  * Assign incident automatic edges stable ports before candidate routing begins.
- * Every possible side gets a plan because obstacle avoidance may choose a side
- * other than the center-to-center preference. Ordering follows neighbor
- * geometry, which prevents a hub's ports from depending on object insertion
- * order and greatly reduces the fan-in/fan-out braid near its boundary.
+ * Only the geometry-preferred side participates in distribution. A connection
+ * entering a node on the left must not displace an unrelated connection leaving
+ * on the right; each remains centered unless another automatic edge naturally
+ * shares that side. The resulting position is copied to alternate candidate
+ * sides so obstacle avoidance retains a stable, distinct lane without mixing
+ * opposite-side traffic into the same allocation group. Ordering follows
+ * neighbor geometry, preventing insertion-order-dependent hub braids without
+ * inventing offsets for ordinary chains.
  */
 function connectorPortPositions(
   room: RoutingRoom,
@@ -325,15 +329,21 @@ function connectorPortPositions(
     for (const endpointName of ["start", "end"] as const) {
       const endpoint = connector[endpointName];
       if (!endpoint.objectId || !room.objects[endpoint.objectId]) continue;
+      if (
+        endpoint.isPrecise &&
+        endpoint.normalizedAnchor &&
+        (endpoint.snap === "edge" || endpoint.snap === "edge-point")
+      ) {
+        continue;
+      }
       const opposite = connector[endpointName === "start" ? "end" : "start"];
       const oppositeObject = opposite.objectId ? room.objects[opposite.objectId] : undefined;
       const neighbor = oppositeObject ? objectCenter(oppositeObject) : opposite;
-      for (const side of SIDES) {
-        const key = `${endpoint.objectId}\u0000${side}`;
-        const group = incidents.get(key) ?? [];
-        group.push({ connector, endpoint: endpointName, neighbor });
-        incidents.set(key, group);
-      }
+      const side = preferredSide(objectCenter(room.objects[endpoint.objectId]), neighbor);
+      const key = `${endpoint.objectId}\u0000${side}`;
+      const group = incidents.get(key) ?? [];
+      group.push({ connector, endpoint: endpointName, neighbor });
+      incidents.set(key, group);
     }
   }
 
@@ -353,7 +363,12 @@ function connectorPortPositions(
     group.forEach((incident, index) => {
       // Retain generous corner clearance while using the full safe side span.
       const position = group.length === 1 ? 0.5 : 0.16 + 0.68 * (index / (group.length - 1));
-      positions.set(endpointSideKey(incident.connector.id, incident.endpoint, side), position);
+      for (const candidateSide of SIDES) {
+        positions.set(
+          endpointSideKey(incident.connector.id, incident.endpoint, candidateSide),
+          position,
+        );
+      }
     });
   }
   return positions;

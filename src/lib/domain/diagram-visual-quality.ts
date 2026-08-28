@@ -677,12 +677,12 @@ function reportSummary(
   if (status === "pass") {
     return unsupportedDrawObjectCount
       ? `Supported deterministic geometry has no findings.${coverage}`
-      : "Diagram visual quality passed with no deterministic geometry findings.";
+      : "Conventional diagram geometry has no deterministic findings; composition intent and pixels still require agent judgment.";
   }
   if (status === "fail") {
-    return `Diagram visual quality failed with ${failCount} blocking finding${failCount === 1 ? "" : "s"} and ${warningCount} warning${warningCount === 1 ? "" : "s"}; fix overlaps, intrusions, and label collisions before visual sign-off.${truncation}${coverage}`;
+    return `Conventional diagram geometry has ${failCount} blocking finding${failCount === 1 ? "" : "s"} and ${warningCount} warning${warningCount === 1 ? "" : "s"}; compare them with the requested composition and correct only unintended overlaps, intrusions, or label collisions before visual sign-off.${truncation}${coverage}`;
   }
-  return `Diagram visual quality has ${warningCount} warning${warningCount === 1 ? "" : "s"}; improve spacing, routing, and label fit before visual sign-off.${truncation}${coverage}`;
+  return `Conventional diagram geometry has ${warningCount} warning${warningCount === 1 ? "" : "s"}; compare spacing, routing, and label fit with the requested composition before deciding whether to edit.${truncation}${coverage}`;
 }
 
 /**
@@ -753,7 +753,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "MEMBER_OBJECT_OVERLAP",
           status: "fail",
-          summary: `Move or resize ${left.id} and ${right.id} so their member bounds no longer overlap.`,
+          summary: `If this overlap is unintended, move or resize ${left.id} and ${right.id} so their member bounds no longer overlap.`,
           objectIds: [left.id, right.id],
           connectorIds: [],
           bounds: overlap.bounds,
@@ -763,7 +763,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "MEMBER_SPACING_TOO_SMALL",
           status: "warning",
-          summary: `Increase the gap between ${left.id} and ${right.id} to at least ${T.minimumMemberSpacing}px.`,
+          summary: `If conventional separation is intended, increase the gap between ${left.id} and ${right.id} to at least ${T.minimumMemberSpacing}px.`,
           objectIds: [left.id, right.id],
           connectorIds: [],
           bounds: unionBounds([leftGeometry.bounds, rightGeometry.bounds]),
@@ -784,7 +784,7 @@ export function analyzeDiagramVisualQuality(
       findings.push(finding({
         code: "CONNECTOR_OBJECT_INTRUSION",
         status: "fail",
-        summary: `Reroute ${connector.id} around unrelated member ${member.id}.`,
+        summary: `If this crossing-through is unintended, reroute ${connector.id} around unrelated member ${member.id}.`,
         objectIds: [member.id],
         connectorIds: [connector.id],
         bounds: memberGeometry.get(member.id)!.bounds,
@@ -806,7 +806,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "CONNECTOR_CROSSING",
           status: "warning",
-          summary: `Reroute ${left.id} and ${right.id} into separate lanes to remove their crossing.`,
+          summary: `If this crossing is unintended, reroute ${left.id} and ${right.id} into separate lanes.`,
           objectIds: [],
           connectorIds: [left.id, right.id],
           bounds: pointBounds(geometry.crossing),
@@ -817,7 +817,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "CONNECTOR_SHARED_SEGMENT",
           status: "warning",
-          summary: `Separate ${left.id} and ${right.id} so they do not share an ambiguous path segment.`,
+          summary: `If this shared segment is unintended, separate ${left.id} and ${right.id} into distinct paths.`,
           objectIds: [],
           connectorIds: [left.id, right.id],
           bounds: unionBounds([pointBounds(geometry.overlap.start), pointBounds(geometry.overlap.end)]),
@@ -838,7 +838,7 @@ export function analyzeDiagramVisualQuality(
       findings.push(finding({
         code: "CONNECTOR_LABEL_OBJECT_COLLISION",
         status: "fail",
-        summary: `Move the label for ${connector.id} or reroute it away from ${member.id}.`,
+        summary: `If this occlusion is unintended, move the label for ${connector.id} or reroute it away from ${member.id}.`,
         objectIds: [member.id],
         connectorIds: [connector.id],
         bounds: overlap.bounds,
@@ -851,7 +851,7 @@ export function analyzeDiagramVisualQuality(
       findings.push(finding({
         code: "CONNECTOR_LABEL_EDGE_COLLISION",
         status: "warning",
-        summary: `Move the label for ${connector.id} away from unrelated edge ${other.id}.`,
+        summary: `If this overlap is unintended, move the label for ${connector.id} away from unrelated edge ${other.id}.`,
         objectIds: [],
         connectorIds: [connector.id, other.id],
         bounds: labelBounds,
@@ -868,7 +868,7 @@ export function analyzeDiagramVisualQuality(
       findings.push(finding({
         code: "CONNECTOR_LABEL_LABEL_COLLISION",
         status: "fail",
-        summary: `Separate the labels for ${left.id} and ${right.id} so both remain readable.`,
+        summary: `If both labels should be independently readable, separate those for ${left.id} and ${right.id}.`,
         objectIds: [],
         connectorIds: [left.id, right.id],
         bounds: overlap,
@@ -887,7 +887,7 @@ export function analyzeDiagramVisualQuality(
       findings.push(finding({
         code: "ATTACHMENT_PORT_CONGESTION",
         status: "warning",
-        summary: `Distribute ${distinctConnectorIds.length} connectors across additional ports on ${member.id}.`,
+        summary: `If the shared attachment is unintended, distribute these ${distinctConnectorIds.length} connectors across additional ports on ${member.id}.`,
         objectIds: [member.id],
         connectorIds: distinctConnectorIds,
         bounds: unionBounds(cluster.map((use) => pointBounds(use.point))),
@@ -909,7 +909,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "CONNECTOR_SHARED_INITIAL_CORRIDOR",
           status: "warning",
-          summary: `Fan ${left.connectorId} and ${right.connectorId} out from separate ports on ${member.id}.`,
+          summary: `If the shared corridor is unintended, fan ${left.connectorId} and ${right.connectorId} out from separate ports on ${member.id}.`,
           objectIds: [member.id],
           connectorIds: [left.connectorId, right.connectorId],
           bounds: unionBounds([pointBounds(relation.start), pointBounds(relation.end)]),
@@ -928,7 +928,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "SHAPE_LABEL_LIKELY_TRUNCATED",
           status: "warning",
-          summary: `Enlarge ${member.id} or shorten its label so it fits within ${maximumLines} line${maximumLines === 1 ? "" : "s"}.`,
+          summary: `If the full label should be visible, enlarge ${member.id} or shorten it to fit within ${maximumLines} line${maximumLines === 1 ? "" : "s"}.`,
           objectIds: [member.id],
           connectorIds: [],
           bounds: memberGeometry.get(member.id)!.bounds,
@@ -954,7 +954,7 @@ export function analyzeDiagramVisualQuality(
         findings.push(finding({
           code: "TEXT_CONTENT_LIKELY_TRUNCATED",
           status: "warning",
-          summary: `Resize ${member.id} or shorten its text so all content fits within ${maximumLines} rendered line${maximumLines === 1 ? "" : "s"}.`,
+          summary: `If the full text should be visible, resize ${member.id} or shorten it to fit within ${maximumLines} rendered line${maximumLines === 1 ? "" : "s"}.`,
           objectIds: [member.id],
           connectorIds: [],
           bounds: memberGeometry.get(member.id)!.bounds,
@@ -982,7 +982,7 @@ export function analyzeDiagramVisualQuality(
     findings.push(finding({
       code: "CONNECTOR_LABEL_LIKELY_TRUNCATED",
       status: "warning",
-      summary: `Shorten the label for ${connector.id} or split the relationship so it fits within ${SEMANTIC_CONNECTOR_LABEL_MAX_LINES} rendered lines.`,
+      summary: `If the full relationship label should be visible, shorten ${connector.id} or split it to fit within ${SEMANTIC_CONNECTOR_LABEL_MAX_LINES} rendered lines.`,
       objectIds: [],
       connectorIds: [connector.id],
       bounds: labelBounds,

@@ -220,6 +220,31 @@ describe("deterministic route geometry", () => {
     ]);
   });
 
+  it("centers each side of an aligned auto-routed chain without treating opposite sides as competing ports", () => {
+    const nodes = [
+      node("client", 0, 0),
+      node("api", 300, 0),
+      node("auth", 600, 0),
+      node("store", 900, 0),
+    ];
+    const edges = nodes.slice(0, -1).map((current, index) => connector(
+      `chain-${index}`,
+      current.id,
+      nodes[index + 1].id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 1,
+    ));
+
+    const routes = resolveConnectorRoutes(room([...nodes, ...edges]));
+
+    for (const edge of edges) {
+      expect(routes[edge.id].routing).toMatchObject({ mode: "auto", kind: "straight" });
+      expect(routes[edge.id].start.normalizedAnchor).toEqual({ x: 1, y: 0.5 });
+      expect(routes[edge.id].end.normalizedAnchor).toEqual({ x: 0, y: 0.5 });
+      expect(routes[edge.id].points.every((point) => point.y === 40)).toBe(true);
+    }
+  });
+
   it("keeps imprecise straight ports movable across a later layout", () => {
     const start = node("start", 0, 0);
     const end = node("end", 0, 300);
@@ -487,6 +512,48 @@ describe("deterministic route geometry", () => {
     }
   });
 
+  it("allocates fan-in and fan-out independently on opposite sides of one hub", () => {
+    const hub = node("two-sided-hub", 300, 200, 120, 80);
+    const leftLeaves = [0, 200, 400].map((y, index) =>
+      node(`left-leaf-${index}`, 0, y),
+    );
+    const rightLeaves = [0, 200, 400].map((y, index) =>
+      node(`right-leaf-${index}`, 620, y),
+    );
+    const incoming = leftLeaves.map((leaf, index) => connector(
+      `incoming-${index}`,
+      leaf.id,
+      hub.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 1,
+    ));
+    const outgoing = rightLeaves.map((leaf, index) => connector(
+      `outgoing-${index}`,
+      hub.id,
+      leaf.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      index + 10,
+    ));
+
+    const all = [
+      hub,
+      ...leftLeaves,
+      ...rightLeaves,
+      ...incoming,
+      ...outgoing,
+    ];
+    const routes = resolveConnectorRoutes(room(all));
+    const reversed = resolveConnectorRoutes(room([...all].reverse()));
+
+    const incomingAnchors = incoming.map((edge) => routes[edge.id].end.normalizedAnchor!);
+    const outgoingAnchors = outgoing.map((edge) => routes[edge.id].start.normalizedAnchor!);
+    expect(incomingAnchors.map((anchor) => anchor.x)).toEqual([0, 0, 0]);
+    expect(incomingAnchors.map((anchor) => Number(anchor.y.toFixed(2)))).toEqual([0.16, 0.5, 0.84]);
+    expect(outgoingAnchors.map((anchor) => anchor.x)).toEqual([1, 1, 1]);
+    expect(outgoingAnchors.map((anchor) => Number(anchor.y.toFixed(2)))).toEqual([0.16, 0.5, 0.84]);
+    expect(reversed).toEqual(routes);
+  });
+
   it("solves default auto label positions around prior labels and routes but preserves explicit positions", () => {
     const first = connector(
       "label-a",
@@ -636,6 +703,47 @@ describe("deterministic route geometry", () => {
       isPrecise: true,
       snap: "none",
     });
+  });
+
+  it("does not let an authored attachment displace an automatic singleton's generated port", () => {
+    const hub = node("hub", 0, 100);
+    const authoredTarget = node("authored-target", 500, 0);
+    const automaticTarget = node("automatic-target", 500, 200);
+    const authored = connector(
+      "authored-edge",
+      hub.id,
+      authoredTarget.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      1,
+    );
+    authored.start = {
+      ...authored.start,
+      normalizedAnchor: { x: 1, y: 0.2 },
+      isPrecise: true,
+      isExact: false,
+      snap: "edge-point",
+    };
+    const automatic = connector(
+      "automatic-edge",
+      hub.id,
+      automaticTarget.id,
+      normalizeConnectorRouting({ mode: "auto" }),
+      2,
+    );
+
+    const routes = resolveConnectorRoutes(room([
+      hub,
+      authoredTarget,
+      automaticTarget,
+      authored,
+      automatic,
+    ]));
+
+    expect(routes[authored.id].start.normalizedAnchor).toEqual({ x: 1, y: 0.2 });
+    const automaticAnchor = routes[automatic.id].start.normalizedAnchor!;
+    expect(automaticAnchor).toEqual(
+      cardinalNormalizedAnchor(connectorPortSide(automaticAnchor), 0.5),
+    );
   });
 
   it("routes a dense architecture fan-out deterministically across insertion orders", () => {

@@ -214,7 +214,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.6.0");
+    expect(AGENT_DOC_VERSION).toBe("1.6.1");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -229,10 +229,10 @@ describe("agent-readable content", () => {
     ].join("\n");
 
     for (const phrase of [
-      "obstacle-aware `auto` routing",
-      "cardinal ports",
-      "elbow corridors",
-      "lane offsets",
+      "delegates route selection",
+      "Generated singleton endpoints",
+      "naturally sharing one side",
+      "intent-unaware",
       "`straight`",
       "`curved`",
       "`elbow`",
@@ -244,6 +244,8 @@ describe("agent-readable content", () => {
       "`port.position`",
       "`port.exact`",
       "deliberate overlap",
+      "freeform",
+      "illustration",
       "Diagram membership",
       "graph-aware",
       "`analyze_diagram_layout`",
@@ -260,7 +262,7 @@ describe("agent-readable content", () => {
     expect(skill).toContain("SVG renders resolved route geometry and labels");
   });
 
-  it("requires deterministic Diagram analysis and actual pixel inspection as separate gates", () => {
+  it("requires intent-led geometry interpretation and actual pixel inspection as separate steps", () => {
     const documents = {
       llms: makeLlmsTxt(),
       homepage: makeHomepageMarkdown(),
@@ -271,12 +273,9 @@ describe("agent-readable content", () => {
     };
 
     for (const [name, body] of Object.entries(documents)) {
-      expect(body, `${name} omits deterministic analysis`).toContain("`analyze_diagram_layout`");
-      expect(body, `${name} omits exact pass gate`).toMatch(/report\.status[^\n]*pass/i);
-      expect(body, `${name} omits deterministic coverage`).toContain("geometryCoverage");
-      expect(body, `${name} omits partial freehand coverage`).toMatch(
-        /partial[^\n]*(?:freehand|unsupportedDraw)/i,
-      );
+      expect(body, `${name} omits geometry analysis`).toContain("`analyze_diagram_layout`");
+      expect(body, `${name} omits intent limits`).toMatch(/intent-unaware|requested intent/i);
+      expect(body, `${name} omits freeform preservation`).toMatch(/freeform|deliberate geometry/i);
       expect(body, `${name} omits preview rendering`).toContain("`render_canvas_preview`");
       expect(body, `${name} omits screenshot capture`).toContain("`screenshotClip`");
       expect(body, `${name} omits pixel inspection`).toMatch(/inspect[^\n]*pixels|pixel inspection/i);
@@ -286,11 +285,13 @@ describe("agent-readable content", () => {
     }
 
     const guide = documents.guide;
-    expect(guide).toContain("`warning` is not a pass");
+    expect(guide).toContain("status as permission to redesign");
+    expect(guide).toContain("correct every unintended finding");
+    expect(guide).toContain("keep intentional geometry");
     expect(guide).toContain("visualInspectionStatus: not_performed");
     expect(guide).toContain("graph-aware hierarchy layout");
     expect(guide).toContain("explicit ports");
-    expect(guide).toMatch(/repeat from step 1/i);
+    expect(guide).toMatch(/edit[^\n]*repeat/i);
   });
 
   it("states the privacy and runtime-authority boundaries across detailed guidance", () => {

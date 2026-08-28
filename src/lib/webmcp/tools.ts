@@ -1004,7 +1004,7 @@ export function createJazzboardWebMcpTools(
       name: "draw_connection",
       title: "Connect semantic canvas objects",
       description:
-        "Connect IDs or points with auto, straight, curved, or elbow routing.",
+        "Connect IDs or points; auto delegates routing, while explicit ports and routes preserve intent.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1043,7 +1043,12 @@ export function createJazzboardWebMcpTools(
             type: "object",
             properties: {
               side: { enum: ["top", "right", "bottom", "left"] },
-              position: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+              position: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                default: 0.5,
+              },
               exact: { type: "boolean", default: false },
             },
             required: ["side"],

@@ -589,7 +589,12 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       required: ["side"],
       properties: {
         side: { enum: ["top", "right", "bottom", "left"] },
-        position: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+        position: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          default: 0.5,
+        },
         exact: {
           type: "boolean",
           default: false,
@@ -1450,7 +1455,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "analyze_diagram_layout",
       title: "Analyze exact diagram visual quality",
       description:
-        "Return geometry, truncation findings, routes, and partial freehand coverage for one exact Diagram; pixels still require inspection.",
+        "Return passive, intent-unaware conventional geometry signals, exact routes, and partial freehand coverage for one exact Diagram; the agent decides what is intentional and must inspect pixels.",
       schema: analyzeDiagramLayoutInput,
       annotations: readAnnotations,
       async execute(input, signal) {
@@ -1464,6 +1469,7 @@ export function createJazzboardSemanticWebMcpTools(
           const route = materializeConnectorRoute(connector, room);
           return [{
             connectorId,
+            connectorRevision: connector.revision,
             routing: route.routing,
             start: route.start,
             end: route.end,
@@ -1498,8 +1504,8 @@ export function createJazzboardSemanticWebMcpTools(
           },
           visualInspectionStatus: "not_performed",
           nextStep: report.geometryCoverage.status === "partial"
-            ? "Resolve every finding, but do not treat report.status as complete geometry certification: freehand stroke relationships are unsupported. Call render_canvas_preview for this exact Diagram revision and inspect all captured pixels including those strokes."
-            : "Resolve every finding until report.status is pass, then call render_canvas_preview for this exact Diagram revision and inspect the captured pixels. Geometry analysis alone is not visual QA.",
+            ? "Compare each intent-unaware geometry finding with the user's requested composition; preserve deliberate overlap, routing, and spacing. Correct unintended problems, then call render_canvas_preview for this exact Diagram revision and inspect all captured pixels, including unsupported freehand strokes. Geometry analysis alone is not visual QA."
+            : "Compare each intent-unaware geometry finding with the user's requested composition; preserve deliberate overlap, routing, and spacing, and correct only unintended problems. Then call render_canvas_preview for this exact Diagram revision and inspect the captured pixels. Geometry analysis alone is not visual QA.",
         };
       },
     }),

@@ -696,6 +696,7 @@ describe("bounded semantic reads", () => {
         },
         routes: [{
           connectorId: "api-db",
+          connectorRevision: 1,
           points: [{ x: 200, y: 150 }, { x: 400, y: 150 }],
           labelBounds: expect.any(Object),
         }],
@@ -708,7 +709,7 @@ describe("bounded semantic reads", () => {
           omittedConnectorIdsTruncated: false,
         },
         visualInspectionStatus: "not_performed",
-        nextStep: expect.stringContaining("Geometry analysis alone is not visual QA"),
+        nextStep: expect.stringMatching(/intent-unaware.*preserve deliberate overlap.*Geometry analysis alone is not visual QA/i),
       },
     });
 
