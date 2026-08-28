@@ -49,6 +49,15 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
   expect(layout.controls).not.toBeNull();
   expect(layout.panelControlsOverlap).toBe(false);
 
+  if (layout.viewportWidth > 720) {
+    expect(
+      Math.abs(layout.panel!.top - layout.controls!.top),
+      "left room card and right collaboration controls should share a top edge",
+    ).toBeLessThanOrEqual(1);
+  } else {
+    expect(layout.controls!.top).toBeGreaterThanOrEqual(layout.panel!.bottom + 8);
+  }
+
   for (const box of [layout.panel!, layout.controls!]) {
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(layout.viewportWidth);

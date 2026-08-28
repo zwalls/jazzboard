@@ -141,7 +141,7 @@
   max-width: calc(100vw - 32px);
   min-width: 260px;
   position: absolute;
-  top: 76px;
+  top: 14px;
   z-index: 390;
 }
 
@@ -299,7 +299,7 @@
   .combinedLeftPanel {
     left: 10px;
     max-width: calc(100vw - 20px);
-    top: 68px;
+    top: 9px;
   }
 }
 
