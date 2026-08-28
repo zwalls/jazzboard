@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
+import { ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
 import {
   forwardRef,
   useCallback,
@@ -183,7 +183,6 @@ export const SemanticImagePicker = forwardRef<
   const [selectedName, setSelectedName] = useState("");
   const [candidate, setCandidate] = useState<ImageCandidate | null>(null);
   const [alt, setAlt] = useState("");
-  const [altConfirmed, setAltConfirmed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -221,7 +220,6 @@ export const SemanticImagePicker = forwardRef<
     setSelectedName("");
     setCandidate(null);
     setAlt("");
-    setAltConfirmed(false);
     setProgress(0);
     setErrorMessage(null);
   }, []);
@@ -287,7 +285,6 @@ export const SemanticImagePicker = forwardRef<
     setSelectedName(file.name);
     setCandidate(null);
     setAlt("");
-    setAltConfirmed(false);
     setProgress(0);
     setErrorMessage(null);
 
@@ -333,7 +330,7 @@ export const SemanticImagePicker = forwardRef<
     event.preventDefault();
     if (!candidate || disabled || phase !== "review") return;
     const finalizedAlt = alt.trim();
-    if (!finalizedAlt || !altConfirmed) return;
+    if (!finalizedAlt) return;
 
     const session = sessionRef.current;
     abortRef.current?.abort();
@@ -395,7 +392,7 @@ export const SemanticImagePicker = forwardRef<
   }
 
   const dialogOpen = phase !== "idle";
-  const uploadAllowed = Boolean(candidate && alt.trim() && altConfirmed && !disabled);
+  const uploadAllowed = Boolean(candidate && alt.trim() && !disabled);
 
   return (
     <>
@@ -496,27 +493,11 @@ export const SemanticImagePicker = forwardRef<
                     disabled={phase === "uploading"}
                     aria-label="Image description"
                     aria-describedby={altHelpId}
-                    onChange={(event) => {
-                      setAlt(event.target.value);
-                      setAltConfirmed(false);
-                    }}
+                    onChange={(event) => setAlt(event.target.value)}
                   />
                   <small id={altHelpId}>
                     Describe the image’s useful content, not just its filename.
                   </small>
-                </label>
-
-                <label className={styles.confirmation}>
-                  <input
-                    type="checkbox"
-                    checked={altConfirmed}
-                    disabled={phase === "uploading" || !alt.trim()}
-                    onChange={(event) => setAltConfirmed(event.target.checked)}
-                  />
-                  <span className={styles.checkmark} aria-hidden="true">
-                    <Check size={13} strokeWidth={3} />
-                  </span>
-                  <span>I confirm this description truthfully identifies the image.</span>
                 </label>
 
                 {errorMessage ? <div className={styles.error} role="alert">{errorMessage}</div> : null}

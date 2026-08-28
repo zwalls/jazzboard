@@ -21,9 +21,6 @@ test("adds and exports an accessible screenshot-style image through the semantic
   const imageDialog = page.getByRole("dialog", { name: "Add an accessible image" });
   await expect(imageDialog).toBeVisible();
   await imageDialog.getByLabel("Image description").fill("Website screenshot showing the Jazzboard home page");
-  await imageDialog
-    .getByLabel("I confirm this description truthfully identifies the image.")
-    .check();
   const storedAsset = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&

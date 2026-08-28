@@ -659,7 +659,6 @@ test.describe("first-party semantic participant canvas", () => {
     const imageDialog = page.getByRole("dialog", { name: "Add an accessible image" });
     await expect(imageDialog).toBeVisible();
     await imageDialog.getByLabel("Image description").fill("Magenta private architecture marker");
-    await imageDialog.getByText("I confirm this description truthfully identifies the image.").click();
     await imageDialog.getByRole("button", { name: "Add to canvas" }).click();
     const image = await expect.poll(async () => {
       const objects = Object.values((await getRoom(page.request, host.room.id)).room.objects);

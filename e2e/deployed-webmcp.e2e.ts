@@ -2289,9 +2289,6 @@ test.describe("WebMCP browser acceptance", () => {
     });
     const imageReview = page.getByRole("dialog", { name: "Add an accessible image" });
     await expect(imageReview.getByLabel("Image description")).toHaveValue("browser acceptance");
-    await imageReview
-      .getByLabel("I confirm this description truthfully identifies the image.")
-      .check();
     await imageReview.getByRole("button", { name: "Add to canvas" }).click();
 
     await expect

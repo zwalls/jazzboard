@@ -90,14 +90,6 @@ async function chooseFile(input: HTMLInputElement, file: File): Promise<void> {
   await screen.findByRole("textbox", { name: "Image description" });
 }
 
-function confirmAlt(): void {
-  fireEvent.click(
-    screen.getByRole("checkbox", {
-      name: "I confirm this description truthfully identifies the image.",
-    }),
-  );
-}
-
 beforeEach(() => {
   decodedWidth = 1_600;
   decodedHeight = 900;
@@ -141,7 +133,7 @@ afterEach(() => {
 });
 
 describe("SemanticImagePicker", () => {
-  it("opens imperatively and returns the exact finalized asset with confirmed alt and capped dimensions", async () => {
+  it("opens imperatively and returns the exact finalized asset with a required description and capped dimensions", async () => {
     decodedWidth = 2_400;
     decodedHeight = 1_200;
     uploadMock.mockImplementation(async (_roomId, _file, options) => {
@@ -160,12 +152,12 @@ describe("SemanticImagePicker", () => {
       "system architecture final",
     );
     expect(screen.getByText("720 × 360 canvas units")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add to canvas" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add to canvas" })).toBeEnabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Image description" }), {
       target: { value: "Web client connected to the room API" },
     });
-    confirmAlt();
     fireEvent.click(screen.getByRole("button", { name: "Add to canvas" }));
 
     await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
@@ -226,7 +218,6 @@ describe("SemanticImagePicker", () => {
     const { input, onReady, onError } = renderPicker();
 
     await chooseFile(input, new File(["png"], "diagram.png", { type: "image/png" }));
-    confirmAlt();
     fireEvent.click(screen.getByRole("button", { name: "Add to canvas" }));
     expect(await screen.findByRole("progressbar", { name: "Image upload progress" })).toHaveValue(28);
 
@@ -244,7 +235,6 @@ describe("SemanticImagePicker", () => {
     const { input, onReady, onError } = renderPicker();
 
     await chooseFile(input, new File(["png"], "diagram.png", { type: "image/png" }));
-    confirmAlt();
     fireEvent.click(screen.getByRole("button", { name: "Add to canvas" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Private storage is unavailable.");
@@ -266,7 +256,6 @@ describe("SemanticImagePicker", () => {
     const { input, onReady, onError, unmount } = renderPicker();
 
     await chooseFile(input, new File(["png"], "diagram.png", { type: "image/png" }));
-    confirmAlt();
     fireEvent.click(screen.getByRole("button", { name: "Add to canvas" }));
     await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
 
@@ -279,25 +268,27 @@ describe("SemanticImagePicker", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:selected-image");
   });
 
-  it("requires confirmation again whenever the prefilled alt text is edited", async () => {
+  it("requires a non-empty description without a separate confirmation step", async () => {
     uploadMock.mockResolvedValue(asset);
     const { input } = renderPicker();
     await chooseFile(input, new File(["png"], "auth-request_flow.png", { type: "image/png" }));
 
     const description = screen.getByRole("textbox", { name: "Image description" });
-    const confirmation = screen.getByRole("checkbox", {
-      name: "I confirm this description truthfully identifies the image.",
-    });
     const submit = screen.getByRole("button", { name: "Add to canvas" });
 
     expect(description).toHaveValue("auth request flow");
-    expect(confirmation).not.toBeChecked();
-    fireEvent.click(confirmation);
     expect(submit).toBeEnabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    fireEvent.change(description, { target: { value: "   " } });
+    expect(submit).toBeDisabled();
+    const form = submit.closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    expect(uploadMock).not.toHaveBeenCalled();
 
     fireEvent.change(description, { target: { value: "Authentication request flow" } });
-    expect(confirmation).not.toBeChecked();
-    expect(submit).toBeDisabled();
+    expect(submit).toBeEnabled();
   });
 
   it("preserves small natural dimensions and rejects undecodable images", async () => {

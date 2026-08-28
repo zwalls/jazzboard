@@ -61,8 +61,7 @@
 .closeButton:focus-visible,
 .primaryButton:focus-visible,
 .secondaryButton:focus-visible,
-.field textarea:focus-visible,
-.confirmation input:focus-visible + .checkmark {
+.field textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(89, 101, 232, 0.22);
 }
 
@@ -189,48 +188,6 @@
   color: var(--ink-soft, #657087);
   font-size: 10px;
   line-height: 1.4;
-}
-
-.confirmation {
-  align-items: flex-start;
-  color: #3f495e;
-  cursor: pointer;
-  display: grid;
-  font-size: 11px;
-  gap: 8px;
-  grid-template-columns: 18px 1fr;
-  line-height: 1.45;
-}
-
-.confirmation input {
-  height: 1px;
-  opacity: 0;
-  position: absolute;
-  width: 1px;
-}
-
-.checkmark {
-  align-items: center;
-  background: #fff;
-  border: 1px solid #bdc5d4;
-  border-radius: 5px;
-  color: transparent;
-  display: inline-flex;
-  height: 18px;
-  justify-content: center;
-  width: 18px;
-}
-
-.confirmation input:checked + .checkmark {
-  background: var(--mint, #32b898);
-  border-color: var(--mint, #32b898);
-  color: #fff;
-}
-
-.confirmation input:disabled + .checkmark,
-.confirmation input:disabled ~ span:last-child {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .actions {
