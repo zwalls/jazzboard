@@ -78,10 +78,10 @@
   transform: translate(-50%, -50%);
 }
 
+/* Persistent chrome stays on the normal paint path so browser/pinch zoom cannot drop it. */
 .toolbar {
   align-items: center;
-  backdrop-filter: blur(18px) saturate(1.25);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.985);
   border: 1px solid rgba(201, 207, 220, 0.92);
   border-radius: 12px;
   bottom: 18px;
@@ -130,8 +130,7 @@
 
 .combinedLeftPanel {
   align-items: stretch;
-  backdrop-filter: blur(18px) saturate(1.25);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.985);
   border: 1px solid rgba(201, 207, 220, 0.92);
   border-radius: 14px;
   box-shadow: 0 8px 28px rgba(39, 47, 77, 0.12);

@@ -1,5 +1,5 @@
 .roomPage {
-  --chrome: rgba(255, 255, 255, 0.92);
+  --chrome: rgba(255, 255, 255, 0.985);
   --chrome-line: rgba(201, 207, 220, 0.9);
   --room-edge-inset: 16px;
   --room-right-panel-top: 65px;
@@ -30,9 +30,9 @@
   z-index: 400;
 }
 
+/* Persistent chrome stays on the normal paint path so browser/pinch zoom cannot drop it. */
 .floatingBar {
   align-items: center;
-  backdrop-filter: blur(18px) saturate(1.25);
   background: var(--chrome);
   border: 1px solid var(--chrome-line);
   border-radius: 14px;
@@ -43,7 +43,6 @@
 
 .combinedLeftPanel {
   align-items: stretch;
-  backdrop-filter: blur(18px) saturate(1.25);
   background: var(--chrome);
   border: 1px solid var(--chrome-line);
   border-radius: 14px;
