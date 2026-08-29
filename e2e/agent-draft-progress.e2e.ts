@@ -574,6 +574,29 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(sampledDraftRevisions).toEqual(expect.arrayContaining([1, 2, 3]));
     expect(sampledDraftRevisions.every((revision) => revision >= 1 && revision <= 4)).toBe(true);
     const artworkObjects = artwork.flatMap((frame) => frame.objects);
+    const firstVisibleArtworkFrame = artwork.find((frame) => frame.objects.length > 0);
+    expect(firstVisibleArtworkFrame?.objects).toHaveLength(3);
+    expect(
+      firstVisibleArtworkFrame?.objects.every((object) => object.state !== "complete"),
+      JSON.stringify(firstVisibleArtworkFrame),
+    ).toBe(true);
+    const firstRevisionObjectIds = ["browser", "gateway", "browser_gateway"]
+      .map((temporaryReference) => first.temporaryReferences[temporaryReference]!);
+    for (const objectId of firstRevisionObjectIds) {
+      const objectFrames = artwork
+        .flatMap((frame) => frame.objects)
+        .filter((object) => object.objectId === objectId);
+      const pendingIndex = objectFrames.findIndex((object) => (
+        object.state === "pending" && object.visibleParts === 0
+      ));
+      const activeIndex = objectFrames.findIndex((object) => (
+        object.state === "active" && object.progress > 0 && object.progress < 1
+      ));
+      const completeIndex = objectFrames.findIndex((object) => object.state === "complete");
+      expect(pendingIndex, JSON.stringify(objectFrames)).toBeGreaterThanOrEqual(0);
+      expect(activeIndex, JSON.stringify(objectFrames)).toBeGreaterThan(pendingIndex);
+      expect(completeIndex, JSON.stringify(objectFrames)).toBeGreaterThan(activeIndex);
+    }
     expect(artworkObjects.some((object) => object.state === "pending" && object.visibleParts === 0)).toBe(true);
     expect(artworkObjects.some((object) =>
       object.state === "active" &&

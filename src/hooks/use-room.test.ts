@@ -314,7 +314,7 @@ describe("applyTransientHumanPresence", () => {
 describe("useRoom request ordering", () => {
   it("loads authorized drafts after realtime identity and removes them from compact invalidations", async () => {
     const draft = agentDraft();
-    mocks.apiRequest.mockResolvedValueOnce({ ok: true, drafts: [draft], serverTime: Date.now() });
+    mocks.apiRequest.mockResolvedValueOnce({ ok: true, drafts: [draft], serverTime: draft.updatedAt + 10 });
     const { result } = renderHook(() => useRoom("room-a"));
     const realtime = realtimeFor("room-a");
 
@@ -358,6 +358,33 @@ describe("useRoom request ordering", () => {
       result.current.acceptAgentDraft(agentDraft());
     });
     expect(result.current.agentDrafts).toHaveLength(1);
+    expect(result.current.initialAgentDraftIds).toEqual([]);
+  });
+
+  it("does not settle a live draft updated during a delayed first list read", async () => {
+    const visitStartedAt = Date.now();
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const liveDraft = {
+      ...agentDraft(2),
+      createdAt: visitStartedAt - 10_000,
+      updatedAt: Date.now(),
+    };
+    mocks.apiRequest.mockResolvedValueOnce({
+      ok: true,
+      drafts: [liveDraft],
+      serverTime: liveDraft.updatedAt + 10,
+    });
+
+    await act(async () => {
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+
+    expect(result.current.agentDrafts).toEqual([liveDraft]);
     expect(result.current.initialAgentDraftIds).toEqual([]);
   });
 

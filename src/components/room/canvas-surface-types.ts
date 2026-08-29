@@ -27,7 +27,7 @@ export type CanvasSurfaceProps = {
   room: RoomState;
   /** Ephemeral, presentation-only agent previews; never part of RoomState. */
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];
-  /** Drafts already present on this visit's first authorized list read. */
+  /** Drafts whose latest server update predates this browser visit. */
   initialAgentDraftIds?: readonly string[];
   self: Participant;
   followTarget: FollowTarget;

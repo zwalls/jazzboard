@@ -166,6 +166,7 @@ export function useRoom(roomId: string) {
     >(),
   );
   const roomVisitRef = useRef<RoomVisit | null>(roomVisit);
+  const roomVisitStartedAtRef = useRef<{ visit: RoomVisit; startedAt: number } | null>(null);
   const refreshGenerationRef = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const eventRefreshRef = useRef<{
@@ -402,7 +403,24 @@ export function useRoom(roomId: string) {
     }
     if (initialDraftListVisitRef.current !== activeVisit) {
       initialDraftListVisitRef.current = activeVisit;
-      setInitialDraftIdsState({ visit: activeVisit, value: [...returned] });
+      // Calibrate the browser visit against this response's server clock. The
+      // elapsed-time subtraction is deliberately conservative: network time
+      // can make the estimated boundary slightly earlier, which may animate a
+      // historical draft, but a draft created or revised after the board visit
+      // began can never be mistaken for settled hydration and pop into view.
+      const visitTiming = roomVisitStartedAtRef.current;
+      const visitStartedAt = visitTiming?.visit === activeVisit
+        ? visitTiming.startedAt
+        : performance.now();
+      const elapsedSinceVisitStarted = Math.max(0, performance.now() - visitStartedAt);
+      const estimatedServerTimeAtVisitStart = result.serverTime - elapsedSinceVisitStarted;
+      const initiallySettledDraftIds = result.drafts
+        .filter((draft) => (
+          returned.has(draft.id) &&
+          draft.updatedAt <= estimatedServerTimeAtVisitStart
+        ))
+        .map((draft) => draft.id);
+      setInitialDraftIdsState({ visit: activeVisit, value: initiallySettledDraftIds });
     }
     publishDraftState();
   }, [fenceDraftListAbsence, publishDraftState, removeAgentDraft]);
@@ -473,6 +491,7 @@ export function useRoom(roomId: string) {
     pendingCommittedDraftRemovals.clear();
     pendingDraftListAbsences.clear();
     initialDraftListVisitRef.current = null;
+    roomVisitStartedAtRef.current = { visit: roomVisit, startedAt: performance.now() };
 
     return () => {
       roomVisitRef.current = null;
@@ -485,6 +504,9 @@ export function useRoom(roomId: string) {
       pendingCommittedDraftRemovals.clear();
       pendingDraftListAbsences.clear();
       initialDraftListVisitRef.current = null;
+      if (roomVisitStartedAtRef.current?.visit === roomVisit) {
+        roomVisitStartedAtRef.current = null;
+      }
     };
   }, [roomVisit]);
 
