@@ -468,7 +468,7 @@ function DraftAgentCursor({
         state="working"
       />
       <span className={styles.agentCursorLabel} data-agent-cursor-label="true" style={{ background: participant.color }}>
-        {participant.displayName} · agent
+        {participant.displayName}
       </span>
     </div>
   );
@@ -683,7 +683,7 @@ function LocalAgentCursor({
         data-agent-cursor-label="true"
         style={{ background: participant.color }}
       >
-        {participant.displayName} · agent
+        {participant.displayName}
         {workingLabel
           ? ` · ${workingLabel}`
           : presentingAsWorking && activity

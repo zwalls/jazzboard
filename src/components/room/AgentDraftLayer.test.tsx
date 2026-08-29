@@ -119,7 +119,9 @@ describe("AgentDraftLayer", () => {
     expect(container.querySelector('[data-agent-draft-object-id][tabindex]')).toBeNull();
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector("svg")).toHaveAttribute("pointer-events", "none");
-    expect(container.querySelector("[data-agent-draft-pill]")).toHaveTextContent("Draft preview · not saved");
+    const statusPill = container.querySelector("[data-agent-draft-pill]");
+    expect(statusPill).toHaveTextContent("Draft preview · not saved");
+    expect(statusPill).not.toHaveTextContent("· agent");
   });
 
   it("registers normalized reveal parts and paints only the active work in the bot's wake", () => {

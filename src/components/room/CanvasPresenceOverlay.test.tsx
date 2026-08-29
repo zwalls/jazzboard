@@ -447,7 +447,8 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveAttribute("data-agent-draft-choreography", "true");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
-    expect(marker).toHaveTextContent("Orbit Architect · agent");
+    expect(marker).toHaveTextContent("Orbit Architect");
+    expect(marker).not.toHaveTextContent("· agent");
     expect(marker).not.toHaveTextContent("Drafting preview");
     const avatar = container.querySelector<HTMLElement>('[data-agent-avatar-state="working"]');
     expect(avatar).not.toBeNull();
@@ -467,7 +468,8 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     );
 
     const marker = screen.getByTestId("agent-cursor-participant_orbit");
-    expect(marker).toHaveTextContent("Orbit Architect · agent");
+    expect(marker).toHaveTextContent("Orbit Architect");
+    expect(marker).not.toHaveTextContent("· agent");
     expect(marker).not.toHaveTextContent("Validating draft");
   });
 
@@ -507,7 +509,8 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     const validating = screen.getByTestId("agent-cursor-participant_orbit");
     expect(validating).toBe(marker);
     expect(validating.style.transform).toBe(before);
-    expect(validating).toHaveTextContent("Orbit Architect · agent");
+    expect(validating).toHaveTextContent("Orbit Architect");
+    expect(validating).not.toHaveTextContent("· agent");
     expect(validating).not.toHaveTextContent("Validating draft");
     expect(animation.pending()).toBe(1);
   });

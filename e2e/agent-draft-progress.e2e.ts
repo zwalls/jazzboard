@@ -479,7 +479,10 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       viewerPage
         .getByTestId(`agent-cursor-${host.participantId}`)
         .locator('[data-agent-cursor-label="true"]'),
-    ).toHaveText("Ari Agent Owner · agent");
+    ).toHaveText("Ari Agent Owner");
+    await expect(
+      viewerPage.locator(`[data-agent-draft-pill="${first.draftId}"] strong`),
+    ).toHaveText("Ari Agent Owner");
     await page.waitForTimeout(450);
 
     const second = await callTool<DraftedResult>(page, "apply_canvas_transaction", {

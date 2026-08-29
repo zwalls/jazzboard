@@ -615,7 +615,7 @@ export function AgentDraftLayer({
             "--agent-draft-color": draft.author.color,
           } as CSSProperties}
         >
-          <strong>{draft.author.displayName} · agent</strong>
+          <strong>{draft.author.displayName}</strong>
           <span>{statusLabel(draft)} · {objects.length} {objects.length === 1 ? "element" : "elements"}</span>
         </div>
       ))}
