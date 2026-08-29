@@ -475,11 +475,27 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(first).toMatchObject({ outcome: "drafted", draftRevision: 1, baselineRoomRevision });
     expect(first.draft.previewObjects).toHaveLength(3);
     await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 1, objectCount: 3 });
-    await expect(
-      viewerPage
-        .getByTestId(`agent-cursor-${host.participantId}`)
-        .locator('[data-agent-cursor-label="true"]'),
-    ).toHaveText("Ari Agent Owner");
+    const agentNameTag = viewerPage
+      .getByTestId(`agent-cursor-${host.participantId}`)
+      .locator('[data-agent-cursor-label="true"]');
+    await expect(agentNameTag).toHaveText("Ari Agent Owner");
+    const agentNameTagStyle = await agentNameTag.evaluate((element) => {
+      const tagStyle = getComputedStyle(element);
+      const markerStyle = getComputedStyle(element.parentElement!);
+      return {
+        backgroundColor: tagStyle.backgroundColor,
+        borderColor: tagStyle.borderColor,
+        boxShadow: tagStyle.boxShadow,
+        color: tagStyle.color,
+        markerColor: markerStyle.color,
+      };
+    });
+    expect(agentNameTagStyle).toMatchObject({
+      backgroundColor: "rgb(255, 255, 255)",
+      color: agentNameTagStyle.markerColor,
+    });
+    expect(agentNameTagStyle.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(agentNameTagStyle.boxShadow).not.toBe("none");
     await expect(
       viewerPage.locator(`[data-agent-draft-pill="${first.draftId}"] strong`),
     ).toHaveText("Ari Agent Owner");

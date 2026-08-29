@@ -1418,6 +1418,13 @@ button.idleAgentCursor {
 }
 
 .agentCursorLabel {
+  background: #fff;
+  border: 1px solid color-mix(in srgb, currentColor 72%, #fff);
+  box-shadow:
+    0 1px 3px rgba(35, 43, 72, 0.14),
+    0 0 0 3px color-mix(in srgb, currentColor 16%, transparent),
+    0 4px 14px color-mix(in srgb, currentColor 22%, transparent);
+  color: inherit;
   left: calc(var(--agent-marker-size) - 9px);
   top: calc(var(--agent-marker-size) - 8px);
 }

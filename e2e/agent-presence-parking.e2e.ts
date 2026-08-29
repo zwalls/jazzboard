@@ -33,6 +33,23 @@ test("parks an idle agent locally and restores authoritative motion when work re
     await expect(marker).toHaveAttribute("data-agent-draggable", "true");
     await expect(marker).toHaveAttribute("data-working", "false");
     await expect(marker).toHaveAttribute("data-local-parked", "false");
+    const agentNameTagStyle = await marker.locator('[data-agent-cursor-label="true"]').evaluate((element) => {
+      const tagStyle = getComputedStyle(element);
+      const markerStyle = getComputedStyle(element.parentElement!);
+      return {
+        backgroundColor: tagStyle.backgroundColor,
+        borderColor: tagStyle.borderColor,
+        boxShadow: tagStyle.boxShadow,
+        color: tagStyle.color,
+        markerColor: markerStyle.color,
+      };
+    });
+    expect(agentNameTagStyle).toMatchObject({
+      backgroundColor: "rgb(255, 255, 255)",
+      color: agentNameTagStyle.markerColor,
+    });
+    expect(agentNameTagStyle.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(agentNameTagStyle.boxShadow).not.toBe("none");
 
     const sharedMutationRequests: string[] = [];
     const observeRequests = (request: Request) => {

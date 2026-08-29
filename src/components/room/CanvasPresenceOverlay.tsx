@@ -467,7 +467,7 @@ function DraftAgentCursor({
         size={AGENT_AVATAR_SIZE}
         state="working"
       />
-      <span className={styles.agentCursorLabel} data-agent-cursor-label="true" style={{ background: participant.color }}>
+      <span className={styles.agentCursorLabel} data-agent-cursor-label="true">
         {participant.displayName}
       </span>
     </div>
@@ -681,7 +681,6 @@ function LocalAgentCursor({
       <span
         className={styles.agentCursorLabel}
         data-agent-cursor-label="true"
-        style={{ background: participant.color }}
       >
         {participant.displayName}
         {workingLabel

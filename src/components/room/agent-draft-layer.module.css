@@ -140,10 +140,13 @@
 }
 
 .statusPill {
-  background: color-mix(in srgb, #fff 94%, var(--agent-draft-color, #5965e8));
+  background: #fff;
   border: 1px dashed color-mix(in srgb, var(--agent-draft-color, #5965e8) 66%, #fff);
   border-radius: 9px;
-  box-shadow: 0 5px 18px rgba(35, 43, 72, 0.12);
+  box-shadow:
+    0 2px 8px rgba(35, 43, 72, 0.11),
+    0 0 0 3px color-mix(in srgb, var(--agent-draft-color, #5965e8) 10%, transparent),
+    0 6px 18px color-mix(in srgb, var(--agent-draft-color, #5965e8) 14%, transparent);
   color: #3f4960;
   display: flex;
   flex-direction: column;
@@ -166,7 +169,7 @@
 }
 
 .statusPill strong {
-  color: #252d40;
+  color: var(--agent-draft-color, #5965e8);
   font-size: 10px;
   font-weight: 760;
   line-height: 1.2;
