@@ -37,7 +37,7 @@ const actor = {
 
 const room: RoomState = {
   id: "room/a b",
-  code: "1234",
+  code: "ABC234",
   title: "Architecture",
   roomRevision: 9,
   createdAt: 1,
@@ -361,12 +361,12 @@ describe("DurabilityPanel", () => {
     expect(screen.getByText("Collaborate live")).toBeInTheDocument();
     expect(screen.queryByText("Share read-only")).not.toBeInTheDocument();
     expect(screen.getByText(/use Export → PNG/)).toBeInTheDocument();
-    expect(screen.getByText("1234")).toBeInTheDocument();
+    expect(screen.getByText("ABC-234")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Semantic JSON" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Copy invite" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining("http://localhost:3000/#join=1234"),
+      expect.stringContaining("http://localhost:3000/#join=ABC234"),
     ));
     expect(onAnnounce).toHaveBeenCalledWith("Live collaboration invite copied.");
     expect(apiRequest).not.toHaveBeenCalled();

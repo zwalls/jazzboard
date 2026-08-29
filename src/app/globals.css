@@ -696,14 +696,13 @@ input:focus-visible {
 }
 
 .code-input {
-  background-image: linear-gradient(to right, transparent calc(100% - 1px), #e1e4eb calc(100% - 1px));
-  background-size: 25% 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 740;
-  letter-spacing: 0.49em;
-  padding: 0 6px 0 16px;
+  letter-spacing: 0.22em;
+  padding: 0 12px;
   text-align: center;
+  text-transform: uppercase;
 }
 
 .text-input:hover,

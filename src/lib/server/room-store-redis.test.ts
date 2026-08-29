@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { blobAssetPathname, privateAssetProxyPath } from "@/lib/assets/policy";
 import { roomBlobNamespace } from "@/lib/assets/private";
+import { isCurrentRoomCode } from "@/lib/domain/room-code";
 import type { ImageObject, RoomActivity, RoomEvent, RoomState } from "@/lib/domain/types";
 
 import {
@@ -510,6 +511,7 @@ describe("RedisRoomStore v3 persistence", () => {
       title: "Atomic room",
     });
 
+    expect(isCurrentRoomCode(room.code)).toBe(true);
     const args = vi.mocked(redis.eval).mock.calls[0];
     expect(args[1]).toBe(5);
     expect(args.slice(2, 7)).toEqual([

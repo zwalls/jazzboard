@@ -40,18 +40,21 @@ describe("room request schemas", () => {
     expect(roomTitleSchema.safeParse("a".repeat(101)).success).toBe(false);
   });
 
-  it("accepts only a four-digit join code and an explicit role", () => {
+  it("normalizes current codes, accepts legacy codes, and requires an explicit role", () => {
     expect(
-      joinRoomRequestSchema.parse({ code: "0042", displayName: " Bob ", role: "spectator" }),
-    ).toEqual({ code: "0042", displayName: "Bob", role: "spectator" });
+      joinRoomRequestSchema.parse({ code: "abc-234", displayName: " Bob ", role: "spectator" }),
+    ).toEqual({ code: "ABC234", displayName: "Bob", role: "spectator" });
+    expect(
+      joinRoomRequestSchema.parse({ code: "12-34", displayName: "Bob", role: "participant" }),
+    ).toEqual({ code: "1234", displayName: "Bob", role: "participant" });
 
     expect(joinRoomRequestSchema.safeParse({ code: "42", displayName: "Bob", role: "participant" }).success).toBe(
       false,
     );
-    expect(joinRoomRequestSchema.safeParse({ code: "abcd", displayName: "Bob", role: "participant" }).success).toBe(
+    expect(joinRoomRequestSchema.safeParse({ code: "ABO234", displayName: "Bob", role: "participant" }).success).toBe(
       false,
     );
-    expect(joinRoomRequestSchema.safeParse({ code: "0042", displayName: "Bob", role: "host" }).success).toBe(
+    expect(joinRoomRequestSchema.safeParse({ code: "ABC234", displayName: "Bob", role: "host" }).success).toBe(
       false,
     );
   });

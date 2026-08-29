@@ -1,17 +1,27 @@
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
+
+import { ipAddress } from "@vercel/functions";
 
 import { sha256 } from "@/lib/server/idempotency";
 import { getRedisForRealtime } from "@/lib/server/room-store";
+import { deriveSessionSecretValue } from "@/lib/server/session";
 
 export const JOIN_ATTEMPT_LIMIT = 8;
+export const JOIN_NETWORK_ATTEMPT_LIMIT = 64;
 export const JOIN_ATTEMPT_WINDOW_SECONDS = 60;
 
-const KEY_PREFIX = "jazzboard:join-attempts:";
+const KEY_PREFIX = "jazzboard:join-attempts:v3:";
 
 type LocalWindow = {
-  count: number;
   resetAt: number;
-  attempts: Map<string, boolean>;
+  attempts: Set<string>;
+};
+
+type DimensionState = {
+  count: number;
+  limit: number;
+  retryAfterSeconds: number;
 };
 
 export type JoinAttemptLimit = {
@@ -27,41 +37,61 @@ export type JoinAttemptIdentity = {
 };
 
 declare global {
-  var __jazzboardLocalJoinAttemptWindows: Map<string, LocalWindow> | undefined;
+  var __jazzboardLocalJoinAttemptWindowsV3: Map<string, LocalWindow> | undefined;
 }
 
-const CONSUME_FIXED_WINDOW_SCRIPT = `
-local admission = redis.call("HGET", KEYS[1], ARGV[2])
-if not admission then
-  local count_before = redis.call("HLEN", KEYS[1])
-  admission = count_before < tonumber(ARGV[3]) and "1" or "0"
-  redis.call("HSET", KEYS[1], ARGV[2], admission)
+const CONSUME_JOIN_ATTEMPT_SCRIPT = `
+local window_seconds = tonumber(ARGV[1])
+local attempt_hash = ARGV[2]
+local session_limit = tonumber(ARGV[3])
+local network_limit = tonumber(ARGV[4])
+local has_network = ARGV[5] == "1"
+
+local session_already = redis.call("HEXISTS", KEYS[1], attempt_hash) == 1
+local session_count = redis.call("HLEN", KEYS[1])
+local session_allows = session_already or session_count < session_limit
+
+local network_already = false
+local network_count = 0
+local network_allows = true
+if has_network then
+  network_already = redis.call("HEXISTS", KEYS[2], attempt_hash) == 1
+  network_count = redis.call("HLEN", KEYS[2])
+  network_allows = network_already or network_count < network_limit
 end
-local ttl = redis.call("TTL", KEYS[1])
-if ttl < 0 then
-  redis.call("EXPIRE", KEYS[1], ARGV[1])
-  ttl = tonumber(ARGV[1])
+
+local allowed = session_allows and network_allows
+if allowed then
+  if not session_already then
+    redis.call("HSET", KEYS[1], attempt_hash, "1")
+    session_count = session_count + 1
+  end
+  if has_network and not network_already then
+    redis.call("HSET", KEYS[2], attempt_hash, "1")
+    network_count = network_count + 1
+  end
 end
-local count = redis.call("HLEN", KEYS[1])
-return { count, ttl, tonumber(admission) }
+
+local function bounded_ttl(key)
+  if redis.call("EXISTS", key) == 0 then return 0 end
+  local ttl = redis.call("TTL", key)
+  if ttl < 0 then
+    redis.call("EXPIRE", key, window_seconds)
+    return window_seconds
+  end
+  return ttl
+end
+
+local session_ttl = bounded_ttl(KEYS[1])
+local network_ttl = 0
+if has_network then network_ttl = bounded_ttl(KEYS[2]) end
+
+return { session_count, session_ttl, network_count, network_ttl, allowed and 1 or 0 }
 `;
 
-function result(
-  count: number,
-  retryAfterSeconds: number,
-  allowed = count <= JOIN_ATTEMPT_LIMIT,
-): JoinAttemptLimit {
-  return {
-    allowed,
-    limit: JOIN_ATTEMPT_LIMIT,
-    remaining: Math.max(0, JOIN_ATTEMPT_LIMIT - count),
-    retryAfterSeconds: allowed ? 0 : Math.max(1, retryAfterSeconds),
-  };
-}
-
 function localWindows(): Map<string, LocalWindow> {
-  globalThis.__jazzboardLocalJoinAttemptWindows ??= new Map();
-  return globalThis.__jazzboardLocalJoinAttemptWindows;
+  globalThis.__jazzboardLocalJoinAttemptWindowsV3 ??= new Map();
+  return globalThis.__jazzboardLocalJoinAttemptWindowsV3;
 }
 
 function logicalAttemptHash(
@@ -71,38 +101,98 @@ function logicalAttemptHash(
   const logicalKey = identity
     ? `${identity.idempotencyKey}\0${identity.requestDigest}`
     : `unkeyed_${randomUUID()}`;
-  return sha256(`jazzboard:join-attempt:v2\0${participantId}\0${logicalKey}`);
+  return sha256(`jazzboard:join-attempt:v3\0${participantId}\0${logicalKey}`);
 }
 
 function participantWindowKey(participantId: string): string {
-  return `${KEY_PREFIX}v2:${sha256(`jazzboard:join-participant:v2\0${participantId}`)}`;
+  const scope = sha256(`jazzboard:join-participant:v3\0${participantId}`);
+  return `${KEY_PREFIX}session:${scope}`;
+}
+
+function trustedNetworkScope(request: Request): string | null {
+  if (process.env.VERCEL !== "1") return null;
+  const address = ipAddress(request);
+  if (!address || isIP(address) === 0) return null;
+  const token = deriveSessionSecretValue("join-attempt-ip", address.toLowerCase());
+  return sha256(`jazzboard:join-network:v3\0${token}`);
+}
+
+function networkWindowKey(networkScope: string): string {
+  return `${KEY_PREFIX}network:${networkScope}`;
+}
+
+function result(
+  allowed: boolean,
+  session: DimensionState,
+  network: DimensionState | null,
+): JoinAttemptLimit {
+  const dimensions = network ? [session, network] : [session];
+  const remaining = allowed
+    ? Math.min(...dimensions.map((dimension) => Math.max(0, dimension.limit - dimension.count)))
+    : 0;
+  const retryAfterSeconds = allowed
+    ? 0
+    : Math.max(
+        1,
+        ...dimensions
+          .filter((dimension) => dimension.count >= dimension.limit)
+          .map((dimension) => dimension.retryAfterSeconds),
+      );
+  return {
+    allowed,
+    limit: JOIN_ATTEMPT_LIMIT,
+    remaining,
+    retryAfterSeconds,
+  };
+}
+
+function currentLocalWindow(
+  windows: Map<string, LocalWindow>,
+  key: string,
+  now: number,
+): LocalWindow {
+  const existing = windows.get(key);
+  if (existing && existing.resetAt > now && existing.attempts instanceof Set) return existing;
+  return {
+    resetAt: now + JOIN_ATTEMPT_WINDOW_SECONDS * 1_000,
+    attempts: new Set(),
+  };
+}
+
+function dimensionState(window: LocalWindow, limit: number, now: number): DimensionState {
+  return {
+    count: window.attempts.size,
+    limit,
+    retryAfterSeconds: Math.max(1, Math.ceil((window.resetAt - now) / 1_000)),
+  };
 }
 
 function consumeLocal(
   participantId: string,
+  request: Request,
   identity: JoinAttemptIdentity | null | undefined,
   now: number,
 ): JoinAttemptLimit {
   const windows = localWindows();
-  const existing = windows.get(participantId);
-  if (existing && !(existing.attempts instanceof Map)) {
-    const legacyAttempts = existing.attempts as unknown as Set<string>;
-    existing.attempts = new Map(
-      [...legacyAttempts].map((hash, index) => [hash, index < JOIN_ATTEMPT_LIMIT]),
-    );
-  }
-  const resetAt = now + JOIN_ATTEMPT_WINDOW_SECONDS * 1_000;
   const attemptHash = logicalAttemptHash(participantId, identity);
-  const window = !existing || existing.resetAt <= now
-    ? { count: 1, resetAt, attempts: new Map([[attemptHash, true]]) }
-    : existing;
+  const sessionKey = participantWindowKey(participantId);
+  const sessionWindow = currentLocalWindow(windows, sessionKey, now);
+  const networkScope = trustedNetworkScope(request);
+  const networkKey = networkScope ? networkWindowKey(networkScope) : null;
+  const networkWindow = networkKey ? currentLocalWindow(windows, networkKey, now) : null;
 
-  if (existing && existing.resetAt > now && !existing.attempts.has(attemptHash)) {
-    existing.count += 1;
-    existing.attempts.set(attemptHash, existing.count <= JOIN_ATTEMPT_LIMIT);
+  const sessionAllows = sessionWindow.attempts.has(attemptHash) ||
+    sessionWindow.attempts.size < JOIN_ATTEMPT_LIMIT;
+  const networkAllows = !networkWindow || networkWindow.attempts.has(attemptHash) ||
+    networkWindow.attempts.size < JOIN_NETWORK_ATTEMPT_LIMIT;
+  const allowed = sessionAllows && networkAllows;
+
+  if (allowed) {
+    sessionWindow.attempts.add(attemptHash);
+    networkWindow?.attempts.add(attemptHash);
   }
-
-  windows.set(participantId, window);
+  windows.set(sessionKey, sessionWindow);
+  if (networkKey && networkWindow) windows.set(networkKey, networkWindow);
 
   if (windows.size > 1_000) {
     for (const [key, candidate] of windows) {
@@ -111,56 +201,81 @@ function consumeLocal(
   }
 
   return result(
-    window.count,
-    Math.ceil((window.resetAt - now) / 1_000),
-    window.attempts.get(attemptHash) ?? false,
+    allowed,
+    dimensionState(sessionWindow, JOIN_ATTEMPT_LIMIT, now),
+    networkWindow
+      ? dimensionState(networkWindow, JOIN_NETWORK_ATTEMPT_LIMIT, now)
+      : null,
   );
 }
 
-function parseRedisResult(value: unknown): [count: number, ttl: number, allowed: boolean] {
-  if (!Array.isArray(value) || value.length !== 3) {
+function parseRedisResult(
+  value: unknown,
+): [sessionCount: number, sessionTtl: number, networkCount: number, networkTtl: number, allowed: boolean] {
+  if (!Array.isArray(value) || value.length !== 5) {
     throw new Error("Redis returned an invalid join-attempt limit result.");
   }
-  const count = Number(value[0]);
-  const ttl = Number(value[1]);
-  const admission = Number(value[2]);
+  const sessionCount = Number(value[0]);
+  const sessionTtl = Number(value[1]);
+  const networkCount = Number(value[2]);
+  const networkTtl = Number(value[3]);
+  const admission = Number(value[4]);
   if (
-    !Number.isInteger(count) ||
-    count < 1 ||
-    !Number.isFinite(ttl) ||
+    !Number.isSafeInteger(sessionCount) || sessionCount < 0 ||
+    !Number.isFinite(sessionTtl) ||
+    !Number.isSafeInteger(networkCount) || networkCount < 0 ||
+    !Number.isFinite(networkTtl) ||
     (admission !== 0 && admission !== 1)
   ) {
     throw new Error("Redis returned an invalid join-attempt limit result.");
   }
-  return [count, ttl, admission === 1];
+  return [sessionCount, sessionTtl, networkCount, networkTtl, admission === 1];
 }
 
 /**
- * Consumes one logical exact-code join attempt for a signed guest session.
- *
- * Production uses one atomic Redis script so concurrent serverless requests share
- * a fixed window. Development without Redis uses the same policy in local memory.
- * The optional keyed request identity deduplicates delivery retries within the
- * fixed window. Both participant and retry identities are one-way hashed before
- * Redis storage; callers cannot accidentally key the limit by IP or room code.
+ * Consumes one logical exact-code join attempt. A strict signed-session budget
+ * handles retries and accidental loops. On Vercel, a larger independent budget
+ * derived from the platform-trusted client IP prevents resetting that budget by
+ * discarding the guest cookie. Raw IPs and participant IDs never enter Redis.
+ * Rejected attempts are not stored, keeping both fixed-window hashes bounded.
  */
 export async function consumeJoinAttempt(
   participantId: string,
+  request: Request,
   identity?: JoinAttemptIdentity | null,
 ): Promise<JoinAttemptLimit> {
   const redis = getRedisForRealtime();
-  if (!redis) return consumeLocal(participantId, identity, Date.now());
+  if (!redis) return consumeLocal(participantId, request, identity, Date.now());
 
-  const attemptHash = logicalAttemptHash(participantId, identity);
-
-  const value = await redis.eval(
-    CONSUME_FIXED_WINDOW_SCRIPT,
-    1,
+  const networkScope = trustedNetworkScope(request);
+  const keys = [
     participantWindowKey(participantId),
+    ...(networkScope ? [networkWindowKey(networkScope)] : []),
+  ];
+  const value = await redis.eval(
+    CONSUME_JOIN_ATTEMPT_SCRIPT,
+    keys.length,
+    ...keys,
     JOIN_ATTEMPT_WINDOW_SECONDS.toString(),
-    attemptHash,
+    logicalAttemptHash(participantId, identity),
     JOIN_ATTEMPT_LIMIT.toString(),
+    JOIN_NETWORK_ATTEMPT_LIMIT.toString(),
+    networkScope ? "1" : "0",
   );
-  const [count, ttl, allowed] = parseRedisResult(value);
-  return result(count, ttl, allowed);
+  const [sessionCount, sessionTtl, networkCount, networkTtl, allowed] = parseRedisResult(value);
+  return result(
+    allowed,
+    {
+      count: sessionCount,
+      limit: JOIN_ATTEMPT_LIMIT,
+      retryAfterSeconds: sessionTtl,
+    },
+    networkScope
+      ? {
+          count: networkCount,
+          limit: JOIN_NETWORK_ATTEMPT_LIMIT,
+          retryAfterSeconds: networkTtl,
+        }
+      : null,
+  );
 }

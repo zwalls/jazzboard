@@ -16,9 +16,9 @@ The defining experience is multiple humans and participant-owned agents collabor
 
 ### 1. Private rooms and exact-code joining
 
-- Every room owns one persistent infinite canvas and one short, unique four-digit join code.
+- Every newly created room owns one persistent infinite canvas and one unique six-character join code drawn from unambiguous uppercase letters and numbers. Existing rooms retain their exact legacy four-digit codes.
 - A room is created privately and is never published to a Jazzboard directory.
-- Joining requires the exact four-digit code supplied by the person or their AI interaction.
+- Joining requires the exact supplied six-character code, or an exact legacy four-digit code. ASCII case, spaces, and hyphens may be normalized as formatting; Jazzboard never guesses or performs fuzzy lookup.
 - Jazzboard provides no global room directory, search, autocomplete, room enumeration, or tool that lists rooms created by other people.
 - A previously authorized room may be reopened only through a private recent-room reference stored by the current browser on the Jazzboard origin.
 
@@ -28,7 +28,7 @@ The defining experience is multiple humans and participant-owned agents collabor
 - The server issues a cryptographically random participant ID in an HMAC-signed, `HttpOnly`, `SameSite=Lax` guest cookie; production cookies are `Secure`.
 - The server associates that session ID with room membership, display name, assigned color, and participant or spectator role.
 - After join, the signed session and server-side membership—not a room code, local storage, IP address, tool argument, or browser-provided actor ID—authorize every server room read and shared mutation.
-- Exact-code joins are throttled by the signed session participant ID, never by IP address. The first-demo policy permits eight attempts per 60-second fixed window; production coordinates the counter atomically through Redis.
+- Exact-code joins are throttled by the signed guest session, with eight attempts per 60-second fixed window. On Vercel, a second 64-attempt window is keyed by a privacy-preserving hash derived from the server-trusted network scope. Raw IP addresses are never stored, no room- or code-specific bucket exists, and production coordinates both dimensions atomically through Redis.
 - The browser can remember room metadata locally, but it never stores a bearer token or replaces server authorization.
 - Every direct edit is attributed to the authorized session's human or participant-owned agent. A caller cannot impersonate another participant or choose an arbitrary actor identity.
 
@@ -188,7 +188,7 @@ The shared semantic transaction path accepts authorized human and agent actors. 
 
 ### 15. Live sharing, local PNGs, and retired hosted snapshots
 
-- Sharing a Jazzboard means sharing a live-room invitation. The private URL fragment may prefill the exact four-digit code, but the joining browser still supplies its own identity and completes normal signed guest-session authorization with a participant or spectator role.
+- Sharing a Jazzboard means sharing a live-room invitation. The private URL fragment may prefill the exact canonical six-character code, or the unchanged four-digit code for a legacy room, but the joining browser still supplies its own identity and completes normal signed guest-session authorization with a participant or spectator role.
 - A frozen visual is a local PNG download. The authorized client renders the requested board, Diagram, or selection directly through the first-party canvas so images and annotations are preserved as pixels. Jazzboard does not upload, persist, index, host, or issue a URL for the PNG.
 - Semantic JSON, Mermaid, and SVG remain separate privacy-safe interchange formats. They continue to omit private or external image URLs and use non-networked media placeholders; their redaction rules do not apply to the local PNG's visual pixels.
 - Jazzboard no longer issues, lists, or manages new hosted read-only snapshot URLs through the visual UI or any room WebMCP surface.
@@ -215,7 +215,7 @@ Tools use strict semantic schemas and structured success/failure results. Read o
 ### Landing page
 
 - `create_room` — create a private room as a participant, remember it locally, and navigate into it.
-- `join_room` — join only an exact four-digit code as participant or spectator, remember that authorized room locally, and navigate.
+- `join_room` — join only an exact six-character code or exact legacy four-digit code as participant or spectator, remember that authorized room locally, and navigate.
 - `list_recent_rooms` — return only browser-local recent references still authorized to the current signed guest session.
 - `open_recent_room` — open an exact private recent reference after server authorization is verified.
 - `remove_recent_room` — remove only that browser-local shortcut.
@@ -338,7 +338,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 
 - [x] Landing page registers private room lifecycle tools.
 - [x] Landing lifecycle tools register before React hydration, reject duplicate-name drift in tests, and are removed before a room registers its role-scoped surface.
-- [x] Exact-code joining has strict input validation and signed-session throttling.
+- [x] Exact-code joining has strict input validation, signed-session throttling, and a privacy-preserving server-trusted network scope on Vercel without raw-IP, room, or code buckets.
 - [x] No API or WebMCP tool lists, searches, or enumerates global rooms.
 - [x] Private recent rooms remain browser-local and are authorization-checked when reopened.
 - [x] Participant and spectator room tool sets are role-scoped; spectators receive passive reads and local export operations but no shared-state mutations.

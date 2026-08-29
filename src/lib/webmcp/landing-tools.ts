@@ -9,6 +9,10 @@ import {
   removeRecentRoom,
   upsertRecentRoom,
 } from "@/lib/client/recent-rooms";
+import {
+  normalizeRoomCode,
+  ROOM_CODE_INPUT_JSON_SCHEMA,
+} from "@/lib/domain/room-code";
 import type { RecentRoom, RoomRole, RoomState } from "@/lib/domain/types";
 
 import type {
@@ -24,6 +28,15 @@ import type {
 const displayNameSchema = z.string().trim().min(1).max(48);
 const titleSchema = z.string().trim().min(1).max(100);
 const roomIdSchema = z.string().min(1).max(512);
+const roomCodeInputSchema = z.string().transform((value, context) => {
+  const code = normalizeRoomCode(value);
+  if (code) return code;
+  context.addIssue({
+    code: "custom",
+    message: "Room code must be six unambiguous letters or numbers, or four legacy digits.",
+  });
+  return z.NEVER;
+});
 
 const createRoomInputSchema = z
   .object({
@@ -34,7 +47,7 @@ const createRoomInputSchema = z
 
 const joinRoomInputSchema = z
   .object({
-    code: z.string().regex(/^\d{4}$/, "Room code must be exactly four digits."),
+    code: roomCodeInputSchema,
     displayName: displayNameSchema,
     role: z.enum(["participant", "spectator"]).optional(),
   })
@@ -250,11 +263,11 @@ export function createJazzboardLandingWebMcpTools(
       name: "join_room",
       title: "Join a Jazzboard by exact code",
       description:
-        "Join only the private Jazzboard identified by the exact four-digit code supplied by the caller, remember that authorized room only in this browser, and navigate into it. This tool never searches or enumerates rooms.",
+        "Join only the private Jazzboard identified by the exact six-character code supplied by the caller, or by an exact legacy four-digit code. ASCII case, spaces, and hyphens are normalized as formatting only. This tool never guesses codes and never searches or enumerates rooms.",
       inputSchema: {
         type: "object",
         properties: {
-          code: { type: "string", pattern: "^[0-9]{4}$" },
+          code: ROOM_CODE_INPUT_JSON_SCHEMA,
           displayName: { type: "string", minLength: 1, maxLength: 48 },
           role: { enum: ["participant", "spectator"] },
         },
@@ -332,7 +345,7 @@ export function createJazzboardLandingWebMcpTools(
         if (!recentRoom) {
           throw new LandingToolFailure(
             "RECENT_ROOM_NOT_FOUND",
-            "That room is not in this browser's private recent-room list. Join it with the exact four-digit code instead.",
+            "That room is not in this browser's private recent-room list. Join it with the exact supplied code instead.",
             { roomId: input.roomId },
           );
         }

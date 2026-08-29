@@ -1,4 +1,5 @@
 import { createRoomRequestSchema, joinRoomRequestSchema } from "@/lib/domain/schemas";
+import { DomainError, isDomainError } from "@/lib/domain/errors";
 import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
 import { mutationRequestDigest, parseIdempotencyKey } from "@/lib/server/idempotency";
 import { consumeJoinAttempt, type JoinAttemptLimit } from "@/lib/server/join-attempt-limiter";
@@ -33,6 +34,19 @@ function rateLimitedResponse(limit: JoinAttemptLimit): Response {
   );
 }
 
+function joinUnavailableResponse(): Response {
+  return json(
+    {
+      ok: false,
+      error: {
+        code: "JOIN_UNAVAILABLE",
+        message: "Jazzboard could not complete that join right now. Try again shortly.",
+      },
+    },
+    { status: 503 },
+  );
+}
+
 export async function POST(request: Request): Promise<Response> {
   let setCookie: string | null = null;
   try {
@@ -54,7 +68,7 @@ export async function POST(request: Request): Promise<Response> {
               ok: false,
               error: {
                 code: "INVALID_REQUEST",
-                message: "Joining requires one exact four-digit room code, a display name, and a role.",
+                message: "Joining requires one valid private room code, a display name, and a role.",
               },
             },
             { status: 400 },
@@ -64,31 +78,44 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       const idempotencyKey = parseIdempotencyKey(request.headers.get("idempotency-key"));
-      const limit = await consumeJoinAttempt(
-        session.participantId,
-        idempotencyKey
-          ? {
-              idempotencyKey,
-              requestDigest: mutationRequestDigest({
-                method: request.method,
-                namespace: "room.join",
-                actorKind: "human",
-                body: parsed.data,
-              }),
-            }
-          : null,
-      );
+      let limit: JoinAttemptLimit;
+      try {
+        limit = await consumeJoinAttempt(
+          session.participantId,
+          request,
+          idempotencyKey
+            ? {
+                idempotencyKey,
+                requestDigest: mutationRequestDigest({
+                  method: request.method,
+                  namespace: "room.join",
+                  actorKind: "human",
+                  body: parsed.data,
+                }),
+              }
+            : null,
+        );
+      } catch {
+        return withGuestCookie(joinUnavailableResponse(), setCookie);
+      }
       if (!limit.allowed) {
         return withGuestCookie(rateLimitedResponse(limit), setCookie);
       }
-      room = await runMutationRequest({
-        request,
-        participantId: session.participantId,
-        operation: "room.join",
-        actorKind: "human",
-        parsedBody: parsed.data,
-        execute: () => store.joinRoom({ participantId: session.participantId, ...parsed.data }),
-      });
+      try {
+        room = await runMutationRequest({
+          request,
+          participantId: session.participantId,
+          operation: "room.join",
+          actorKind: "human",
+          parsedBody: parsed.data,
+          execute: () => store.joinRoom({ participantId: session.participantId, ...parsed.data }),
+        });
+      } catch (error) {
+        if (isDomainError(error) && error.code === "ROOM_NOT_FOUND") {
+          throw new DomainError("ROOM_NOT_FOUND", "Jazzboard could not join with that code.");
+        }
+        throw error;
+      }
     } else if (action === "create") {
       const parsed = createRoomRequestSchema.parse(body);
       room = await runMutationRequest({

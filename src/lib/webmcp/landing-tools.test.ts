@@ -35,7 +35,7 @@ function roomResponse(role: RoomRole = "participant", title = "Private architect
     participantId: "participant-1",
     room: {
       id: "room-1",
-      code: "4242",
+      code: "ABC234",
       title,
       participants: {
         "participant-1": { participantId: "participant-1", role },
@@ -47,7 +47,7 @@ function roomResponse(role: RoomRole = "participant", title = "Private architect
 function recent(overrides: Partial<RecentRoom> = {}): RecentRoom {
   return {
     roomId: "room-1",
-    code: "4242",
+    code: "ABC234",
     title: "Stored title",
     role: "participant",
     lastOpenedAt: 10,
@@ -121,7 +121,7 @@ describe("landing WebMCP tools", () => {
     expect(navigateToRoom).toHaveBeenCalledWith("room-1");
   });
 
-  it("requires an exact four-digit join code before any network call", async () => {
+  it("requires a supported exact join code before any network call", async () => {
     const { execute, request, navigateToRoom } = harness();
 
     await expect(execute("join_room", { code: "42", displayName: "Maya" })).resolves.toMatchObject({
@@ -130,26 +130,44 @@ describe("landing WebMCP tools", () => {
       error: { code: "INVALID_TOOL_INPUT" },
     });
     await expect(
-      execute("join_room", { code: "4242 ", displayName: "Maya" }),
+      execute("join_room", { code: "ABO234", displayName: "Maya" }),
     ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
     expect(request).not.toHaveBeenCalled();
     expect(navigateToRoom).not.toHaveBeenCalled();
   });
 
-  it("joins only the exact supplied code with the requested role", async () => {
+  it("canonicalizes human formatting before joining the exact supplied room", async () => {
     const request = vi.fn(async () => roomResponse("spectator"));
     const { execute, storage, navigateToRoom } = harness({ request });
 
     await expect(
-      execute("join_room", { code: "4242", displayName: "Observer", role: "spectator" }),
+      execute("join_room", { code: "abc-234", displayName: "Observer", role: "spectator" }),
     ).resolves.toMatchObject({ ok: true, data: { role: "spectator" } });
     expect(request).toHaveBeenCalledWith("/api/rooms", {
       method: "POST",
-      body: JSON.stringify({ action: "join", code: "4242", displayName: "Observer", role: "spectator" }),
+      body: JSON.stringify({ action: "join", code: "ABC234", displayName: "Observer", role: "spectator" }),
       signal: expect.any(AbortSignal),
     });
     expect(JSON.parse(storage.values.get(RECENT_ROOMS_KEY)!)[0].role).toBe("spectator");
     expect(navigateToRoom).toHaveBeenCalledWith("room-1");
+  });
+
+  it("keeps exact legacy four-digit joins compatible", async () => {
+    const { execute, request } = harness();
+
+    await expect(
+      execute("join_room", { code: "4242", displayName: "Legacy guest" }),
+    ).resolves.toMatchObject({ ok: true, data: { role: "participant" } });
+    expect(request).toHaveBeenCalledWith("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "join",
+        code: "4242",
+        displayName: "Legacy guest",
+        role: "participant",
+      }),
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("lists only sanitized local references still authorized to the current signed session", async () => {
@@ -220,7 +238,7 @@ describe("landing WebMCP tools", () => {
       data: {
         authorizationVerified: true,
         role: "spectator",
-        room: { id: "room-1", code: "4242", title: "Authoritative title" },
+        room: { id: "room-1", code: "ABC234", title: "Authoritative title" },
       },
     });
     expect(request).toHaveBeenCalledWith("/api/rooms/room-1", {

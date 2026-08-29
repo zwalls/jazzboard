@@ -43,7 +43,7 @@ const self: Participant = {
 
 const room: RoomState = {
   id: "room-1",
-  code: "1234",
+  code: "ABC234",
   title: "Semantic test board",
   roomRevision: 3,
   createdAt: 1,
@@ -555,7 +555,7 @@ describe("SemanticCanvas", () => {
     );
     const identity = screen.getByTestId("combined-left-panel");
     expect(identity).toHaveTextContent("Semantic test board");
-    expect(identity).toHaveTextContent("Room 1234");
+    expect(identity).toHaveTextContent("Room ABC-234");
     const backButton = screen.getByRole("link", { name: "Back to Jazzboard home" });
     expect(backButton).toHaveAttribute("href", "/");
     expect(identity).not.toContainElement(backButton);

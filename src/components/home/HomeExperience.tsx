@@ -29,6 +29,11 @@ import {
   upsertRecentRoom,
 } from "@/lib/client/recent-rooms";
 import { roomInviteCodeFromHash } from "@/lib/client/room-invite";
+import {
+  formatRoomCode,
+  normalizeRoomCode,
+  ROOM_CODE_INPUT_JSON_SCHEMA,
+} from "@/lib/domain/room-code";
 import type { RecentRoom, RoomRole } from "@/lib/domain/types";
 import {
   attachLandingWebMcpContext,
@@ -219,14 +224,14 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const name = displayName.trim();
-    const code = joinCode.trim();
+    const code = mode === "join" ? normalizeRoomCode(joinCode) : null;
 
     if (!name) {
       setError("Enter the name collaborators should see in the room.");
       return;
     }
-    if (mode === "join" && !/^\d{4}$/.test(code)) {
-      setError("Enter the four-digit Jazzboard code.");
+    if (mode === "join" && !code) {
+      setError("Enter the six-character Jazzboard code. Older rooms may use four digits.");
       return;
     }
 
@@ -236,7 +241,7 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
       const response = await postRoom(
         mode === "create"
           ? { action: "create", displayName: name, title: "Untitled Jazzboard" }
-          : { action: "join", code, displayName: name, role },
+          : { action: "join", code: code!, displayName: name, role },
       );
       persistDisplayName(name);
       onEnteredRoom(response, mode === "create" ? "participant" : role);
@@ -290,7 +295,7 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
       >
         {mode === "create" ? (
           <p className="entry-form__intro">
-            Create a fresh infinite canvas and share its four-digit code when you are ready.
+            Create a fresh infinite canvas and share its six-character code when you are ready.
           </p>
         ) : null}
         <label className="field-group" hidden={mode !== "join"} htmlFor="room-code">
@@ -298,22 +303,24 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
           <span className="code-input-wrap">
             <input
               aria-describedby="room-code-hint"
+              autoCapitalize="characters"
               autoComplete="off"
               className="code-input"
               id="room-code"
-              inputMode="numeric"
-              maxLength={4}
+              inputMode="text"
+              maxLength={11}
               name="room-code"
-              onChange={(event) => setJoinCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
-              pattern="[0-9]{4}"
-              placeholder="0000"
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase().slice(0, 11))}
+              pattern={ROOM_CODE_INPUT_JSON_SCHEMA.pattern}
+              placeholder="ABC-234"
               required={mode === "join"}
+              spellCheck={false}
               type="text"
               value={joinCode}
             />
           </span>
           <small className="field-hint" id="room-code-hint">
-            Ask someone in the room for its four-digit code.
+            Enter six letters or numbers. Current codes omit 0, 1, I, and O; older rooms may use four digits.
           </small>
         </label>
 
@@ -383,7 +390,9 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
           {busy === mode ? (
             <>
               <Loader2 aria-hidden="true" className="spin" size={18} />
-              {mode === "create" ? "Creating room…" : `Joining ${joinCode}…`}
+              {mode === "create"
+                ? "Creating room…"
+                : `Joining ${formatRoomCode(normalizeRoomCode(joinCode) ?? joinCode)}…`}
             </>
           ) : (
             <>
@@ -430,7 +439,7 @@ function RecentRooms({ loaded, onOpen, onRemove, rooms }: RecentRoomsProps) {
           {rooms.map((room) => (
             <article className="recent-card" key={room.roomId}>
               <Link
-                aria-label={`Open ${room.title}, room ${room.code}`}
+                aria-label={`Open ${room.title}, room ${formatRoomCode(room.code)}`}
                 className="recent-card__link"
                 href={`/room/${encodeURIComponent(room.roomId)}`}
                 onClick={() => onOpen(room)}
@@ -443,7 +452,7 @@ function RecentRooms({ loaded, onOpen, onRemove, rooms }: RecentRoomsProps) {
                 <span className="recent-card__content">
                   <strong>{room.title}</strong>
                   <span className="recent-card__meta">
-                    <code>{room.code}</code>
+                    <code>{formatRoomCode(room.code)}</code>
                     <i aria-hidden="true" />
                     {formatLastOpened(room.lastOpenedAt)}
                   </span>

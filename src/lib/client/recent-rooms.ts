@@ -1,4 +1,5 @@
 import type { RecentRoom } from "@/lib/domain/types";
+import { isSupportedRoomCode } from "@/lib/domain/room-code";
 
 export const RECENT_ROOMS_KEY = "jazzboard:recent-rooms:v1";
 export const DISPLAY_NAME_KEY = "jazzboard:display-name:v1";
@@ -18,7 +19,7 @@ export function isRecentRoom(value: unknown): value is RecentRoom {
     room.roomId.length > 0 &&
     room.roomId.length <= 512 &&
     typeof room.code === "string" &&
-    /^\d{4}$/.test(room.code) &&
+    isSupportedRoomCode(room.code) &&
     typeof room.title === "string" &&
     room.title.length > 0 &&
     room.title.length <= 100 &&

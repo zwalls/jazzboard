@@ -822,7 +822,7 @@ test.describe("WebMCP browser acceptance", () => {
     );
     expect(created).toMatchObject({
       role: "participant",
-      room: { code: expect.stringMatching(/^\d{4}$/), title: "WebMCP semantic acceptance" },
+      room: { code: expect.stringMatching(/^[A-HJ-NP-Z2-9]{6}$/), title: "WebMCP semantic acceptance" },
     });
     await expectSemanticCanvas(page);
 

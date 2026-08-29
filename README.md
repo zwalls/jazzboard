@@ -23,7 +23,7 @@ The landing page registers five tools, so a compatible AI interaction can comple
 - `open_recent_room`
 - `remove_recent_room`
 
-`join_room` requires one exact four-digit code and never searches or enumerates rooms. Recent-room candidates come only from this browser's local storage; listing and opening them verify the current signed guest session's access to each exact room ID. There is no global room directory, room-search endpoint, or cross-user recent history.
+`join_room` requires one exact six-character code made from unambiguous uppercase letters and numbers; exact legacy four-digit codes remain supported. ASCII case, spaces, and hyphens are normalized as formatting only, never as fuzzy lookup. The tool never guesses, searches, or enumerates rooms. Recent-room candidates come only from this browser's local storage; listing and opening them verify the current signed guest session's access to each exact room ID. There is no global room directory, room-search endpoint, or cross-user recent history.
 
 Inside a room, tool registration follows the signed session's current role:
 
@@ -97,7 +97,7 @@ Each room has a server-authoritative agent edit policy: `live` or `review`. In l
 
 ### Live sharing, local PNGs, and privacy-safe interchange
 
-The top-level Share board panel copies a live-room invitation whose private URL fragment pre-fills the exact four-digit code, while the joining browser still supplies its own identity and completes normal guest-session authorization. Jazzboard no longer issues new hosted read-only snapshot URLs. For a frozen visual, the Export panel downloads a PNG rendered locally from the authorized first-party canvas. That path preserves currently renderable images, annotations, drawings, connectors, labels, and z-order and never uploads or retains the PNG on Jazzboard. An authorized participant or spectator agent can request the same browser-local download with `export_canvas_png`; the tool does not return or persist the image bytes.
+The top-level Share board panel copies a live-room invitation whose private URL fragment pre-fills the exact canonical six-character code, or the unchanged four-digit code for a legacy room, while the joining browser still supplies its own identity and completes normal guest-session authorization. Jazzboard no longer issues new hosted read-only snapshot URLs. For a frozen visual, the Export panel downloads a PNG rendered locally from the authorized first-party canvas. That path preserves currently renderable images, annotations, drawings, connectors, labels, and z-order and never uploads or retains the PNG on Jazzboard. An authorized participant or spectator agent can request the same browser-local download with `export_canvas_png`; the tool does not return or persist the image bytes.
 
 Semantic JSON, directive-free one-Diagram Mermaid, and fixed-vocabulary script-free SVG remain separate privacy-safe exports. Portable attribution retains only display name and human/agent kind. Room codes/IDs, session and participant IDs, participant colors, presence, leases, review queues, and private or external image URLs are omitted. Images become non-networked placeholders, and scoped connector endpoints outside the artifact lose their semantic ID. These redaction rules do not remove image pixels from the local visual PNG.
 
@@ -123,7 +123,7 @@ Jazzboard no longer exposes visual or WebMCP controls for creating, listing, or 
 ## Privacy and authorization boundaries
 
 - Guest identity comes from a cryptographically random participant ID in an HMAC-signed `HttpOnly`, `SameSite=Lax` cookie (`Secure` in production), never an IP address.
-- Exact-code joins are limited to eight attempts per signed session ID per 60 seconds; production uses one atomic Redis fixed window.
+- Exact-code joins are limited to eight attempts per signed guest session per 60 seconds. On Vercel, an additional 64-attempt window uses a privacy-preserving hash derived from the server-trusted network scope; Jazzboard stores no raw IP and creates no room- or code-specific rate-limit bucket. Production coordinates both dimensions atomically through Redis.
 - Every room-scoped route rechecks membership and role. Tools cannot supply an arbitrary actor identity or impersonate another participant.
 - Humans alone may approve or reject agent proposals, loosen review mode back to live, or upgrade a spectator role. None has a WebMCP operation. An agent may only tighten a live room to review mode.
 - New hosted snapshot URLs cannot be issued. An already-issued legacy path remains a bearer secret until expiry or revocation and grants only its frozen artifact, never room access.
