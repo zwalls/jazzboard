@@ -22,6 +22,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         persistentChromeHost={props.persistentChromeHost}
         room={props.room}
         agentDrafts={props.agentDrafts}
+        initialAgentDraftIds={props.initialAgentDraftIds}
         self={props.self}
         renameRoom={props.renameRoom}
         followTarget={props.followTarget}

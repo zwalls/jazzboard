@@ -17,6 +17,7 @@ import {
   buildAgentDraftChoreographyPlan,
   type AgentDraftChoreographyFrame,
 } from "@/lib/canvas/agent-draft-choreography";
+import type { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
 
@@ -30,6 +31,8 @@ const AGENT_HANDOFF_SPEED = 760;
 const AGENT_HANDOFF_MAX_FRAME_MS = 16;
 const AGENT_HANDOFF_CONVERGENCE_PX = 0.75;
 const AGENT_HANDOFF_SETTLE_MS = 180;
+const AGENT_HANDOFF_SOURCE_GRACE_MS = 5_000;
+const NO_SETTLED_DRAFTS: ReadonlySet<string> = new Set();
 
 type AgentCursorDrag = {
   pointerId: number;
@@ -49,11 +52,15 @@ export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) 
 
 export function CanvasPresenceOverlay({
   agentDrafts = [],
+  initiallySettledDraftIds = NO_SETTLED_DRAFTS,
+  revealRegistry,
   runtime,
   room,
   selfId,
 }: {
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];
+  initiallySettledDraftIds?: ReadonlySet<string>;
+  revealRegistry?: AgentDraftRevealRegistry;
   runtime: CanvasRuntime | null;
   room: RoomState;
   selfId: string;
@@ -64,6 +71,27 @@ export function CanvasPresenceOverlay({
     const timer = window.setInterval(() => setNow(Date.now()), 120);
     return () => window.clearInterval(timer);
   }, []);
+  const workingDraftsByParticipant = useMemo(() => {
+    const entries = Object.values(room.participants).flatMap((participant) => {
+      const canonicalAgentWorking = Boolean(
+        participant.agentActive &&
+        participant.agent.cursor &&
+        isAgentActivityWorking(participant.agent.activity, now),
+      );
+      const draft = canonicalAgentWorking
+        ? null
+        : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+      return draft ? [[participant.participantId, draft] as const] : [];
+    });
+    return new Map(entries);
+  }, [agentDrafts, now, room.id, room.participants]);
+  const drivenDraftIds = useMemo(
+    () => new Set([...workingDraftsByParticipant.values()].map((draft) => draft.id)),
+    [workingDraftsByParticipant],
+  );
+  useLayoutEffect(() => {
+    revealRegistry?.settleUndrivenDrafts(drivenDraftIds);
+  }, [drivenDraftIds, revealRegistry]);
   if (!runtime) return null;
 
   const viewportBounds = (objectId: string) => {
@@ -112,15 +140,17 @@ export function CanvasPresenceOverlay({
         );
         const workingDraft = canonicalAgentWorking
           ? null
-          : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+          : workingDraftsByParticipant.get(participant.participantId) ?? null;
         if (workingDraft) {
           items.push(
             <DraftAgentCursor
               draft={workingDraft}
+              initiallySettled={initiallySettledDraftIds.has(workingDraft.id)}
               key={`${participant.participantId}:agent:draft:${workingDraft.id}`}
               participant={participant}
               room={room}
               runtime={runtime}
+              revealRegistry={revealRegistry}
               handoffRegistry={draftCursorHandoffs}
             />,
           );
@@ -137,9 +167,7 @@ export function CanvasPresenceOverlay({
             y: from.y + (to.y - from.y) * progress,
           };
           const draftHandoff = draftCursorHandoffs.get(participant.participantId);
-          const handoffPagePoint = working && draftHandoff && now - draftHandoff.recordedAt <= 2_000
-            ? draftHandoff.point
-            : null;
+          const handoffPagePoint = draftHandoff?.point ?? null;
           items.push(
             <LocalAgentCursor
               activity={activity}
@@ -254,18 +282,23 @@ function usePrefersReducedMotion(): boolean {
 function DraftAgentCursor({
   draft,
   handoffRegistry,
+  initiallySettled,
   participant,
   room,
   runtime,
+  revealRegistry,
 }: {
   draft: AgentCanvasDraftSnapshot;
   handoffRegistry: Map<string, DraftCursorHandoff>;
+  initiallySettled: boolean;
   participant: Participant;
   room: RoomState;
   runtime: CanvasRuntime;
+  revealRegistry?: AgentDraftRevealRegistry;
 }) {
   const markerRef = useRef<HTMLDivElement | null>(null);
   const coordinatorRef = useRef<AgentDraftChoreographyCoordinator | null>(null);
+  const coordinatorInitializedRef = useRef(false);
   const reducedMotion = usePrefersReducedMotion();
   const renderedViewport = runtime.getViewport();
   const fallbackX = participant.agent.cursor?.x
@@ -285,6 +318,18 @@ function DraftAgentCursor({
     coordinatorRef.current = new AgentDraftChoreographyCoordinator();
   }
 
+  useEffect(() => () => {
+    const handoff = handoffRegistry.get(participant.participantId);
+    if (!handoff) return;
+    const released = { ...handoff, recordedAt: Date.now() };
+    handoffRegistry.set(participant.participantId, released);
+    window.setTimeout(() => {
+      if (handoffRegistry.get(participant.participantId) === released) {
+        handoffRegistry.delete(participant.participantId);
+      }
+    }, AGENT_HANDOFF_SOURCE_GRACE_MS);
+  }, [handoffRegistry, participant.participantId]);
+
   useLayoutEffect(() => {
     const coordinator = coordinatorRef.current!;
     let animationFrame = 0;
@@ -297,6 +342,8 @@ function DraftAgentCursor({
     };
 
     const applyFrame = (frame: AgentDraftChoreographyFrame) => {
+      revealRegistry?.applyEvents(draft.id, coordinator.drainRevealEvents());
+      revealRegistry?.applyFrame(draft.id, frame);
       const marker = markerRef.current;
       if (!marker || disposed) return;
       const viewportPoint = runtime.pageToViewport(frame.pagePoint);
@@ -305,6 +352,7 @@ function DraftAgentCursor({
       marker.dataset.activityProgress = String(Math.round(frame.phaseProgress * 100));
       marker.dataset.agentDraftChoreographyPhase = frame.phase;
       marker.dataset.agentDraftChoreographyObjectId = frame.objectId ?? "";
+      marker.dataset.agentDraftChoreographyFingerprint = frame.fingerprint ?? "";
       handoffRegistry.set(participant.participantId, {
         point: { ...frame.pagePoint },
         recordedAt: Date.now(),
@@ -327,6 +375,24 @@ function DraftAgentCursor({
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     );
+    const visiblePlanObjects = plan.visibleObjects ?? plan.targets;
+    const alreadyRevealed = Boolean(
+      revealRegistry &&
+      visiblePlanObjects.length &&
+      visiblePlanObjects.every((object) => {
+        const snapshot = revealRegistry.snapshot(plan.draftId, object.objectId);
+        return snapshot?.state === "complete" && snapshot.fingerprint === object.fingerprint;
+      }),
+    );
+    const seedSettledPlan = !coordinatorInitializedRef.current && (
+      initiallySettled || alreadyRevealed
+    );
+    coordinatorInitializedRef.current = true;
+    revealRegistry?.syncPlan(plan);
+    if (seedSettledPlan) {
+      applyFrame(coordinator.finish(plan));
+      return () => { disposed = true; };
+    }
     if (reduceBeforePaint || document.visibilityState === "hidden") {
       applyFrame(coordinator.finish(plan));
       return () => { disposed = true; };
@@ -353,6 +419,8 @@ function DraftAgentCursor({
       cancelAnimation();
     };
   }, [
+    draft.id,
+    initiallySettled,
     participant.displayName,
     participant.participantId,
     plan,
@@ -364,6 +432,7 @@ function DraftAgentCursor({
     renderedViewport.zoom,
     runtime,
     handoffRegistry,
+    revealRegistry,
   ]);
 
   const initialPoint = runtime.pageToViewport(plan.startPoint);
@@ -377,6 +446,7 @@ function DraftAgentCursor({
       data-activity-progress="0"
       data-agent-draft-choreography="true"
       data-agent-draft-choreography-object-id=""
+      data-agent-draft-choreography-fingerprint=""
       data-agent-draft-choreography-phase="travel"
       data-agent-draft-choreography-revision={draft.revision}
       data-label-side="right"
@@ -431,7 +501,7 @@ function LocalAgentCursor({
   const [dragging, setDragging] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
   const [handoffSourcePoint] = useState<Point | null>(() =>
-    working && initialHandoffPagePoint ? { ...initialHandoffPagePoint } : null
+    initialHandoffPagePoint ? { ...initialHandoffPagePoint } : null
   );
   const handoffCurrentRef = useRef<Point | null>(handoffSourcePoint);
   const handoffTargetRef = useRef<Point>({ ...authoritativeCursor });

@@ -10,9 +10,11 @@ import type { ActorRef, Point } from "@/lib/domain/types";
 import {
   AGENT_DRAFT_CHOREOGRAPHY_LIMITS,
   AgentDraftChoreographyCoordinator,
+  agentDraftObjectFingerprint,
   buildAgentDraftChoreographyPlan,
   type AgentDraftChoreographyPlan,
 } from "./agent-draft-choreography";
+import { projectAgentDraft } from "./agent-draft-projection";
 
 const author: ActorRef = {
   participantId: "participant_agent",
@@ -109,6 +111,10 @@ function handPlan(input: {
       }],
     })),
     visibleObjectIds: input.targets.map((target) => target.id),
+    visibleObjects: input.targets.map((target) => ({
+      objectId: target.id,
+      fingerprint: target.fingerprint,
+    })),
     inspectionPoints: [{ x: 300, y: 160 }, { x: 320, y: 180 }],
     viewportZoom: 1,
   };
@@ -200,6 +206,51 @@ describe("agent draft choreography planning", () => {
     expect(build(edited).targets.map((target) => target.objectId)).toContain("shape_100");
   });
 
+  it("does not build discarded target geometry beyond the animation cap", () => {
+    const objects = Array.from({ length: AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxTargets + 1 }, (_, index) => shape(
+      `shape_${index}`,
+      (index % 10) * 150,
+      Math.floor(index / 10) * 100,
+    ));
+    // With 49 equal-recency objects, the stable anchors retain 0-11 and the
+    // recent-work budget retains 13-48, making index 12 the one overflow item.
+    const overflow = objects[12]!;
+    let widthReads = 0;
+    Object.defineProperty(overflow, "width", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        widthReads += 1;
+        return 120;
+      },
+    });
+    const candidate = draft(objects);
+    const authoritativeObjects = {};
+    const authoritativeDiagrams = {};
+    // Warm the shared projection so the counter below isolates choreography
+    // planning rather than semantic-scene bounds calculation.
+    projectAgentDraft(candidate, authoritativeObjects, authoritativeDiagrams);
+    const expectedFingerprint = agentDraftObjectFingerprint(overflow);
+    widthReads = 0;
+
+    const plan = buildAgentDraftChoreographyPlan({
+      authoritativeDiagrams,
+      authoritativeObjects,
+      draft: candidate,
+      fallbackPoint: { x: 400, y: 300 },
+    });
+
+    expect(plan.targets).toHaveLength(AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxTargets);
+    expect(plan.targets.map((target) => target.objectId)).not.toContain(overflow.id);
+    expect(plan.visibleObjects).toContainEqual({
+      objectId: overflow.id,
+      fingerprint: expectedFingerprint,
+    });
+    // One read produces the lightweight visual fingerprint. Constructing a
+    // discarded outline/label target would read width several more times.
+    expect(widthReads).toBe(1);
+  });
+
   it("visits newly appended work when cumulative drafts grow past the cap", () => {
     const objects = Array.from({ length: 51 }, (_, index) => shape(
       `stable_${index}`,
@@ -266,6 +317,70 @@ describe("agent draft choreography planning", () => {
 });
 
 describe("AgentDraftChoreographyCoordinator", () => {
+  it("reports every skipped reveal boundary when a coarse frame drains multiple phases", () => {
+    const coordinator = new AgentDraftChoreographyCoordinator();
+    const plan = build([shape("labeled", 120, 140)]);
+    const target = plan.targets[0]!;
+
+    coordinator.accept(plan, 0);
+    expect(coordinator.drainRevealEvents()).toEqual([]);
+    expect(coordinator.sample(20_000).active).toBe(false);
+
+    expect(coordinator.drainRevealEvents()).toEqual([
+      {
+        type: "phase-complete",
+        objectId: "labeled",
+        fingerprint: target.fingerprint,
+        phase: "outline",
+      },
+      {
+        type: "phase-complete",
+        objectId: "labeled",
+        fingerprint: target.fingerprint,
+        phase: "label",
+      },
+      {
+        type: "object-complete",
+        objectId: "labeled",
+        fingerprint: target.fingerprint,
+        phase: "label",
+      },
+    ]);
+    expect(coordinator.drainRevealEvents()).toEqual([]);
+  });
+
+  it("finishes every visible object, including work omitted from the playback target budget", () => {
+    const coordinator = new AgentDraftChoreographyCoordinator();
+    const plan: AgentDraftChoreographyPlan = {
+      ...handPlan({
+        revision: 1,
+        targets: [{ id: "scheduled", fingerprint: "scheduled:1", from: { x: 0, y: 0 }, to: { x: 80, y: 0 } }],
+      }),
+      visibleObjectIds: ["scheduled", "unscheduled"],
+      visibleObjects: [
+        { objectId: "scheduled", fingerprint: "scheduled:1" },
+        { objectId: "unscheduled", fingerprint: "unscheduled:1" },
+      ],
+    };
+
+    coordinator.finish(plan);
+
+    expect(coordinator.drainRevealEvents()).toEqual([
+      {
+        type: "object-complete",
+        objectId: "scheduled",
+        fingerprint: "scheduled:1",
+        phase: null,
+      },
+      {
+        type: "object-complete",
+        objectId: "unscheduled",
+        fingerprint: "unscheduled:1",
+        phase: null,
+      },
+    ]);
+  });
+
   it("bridges outline, label, travel, and inspection phases without a boundary jump", () => {
     const plan = build([shape("labeled", 120, 140)]);
     const coordinator = new AgentDraftChoreographyCoordinator();

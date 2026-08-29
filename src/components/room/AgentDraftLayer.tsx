@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,10 +11,12 @@ import {
 } from "react";
 
 import { pageToViewportPoint } from "@/lib/canvas/camera";
+import { agentDraftObjectFingerprint } from "@/lib/canvas/agent-draft-choreography";
 import {
   projectAgentDraft,
   type AgentDraftProjection,
 } from "@/lib/canvas/agent-draft-projection";
+import type { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import type { SemanticSceneObject } from "@/lib/canvas/semantic-scene";
 import {
   SEMANTIC_CONNECTOR_ARROW_SIZE,
@@ -58,11 +61,14 @@ const ANNOUNCEMENT_THROTTLE_MS = 240;
 const STATUS_PILL_WIDTH = 230;
 const STATUS_PILL_HEIGHT = 44;
 const STATUS_INSET = 10;
+const NO_SETTLED_DRAFTS: ReadonlySet<string> = new Set();
 
 export type AgentDraftLayerProps = Readonly<{
   authoritativeDiagrams?: Readonly<Record<string, Diagram>>;
   authoritativeObjects: Readonly<Record<string, CanvasObject>>;
   drafts: readonly AgentCanvasDraftSnapshot[];
+  initiallySettledDraftIds?: ReadonlySet<string>;
+  revealRegistry?: AgentDraftRevealRegistry;
   roomId: string;
   viewport: Viewport;
 }>;
@@ -94,7 +100,7 @@ function announcementFor(projections: readonly AgentDraftProjection[]): string {
   return projections
     .map(({ draft, objects }) => {
       const noun = objects.length === 1 ? "element" : "elements";
-      return `${draft.author.displayName}’s agent: ${statusLabel(draft)}. ${objects.length} ${noun} visible.`;
+      return `${draft.author.displayName}’s agent: ${statusLabel(draft)}. ${objects.length} ${noun} staged.`;
     })
     .join(" ");
 }
@@ -165,6 +171,7 @@ function TextLines({
   anchor,
   fill,
   fontSize,
+  revealPart,
 }: Readonly<{
   lines: readonly string[];
   x: number;
@@ -173,9 +180,11 @@ function TextLines({
   anchor: "start" | "middle" | "end";
   fill: string;
   fontSize: number;
+  revealPart?: "label";
 }>) {
   return (
     <text
+      data-agent-draft-reveal-part={revealPart}
       x={x}
       y={firstY}
       fill={fill}
@@ -205,7 +214,15 @@ function DraftText({ object }: { object: TextObject }) {
       : object.x + object.width / 2;
   return (
     <g transform={rotationTransform(object)}>
-      <rect className={styles.objectHalo} x={object.x} y={object.y} width={object.width} height={object.height} rx={6} />
+      <rect
+        className={styles.objectHalo}
+        data-agent-draft-reveal-part="halo"
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        rx={6}
+      />
       <TextLines
         lines={lines}
         x={x}
@@ -214,6 +231,7 @@ function DraftText({ object }: { object: TextObject }) {
         anchor={object.align}
         fill={semanticStrokeColor(object.color)}
         fontSize={fontSize}
+        revealPart="label"
       />
     </g>
   );
@@ -230,6 +248,8 @@ function DraftShape({ object }: { object: ShapeObject }) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     vectorEffect: "non-scaling-stroke" as const,
+    pathLength: 1,
+    "data-agent-draft-reveal-part": "trace",
   };
   let geometry: ReactNode;
   if (object.shape === "ellipse") {
@@ -252,7 +272,15 @@ function DraftShape({ object }: { object: ShapeObject }) {
   return (
     <g transform={rotationTransform(object)}>
       {geometry}
-      <rect className={styles.objectHalo} x={object.x - 3} y={object.y - 3} width={object.width + 6} height={object.height + 6} rx={9} />
+      <rect
+        className={styles.objectHalo}
+        data-agent-draft-reveal-part="halo"
+        x={object.x - 3}
+        y={object.y - 3}
+        width={object.width + 6}
+        height={object.height + 6}
+        rx={9}
+      />
       <TextLines
         lines={lines}
         x={object.x + object.width / 2}
@@ -261,6 +289,7 @@ function DraftShape({ object }: { object: ShapeObject }) {
         anchor="middle"
         fill={stroke}
         fontSize={SEMANTIC_SHAPE_LABEL_FONT_SIZE}
+        revealPart="label"
       />
     </g>
   );
@@ -306,11 +335,35 @@ function DraftConnector({
     : [];
   return (
     <g>
-      <path className={styles.connector} d={connectorPath(route)} vectorEffect="non-scaling-stroke" />
-      {object.direction === "both" && startNeighbor ? <polygon className={styles.arrowhead} points={arrowHead(points[0]!, startNeighbor)} /> : null}
-      {object.direction !== "none" && endNeighbor ? <polygon className={styles.arrowhead} points={arrowHead(points.at(-1)!, endNeighbor)} /> : null}
+      <path
+        className={styles.connector}
+        data-agent-draft-reveal-part="final"
+        d={connectorPath(route)}
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        className={styles.connectorConstruction}
+        data-agent-draft-reveal-part="trace"
+        d={connectorPath(route)}
+        pathLength={1}
+        vectorEffect="non-scaling-stroke"
+      />
+      {object.direction === "both" && startNeighbor ? (
+        <polygon
+          className={styles.arrowhead}
+          data-agent-draft-reveal-part="terminal"
+          points={arrowHead(points[0]!, startNeighbor)}
+        />
+      ) : null}
+      {object.direction !== "none" && endNeighbor ? (
+        <polygon
+          className={styles.arrowhead}
+          data-agent-draft-reveal-part="terminal"
+          points={arrowHead(points.at(-1)!, endNeighbor)}
+        />
+      ) : null}
       {labelBounds ? (
-        <g>
+        <g data-agent-draft-reveal-part="label">
           <rect
             className={styles.connectorLabel}
             x={labelBounds.x}
@@ -347,6 +400,8 @@ function DraftOtherObject({ object }: { object: Exclude<CanvasObject, TextObject
           strokeLinecap="round"
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
+          data-agent-draft-reveal-part="trace"
+          pathLength={1}
         />
       </g>
     );
@@ -355,7 +410,26 @@ function DraftOtherObject({ object }: { object: Exclude<CanvasObject, TextObject
   const lines = layoutSemanticText(label, Math.max(8, Math.floor(object.width / 9)), 3).lines;
   return (
     <g transform={rotationTransform(object)}>
-      <rect className={styles.imagePlaceholder} x={object.x} y={object.y} width={object.width} height={object.height} rx={8} />
+      <rect
+        className={styles.imagePlaceholderFill}
+        data-agent-draft-reveal-part="fill"
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        rx={8}
+      />
+      <rect
+        className={styles.imagePlaceholder}
+        data-agent-draft-reveal-part="trace"
+        fill="none"
+        pathLength={1}
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        rx={8}
+      />
       <TextLines
         lines={lines}
         x={object.x + object.width / 2}
@@ -364,21 +438,47 @@ function DraftOtherObject({ object }: { object: Exclude<CanvasObject, TextObject
         anchor="middle"
         fill="#596376"
         fontSize={14}
+        revealPart="label"
       />
     </g>
   );
 }
 
 function DraftObjectArtwork({
+  draftId,
+  fingerprint,
+  initiallyComplete,
   item,
+  revealRegistry,
   route,
 }: {
+  draftId: string;
+  fingerprint: string;
+  initiallyComplete: boolean;
   item: SemanticSceneObject;
+  revealRegistry?: AgentDraftRevealRegistry;
   route?: ResolvedConnectorRoute;
 }) {
   const object = item.object;
+  const elementRef = useRef<SVGGElement | null>(null);
+  useLayoutEffect(() => {
+    const element = elementRef.current;
+    if (!element || !revealRegistry) return;
+    return revealRegistry.registerObject({
+      draftId,
+      element,
+      fingerprint,
+      initiallyComplete,
+      objectId: object.id,
+    });
+  }, [draftId, fingerprint, initiallyComplete, object.id, revealRegistry]);
   return (
-    <g data-agent-draft-object-id={object.id} data-agent-draft-object-kind={object.kind}>
+    <g
+      data-agent-draft-object-id={object.id}
+      data-agent-draft-object-kind={object.kind}
+      data-agent-draft-reveal-managed={revealRegistry ? "true" : undefined}
+      ref={elementRef}
+    >
       {object.kind === "text" ? <DraftText object={object} /> : null}
       {object.kind === "shape" ? <DraftShape object={object} /> : null}
       {object.kind === "connector" ? <DraftConnector object={object} route={route} /> : null}
@@ -406,6 +506,8 @@ export function AgentDraftLayer({
   authoritativeDiagrams,
   authoritativeObjects,
   drafts,
+  initiallySettledDraftIds = NO_SETTLED_DRAFTS,
+  revealRegistry,
   roomId,
   viewport,
 }: AgentDraftLayerProps) {
@@ -414,6 +516,31 @@ export function AgentDraftLayer({
     () => buildDraftProjections(drafts, authoritativeObjects, authoritativeDiagrams, roomId, now),
     [authoritativeDiagrams, authoritativeObjects, drafts, now, roomId],
   );
+  const renderProjections = useMemo(() => projections.map((projection) => ({
+    ...projection,
+    fingerprints: new Map(projection.objects.map(({ object }) => [
+      object.id,
+      agentDraftObjectFingerprint(object, projection.connectorRoutes[object.id]),
+    ])),
+  })), [projections]);
+  useLayoutEffect(() => {
+    if (!revealRegistry) return;
+    const visibleDraftIds = new Set<string>();
+    for (const projection of renderProjections) {
+      visibleDraftIds.add(projection.draft.id);
+      const initiallySettled = initiallySettledDraftIds.has(projection.draft.id);
+      revealRegistry.syncRenderedDraft({
+        draftId: projection.draft.id,
+        objects: projection.objects.map(({ object }) => ({
+          objectId: object.id,
+          fingerprint: projection.fingerprints.get(object.id)!,
+        })),
+        revealImmediately: projection.draft.status === "awaiting_review",
+        seedComplete: initiallySettled,
+      });
+    }
+    revealRegistry.removeMissingDrafts(visibleDraftIds);
+  }, [initiallySettledDraftIds, renderProjections, revealRegistry]);
   const liveText = useThrottledAnnouncement(announcementFor(projections));
   if (!projections.length && !liveText) return null;
 
@@ -430,7 +557,7 @@ export function AgentDraftLayer({
           pointerEvents="none"
         >
           <g transform={cameraTransform} pointerEvents="none">
-            {projections.map(({ draft, objects, connectorRoutes }) => (
+            {renderProjections.map(({ draft, objects, connectorRoutes, fingerprints }) => (
               <g
                 key={`${draft.id}:connectors`}
                 className={styles.draftArtwork}
@@ -439,11 +566,19 @@ export function AgentDraftLayer({
                 style={{ "--agent-draft-color": draft.author.color } as CSSProperties}
               >
                 {objects.filter(({ object }) => object.kind === "connector").map((item) => (
-                  <DraftObjectArtwork key={item.object.id} item={item} route={connectorRoutes[item.object.id]} />
+                  <DraftObjectArtwork
+                    draftId={draft.id}
+                    fingerprint={fingerprints.get(item.object.id)!}
+                    initiallyComplete={draft.status === "awaiting_review"}
+                    key={item.object.id}
+                    item={item}
+                    revealRegistry={revealRegistry}
+                    route={connectorRoutes[item.object.id]}
+                  />
                 ))}
               </g>
             ))}
-            {projections.map(({ draft, objects, connectorRoutes }) => (
+            {renderProjections.map(({ draft, objects, connectorRoutes, fingerprints }) => (
               <g
                 key={`${draft.id}:objects`}
                 className={styles.draftArtwork}
@@ -452,7 +587,15 @@ export function AgentDraftLayer({
                 style={{ "--agent-draft-color": draft.author.color } as CSSProperties}
               >
                 {objects.filter(({ object }) => object.kind !== "connector").map((item) => (
-                  <DraftObjectArtwork key={item.object.id} item={item} route={connectorRoutes[item.object.id]} />
+                  <DraftObjectArtwork
+                    draftId={draft.id}
+                    fingerprint={fingerprints.get(item.object.id)!}
+                    initiallyComplete={draft.status === "awaiting_review"}
+                    key={item.object.id}
+                    item={item}
+                    revealRegistry={revealRegistry}
+                    route={connectorRoutes[item.object.id]}
+                  />
                 ))}
               </g>
             ))}

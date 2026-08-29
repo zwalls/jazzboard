@@ -103,6 +103,7 @@ import type {
 } from "@/lib/domain/types";
 
 import { AgentDraftLayer } from "./AgentDraftLayer";
+import { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
 import type {
   CanvasSurfaceHandle,
@@ -146,6 +147,7 @@ export type SemanticCanvasProps = Pick<
   | "persistentChromeHost"
   | "room"
   | "agentDrafts"
+  | "initialAgentDraftIds"
   | "self"
   | "followTarget"
   | "presence"
@@ -431,6 +433,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   persistentChromeHost = null,
   room,
   agentDrafts = [],
+  initialAgentDraftIds = [],
   self,
   renameRoom,
   followTarget,
@@ -442,6 +445,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   onExitFollow,
   editing = null,
 }, ref) {
+  const agentDraftRevealRegistry = useMemo(
+    () => ({ roomId: room.id, value: new AgentDraftRevealRegistry() }),
+    [room.id],
+  ).value;
+  const initiallySettledDraftIds = useMemo(
+    () => new Set(initialAgentDraftIds),
+    [initialAgentDraftIds],
+  );
   const shellRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -458,6 +469,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const transformEngineRef = useRef(new SemanticTransformSessionEngine());
   const imageEngineRef = useRef(new SemanticImageSessionEngine());
   const keyboardEngineRef = useRef(new SemanticKeyboardSessionEngine());
+
   const marqueeEngineRef = useRef(new SemanticMarqueeSelectionSessionEngine());
   const textEngineRef = useRef(new SemanticTextEditSessionEngine());
   const activeMoveRef = useRef<ActiveMovePointer | null>(null);
@@ -2660,6 +2672,8 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         authoritativeDiagrams={projectedRoom.diagrams}
         authoritativeObjects={projectedRoom.objects}
         drafts={agentDrafts}
+        initiallySettledDraftIds={initiallySettledDraftIds}
+        revealRegistry={agentDraftRevealRegistry}
         roomId={projectedRoom.id}
         viewport={viewport}
       />
@@ -2691,6 +2705,8 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
 
       <CanvasPresenceOverlay
         agentDrafts={agentDrafts}
+        initiallySettledDraftIds={initiallySettledDraftIds}
+        revealRegistry={agentDraftRevealRegistry}
         runtime={runtime}
         room={projectedRoom}
         selfId={self.participantId}

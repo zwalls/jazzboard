@@ -47,6 +47,7 @@ export type AgentDraftChoreographyPlan = Readonly<{
   startPoint: Point;
   targets: readonly AgentDraftChoreographyTarget[];
   visibleObjectIds: readonly string[];
+  visibleObjects?: readonly Readonly<{ objectId: string; fingerprint: string }>[];
   inspectionPoints: readonly Point[];
   viewportZoom: number;
 }>;
@@ -55,8 +56,16 @@ export type AgentDraftChoreographyFrame = Readonly<{
   pagePoint: Point;
   phase: AgentDraftChoreographyPhase;
   objectId: string | null;
+  fingerprint: string | null;
   phaseProgress: number;
   active: boolean;
+}>;
+
+export type AgentDraftRevealEvent = Readonly<{
+  type: "phase-complete" | "object-complete";
+  objectId: string;
+  fingerprint: string | null;
+  phase: Exclude<AgentDraftChoreographyPhase, "travel" | "inspect"> | null;
 }>;
 
 type ActiveSegment = {
@@ -261,7 +270,10 @@ function segment(
   };
 }
 
-function objectFingerprint(object: CanvasObject, workPoints: readonly Point[]): string {
+export function agentDraftObjectFingerprint(
+  object: CanvasObject,
+  route?: ResolvedConnectorRoute,
+): string {
   const kindState = object.kind === "shape"
     ? [object.shape, object.label, object.fill, object.stroke]
     : object.kind === "text"
@@ -286,7 +298,15 @@ function objectFingerprint(object: CanvasObject, workPoints: readonly Point[]): 
     object.height,
     object.rotation,
     kindState,
-    workPoints.map((point) => [Math.round(point.x * 100) / 100, Math.round(point.y * 100) / 100]),
+    object.kind === "connector"
+      ? [
+          route?.routing.kind ?? null,
+          route?.points.map((point) => [
+            Math.round(point.x * 100) / 100,
+            Math.round(point.y * 100) / 100,
+          ]) ?? null,
+        ]
+      : null,
   ]);
 }
 
@@ -315,7 +335,7 @@ function targetForObject(
     phase = "label";
   }
   if (!primaryPoints.length) return null;
-  const fingerprint = objectFingerprint(object, primaryPoints);
+  const fingerprint = agentDraftObjectFingerprint(object, route);
   const segments: AgentDraftChoreographySegment[] = phase === "label"
     ? [labelSegment(object, primaryPoints, fingerprint, viewportZoom)]
     : [segment(phase, object, primaryPoints, fingerprint, viewportZoom)];
@@ -380,6 +400,9 @@ export function buildAgentDraftChoreographyPlan(input: {
     const target = targetForObject(object, projection?.connectorRoutes[object.id], viewportZoom);
     return target ? [target] : [];
   });
+  const targetFingerprints = new Map(
+    targets.map((target) => [target.objectId, target.fingerprint]),
+  );
   const bounds = projection?.bounds ?? null;
   const startPoint = { ...input.fallbackPoint };
   const inspectionPoints = bounds
@@ -394,6 +417,13 @@ export function buildAgentDraftChoreographyPlan(input: {
     startPoint,
     targets,
     visibleObjectIds: visibleObjects.map((object) => object.id),
+    visibleObjects: visibleObjects.map((object) => ({
+      objectId: object.id,
+      fingerprint: targetFingerprints.get(object.id) ?? agentDraftObjectFingerprint(
+        object,
+        projection?.connectorRoutes[object.id],
+      ),
+    })),
     inspectionPoints,
     viewportZoom,
   };
@@ -446,6 +476,8 @@ export class AgentDraftChoreographyCoordinator {
   private currentPoint: Point | null = null;
   private lastFrame: AgentDraftChoreographyFrame | null = null;
   private queue: AgentDraftChoreographySegment[] = [];
+  private remainingWork = new Map<string, { fingerprint: string; count: number }>();
+  private revealEvents: AgentDraftRevealEvent[] = [];
   private viewportZoom = 1;
 
   accept(plan: AgentDraftChoreographyPlan, now: number): AgentDraftChoreographyFrame {
@@ -461,21 +493,37 @@ export class AgentDraftChoreographyCoordinator {
       this.active?.segment.purpose === "inspection" ||
       (activeObjectId && (
         !visibleObjectIds.has(activeObjectId) ||
-        (currentFingerprints.has(activeObjectId) && currentFingerprints.get(activeObjectId) !== activeFingerprint)
+        !currentFingerprints.has(activeObjectId) ||
+        currentFingerprints.get(activeObjectId) !== activeFingerprint
       ))
     ) {
+      if (activeObjectId) this.remainingWork.delete(activeObjectId);
       this.active = null;
     }
     this.queue = this.queue.filter((candidate) => {
       if (candidate.purpose === "inspection") return false;
       if (!candidate.objectId) return true;
       if (!visibleObjectIds.has(candidate.objectId)) return false;
-      return !currentFingerprints.has(candidate.objectId) ||
-        currentFingerprints.get(candidate.objectId) === candidate.fingerprint;
+      return currentFingerprints.get(candidate.objectId) === candidate.fingerprint;
     });
     this.rebuildQueuedTravel();
+    for (const [objectId, pending] of this.remainingWork) {
+      if (currentFingerprints.get(objectId) === pending.fingerprint) continue;
+      this.remainingWork.delete(objectId);
+      if (visibleObjectIds.has(objectId)) {
+        this.revealEvents.push({
+          type: "object-complete",
+          objectId,
+          fingerprint: pending.fingerprint,
+          phase: null,
+        });
+      }
+    }
     for (const objectId of this.acceptedFingerprints.keys()) {
-      if (!visibleObjectIds.has(objectId)) this.acceptedFingerprints.delete(objectId);
+      if (!visibleObjectIds.has(objectId)) {
+        this.acceptedFingerprints.delete(objectId);
+        this.remainingWork.delete(objectId);
+      }
     }
 
     const changedTargets = plan.targets.filter((target) => {
@@ -483,7 +531,13 @@ export class AgentDraftChoreographyCoordinator {
       this.acceptedFingerprints.set(target.objectId, target.fingerprint);
       return true;
     });
-    for (const target of changedTargets) this.appendTarget(target);
+    for (const target of changedTargets) {
+      this.remainingWork.set(target.objectId, {
+        fingerprint: target.fingerprint,
+        count: target.segments.length,
+      });
+      this.appendTarget(target);
+    }
     this.trimQueuedTargets();
     if (changedTargets.length || this.queue.length || this.active) this.appendInspection(plan);
     this.compressQueue();
@@ -503,6 +557,7 @@ export class AgentDraftChoreographyCoordinator {
                 pagePoint: { ...this.currentPoint },
                 phase: "inspect",
                 objectId: null,
+                fingerprint: null,
                 phaseProgress: 1,
                 active: false,
               };
@@ -512,11 +567,13 @@ export class AgentDraftChoreographyCoordinator {
       const elapsed = Math.max(0, now - this.active.startedAt);
       const duration = Math.max(this.active.segment.durationMs, 1);
       if (elapsed >= duration) {
+        this.completeSegment(this.active.segment);
         this.currentPoint = { ...this.active.segment.points.at(-1)! };
         this.lastFrame = {
           pagePoint: { ...this.currentPoint },
           phase: this.active.segment.phase,
           objectId: this.active.segment.objectId,
+          fingerprint: this.active.segment.fingerprint,
           phaseProgress: 1,
           active: false,
         };
@@ -534,6 +591,7 @@ export class AgentDraftChoreographyCoordinator {
         pagePoint: { ...pagePoint },
         phase: this.active.segment.phase,
         objectId: this.active.segment.objectId,
+        fingerprint: this.active.segment.fingerprint,
         phaseProgress: rawProgress,
         active: true,
       };
@@ -545,6 +603,15 @@ export class AgentDraftChoreographyCoordinator {
     for (const target of plan.targets) {
       this.acceptedFingerprints.set(target.objectId, target.fingerprint);
     }
+    for (const visible of plan.visibleObjects ?? plan.targets) {
+      this.revealEvents.push({
+        type: "object-complete",
+        objectId: visible.objectId,
+        fingerprint: visible.fingerprint,
+        phase: null,
+      });
+      this.remainingWork.delete(visible.objectId);
+    }
     this.active = null;
     this.queue = [];
     this.currentPoint = { ...(plan.inspectionPoints.at(-1) ?? plan.startPoint) };
@@ -552,10 +619,41 @@ export class AgentDraftChoreographyCoordinator {
       pagePoint: { ...this.currentPoint },
       phase: "inspect",
       objectId: null,
+      fingerprint: null,
       phaseProgress: 1,
       active: false,
     };
     return this.lastFrame;
+  }
+
+  drainRevealEvents(): AgentDraftRevealEvent[] {
+    return this.revealEvents.splice(0);
+  }
+
+  private completeSegment(segment: AgentDraftChoreographySegment): void {
+    if (
+      segment.purpose !== "work" ||
+      segment.phase === "travel" ||
+      segment.phase === "inspect" ||
+      !segment.objectId
+    ) return;
+    this.revealEvents.push({
+      type: "phase-complete",
+      objectId: segment.objectId,
+      fingerprint: segment.fingerprint,
+      phase: segment.phase,
+    });
+    const remaining = this.remainingWork.get(segment.objectId);
+    if (!remaining || remaining.fingerprint !== segment.fingerprint) return;
+    remaining.count -= 1;
+    if (remaining.count > 0) return;
+    this.remainingWork.delete(segment.objectId);
+    this.revealEvents.push({
+      type: "object-complete",
+      objectId: segment.objectId,
+      fingerprint: segment.fingerprint,
+      phase: segment.phase,
+    });
   }
 
   private appendTarget(target: AgentDraftChoreographyTarget): void {
@@ -612,6 +710,18 @@ export class AgentDraftChoreographyCoordinator {
     // The tail contains the newest accepted work, so discard older unstarted
     // presentation paths first. Semantic draft state remains fully visible.
     const retained = new Set(available ? queuedObjectIds.slice(-available) : []);
+    for (const objectId of queuedObjectIds) {
+      if (retained.has(objectId)) continue;
+      const pending = this.remainingWork.get(objectId);
+      if (!pending) continue;
+      this.remainingWork.delete(objectId);
+      this.revealEvents.push({
+        type: "object-complete",
+        objectId,
+        fingerprint: pending.fingerprint,
+        phase: null,
+      });
+    }
     this.queue = this.queue.filter((candidate) =>
       candidate.purpose !== "work" ||
       !candidate.objectId ||

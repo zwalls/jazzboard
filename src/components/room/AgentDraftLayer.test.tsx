@@ -7,6 +7,7 @@ import {
   type AgentDraftCanvasObject,
 } from "@/lib/agent-drafts/types";
 import type { ActorRef, CanvasObject, Viewport } from "@/lib/domain/types";
+import { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 
 import { AgentDraftLayer } from "./AgentDraftLayer";
 
@@ -121,6 +122,66 @@ describe("AgentDraftLayer", () => {
     expect(container.querySelector("[data-agent-draft-pill]")).toHaveTextContent("Draft preview · not saved");
   });
 
+  it("registers normalized reveal parts and paints only the active work in the bot's wake", () => {
+    const revealRegistry = new AgentDraftRevealRegistry();
+    const { container } = render(
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft()]}
+        revealRegistry={revealRegistry}
+        roomId="room-1"
+        viewport={viewport}
+      />,
+    );
+    const shapeElement = container.querySelector<SVGGElement>(
+      '[data-agent-draft-object-id="draft-shape"]',
+    )!;
+    const connectorElement = container.querySelector<SVGGElement>(
+      '[data-agent-draft-object-id="draft-connector"]',
+    )!;
+    expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
+    expect(connectorElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
+    expect(shapeElement.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
+      "pathLength",
+      "1",
+    );
+    expect(connectorElement.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
+      "pathLength",
+      "1",
+    );
+    expect(connectorElement.querySelector('[data-agent-draft-reveal-part="final"]')).not.toBeNull();
+    expect(connectorElement.querySelector('[data-agent-draft-reveal-part="terminal"]')).not.toBeNull();
+    expect(connectorElement.querySelector('[data-agent-draft-reveal-part="label"]')).not.toBeNull();
+
+    const fingerprint = shapeElement.getAttribute("data-agent-draft-reveal-fingerprint")!;
+    expect(revealRegistry.snapshot("draft-1", "draft-shape")?.fingerprint).toBe(fingerprint);
+    act(() => {
+      revealRegistry.applyFrame("draft-1", {
+        pagePoint: { x: 230, y: 140 },
+        phase: "outline",
+        objectId: "draft-shape",
+        fingerprint,
+        phaseProgress: 0.5,
+        active: true,
+      });
+    });
+    expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-state", "active");
+    expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-phase", "outline");
+    expect(shapeElement.style.getPropertyValue("--agent-draft-reveal-progress")).toBe("0.5");
+    expect(connectorElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
+
+    act(() => {
+      revealRegistry.applyEvents("draft-1", [{
+        type: "object-complete",
+        objectId: "draft-shape",
+        fingerprint,
+        phase: "label",
+      }]);
+    });
+    expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-state", "complete");
+    expect(shapeElement.style.getPropertyValue("--agent-draft-reveal-remaining")).toBe("0%");
+  });
+
   it("suppresses any draft object whose semantic ID is already authoritative", () => {
     const authoritativeShape = { ...shape(), authority: undefined } as unknown as CanvasObject;
     const authoritativeConnector = { ...connector(), authority: undefined } as unknown as CanvasObject;
@@ -181,6 +242,7 @@ describe("AgentDraftLayer", () => {
     );
     const status = screen.getByRole("status");
     expect(status).toHaveTextContent("Draft preview · not saved");
+    expect(status).toHaveTextContent("2 elements staged");
 
     rerender(
       <AgentDraftLayer

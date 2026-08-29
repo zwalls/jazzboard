@@ -69,9 +69,49 @@ type ChoreographyFrame = {
   at: number;
 };
 
+type ArtworkObjectFrame = {
+  objectId: string;
+  fingerprint: string;
+  state: string;
+  phase: string;
+  progress: number;
+  visibleParts: number;
+};
+
+type ArtworkFrame = {
+  at: number;
+  objects: ArtworkObjectFrame[];
+};
+
 const NODE_REFS = ["browser", "gateway", "api", "queue", "worker", "database"] as const;
 const CONNECTOR_REFS = ["browser_gateway", "gateway_api", "api_queue", "queue_worker", "worker_database"] as const;
 const DIAGRAM_REF = "demo_architecture";
+
+const CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS = 40;
+const CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR = 2;
+const CHOREOGRAPHY_POSITION_TOLERANCE_PX = 4;
+const CHOREOGRAPHY_BOUNDARY_LIMIT_PX = 40;
+const SINE_EASING_PEAK_RATE = Math.PI / 2;
+
+/**
+ * Upper screen-space rates for the shortest queue-compressed segments. The
+ * choreography durations are calculated from screen distance, so live zoom is
+ * already represented in these rates. A factor of two accounts for the bot and
+ * observer running in separate rAF loops: one observation may span two writes.
+ */
+const CHOREOGRAPHY_PHASE_SPEED_LIMITS: Readonly<Record<string, number>> = {
+  travel: 760 * (120 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * SINE_EASING_PEAK_RATE * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
+  outline: 520 * (240 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
+  trace: 520 * (240 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
+  label: 360 * (180 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * SINE_EASING_PEAK_RATE * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
+  inspect: 300 * (260 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * SINE_EASING_PEAK_RATE * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
+};
+
+function continuousChoreographyDistanceLimit(elapsedMs: number, phase: string): number {
+  const fallback = CHOREOGRAPHY_PHASE_SPEED_LIMITS.travel!;
+  const pixelsPerSecond = CHOREOGRAPHY_PHASE_SPEED_LIMITS[phase] ?? fallback;
+  return pixelsPerSecond * elapsedMs / 1_000 + CHOREOGRAPHY_POSITION_TOLERANCE_PX;
+}
 
 function node(
   tempRef: typeof NODE_REFS[number],
@@ -301,6 +341,46 @@ async function stopChoreographySampler(page: Page): Promise<ChoreographyFrame[]>
   });
 }
 
+async function startArtworkSampler(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const frames: ArtworkFrame[] = [];
+    const browserWindow = window as Window & {
+      __agentDraftArtwork?: { frames: ArtworkFrame[]; animationFrame: number };
+    };
+    const sample = (timestamp: number) => {
+      const objects = [...document.querySelectorAll<SVGGElement>("[data-agent-draft-object-id]")]
+        .map((element) => ({
+          objectId: element.dataset.agentDraftObjectId ?? "",
+          fingerprint: element.dataset.agentDraftRevealFingerprint ?? "",
+          state: element.dataset.agentDraftRevealState ?? "",
+          phase: element.dataset.agentDraftRevealPhase ?? "",
+          progress: Number(element.style.getPropertyValue("--agent-draft-reveal-progress") || 0),
+          visibleParts: [...element.querySelectorAll<SVGElement>("[data-agent-draft-reveal-part]")]
+            .filter((part) => Number.parseFloat(getComputedStyle(part).opacity || "1") > 0.01)
+            .length,
+        }));
+      frames.push({ at: timestamp, objects });
+      if (browserWindow.__agentDraftArtwork) {
+        browserWindow.__agentDraftArtwork.animationFrame = requestAnimationFrame(sample);
+      }
+    };
+    browserWindow.__agentDraftArtwork = { frames, animationFrame: requestAnimationFrame(sample) };
+  });
+}
+
+async function stopArtworkSampler(page: Page): Promise<ArtworkFrame[]> {
+  return page.evaluate(() => {
+    const browserWindow = window as Window & {
+      __agentDraftArtwork?: { frames: ArtworkFrame[]; animationFrame: number };
+    };
+    const state = browserWindow.__agentDraftArtwork;
+    if (!state) return [];
+    cancelAnimationFrame(state.animationFrame);
+    delete browserWindow.__agentDraftArtwork;
+    return state.frames;
+  });
+}
+
 test("progressively previews a real WebMCP draft and commits it atomically", async ({ browser, page }, testInfo) => {
   test.setTimeout(90_000);
   const configuredBaseUrl = testInfo.project.use.baseURL;
@@ -379,6 +459,7 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       }
     });
     await startChoreographySampler(viewerPage, host.participantId);
+    await startArtworkSampler(viewerPage);
 
     const initial = await authoritativeState(page);
     expect(initial.objects).toEqual([]);
@@ -448,6 +529,20 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     }
     await page.waitForTimeout(700);
 
+    const latePage = await spectatorContext.newPage();
+    try {
+      await installWebMcpShim(latePage);
+      await latePage.goto(`/room/${encodeURIComponent(host.room.id)}`);
+      await expect(latePage.getByTestId("semantic-canvas")).toBeVisible({ timeout: 20_000 });
+      await expect(latePage.locator("[data-agent-draft-object-id]")).toHaveCount(11, { timeout: 15_000 });
+      await expect(latePage.locator('[data-agent-draft-reveal-state="complete"]')).toHaveCount(11);
+      await latePage.waitForTimeout(250);
+      await expect(latePage.locator('[data-agent-draft-reveal-state="pending"]')).toHaveCount(0);
+      await expect(latePage.locator('[data-agent-draft-reveal-state="active"]')).toHaveCount(0);
+    } finally {
+      await latePage.close();
+    }
+
     await startTransitionSampler(viewerPage);
     const finish = await callTool<FinishDraftResult>(page, "finish_canvas_draft", {
       action: "commit",
@@ -467,6 +562,7 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     await expect(viewerPage.locator('[data-agent-draft-choreography="true"]')).toHaveCount(0);
     await page.waitForTimeout(500);
     const choreography = await stopChoreographySampler(viewerPage);
+    const artwork = await stopArtworkSampler(viewerPage);
     expect(choreography.length).toBeGreaterThan(20);
     expect(new Set(choreography.map((frame) => `${Math.round(frame.x)},${Math.round(frame.y)}`)).size).toBeGreaterThan(8);
     expect(choreography.some((frame) => frame.phase === "outline")).toBe(true);
@@ -477,19 +573,48 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     )];
     expect(sampledDraftRevisions).toEqual(expect.arrayContaining([1, 2, 3]));
     expect(sampledDraftRevisions.every((revision) => revision >= 1 && revision <= 4)).toBe(true);
+    const artworkObjects = artwork.flatMap((frame) => frame.objects);
+    expect(artworkObjects.some((object) => object.state === "pending" && object.visibleParts === 0)).toBe(true);
+    expect(artworkObjects.some((object) =>
+      object.state === "active" &&
+      object.progress > 0 &&
+      object.progress < 1 &&
+      object.visibleParts > 0,
+    )).toBe(true);
+    const completedFingerprints = new Set<string>();
+    for (const frame of artwork) {
+      for (const object of frame.objects) {
+        const key = `${object.objectId}:${object.fingerprint}`;
+        if (completedFingerprints.has(key)) {
+          expect(object.state, JSON.stringify({ frame, object })).toBe("complete");
+        }
+        if (object.state === "complete") completedFingerprints.add(key);
+      }
+    }
+    expect(completedFingerprints.size).toBeGreaterThan(2);
     for (let index = 1; index < choreography.length; index += 1) {
       const previous = choreography[index - 1]!;
       const current = choreography[index]!;
       const elapsed = current.at - previous.at;
       if (elapsed <= 0 || elapsed > 100) continue;
+      const crossedPlaybackBoundary = (
+        previous.draft !== current.draft ||
+        previous.revision !== current.revision ||
+        previous.objectId !== current.objectId ||
+        previous.phase !== current.phase
+      );
       const travelled = Math.hypot(current.x - previous.x, current.y - previous.y);
-      // Page-space speed is multiplied by the live canvas zoom. This bound is
-      // intentionally generous for zoom while still rejecting the 40px+
-      // single-frame jumps that a missing phase/revision bridge produces.
+      const maximumTravel = crossedPlaybackBoundary
+        ? CHOREOGRAPHY_BOUNDARY_LIMIT_PX
+        : continuousChoreographyDistanceLimit(elapsed, current.phase);
+      // Inside one segment, enforce the actual maximum screen-space rate after
+      // the shortest legal queue compression and independent-rAF cadence. At a
+      // semantic or phase boundary, retain the stricter teleport guard that
+      // caught the original section snap.
       expect(
         travelled,
-        JSON.stringify({ previous, current, elapsed, travelled }),
-      ).toBeLessThanOrEqual(elapsed * 2.5 + 8);
+        JSON.stringify({ previous, current, elapsed, travelled, maximumTravel, crossedPlaybackBoundary }),
+      ).toBeLessThanOrEqual(maximumTravel);
     }
     expect(viewerMutationRequests).toEqual([]);
     const transition = await stopTransitionSampler(viewerPage);

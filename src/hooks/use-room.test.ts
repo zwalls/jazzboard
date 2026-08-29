@@ -325,6 +325,7 @@ describe("useRoom request ordering", () => {
 
     expect(mocks.apiRequest).toHaveBeenCalledWith("/api/rooms/room-a/drafts");
     expect(result.current.agentDrafts).toEqual([draft]);
+    expect(result.current.initialAgentDraftIds).toEqual([draft.id]);
 
     act(() => {
       realtime.onDraftInvalidated?.({
@@ -339,6 +340,25 @@ describe("useRoom request ordering", () => {
       });
     });
     expect(result.current.agentDrafts).toEqual([]);
+    expect(result.current.initialAgentDraftIds).toEqual([draft.id]);
+  });
+
+  it("does not classify a draft first observed after initial hydration as settled", async () => {
+    mocks.apiRequest.mockResolvedValueOnce({ ok: true, drafts: [], serverTime: Date.now() });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    await act(async () => {
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+    expect(result.current.initialAgentDraftIds).toEqual([]);
+
+    act(() => {
+      result.current.acceptAgentDraft(agentDraft());
+    });
+    expect(result.current.agentDrafts).toHaveLength(1);
+    expect(result.current.initialAgentDraftIds).toEqual([]);
   });
 
   it("keeps a committed draft visible until its authoritative room is readable", async () => {

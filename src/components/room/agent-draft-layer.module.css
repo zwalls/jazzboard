@@ -20,9 +20,56 @@
   pointer-events: none;
 }
 
-.draftArtwork > g {
+.draftArtwork > g:not([data-agent-draft-reveal-managed="true"]) {
   animation: draft-arrive 140ms ease-out both;
   pointer-events: none;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-managed="true"] {
+  pointer-events: none;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-managed="true"]:not([data-agent-draft-reveal-state]) [data-agent-draft-reveal-part],
+.draftArtwork > g[data-agent-draft-reveal-state="pending"] [data-agent-draft-reveal-part] {
+  opacity: 0;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"] [data-agent-draft-reveal-part] {
+  opacity: 0;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="outline"] [data-agent-draft-reveal-part="trace"],
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="trace"] [data-agent-draft-reveal-part="trace"] {
+  opacity: 1;
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - var(--agent-draft-reveal-progress, 0));
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="outline"] .shape {
+  fill-opacity: 0;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="trace"]:not(.connectorConstruction),
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="final"],
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="terminal"] {
+  opacity: 1;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="fill"],
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="label"] {
+  clip-path: inset(0 var(--agent-draft-reveal-remaining, 100%) 0 0);
+  opacity: 1;
+  will-change: clip-path;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] [data-agent-draft-reveal-part="halo"] {
+  opacity: var(--agent-draft-reveal-progress, 0);
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="complete"] [data-agent-draft-reveal-part] {
+  clip-path: none;
+  opacity: 1;
+  stroke-dashoffset: 0;
 }
 
 .objectHalo {
@@ -36,6 +83,7 @@
 
 .shape {
   pointer-events: none;
+  transition: fill-opacity 100ms ease-out;
 }
 
 .connector {
@@ -46,6 +94,21 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3.5px;
+}
+
+.connectorConstruction {
+  fill: none;
+  opacity: 0;
+  pointer-events: none;
+  stroke: var(--agent-draft-color, #5965e8);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5px;
+}
+
+.draftArtwork > g[data-agent-draft-reveal-state="complete"] .connectorConstruction,
+.draftArtwork > g[data-agent-draft-reveal-state="active"][data-agent-draft-reveal-phase="label"] .connectorConstruction {
+  opacity: 0;
 }
 
 .arrowhead {
@@ -63,12 +126,17 @@
 }
 
 .imagePlaceholder {
-  fill: color-mix(in srgb, #fff 88%, var(--agent-draft-color, #5965e8));
+  fill: none;
   pointer-events: none;
   stroke: var(--agent-draft-color, #5965e8);
   stroke-dasharray: 8 6;
   stroke-width: 2px;
   vector-effect: non-scaling-stroke;
+}
+
+.imagePlaceholderFill {
+  fill: color-mix(in srgb, #fff 88%, var(--agent-draft-color, #5965e8));
+  pointer-events: none;
 }
 
 .statusPill {
@@ -137,7 +205,29 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .draftArtwork > g {
+  .draftArtwork > g:not([data-agent-draft-reveal-managed="true"]) {
     animation: none;
+  }
+
+  .draftArtwork > g[data-agent-draft-reveal-managed="true"] [data-agent-draft-reveal-part] {
+    clip-path: none !important;
+    opacity: 1 !important;
+    stroke-dashoffset: 0 !important;
+  }
+
+  .draftArtwork > g[data-agent-draft-reveal-managed="true"] [data-agent-draft-reveal-part="trace"] {
+    stroke-dasharray: none !important;
+  }
+
+  .draftArtwork > g[data-agent-draft-reveal-managed="true"] .imagePlaceholder {
+    stroke-dasharray: 8 6 !important;
+  }
+
+  .draftArtwork > g[data-agent-draft-reveal-managed="true"] .connectorConstruction {
+    opacity: 0 !important;
+  }
+
+  .draftArtwork > g[data-agent-draft-reveal-managed="true"] .shape {
+    fill-opacity: 1 !important;
   }
 }

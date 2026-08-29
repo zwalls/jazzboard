@@ -27,6 +27,8 @@ export type CanvasSurfaceProps = {
   room: RoomState;
   /** Ephemeral, presentation-only agent previews; never part of RoomState. */
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];
+  /** Drafts already present on this visit's first authorized list read. */
+  initialAgentDraftIds?: readonly string[];
   self: Participant;
   followTarget: FollowTarget;
   command: (command: CanvasCommand, actorKind?: ActorKind) => Promise<CommandResult>;

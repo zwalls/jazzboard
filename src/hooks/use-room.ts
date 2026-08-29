@@ -128,10 +128,15 @@ export function useRoom(roomId: string) {
     visit: roomVisit,
     value: [],
   });
+  const [initialDraftIdsState, setInitialDraftIdsState] = useState<ScopedValue<string[]>>({
+    visit: roomVisit,
+    value: [],
+  });
   const roomRef = useRef<RoomState | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
   const realtimeRef = useRef<RoomRealtimeConnection | null>(null);
   const draftsRef = useRef(new Map<string, AgentCanvasDraftSnapshot>());
+  const initialDraftListVisitRef = useRef<RoomVisit | null>(null);
   const draftTombstonesRef = useRef(new Map<string, number>());
   const pendingCommittedDraftRemovalsRef = useRef(
     new Map<
@@ -395,6 +400,10 @@ export function useRoom(roomId: string) {
         fenceDraftListAbsence(draft, result.serverTime);
       }
     }
+    if (initialDraftListVisitRef.current !== activeVisit) {
+      initialDraftListVisitRef.current = activeVisit;
+      setInitialDraftIdsState({ visit: activeVisit, value: [...returned] });
+    }
     publishDraftState();
   }, [fenceDraftListAbsence, publishDraftState, removeAgentDraft]);
 
@@ -463,6 +472,7 @@ export function useRoom(roomId: string) {
     draftTombstones.clear();
     pendingCommittedDraftRemovals.clear();
     pendingDraftListAbsences.clear();
+    initialDraftListVisitRef.current = null;
 
     return () => {
       roomVisitRef.current = null;
@@ -474,6 +484,7 @@ export function useRoom(roomId: string) {
       draftTombstones.clear();
       pendingCommittedDraftRemovals.clear();
       pendingDraftListAbsences.clear();
+      initialDraftListVisitRef.current = null;
     };
   }, [roomVisit]);
 
@@ -893,6 +904,9 @@ export function useRoom(roomId: string) {
   const connection = connectionState.visit === roomVisit ? connectionState.value : "connecting";
   const error = roomError.visit === roomVisit ? roomError.value : null;
   const agentDrafts = draftState.visit === roomVisit ? draftState.value : [];
+  const initialAgentDraftIds = initialDraftIdsState.visit === roomVisit
+    ? initialDraftIdsState.value
+    : [];
   const self = useMemo(
     () => (visibleRoom && participantId ? visibleRoom.participants[participantId] ?? null : null),
     [participantId, visibleRoom],
@@ -901,6 +915,7 @@ export function useRoom(roomId: string) {
   return {
     room: visibleRoom,
     agentDrafts,
+    initialAgentDraftIds,
     participantId,
     self,
     connection,

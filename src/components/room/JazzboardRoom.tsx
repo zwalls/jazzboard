@@ -801,6 +801,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         persistentChromeHost={persistentChromeHost}
         room={room}
         agentDrafts={controller.agentDrafts}
+        initialAgentDraftIds={controller.initialAgentDraftIds}
         self={self}
         followTarget={effectiveFollowTarget}
         command={controller.command}
