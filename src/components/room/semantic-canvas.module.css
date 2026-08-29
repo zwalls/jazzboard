@@ -407,9 +407,9 @@
 
 @media (max-width: 800px) {
   .roomHeaderChrome {
-    left: 10px;
-    max-width: calc(100vw - 20px);
-    top: 9px;
+    left: calc(var(--safe-area-left, 0px) + 10px);
+    max-width: calc(100vw - var(--safe-area-left, 0px) - var(--safe-area-right, 0px) - 20px);
+    top: calc(var(--safe-area-top, 0px) + 9px);
   }
 
   .combinedLeftPanel {
@@ -423,8 +423,112 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (pointer: coarse) and (max-width: 1024px) {
   .roomHeaderChrome {
-    top: 9px;
+    gap: 6px;
+    max-width: calc(100vw - var(--safe-area-left, 0px) - var(--safe-area-right, 0px) - 132px);
+    top: calc(var(--safe-area-top, 0px) + 9px);
+    z-index: 450;
   }
+
+  .backButton {
+    height: 48px;
+    width: 48px;
+  }
+
+  .combinedLeftPanel,
+  .combinedLeftPanel:has(.roomTitleEditor) {
+    height: 48px;
+    max-width: calc(100vw - var(--safe-area-left, 0px) - var(--safe-area-right, 0px) - 186px);
+    min-width: 124px;
+    width: auto;
+  }
+
+  .menuButton {
+    border-radius: 14px 0 0 14px;
+    min-width: 46px;
+    width: 46px;
+  }
+
+  .headerDivider {
+    height: 28px;
+  }
+
+  .roomIdentity {
+    gap: 0;
+    padding: 0 9px;
+  }
+
+  .brandMini {
+    display: none;
+  }
+
+  .roomTitleText,
+  .roomTitleButton,
+  .roomTitleEditor input {
+    font-size: 13px;
+  }
+
+  .roomIdentityText > span {
+    font-size: 9px;
+    margin-top: 2px;
+  }
+
+  .menu {
+    animation: mobile-board-menu-in 180ms ease-out;
+    border-radius: 18px;
+    bottom: calc(var(--safe-area-bottom, 0px) + 76px);
+    box-sizing: border-box;
+    gap: 3px;
+    left: calc(var(--safe-area-left, 0px) + 10px);
+    max-height: calc(var(--app-viewport-height, 100dvh) - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px) - 98px);
+    min-width: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px;
+    position: fixed;
+    right: calc(var(--safe-area-right, 0px) + 10px);
+    top: auto;
+    width: auto;
+    z-index: 690;
+  }
+
+  .menu button {
+    border-radius: 11px;
+    font-size: 14px;
+    min-height: 48px;
+    padding: 10px 13px;
+  }
+
+  .menu button svg {
+    height: 19px;
+    width: 19px;
+  }
+
+  .objectHitTarget {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@media (max-width: 350px) {
+  .combinedLeftPanel,
+  .combinedLeftPanel:has(.roomTitleEditor) {
+    min-width: 118px;
+  }
+
+  .roomIdentityText > span {
+    display: none;
+  }
+}
+
+@media (max-height: 500px) and (pointer: coarse) {
+  .menu {
+    bottom: calc(var(--safe-area-bottom, 0px) + 64px);
+    max-height: calc(var(--app-viewport-height, 100dvh) - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px) - 78px);
+  }
+}
+
+@keyframes mobile-board-menu-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
 }

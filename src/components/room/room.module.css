@@ -3,10 +3,15 @@
   --chrome-line: rgba(201, 207, 220, 0.9);
   --room-edge-inset: 16px;
   --room-right-panel-top: 65px;
+  --room-safe-area-top: var(--safe-area-inset-top, var(--safe-area-top, env(safe-area-inset-top, 0px)));
+  --room-safe-area-right: var(--safe-area-inset-right, var(--safe-area-right, env(safe-area-inset-right, 0px)));
+  --room-safe-area-bottom: var(--safe-area-inset-bottom, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
+  --room-safe-area-left: var(--safe-area-inset-left, var(--safe-area-left, env(safe-area-inset-left, 0px)));
   background: #f7f8fc;
   height: 100dvh;
   min-height: 560px;
   overflow: hidden;
+  overscroll-behavior: none;
   position: relative;
   width: 100%;
 }
@@ -27,6 +32,14 @@
 }
 
 .canvasChromeHost {
+  display: contents;
+}
+
+.mobileCollaboration {
+  display: none;
+}
+
+.mobileDurabilityHost {
   display: contents;
 }
 
@@ -1685,6 +1698,383 @@ button.idleAgentCursor {
   }
 }
 
+@media (max-width: 720px), (pointer: coarse) and (max-width: 1024px) {
+  .roomPage {
+    --room-edge-inset: 10px;
+    --room-right-panel-top: calc(var(--room-safe-area-top) + 68px);
+    height: var(--app-viewport-height, 100dvh);
+    min-height: 0;
+  }
+
+  .roomHeader {
+    left: calc(var(--room-safe-area-left) + 10px);
+    right: calc(var(--room-safe-area-right) + 10px);
+    top: calc(var(--room-safe-area-top) + 9px);
+  }
+
+  .desktopRoomControls {
+    display: none;
+  }
+
+  .outlinePanel {
+    bottom: calc(var(--room-safe-area-bottom) + 8px);
+    display: flex;
+    flex-direction: column;
+    left: calc(var(--room-safe-area-left) + 8px);
+    max-height: calc(var(--app-viewport-height, 100dvh) - var(--room-safe-area-top) - var(--room-safe-area-bottom) - 16px);
+    right: calc(var(--room-safe-area-right) + 8px);
+    top: auto;
+    width: auto;
+    z-index: 790;
+  }
+
+  .outlinePanel > .panelHeading {
+    background: rgba(255, 255, 255, 0.985);
+    border-bottom: 1px solid #eceef3;
+    flex: 0 0 auto;
+    min-height: 62px;
+    padding: 8px 10px;
+  }
+
+  .outlinePanel > .panelHeading button,
+  .diagramAddButton {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .outlineList {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+
+  .objectOutlineRow,
+  .diagramFocusButton {
+    min-height: 54px;
+  }
+
+  .mobileCollaboration {
+    display: block;
+    pointer-events: auto;
+    position: absolute;
+    right: calc(var(--room-safe-area-right) + 10px);
+    top: calc(var(--room-safe-area-top) + 9px);
+    z-index: 40;
+  }
+
+  .mobileCollaborationLauncher {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid var(--chrome-line);
+    border-radius: 14px;
+    box-shadow: 0 8px 26px rgba(39, 47, 77, 0.12), 0 1px 3px rgba(39, 47, 77, 0.08);
+    color: #3f4960;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 760;
+    gap: 7px;
+    height: 48px;
+    justify-content: center;
+    min-width: 104px;
+    padding: 0 12px;
+  }
+
+  .mobileCollaborationLauncher:focus-visible,
+  .mobileSheetIconButton:focus-visible,
+  .mobileCollaborationRow:focus-visible {
+    box-shadow: 0 0 0 3px rgba(89, 101, 232, 0.25);
+    outline: 2px solid white;
+    outline-offset: 1px;
+  }
+
+  .mobileCollaborationLauncher .connectionDot {
+    flex: 0 0 8px;
+  }
+
+  .mobileConnectionOffline {
+    background: #98a2b3;
+    box-shadow: none;
+  }
+
+  .mobileConnectionConnecting {
+    background: #e7a526;
+    box-shadow: 0 0 0 3px rgba(231, 165, 38, 0.13);
+  }
+
+  .mobileCollaborationBackdrop {
+    --room-safe-area-top: var(--safe-area-inset-top, var(--safe-area-top, env(safe-area-inset-top, 0px)));
+    --room-safe-area-right: var(--safe-area-inset-right, var(--safe-area-right, env(safe-area-inset-right, 0px)));
+    --room-safe-area-bottom: var(--safe-area-inset-bottom, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
+    --room-safe-area-left: var(--safe-area-inset-left, var(--safe-area-left, env(safe-area-inset-left, 0px)));
+    background: rgba(24, 30, 48, 0.34);
+    display: flex;
+    inset: 0;
+    pointer-events: auto;
+    position: fixed;
+    z-index: 800;
+  }
+
+  .mobileCollaborationSheet {
+    animation: mobile-sheet-in 180ms ease-out;
+    align-self: flex-end;
+    background: rgba(255, 255, 255, 0.99);
+    border: 1px solid rgba(218, 222, 232, 0.96);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -18px 58px rgba(28, 35, 58, 0.2);
+    max-height: min(78dvh, 680px);
+    overflow: hidden;
+    padding: 0 max(12px, var(--room-safe-area-right)) calc(12px + var(--room-safe-area-bottom)) max(12px, var(--room-safe-area-left));
+    width: 100%;
+  }
+
+  .mobileSheetHandle {
+    background: #d5d9e2;
+    border-radius: 999px;
+    height: 4px;
+    margin: 8px auto 4px;
+    width: 38px;
+  }
+
+  .mobileSheetHeader {
+    align-items: center;
+    border-bottom: 1px solid #eceef3;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    min-height: 63px;
+    padding: 4px 0 7px;
+  }
+
+  .mobileSheetHeader > div {
+    text-align: center;
+  }
+
+  .mobileSheetHeader span {
+    color: var(--ink-faint);
+    display: block;
+    font-size: 9px;
+    font-weight: 770;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mobileSheetHeader h2 {
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    margin: 2px 0 0;
+  }
+
+  .mobileSheetHeaderSpacer {
+    height: 44px;
+    width: 44px;
+  }
+
+  .mobileSheetIconButton {
+    align-items: center;
+    background: #f2f3f7;
+    border: 0;
+    border-radius: 12px;
+    color: #59647a;
+    display: flex;
+    height: 44px;
+    justify-content: center;
+    width: 44px;
+  }
+
+  .mobileCollaborationMenu {
+    display: grid;
+    gap: 5px;
+    max-height: calc(78dvh - 88px - var(--room-safe-area-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 10px 0 2px;
+  }
+
+  .mobileConnectionRow,
+  .mobileCollaborationRow {
+    align-items: center;
+    border-radius: 13px;
+    color: #364157;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    min-height: 56px;
+    padding: 6px 8px;
+    text-align: left;
+    width: 100%;
+  }
+
+  .mobileConnectionRow {
+    background: #f7f8fb;
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .mobileConnectionRow > i {
+    justify-self: center;
+  }
+
+  .mobileCollaborationRow {
+    background: transparent;
+    border: 0;
+  }
+
+  .mobileCollaborationRow:active {
+    background: #f0f2f7;
+  }
+
+  .mobileConnectionRow > span,
+  .mobileCollaborationRow > span:nth-child(2) {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .mobileConnectionRow strong,
+  .mobileCollaborationRow strong {
+    font-size: 13px;
+  }
+
+  .mobileConnectionRow small,
+  .mobileCollaborationRow small {
+    color: var(--ink-soft);
+    font-size: 10px;
+    line-height: 1.35;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRowIcon {
+    align-items: center;
+    background: #f0f2f6;
+    border-radius: 12px;
+    color: #59647a;
+    display: flex;
+    height: 44px;
+    justify-content: center;
+    width: 44px;
+  }
+
+  .mobileRowIconBrand {
+    background: var(--brand);
+    color: white;
+  }
+
+  .mobileRowIconSoft {
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+  }
+
+  .mobileSurfaceBody {
+    max-height: calc(78dvh - 88px - var(--room-safe-area-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 0 2px;
+  }
+
+  .mobileSurfaceBody .popover {
+    animation: none;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    max-height: none;
+    min-width: 0;
+    padding: 0;
+    position: static;
+    width: 100%;
+  }
+
+  .mobileSurfaceBody .panelHeading {
+    padding: 8px 9px;
+  }
+
+  .mobileSurfaceBody .presenceRow,
+  .mobileSurfaceBody .followRow {
+    min-height: 56px;
+  }
+
+  .mobileSurfaceBody .followRow > button {
+    flex-basis: 44px;
+    height: 44px;
+  }
+
+  .mobileDurabilityHost > * {
+    bottom: calc(var(--room-safe-area-bottom) + 8px) !important;
+    left: calc(var(--room-safe-area-left) + 8px) !important;
+    max-height: calc(100dvh - var(--room-safe-area-top) - var(--room-safe-area-bottom) - 16px) !important;
+    right: calc(var(--room-safe-area-right) + 8px) !important;
+    top: auto !important;
+    width: auto !important;
+    z-index: 790 !important;
+  }
+
+  .followBanner,
+  .spotlightInvite,
+  .rejoinSpotlight,
+  .handoffRequest {
+    max-width: calc(100vw - var(--room-safe-area-left) - var(--room-safe-area-right) - 20px);
+    top: calc(var(--room-safe-area-top) + 66px);
+    z-index: 390;
+  }
+
+  .followBanner {
+    min-height: 44px;
+    padding-bottom: 4px;
+    padding-top: 4px;
+  }
+
+  .followBanner > span {
+    line-height: 1.25;
+    max-width: min(58vw, 280px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .followBanner button,
+  .spotlightInvite button,
+  .handoffRequest button,
+  .rejoinSpotlight {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 44px;
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+
+  .spotlightInvite,
+  .handoffRequest {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: calc(100vw - var(--room-safe-area-left) - var(--room-safe-area-right) - 20px);
+  }
+
+  .spotlightInvite > div,
+  .handoffRequest > div {
+    flex: 1;
+    min-width: min(210px, calc(100vw - 80px));
+  }
+
+  .modalBackdrop {
+    padding: max(10px, var(--room-safe-area-top)) max(10px, var(--room-safe-area-right)) max(10px, var(--room-safe-area-bottom)) max(10px, var(--room-safe-area-left));
+  }
+
+  .spotlightPicker {
+    max-height: calc(100dvh - var(--room-safe-area-top) - var(--room-safe-area-bottom) - 20px);
+    overflow-y: auto;
+  }
+}
+
+@keyframes mobile-sheet-in {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .popover,
   .outlinePanel,
@@ -1694,6 +2084,10 @@ button.idleAgentCursor {
   .toast,
   .spin,
   .pulseDot {
+    animation: none;
+  }
+
+  .mobileCollaborationSheet {
     animation: none;
   }
 

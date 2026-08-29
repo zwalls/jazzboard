@@ -177,3 +177,298 @@
   max-width: 100%;
   min-width: 0;
 }
+
+/*
+ * Coarse-pointer handles keep the familiar 8–10px canvas affordance while
+ * exposing a full 44px interactive target. The visual lives in ::after so
+ * increasing the hit box never makes a selected object look heavier.
+ */
+.overlay[data-mobile-layout="true"] button.handle {
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: none;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  width: 44px;
+}
+
+.overlay[data-mobile-layout="true"] button.handle::after {
+  background: #f9fafb;
+  border: 1.5px solid #3182ed;
+  border-radius: 2px;
+  box-sizing: border-box;
+  content: "";
+  height: 8px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+}
+
+.overlay[data-mobile-layout="true"] button.handle:focus-visible {
+  background: rgba(49, 130, 237, 0.1);
+  box-shadow: inset 0 0 0 2px rgba(49, 130, 237, 0.42);
+}
+
+.overlay[data-mobile-layout="true"] button.handle:hover::after,
+.overlay[data-mobile-layout="true"] button.handle:focus-visible::after {
+  background: #eaf3fe;
+}
+
+.overlay[data-mobile-layout="true"] button.rotationHandle::after {
+  border-radius: 50%;
+}
+
+.overlay[data-mobile-layout="true"] button.connectorHandle {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  width: 44px;
+}
+
+.overlay[data-mobile-layout="true"] button.connectorHandle::after {
+  background: #3182ed;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #3182ed;
+  height: 10px;
+  width: 10px;
+}
+
+.mobileActionsRoot {
+  display: contents;
+}
+
+.mobileSelectionDock {
+  bottom: calc(76px + var(--safe-area-bottom, 0px));
+  display: flex;
+  justify-content: center;
+  left: 50%;
+  pointer-events: auto;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 560;
+}
+
+.mobileSelectionDock > button {
+  align-items: center;
+  backdrop-filter: blur(14px) saturate(1.2);
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(201, 207, 220, 0.96);
+  border-radius: 14px;
+  box-shadow: 0 8px 26px rgba(39, 47, 77, 0.16), 0 2px 5px rgba(39, 47, 77, 0.07);
+  color: #465069;
+  display: flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  gap: 8px;
+  height: 46px;
+  justify-content: center;
+  min-width: 144px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.mobileSelectionDock > button:focus-visible,
+.mobileSelectionDock > button:active {
+  background: #eef0ff;
+  color: #4551ce;
+  outline: none;
+}
+
+.mobileSelectionDock > button:focus-visible {
+  box-shadow: 0 8px 26px rgba(39, 47, 77, 0.16), inset 0 0 0 2px #5965e8;
+}
+
+.mobileSheetBackdrop {
+  align-items: flex-end;
+  background: rgba(24, 31, 48, 0.24);
+  display: flex;
+  inset: 0;
+  padding: 0 var(--safe-area-right, 0px) 0 var(--safe-area-left, 0px);
+  pointer-events: auto;
+  position: fixed;
+  z-index: 710;
+}
+
+.mobileSheet {
+  animation: mobile-selection-sheet-in 180ms ease-out;
+  background: rgba(255, 255, 255, 0.995);
+  border: 1px solid rgba(201, 207, 220, 0.96);
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -14px 42px rgba(39, 47, 77, 0.18);
+  box-sizing: border-box;
+  max-height: min(82dvh, calc(var(--app-viewport-height, 100dvh) - var(--safe-area-top, 0px) - 12px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 7px 14px calc(16px + var(--safe-area-bottom, 0px));
+  width: 100%;
+}
+
+.mobileSheetHandle {
+  background: #d7dbe5;
+  border-radius: 999px;
+  height: 4px;
+  margin: 0 auto 4px;
+  width: 42px;
+}
+
+.mobileSheet > header {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.995);
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0 12px;
+  position: sticky;
+  top: -7px;
+  z-index: 4;
+}
+
+.mobileSheet > header > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.mobileSheet > header span {
+  color: #737d92;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mobileSheet > header strong {
+  color: #20283b;
+  font-size: 17px;
+  margin-top: 2px;
+}
+
+.mobileSheet > header button {
+  align-items: center;
+  background: #f0f2f7;
+  border: 0;
+  border-radius: 12px;
+  color: #4f596f;
+  display: flex;
+  height: 46px;
+  justify-content: center;
+  width: 46px;
+}
+
+.mobileSheet > header button:focus-visible {
+  box-shadow: inset 0 0 0 2px #5965e8;
+  outline: none;
+}
+
+.mobileStyleSection,
+.mobileActionSection {
+  display: grid;
+  gap: 8px;
+}
+
+.mobileActionSection {
+  border-top: 1px solid #e5e7ed;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.mobileStyleSection h3,
+.mobileActionSection h3 {
+  color: #737d92;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.mobileStyleControls {
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  scrollbar-width: thin;
+}
+
+.mobileStyleControls :global([data-semantic-style-controls]) {
+  max-width: none;
+  width: max-content;
+}
+
+.mobileStyleControls :global([data-semantic-style-controls]) button,
+.mobileStyleControls :global([data-semantic-style-controls]) select,
+.mobileStyleControls :global([data-semantic-style-controls]) input {
+  min-height: 44px;
+}
+
+.mobileActionGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobileActionGrid button {
+  background: #f3f5f9;
+  border: 0;
+  border-radius: 12px;
+  color: #4f596f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 740;
+  min-height: 48px;
+  padding: 8px 10px;
+}
+
+.mobileActionGrid button:focus-visible,
+.mobileActionGrid button:active {
+  background: #eef0ff;
+  color: #4551ce;
+  outline: none;
+}
+
+.mobileActionGrid .mobileDangerAction {
+  background: #fff0f1;
+  color: #b93243;
+  grid-column: 1 / -1;
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .mobileSelectionDock {
+    bottom: calc(68px + var(--safe-area-bottom, 0px));
+  }
+
+  .mobileSheet {
+    max-height: calc(var(--app-viewport-height, 100dvh) - var(--safe-area-top, 0px) - 4px);
+  }
+
+  .mobileSheet > header {
+    padding-bottom: 6px;
+  }
+
+  .mobileActionSection {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+}
+
+@media (max-width: 720px), (pointer: coarse) and (max-width: 1024px) {
+  .actionBar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileSheet {
+    animation: none;
+  }
+}
+
+@keyframes mobile-selection-sheet-in {
+  from { transform: translateY(18px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

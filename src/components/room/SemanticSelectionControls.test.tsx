@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SemanticSceneObject } from "@/lib/canvas/semantic-scene";
@@ -11,6 +11,7 @@ import {
   semanticSelectionActionBarPlacement,
   type SemanticSelectionControlsProps,
 } from "./SemanticSelectionControls";
+import { announceMobileSurfaceOpen } from "./mobile-surface-coordinator";
 
 const actor: ActorRef = {
   participantId: "participant-1",
@@ -127,7 +128,21 @@ const defaultProps: SemanticSelectionControlsProps = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
+
+function useMobileMediaQuery(): void {
+  vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+    matches: query.includes("max-width"),
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })));
+}
 
 describe("SemanticSelectionControls", () => {
   it("moves the action bar below when its preferred position enters the top chrome safe zone", () => {
@@ -330,6 +345,61 @@ describe("SemanticSelectionControls", () => {
     for (const callback of Object.values(callbacks)) {
       expect(callback).toHaveBeenCalledWith({ objectIds: ["shape-1", "shape-2"] });
     }
+  });
+
+  it("moves the complete selection surface into a compact coordinated mobile sheet", () => {
+    useMobileMediaQuery();
+    const callbacks = {
+      onDelete: vi.fn(),
+      onGroup: vi.fn(),
+      onUngroup: vi.fn(),
+      onBringForward: vi.fn(),
+      onSendBackward: vi.fn(),
+    };
+    render(
+      <SemanticSelectionControls
+        {...defaultProps}
+        selectedObjects={[shapeScene, secondShapeScene]}
+        {...callbacks}
+        styleControls={<button type="button">Fill color</button>}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Style & actions" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("toolbar", { name: "Selection actions" })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Selection style and actions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close selection actions" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Fill color" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ungroup" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    expect(callbacks.onGroup).toHaveBeenCalledWith({ objectIds: ["shape-1", "shape-2"] });
+    expect(screen.queryByRole("dialog", { name: "Selection style and actions" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("dismisses the mobile selection sheet by backdrop, Escape, or another mobile surface", () => {
+    useMobileMediaQuery();
+    render(<SemanticSelectionControls {...defaultProps} onDelete={vi.fn()} />);
+
+    const trigger = screen.getByRole("button", { name: "Style & actions" });
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(screen.getByTestId("mobile-selection-actions-backdrop"));
+    expect(screen.queryByRole("dialog", { name: "Selection style and actions" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Selection style and actions" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Selection style and actions" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    act(() => announceMobileSurfaceOpen("canvas-tools"));
+    expect(screen.queryByRole("dialog", { name: "Selection style and actions" })).not.toBeInTheDocument();
   });
 
   it("renders nothing for spectators or an empty selection", () => {

@@ -6,8 +6,11 @@
   border-radius: 15px;
   bottom: 62px;
   box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
   left: 16px;
   max-height: min(720px, calc(100dvh - 145px));
+  min-height: 0;
   overflow: hidden;
   position: absolute;
   width: min(440px, calc(100vw - 32px));
@@ -25,6 +28,7 @@
   align-items: center;
   border-bottom: 1px solid #eceef3;
   display: flex;
+  flex: 0 0 auto;
   gap: 10px;
   padding: 12px;
 }
@@ -73,9 +77,13 @@
 .closeButton:hover { background: #f0f2f7; }
 
 .body {
+  flex: 1 1 auto;
   max-height: min(650px, calc(100dvh - 216px));
+  min-height: 0;
+  overscroll-behavior: contain;
   overflow: auto;
   padding: 2px 12px 13px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .body section {
@@ -264,8 +272,40 @@
 
 @keyframes durability-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 620px) {
-  .panel { bottom: 70px; left: 8px; width: calc(100vw - 16px); }
-  .sharePanel { bottom: auto; left: 8px; right: auto; top: 122px; }
-  .body { max-height: calc(100dvh - 235px); }
+@media (max-width: 620px), (max-width: 900px) and (pointer: coarse) {
+  .panel,
+  .sharePanel {
+    border-radius: 18px;
+    bottom: max(var(--mobile-sheet-gutter), var(--safe-area-bottom));
+    left: max(var(--mobile-sheet-gutter), var(--safe-area-left));
+    max-height: var(--mobile-sheet-max-height);
+    position: fixed;
+    right: max(var(--mobile-sheet-gutter), var(--safe-area-right));
+    top: max(var(--mobile-sheet-gutter), var(--safe-area-top));
+    width: auto;
+  }
+
+  .heading {
+    min-height: 56px;
+    padding-left: max(12px, var(--safe-area-left));
+    padding-right: max(8px, var(--safe-area-right));
+  }
+
+  .closeButton,
+  .scopeTabs button,
+  .exportGrid button,
+  .liveInvite button,
+  .inlineActions button {
+    min-height: 44px;
+  }
+
+  .closeButton {
+    flex: 0 0 44px;
+    width: 44px;
+  }
+
+  .body {
+    max-height: none;
+    padding-bottom: max(13px, var(--safe-area-bottom));
+  }
 }

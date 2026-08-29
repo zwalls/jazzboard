@@ -6,15 +6,18 @@
   border-radius: 15px;
   bottom: 62px;
   box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
   left: 16px;
   max-height: min(720px, calc(100dvh - 145px));
+  min-height: 0;
   overflow: hidden;
   position: absolute;
   width: min(430px, calc(100vw - 32px));
   z-index: 445;
 }
 
-.heading { align-items: center; border-bottom: 1px solid #eceef3; display: flex; gap: 10px; padding: 12px; }
+.heading { align-items: center; border-bottom: 1px solid #eceef3; display: flex; flex: 0 0 auto; gap: 10px; padding: 12px; }
 .headingIcon { align-items: center; background: var(--brand-soft); border-radius: 9px; color: var(--brand-deep); display: flex; height: 34px; justify-content: center; width: 34px; }
 .heading > div { display: flex; flex: 1; flex-direction: column; }
 .heading > div > span { color: var(--ink-faint); font-size: 8px; font-weight: 780; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -22,7 +25,7 @@
 .closeButton { align-items: center; background: transparent; border-radius: 8px; color: var(--ink-soft); display: flex; height: 31px; justify-content: center; width: 31px; }
 .closeButton:hover { background: #f0f2f7; }
 
-.policy { align-items: center; border-bottom: 1px solid #eceef3; display: flex; gap: 10px; justify-content: space-between; padding: 11px 12px; }
+.policy { align-items: center; border-bottom: 1px solid #eceef3; display: flex; flex: 0 0 auto; gap: 10px; justify-content: space-between; padding: 11px 12px; }
 .policy > div:first-child { align-items: center; display: flex; gap: 8px; }
 .policy > div:first-child > div { display: flex; flex-direction: column; }
 .policy strong { font-size: 9px; }
@@ -37,12 +40,12 @@
 .policySwitch button.selected { background: white; box-shadow: 0 2px 7px rgba(40, 48, 84, 0.1); color: var(--brand-deep); }
 .policySwitch button:disabled { cursor: default; opacity: 0.55; }
 
-.filters { align-items: center; display: flex; gap: 5px; padding: 9px 11px; }
+.filters { align-items: center; display: flex; flex: 0 0 auto; gap: 5px; padding: 9px 11px; }
 .filters button { background: #f3f4f7; border-radius: 999px; color: #687186; font-size: 8px; font-weight: 730; padding: 6px 8px; text-transform: capitalize; }
 .filters .selectedFilter { background: var(--brand); color: white; }
 .filters .refreshButton { align-items: center; background: transparent; display: flex; margin-left: auto; }
 
-.list { display: grid; gap: 8px; max-height: min(545px, calc(100dvh - 300px)); overflow: auto; padding: 0 10px 11px; }
+.list { display: grid; flex: 1 1 auto; gap: 8px; max-height: min(545px, calc(100dvh - 300px)); min-height: 0; overscroll-behavior: contain; overflow: auto; padding: 0 10px 11px; -webkit-overflow-scrolling: touch; }
 .card { background: #fafbfe; border: 1px solid #e4e7ef; border-radius: 12px; padding: 10px; }
 .cardTopline { align-items: center; display: flex; gap: 8px; }
 .cardTopline > div { display: flex; flex: 1; flex-direction: column; min-width: 0; }
@@ -80,7 +83,48 @@
 }
 @keyframes review-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 620px) {
-  .panel { bottom: 70px; left: 8px; width: calc(100vw - 16px); }
-  .list { max-height: calc(100dvh - 330px); }
+@media (max-width: 620px), (max-width: 900px) and (pointer: coarse) {
+  .panel {
+    border-radius: 18px;
+    bottom: max(var(--mobile-sheet-gutter), var(--safe-area-bottom));
+    left: max(var(--mobile-sheet-gutter), var(--safe-area-left));
+    max-height: var(--mobile-sheet-max-height);
+    position: fixed;
+    right: max(var(--mobile-sheet-gutter), var(--safe-area-right));
+    top: max(var(--mobile-sheet-gutter), var(--safe-area-top));
+    width: auto;
+  }
+
+  .heading {
+    min-height: 56px;
+    padding-left: max(12px, var(--safe-area-left));
+    padding-right: max(8px, var(--safe-area-right));
+  }
+
+  .closeButton,
+  .policySwitch button,
+  .filters button,
+  .actions button {
+    min-height: 44px;
+  }
+
+  .closeButton {
+    flex: 0 0 44px;
+    width: 44px;
+  }
+
+  .policy,
+  .filters {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .policy > *,
+  .filters button {
+    flex: 0 0 auto;
+  }
+
+  .list {
+    max-height: none;
+  }
 }

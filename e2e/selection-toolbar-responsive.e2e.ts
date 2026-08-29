@@ -99,14 +99,39 @@ test("keeps the full shape selection toolbar inside its container at responsive 
     await expect(shape).toBeVisible();
     await shape.click();
 
-    const toolbar = page.getByRole("toolbar", { name: "Selection actions" });
-    await expect(toolbar.getByRole("button", { name: "Fill: blue" })).toBeVisible();
-    await expect(toolbar.getByRole("button", { name: "Stroke: blue" })).toBeVisible();
-    await expect(toolbar.getByRole("combobox", { name: "Node type" })).toHaveValue("__generic__");
-    await expect(toolbar.getByRole("button", { name: "Edit label" })).toBeVisible();
-    await expect(toolbar.getByRole("button", { name: "Bring forward" })).toBeVisible();
-    await expect(toolbar.getByRole("button", { name: "Send backward" })).toBeVisible();
-    await expect(toolbar.getByRole("button", { name: "Delete" })).toBeVisible();
-    await expectControlsInsideToolbar(toolbar);
+    if (viewport.width > 720) {
+      const toolbar = page.getByRole("toolbar", { name: "Selection actions" });
+      await expect(toolbar.getByRole("button", { name: "Fill: blue" })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Stroke: blue" })).toBeVisible();
+      await expect(toolbar.getByRole("combobox", { name: "Node type" })).toHaveValue("__generic__");
+      await expect(toolbar.getByRole("button", { name: "Edit label" })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Bring forward" })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Send backward" })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Delete" })).toBeVisible();
+      await expectControlsInsideToolbar(toolbar);
+      continue;
+    }
+
+    const trigger = page.getByRole("button", { name: "Style & actions" });
+    await expect(trigger).toBeVisible();
+    const triggerBox = await trigger.boundingBox();
+    expect(triggerBox).not.toBeNull();
+    expect(triggerBox!.height).toBeGreaterThanOrEqual(44);
+    expect(triggerBox!.width).toBeGreaterThanOrEqual(44);
+    await trigger.click();
+
+    const sheet = page.getByRole("dialog", { name: "Selection style and actions" });
+    await expect(sheet).toBeVisible();
+    const styleToolbar = sheet.getByRole("toolbar", { name: /Shape styles for 1 selected object/ });
+    await expect(styleToolbar.getByRole("button", { name: "Fill: blue" })).toBeVisible();
+    await expect(styleToolbar.getByRole("button", { name: "Stroke: blue" })).toBeVisible();
+    await expect(styleToolbar.getByRole("combobox", { name: "Node type" })).toHaveValue("__generic__");
+    await expect(styleToolbar.getByRole("button", { name: "Edit label" })).toBeVisible();
+
+    const arrangeActions = sheet.getByRole("region", { name: "Selection actions" });
+    await expect(arrangeActions.getByRole("button", { name: "Bring forward" })).toBeVisible();
+    await expect(arrangeActions.getByRole("button", { name: "Send backward" })).toBeVisible();
+    await expect(arrangeActions.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Close selection actions" })).toBeFocused();
   }
 });

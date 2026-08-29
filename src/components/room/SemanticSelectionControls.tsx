@@ -1,6 +1,9 @@
 "use client";
 
+import { SlidersHorizontal, X } from "lucide-react";
 import {
+  useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,6 +14,7 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { pageToViewportPoint } from "@/lib/canvas/camera";
 import type { SemanticSceneObject } from "@/lib/canvas/semantic-scene";
@@ -18,7 +22,12 @@ import { semanticTransformFrameForObjects } from "@/lib/canvas/semantic-transfor
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import type { CanvasBounds, Point, Viewport } from "@/lib/domain/types";
 
+import {
+  announceMobileSurfaceOpen,
+  subscribeToMobileSurfaceOpen,
+} from "./mobile-surface-coordinator";
 import styles from "./semantic-selection-controls.module.css";
+import { useCanvasMobileLayout } from "./useCanvasMobileLayout";
 
 export const SEMANTIC_RESIZE_HANDLES = [
   "north-west",
@@ -89,6 +98,14 @@ const ARROW_KEYS = new Set(["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"]);
 const ACTION_BAR_CLEARANCE = 34;
 const ACTION_BAR_ESTIMATED_HEIGHT = 48;
 const TOP_CHROME_SAFE_ZONE = 112;
+const DIALOG_FOCUSABLE = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 
 export function semanticSelectionActionBarPlacement(
   selectionTop: number,
@@ -229,6 +246,184 @@ function SelectionActionBar({
   );
 }
 
+type MobileSelectionActionsProps = Readonly<{
+  canGroup: boolean;
+  canUngroup: boolean;
+  objectIds: readonly string[];
+  onDelete?: (input: SemanticSelectionAction) => void;
+  onGroup?: (input: SemanticSelectionAction) => void;
+  onUngroup?: (input: SemanticSelectionAction) => void;
+  onBringForward?: (input: SemanticSelectionAction) => void;
+  onSendBackward?: (input: SemanticSelectionAction) => void;
+  styleControls?: ReactNode;
+}>;
+
+function MobileSelectionActions({
+  canGroup,
+  canUngroup,
+  objectIds,
+  onDelete,
+  onGroup,
+  onUngroup,
+  onBringForward,
+  onSendBackward,
+  styleControls,
+}: MobileSelectionActionsProps) {
+  const [open, setOpen] = useState(false);
+  const dialogId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+
+  useEffect(() => subscribeToMobileSurfaceOpen((surfaceId) => {
+    if (surfaceId !== "selection") setOpen(false);
+  }), []);
+
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  function setSheetOpen(next: boolean): void {
+    if (next) announceMobileSurfaceOpen("selection");
+    setOpen(next);
+  }
+
+  function closeSheet(restoreFocus = true): void {
+    setOpen(false);
+    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
+  }
+
+  function invokeAndClose(callback: ((input: SemanticSelectionAction) => void) | undefined): void {
+    callback?.(actionPayload(objectIds));
+    closeSheet();
+  }
+
+  const mobileActions = (
+    <div
+      className={styles.mobileActionsRoot}
+      data-testid="mobile-selection-actions"
+      onClick={stopCanvasEvent}
+      onContextMenu={stopCanvasEvent}
+      onDoubleClick={stopCanvasEvent}
+      onPointerCancel={stopCanvasEvent}
+      onPointerDown={stopCanvasEvent}
+      onPointerMove={stopCanvasEvent}
+      onPointerUp={stopCanvasEvent}
+      onWheel={stopCanvasEvent}
+    >
+      <div className={styles.mobileSelectionDock} role="toolbar" aria-label="Selection quick actions">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-controls={dialogId}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          data-testid="mobile-selection-actions-trigger"
+          onClick={() => setSheetOpen(!open)}
+        >
+          <SlidersHorizontal aria-hidden="true" size={18} />
+          <span>Style &amp; actions</span>
+        </button>
+      </div>
+
+      {open ? (
+        <div
+          className={styles.mobileSheetBackdrop}
+          data-testid="mobile-selection-actions-backdrop"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.target === event.currentTarget) closeSheet();
+          }}
+          role="presentation"
+        >
+          <section
+            ref={sheetRef}
+            aria-label="Selection style and actions"
+            aria-modal="true"
+            className={styles.mobileSheet}
+            id={dialogId}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeSheet();
+                return;
+              }
+              if (event.key !== "Tab") return;
+              const focusable = Array.from(sheetRef.current?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
+              const first = focusable[0];
+              const last = focusable.at(-1);
+              if (!first || !last) return;
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+              }
+            }}
+            role="dialog"
+          >
+            <div className={styles.mobileSheetHandle} aria-hidden="true" />
+            <header>
+              <div>
+                <span>Selection</span>
+                <strong>Style &amp; actions</strong>
+              </div>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                aria-label="Close selection actions"
+                onClick={() => closeSheet()}
+              >
+                <X aria-hidden="true" size={21} />
+              </button>
+            </header>
+
+            {styleControls ? (
+              <section className={styles.mobileStyleSection} aria-label="Selection style">
+                <h3>Style</h3>
+                <div className={styles.mobileStyleControls}>{styleControls}</div>
+              </section>
+            ) : null}
+
+            <section className={styles.mobileActionSection} aria-label="Selection actions">
+              <h3>Arrange</h3>
+              <div className={styles.mobileActionGrid}>
+                {onGroup && canGroup ? (
+                  <button type="button" onClick={() => invokeAndClose(onGroup)}>Group</button>
+                ) : null}
+                {onUngroup && canUngroup ? (
+                  <button type="button" onClick={() => invokeAndClose(onUngroup)}>Ungroup</button>
+                ) : null}
+                {onBringForward ? (
+                  <button type="button" onClick={() => invokeAndClose(onBringForward)}>Bring forward</button>
+                ) : null}
+                {onSendBackward ? (
+                  <button type="button" onClick={() => invokeAndClose(onSendBackward)}>Send backward</button>
+                ) : null}
+                {onDelete ? (
+                  <button
+                    type="button"
+                    className={styles.mobileDangerAction}
+                    onClick={() => invokeAndClose(onDelete)}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return typeof document === "undefined" ? mobileActions : createPortal(mobileActions, document.body);
+}
+
 /**
  * Presentation-only controls for the first-party semantic canvas.
  *
@@ -251,6 +446,7 @@ export function SemanticSelectionControls({
   onContextMenu,
   styleControls,
 }: SemanticSelectionControlsProps) {
+  const mobileLayout = useCanvasMobileLayout();
   if (!editing || selectedObjects.length === 0) return null;
 
   const objectIds = Object.freeze(selectedObjects.map(({ object }) => object.id));
@@ -317,6 +513,7 @@ export function SemanticSelectionControls({
     <div
       className={styles.overlay}
       data-semantic-selection-controls="true"
+      data-mobile-layout={mobileLayout ? "true" : "false"}
       data-selection-object-ids={objectIds.join(" ")}
       onClick={stopCanvasEvent}
       onDoubleClick={stopCanvasEvent}
@@ -380,24 +577,39 @@ export function SemanticSelectionControls({
         );
       }) : null}
 
-      <SelectionActionBar selectedBounds={selectedBounds}>
-        {styleControls ? <div className={styles.styleControls}>{styleControls}</div> : null}
-        {onGroup && canGroup ? (
-          <button type="button" onClick={() => invokeAction(onGroup)}>Group</button>
-        ) : null}
-        {onUngroup && canUngroup ? (
-          <button type="button" onClick={() => invokeAction(onUngroup)}>Ungroup</button>
-        ) : null}
-        {onBringForward ? (
-          <button type="button" onClick={() => invokeAction(onBringForward)}>Bring forward</button>
-        ) : null}
-        {onSendBackward ? (
-          <button type="button" onClick={() => invokeAction(onSendBackward)}>Send backward</button>
-        ) : null}
-        {onDelete ? (
-          <button type="button" className={styles.dangerAction} onClick={() => invokeAction(onDelete)}>Delete</button>
-        ) : null}
-      </SelectionActionBar>
+      {mobileLayout ? (
+        <MobileSelectionActions
+          key={objectIds.join("\u0000")}
+          canGroup={canGroup}
+          canUngroup={canUngroup}
+          objectIds={objectIds}
+          onDelete={onDelete}
+          onGroup={onGroup}
+          onUngroup={onUngroup}
+          onBringForward={onBringForward}
+          onSendBackward={onSendBackward}
+          styleControls={styleControls}
+        />
+      ) : (
+        <SelectionActionBar selectedBounds={selectedBounds}>
+          {styleControls ? <div className={styles.styleControls}>{styleControls}</div> : null}
+          {onGroup && canGroup ? (
+            <button type="button" onClick={() => invokeAction(onGroup)}>Group</button>
+          ) : null}
+          {onUngroup && canUngroup ? (
+            <button type="button" onClick={() => invokeAction(onUngroup)}>Ungroup</button>
+          ) : null}
+          {onBringForward ? (
+            <button type="button" onClick={() => invokeAction(onBringForward)}>Bring forward</button>
+          ) : null}
+          {onSendBackward ? (
+            <button type="button" onClick={() => invokeAction(onSendBackward)}>Send backward</button>
+          ) : null}
+          {onDelete ? (
+            <button type="button" className={styles.dangerAction} onClick={() => invokeAction(onDelete)}>Delete</button>
+          ) : null}
+        </SelectionActionBar>
+      )}
     </div>
   );
 }

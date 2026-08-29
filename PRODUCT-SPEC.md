@@ -76,6 +76,15 @@ The defining experience is multiple humans and participant-owned agents collabor
 - An open-question node carries structured status (`open`, `answered`, `deferred`, or `closed`), optional owner, resolution or deferral note, and server-managed `resolvedAt`. An open question cannot already have a resolution; every non-open state requires one.
 - Lifecycle metadata is created, updated, queried by status/owner, described, exported, and templated as semantic data rather than inferred from labels or style. Already-issued legacy snapshots retain the metadata they froze.
 
+#### Mobile and touch canvas ergonomics
+
+- Phone and tablet users receive the same role-authorized product capabilities as desktop users. Compact chrome may reorganize actions, but it must not remove canvas tools, connection state, People, Follow, Spotlight, Share, export, review, activity, outline, Ask, or spectator upgrade affordances that are meaningful for that role.
+- Device safe areas and the dynamic visual viewport bound every persistent control, sheet, modal, toast, and editor. The canvas remains usable in portrait, landscape, and while the software keyboard is visible; no fixed minimum page height may push recovery controls off-screen.
+- The persistent phone chrome is deliberately small: a safe-area-aware room header, collaboration launcher, and bottom canvas dock remain recoverable while secondary controls expand into internally scrolling sheets. Opening one mobile surface closes the previous one, and every sheet supports backdrop dismissal, Escape, focus restoration, and at least 44 CSS-pixel controls.
+- Touch Select uses tap to select, a short screen-pixel hysteresis before object dragging, and one-finger blank-canvas panning. Two fingers always own deterministic midpoint-anchored camera pan and pinch zoom; an active one-finger gesture reaches its pointer-cancel boundary before camera motion begins, then can no longer continue beneath the pinch. Mouse and pen behavior remains unchanged.
+- Long-press exposes the same semantic object or canvas actions as desktop context click. Selection transform affordances retain their quiet visual size while providing coarse-pointer hit regions of at least 44 CSS pixels.
+- Mobile chrome is presentation-only. It does not alter the authoritative object model, revisions, leases, role permissions, WebMCP registry, multiplayer presence, or desktop visual behavior.
+
 ### 6. First-class semantic diagrams
 
 A diagram is an authoritative container, not a visual grouping convention. Every diagram stores:
@@ -388,6 +397,9 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Participants and spectators can run exact-revision, intent-unaware conventional Diagram geometry analysis without returning unrelated board state. Findings cover overlaps, connector conflicts, ports, labels, spacing, and likely truncation; agents compare them with requested intent and never treat status as permission to rewrite deliberate freeform composition.
 - [x] Participants can render exact revision-guarded object or Diagram scopes through the first-party canvas into one expiring local preview surface and use the returned screenshot clip; the response states that visual inspection was not performed, spectators receive no preview tool, and no preview image is persisted or exposed by URL.
 - [x] Public agent guidance requires an intent-led closed loop—semantic reads, optional conventional geometry analysis, exact preview rendering, browser screenshot capture, actual pixel inspection, and revision-safe iteration—and forbids claiming visual QA from preview JSON alone.
+- [x] Phone and compact-landscape participants retain every role-authorized canvas and collaboration action through safe-area-aware compact chrome, one coordinated mobile sheet at a time, and internally scrolling surfaces that never disappear under dynamic browser UI.
+- [x] Touch input supports tap selection, hysteresis-gated object dragging, blank-canvas panning, continuous two-finger pan and pinch takeover, and long-press context actions without changing mouse or pen behavior.
+- [x] Mobile selection and transform affordances expose at least 44-pixel touch targets, spectators receive camera-only canvas controls, and responsive browser tests cover 320-pixel portrait through compact landscape layouts.
 - [x] Automated tests cover schemas, permissions, privacy boundaries, revisions, leases, transactions, layouts, diagrams, registration, and browser workflows.
 - [x] Production release is complete only after live browser QA calls the deployed, browser-exposed WebMCP tools against a genuinely multi-node diagram.
 - [x] The initial HTML response advertises `/llms.txt`, the landing page advertises an exact Markdown alternate, and explicit Markdown content negotiation works without changing the visual design.

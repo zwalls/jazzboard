@@ -1,5 +1,14 @@
 "use client";
 
+/*
+ * The canvas is an imperative event bridge: renderer callbacks and gesture
+ * engines intentionally read latest-value refs outside React render. The
+ * React compiler lint cannot distinguish those deferred handlers from calls
+ * made during render in this component, so keep these three rules scoped off
+ * here while retaining the ordinary hooks and dependency checks.
+ */
+/* eslint-disable react-hooks/refs, react-hooks/immutability, react-hooks/purity */
+
 import {
   forwardRef,
   useCallback,
@@ -68,6 +77,11 @@ import {
   SemanticMoveSessionEngine,
   type SemanticMoveSessionToken,
 } from "@/lib/canvas/semantic-move-session";
+import {
+  TouchCanvasGestureCoordinator,
+  type CanvasGestureIntent,
+  type CanvasPointerMode,
+} from "@/lib/canvas/touch-gesture-coordinator";
 import { SemanticPresencePublisher } from "@/lib/canvas/semantic-presence-publisher";
 import { createSemanticCanvasRuntime } from "@/lib/canvas/semantic-runtime";
 import { buildSemanticScene } from "@/lib/canvas/semantic-scene";
@@ -105,6 +119,7 @@ import type {
 import { AgentDraftLayer } from "./AgentDraftLayer";
 import { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
+import { MobileCanvasDock } from "./MobileCanvasDock";
 import type {
   CanvasSurfaceHandle,
   CanvasSurfaceProps,
@@ -139,6 +154,11 @@ import {
   type SemanticConnectorDirectionIntent,
   type SemanticConnectorRoutingIntent,
 } from "./SemanticToolPalette";
+import {
+  announceMobileSurfaceOpen,
+  subscribeToMobileSurfaceOpen,
+} from "./mobile-surface-coordinator";
+import { useCanvasMobileLayout } from "./useCanvasMobileLayout";
 import styles from "./semantic-canvas.module.css";
 
 export type SemanticCanvasProps = Pick<
@@ -231,6 +251,17 @@ type CanvasContextMenuState = Readonly<{
   x: number;
   y: number;
 }>;
+
+type TouchPointerIntegration = {
+  additive: boolean;
+  targetId?: string;
+  tool: SemanticCanvasTool;
+};
+
+type TouchLongPress = {
+  pointerId: number;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 const CONTEXT_MENU_MARGIN = 8;
 
@@ -445,6 +476,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   onExitFollow,
   editing = null,
 }, ref) {
+  const mobileLayout = useCanvasMobileLayout();
   const agentDraftRevealRegistry = useMemo(
     () => ({ roomId: room.id, value: new AgentDraftRevealRegistry() }),
     [room.id],
@@ -469,6 +501,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const transformEngineRef = useRef(new SemanticTransformSessionEngine());
   const imageEngineRef = useRef(new SemanticImageSessionEngine());
   const keyboardEngineRef = useRef(new SemanticKeyboardSessionEngine());
+  const touchGestureRef = useRef(new TouchCanvasGestureCoordinator());
+  const touchPointersRef = useRef(new Map<number, TouchPointerIntegration>());
+  const touchLongPressRef = useRef<TouchLongPress | null>(null);
 
   const marqueeEngineRef = useRef(new SemanticMarqueeSelectionSessionEngine());
   const textEngineRef = useRef(new SemanticTextEditSessionEngine());
@@ -833,6 +868,13 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }, [menuOpen]);
 
   useEffect(() => {
+    if (!mobileLayout) return;
+    return subscribeToMobileSurfaceOpen((surfaceId) => {
+      if (surfaceId !== "board-menu") setMenuOpen(false);
+    });
+  }, [mobileLayout]);
+
+  useEffect(() => {
     if (!menuOpen) return;
     const dismissOutside = (event: globalThis.PointerEvent) => {
       const target = event.target;
@@ -937,6 +979,8 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }), [controller]);
 
   useLayoutEffect(() => {
+    const touchGesture = touchGestureRef.current;
+    const touchPointers = touchPointersRef.current;
     clipboardRef.current = null;
     clipboardSummaryRef.current = null;
     activeTextRef.current = null;
@@ -948,6 +992,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     setContextMenu(null);
     if (!controller) setActiveTool("select");
     return () => {
+      if (touchLongPressRef.current) clearTimeout(touchLongPressRef.current.timer);
+      touchLongPressRef.current = null;
+      touchGesture.cancel();
+      touchPointers.clear();
       const activeMove = activeMoveRef.current;
       if (activeMove?.captured) releasePointerCapture(activeMove.pointerId);
       const activeCreate = activeCreateRef.current;
@@ -1148,7 +1196,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     shellRef.current?.setPointerCapture?.(input.pointerId);
   }
 
-  function updateMarquee(event: PointerEvent<HTMLDivElement>): boolean {
+  function updateMarquee(event: Readonly<{ pointerId: number; clientX: number; clientY: number }>): boolean {
     const active = activeMarqueeRef.current;
     if (!active || active.pointerId !== event.pointerId) return false;
     const point = pointerPage(event);
@@ -1161,7 +1209,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     return true;
   }
 
-  function finishMarquee(event: PointerEvent<HTMLDivElement>, cancel = false): boolean {
+  function finishMarquee(
+    event: Readonly<{ pointerId: number; clientX: number; clientY: number }>,
+    cancel = false,
+  ): boolean {
     const active = activeMarqueeRef.current;
     if (!active || active.pointerId !== event.pointerId) return false;
     const result = cancel
@@ -1207,7 +1258,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     };
   }
 
-  function updateObjectMove(event: PointerEvent<HTMLDivElement>): boolean {
+  function updateObjectMove(event: Readonly<{ pointerId: number; clientX: number; clientY: number }>): boolean {
     const active = activeMoveRef.current;
     const currentController = controllerRef.current;
     if (!active || active.pointerId !== event.pointerId || !currentController) return false;
@@ -1225,7 +1276,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function finishObjectMove(
-    event: PointerEvent<HTMLDivElement>,
+    event: Readonly<{ pointerId: number; clientX: number; clientY: number }>,
     reason: "pointer-up" | "pointer-cancel",
   ): boolean {
     const active = activeMoveRef.current;
@@ -1325,7 +1376,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
-  function updateCreate(event: PointerEvent<HTMLDivElement>): boolean {
+  function updateCreate(event: Readonly<{ pointerId: number; clientX: number; clientY: number }>): boolean {
     const active = activeCreateRef.current;
     if (!active || active.pointerId !== event.pointerId || !controllerRef.current) return false;
     const point = pointerPage(event);
@@ -1340,7 +1391,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function finishCreate(
-    event: PointerEvent<HTMLDivElement>,
+    event: Readonly<{ pointerId: number; clientX: number; clientY: number }>,
     reason: "pointer-up" | "pointer-cancel",
   ): boolean {
     const active = activeCreateRef.current;
@@ -1428,7 +1479,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
-  function updateConnector(event: PointerEvent<HTMLDivElement>): boolean {
+  function updateConnector(event: Readonly<{ pointerId: number; clientX: number; clientY: number }>): boolean {
     const active = activeConnectorRef.current;
     if (!active || active.pointerId !== event.pointerId || !controllerRef.current) return false;
     const point = pointerPage(event);
@@ -1443,7 +1494,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function finishConnector(
-    event: PointerEvent<HTMLDivElement>,
+    event: Readonly<{ pointerId: number; clientX: number; clientY: number }>,
     reason: "pointer-up" | "pointer-cancel",
   ): boolean {
     const active = activeConnectorRef.current;
@@ -1687,7 +1738,12 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
-  function updateSelectionTransform(event: PointerEvent<HTMLDivElement>): boolean {
+  function updateSelectionTransform(event: Readonly<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    shiftKey?: boolean;
+  }>): boolean {
     const point = pointerPage(event);
     const activeEndpoint = activeConnectorEndpointRef.current;
     if (activeEndpoint?.pointerId === event.pointerId) {
@@ -1701,14 +1757,22 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     if (!active || active.pointerId !== event.pointerId) return false;
     if (point) {
       const updated = transformEngineRef.current.updatePointer(active.token, point, {
-        lockAspectRatio: event.shiftKey,
+        lockAspectRatio: event.shiftKey ?? false,
       });
       if (updated.status === "updated") dispatchEditEvents(updated.lifecycleEvents);
     }
     return true;
   }
 
-  function finishSelectionTransform(event: PointerEvent<HTMLDivElement>, reason: "pointer-up" | "pointer-cancel"): boolean {
+  function finishSelectionTransform(
+    event: Readonly<{
+      pointerId: number;
+      clientX: number;
+      clientY: number;
+      shiftKey?: boolean;
+    }>,
+    reason: "pointer-up" | "pointer-cancel",
+  ): boolean {
     const activeEndpoint = activeConnectorEndpointRef.current;
     if (activeEndpoint?.pointerId === event.pointerId) {
       const point = pointerPage(event);
@@ -1724,7 +1788,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     if (!active || active.pointerId !== event.pointerId) return false;
     if (pointerPage(event)) {
       const updated = transformEngineRef.current.updatePointer(active.token, pointerPage(event)!, {
-        lockAspectRatio: event.shiftKey,
+        lockAspectRatio: event.shiftKey ?? false,
       });
       if (updated.status === "updated") dispatchEditEvents(updated.lifecycleEvents);
     }
@@ -1937,6 +2001,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function handleObjectSelect(objectId: string, additive: boolean) {
+    // The root capture phase registers touch pointers before an SVG object sees
+    // this callback. Touch selection is resolved by the coordinator on tap or
+    // drag hysteresis, never eagerly on pointer-down.
+    if ([...touchPointersRef.current.values()].some((pointer) => pointer.targetId === objectId)) return;
     if (!editingEnabled || activeToolRef.current === "select") selectAndFocusObject(objectId, additive);
   }
 
@@ -1970,6 +2038,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     clientY: number;
     additive: boolean;
   }>) {
+    // Touch was already handled by the shell's capture phase. Connector labels
+    // stop bubbling, so capture is the single reliable boundary for all SVG
+    // object variants.
+    if (touchPointersRef.current.has(input.pointerId)) return;
     if (!editingEnabled) return;
     if (spaceHeldRef.current || activeToolRef.current === "hand") {
       startPan(input);
@@ -1994,8 +2066,245 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     }
   }
 
-  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+  function touchMode(): CanvasPointerMode | null {
+    if (!editingEnabled) return { kind: "readonly" };
+    if (spaceHeldRef.current || activeToolRef.current === "hand") return { kind: "hand" };
+    if (activeToolRef.current === "select") return { kind: "select" };
+    if (activeToolRef.current === "draw") return { kind: "draw" };
+    if (activeToolRef.current === "connector") return { kind: "connector" };
+    if (
+      activeToolRef.current === "text"
+      || activeToolRef.current === "rectangle"
+      || activeToolRef.current === "ellipse"
+      || activeToolRef.current === "diamond"
+    ) return { kind: "create" };
+    return null;
+  }
+
+  function canvasRelativePoint(input: Readonly<{ clientX: number; clientY: number }>): Point | null {
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return { x: input.clientX - rect.left, y: input.clientY - rect.top };
+  }
+
+  function clientPointerFromIntent(
+    pointerId: number,
+    position: Point,
+  ): Readonly<{ pointerId: number; clientX: number; clientY: number }> {
+    const rect = shellRef.current?.getBoundingClientRect();
+    return {
+      pointerId,
+      clientX: (rect?.left ?? 0) + position.x,
+      clientY: (rect?.top ?? 0) + position.y,
+    };
+  }
+
+  function clearTouchLongPress(pointerId?: number) {
+    const active = touchLongPressRef.current;
+    if (!active || (pointerId !== undefined && active.pointerId !== pointerId)) return;
+    clearTimeout(active.timer);
+    touchLongPressRef.current = null;
+  }
+
+  function openTouchContextMenu(pointerId: number) {
+    const tracked = touchPointersRef.current.get(pointerId);
+    const registered = touchGestureRef.current.snapshot().pointers.find(
+      (pointer) => pointer.pointerId === pointerId,
+    );
+    if (!tracked || !registered || touchGestureRef.current.snapshot().phase !== "pending") return;
+
+    const cancelled = touchGestureRef.current.pointerCancel({
+      pointerId,
+      pointerType: "touch",
+      point: registered.current,
+    });
+    processTouchGestureIntents(cancelled.intents);
+    touchPointersRef.current.delete(pointerId);
+    clearTouchLongPress(pointerId);
+
+    const objectId = tracked.targetId ?? null;
+    if (objectId) {
+      selectAndFocusObject(objectId, tracked.additive);
+      if (editingEnabled) setActiveTool("select");
+    } else {
+      updateSelection([]);
+      requestObjectFocus(null);
+    }
+    setMenuOpen(false);
+    const next: CanvasContextMenuState = {
+      objectId,
+      x: Math.max(CONTEXT_MENU_MARGIN, registered.current.x),
+      y: Math.max(CONTEXT_MENU_MARGIN, registered.current.y),
+    };
+    setContextMenu(contextMenuItemsFor(next).length ? next : null);
+  }
+
+  function scheduleTouchLongPress(pointerId: number) {
+    clearTouchLongPress();
+    touchLongPressRef.current = {
+      pointerId,
+      timer: setTimeout(() => openTouchContextMenu(pointerId), 500),
+    };
+  }
+
+  function processTouchGestureIntents(intents: readonly CanvasGestureIntent[]) {
+    for (const intent of intents) {
+      if (
+        intent.type === "host.begin"
+        || intent.type === "host.cancel"
+        || intent.type === "pan.begin"
+        || intent.type === "pinch.begin"
+        || intent.type === "gesture.cancel-pending"
+      ) clearTouchLongPress();
+
+      if (intent.type === "pointer.capture") {
+        shellRef.current?.setPointerCapture?.(intent.pointerId);
+        continue;
+      }
+      if (intent.type === "pointer.release") {
+        releasePointerCapture(intent.pointerId);
+        continue;
+      }
+      if (intent.type === "camera.update") {
+        onExitFollow();
+        updateViewport(intent.viewport);
+        continue;
+      }
+      if (intent.type === "pan.begin") {
+        onExitFollow();
+        setPanning(true);
+        continue;
+      }
+      if (intent.type === "pan.end") {
+        setPanning(false);
+        continue;
+      }
+      if (intent.type === "pinch.begin") {
+        onExitFollow();
+        setPanning(true);
+        continue;
+      }
+      if (intent.type === "pinch.end") {
+        setPanning(false);
+        continue;
+      }
+      if (intent.type === "tap") {
+        if (intent.targetId) selectAndFocusObject(
+          intent.targetId,
+          touchPointersRef.current.get(intent.pointerId)?.additive ?? false,
+        );
+        else {
+          updateSelection([]);
+          requestObjectFocus(null);
+        }
+        continue;
+      }
+      if (intent.type === "host.begin") {
+        const tracked = touchPointersRef.current.get(intent.pointerId);
+        const pointer = clientPointerFromIntent(intent.pointerId, intent.point);
+        if (intent.gesture === "object" && intent.targetId) {
+          selectAndFocusObject(intent.targetId, tracked?.additive ?? false);
+          startObjectMove({
+            ...pointer,
+            objectId: intent.targetId,
+            additive: tracked?.additive ?? false,
+          });
+        } else if (intent.gesture === "marquee") {
+          startMarquee({ ...pointer, shiftKey: false, metaKey: false, ctrlKey: false });
+        } else if (intent.gesture === "connector") {
+          startConnector({ ...pointer, objectId: intent.targetId ?? null });
+        } else if (intent.gesture === "create" || intent.gesture === "draw") {
+          const tool = tracked?.tool;
+          if (
+            tool === "draw"
+            || tool === "text"
+            || tool === "rectangle"
+            || tool === "ellipse"
+            || tool === "diamond"
+          ) startCreate({ ...pointer, tool });
+        }
+        continue;
+      }
+      if (intent.type === "host.update") {
+        const pointer = clientPointerFromIntent(intent.pointerId, intent.point);
+        if (intent.gesture === "object") updateObjectMove(pointer);
+        else if (intent.gesture === "marquee") updateMarquee(pointer);
+        else if (intent.gesture === "connector") updateConnector(pointer);
+        else if (intent.gesture === "transform") updateSelectionTransform(pointer);
+        else updateCreate(pointer);
+        continue;
+      }
+      if (intent.type === "host.finish" || intent.type === "host.cancel") {
+        const pointer = clientPointerFromIntent(intent.pointerId, intent.point);
+        const reason = intent.type === "host.finish" ? "pointer-up" : "pointer-cancel";
+        if (intent.gesture === "object") finishObjectMove(pointer, reason);
+        else if (intent.gesture === "marquee") finishMarquee(pointer, reason === "pointer-cancel");
+        else if (intent.gesture === "connector") finishConnector(pointer, reason);
+        else if (intent.gesture === "transform") finishSelectionTransform(pointer, reason);
+        else if (
+          intent.type === "host.cancel"
+          && intent.gesture === "create"
+          && activeTextRef.current?.mode === "create"
+        ) cancelTextEdit();
+        else finishCreate(pointer, reason);
+      }
+    }
+    // A pinch-up immediately rebases the remaining touch as a pan. Avoid
+    // dropping the visual panning state merely because pinch.end preceded
+    // pan.begin in the same ordered result.
+    const phase = touchGestureRef.current.snapshot().phase;
+    if (phase === "pan" || phase === "pinch") setPanning(true);
+    if (phase === "idle") setPanning(false);
+  }
+
+  function handleTouchPointerDownCapture(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch" || event.button !== 0) return;
+    const target = event.target as Element;
+    const canvasSvg = event.currentTarget.firstElementChild;
+    const selectionControls = target.closest("[data-semantic-selection-controls='true']");
+    const transformHandle = selectionControls
+      ? target.closest<HTMLElement>("[data-transform-handle]")
+      : null;
+    const onCanvas = target === event.currentTarget
+      || Boolean(canvasSvg && (target === canvasSvg || canvasSvg.contains(target)));
+    if ((!onCanvas && !transformHandle) || (selectionControls && !transformHandle)) return;
+    const mode: CanvasPointerMode | null = transformHandle ? { kind: "transform" } : touchMode();
+    const position = canvasRelativePoint(event);
+    if (!mode || !position) return;
+
+    event.preventDefault();
     setContextMenu(null);
+    setMenuOpen(false);
+    if (touchPointersRef.current.size) clearTouchLongPress();
+    const targetId = target.closest<SVGElement>("[data-object-id]")?.dataset.objectId
+      ?? target.closest<SVGElement>("[data-connector-interaction-id]")?.dataset.connectorInteractionId;
+    touchPointersRef.current.set(event.pointerId, {
+      additive: event.shiftKey || event.metaKey || event.ctrlKey,
+      ...(targetId ? { targetId } : {}),
+      tool: activeToolRef.current,
+    });
+    const result = touchGestureRef.current.pointerDown({
+      pointerId: event.pointerId,
+      pointerType: "touch",
+      point: position,
+      viewport: viewportRef.current,
+      mode,
+      target: targetId ? "object" : "blank",
+      ...(targetId ? { targetId } : {}),
+    });
+    processTouchGestureIntents(result.intents);
+    if (
+      result.snapshot.phase === "pending"
+      && (mode.kind === "select" || mode.kind === "readonly")
+    ) {
+      scheduleTouchLongPress(event.pointerId);
+    }
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (touchPointersRef.current.has(event.pointerId)) return;
+    setContextMenu(null);
+    setMenuOpen(false);
     const target = event.target as Element;
     const canvasSvg = event.currentTarget.firstElementChild;
     const isCanvasBackground = target === event.currentTarget
@@ -2042,6 +2351,18 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     const point = pointerPage(event);
     pointerPageRef.current = point;
     presencePublisherRef.current?.notifyChanged();
+    const touch = touchPointersRef.current.get(event.pointerId);
+    if (touch) {
+      const position = canvasRelativePoint(event);
+      if (!position) return;
+      const result = touchGestureRef.current.pointerMove({
+        pointerId: event.pointerId,
+        pointerType: "touch",
+        point: position,
+      });
+      processTouchGestureIntents(result.intents);
+      return;
+    }
     if (updateSelectionTransform(event)) return;
     if (updateObjectMove(event)) return;
     if (updateCreate(event)) return;
@@ -2066,6 +2387,19 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (touchPointersRef.current.has(event.pointerId)) {
+      clearTouchLongPress(event.pointerId);
+      const position = canvasRelativePoint(event);
+      if (!position) return;
+      const result = touchGestureRef.current.pointerUp({
+        pointerId: event.pointerId,
+        pointerType: "touch",
+        point: position,
+      });
+      processTouchGestureIntents(result.intents);
+      touchPointersRef.current.delete(event.pointerId);
+      return;
+    }
     if (finishSelectionTransform(event, "pointer-up")) return;
     if (finishObjectMove(event, "pointer-up")) return;
     if (finishCreate(event, "pointer-up")) return;
@@ -2075,6 +2409,19 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }
 
   function handlePointerCancel(event: PointerEvent<HTMLDivElement>) {
+    if (touchPointersRef.current.has(event.pointerId)) {
+      clearTouchLongPress(event.pointerId);
+      const position = canvasRelativePoint(event);
+      if (!position) return;
+      const result = touchGestureRef.current.pointerCancel({
+        pointerId: event.pointerId,
+        pointerType: "touch",
+        point: position,
+      });
+      processTouchGestureIntents(result.intents);
+      touchPointersRef.current.delete(event.pointerId);
+      return;
+    }
     if (finishSelectionTransform(event, "pointer-cancel")) return;
     if (finishObjectMove(event, "pointer-cancel")) return;
     if (finishCreate(event, "pointer-cancel")) return;
@@ -2485,15 +2832,16 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   function replayHistory(direction: "undo" | "redo") {
     const currentController = controllerRef.current;
     if (!currentController || !canReplayHistory(direction)) return;
+    const restoreMenuFocus = menuOpen;
     setMenuOpen(false);
-    queueMicrotask(() => menuButtonRef.current?.focus());
+    if (restoreMenuFocus) queueMicrotask(() => menuButtonRef.current?.focus());
     const replay = direction === "undo" ? currentController.undo() : currentController.redo();
     void replay.catch(reportAuthoringError);
   }
 
   const persistentCanvasChrome = (
     <>
-      {editingEnabled ? (
+      {editingEnabled && !mobileLayout ? (
         <SemanticToolPalette
           activeTool={activeTool}
           connectorRouting={connectorRouting}
@@ -2501,6 +2849,24 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
           onToolChange={chooseTool}
           onConnectorRoutingChange={setConnectorRouting}
           onConnectorDirectionChange={setConnectorDirection}
+        />
+      ) : null}
+
+      {mobileLayout ? (
+        <MobileCanvasDock
+          activeTool={activeTool}
+          canRedo={canRedo}
+          canUndo={canUndo}
+          connectorDirection={connectorDirection}
+          connectorRouting={connectorRouting}
+          editing={editingEnabled}
+          zoomPercent={Math.round(viewport.zoom * 100)}
+          onConnectorDirectionChange={setConnectorDirection}
+          onConnectorRoutingChange={setConnectorRouting}
+          onFitBoard={fitBoard}
+          onRedo={() => replayHistory("redo")}
+          onToolChange={chooseTool}
+          onUndo={() => replayHistory("undo")}
         />
       ) : null}
 
@@ -2520,7 +2886,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
             aria-label="Board menu"
             aria-expanded={menuOpen}
             aria-controls="semantic-board-menu"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              const next = !menuOpen;
+              if (next && mobileLayout) announceMobileSurfaceOpen("board-menu");
+              setMenuOpen(next);
+            }}
           >
             <Menu size={20} />
           </button>
@@ -2566,7 +2936,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         </div>
       </div>
 
-      <div
+      {!mobileLayout ? <div
         className={styles.toolbar}
         aria-label="Canvas zoom controls"
         onPointerDown={(event) => event.stopPropagation()}
@@ -2576,7 +2946,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         <span className={styles.zoomValue}>{Math.round(viewport.zoom * 100)}%</span>
         <button aria-label="Zoom in" onClick={() => zoomAtCenter(1.2)}><Plus size={15} /></button>
         <button aria-label="Fit board" onClick={fitBoard}><Maximize2 size={15} /></button>
-      </div>
+      </div> : null}
     </>
   );
 
@@ -2591,6 +2961,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       role="region"
       aria-label={`${projectedRoom.title} semantic canvas`}
       tabIndex={0}
+      onPointerDownCapture={handleTouchPointerDownCapture}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -2726,7 +3097,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       <SemanticSelectionControls
         selectedObjects={selection.flatMap((objectId) => scene.objectsById[objectId] ? [scene.objectsById[objectId]!] : [])}
         viewport={viewport}
-        editing={editingEnabled}
+        editing={editingEnabled && (!mobileLayout || activeTool === "select")}
         connectorRoute={selection.length === 1 ? scene.connectorRoutes[selection[0]!] : null}
         onTransformPointerStart={startSelectionTransform}
         onDelete={() => runSelectionAction("delete")}

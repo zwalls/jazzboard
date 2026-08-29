@@ -59,6 +59,15 @@ import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import { AskAgentPanel } from "./AskAgentPanel";
 import { DurabilityPanel, type DurabilityPanelMode } from "./DurabilityPanel";
 import { ReviewPanel } from "./ReviewPanel";
+import {
+  MobileRoomCollaboration,
+  type MobileCollaborationSurface,
+} from "./MobileRoomCollaboration";
+import {
+  announceMobileSurfaceOpen,
+  subscribeToMobileSurfaceOpen,
+} from "./mobile-surface-coordinator";
+import { useCanvasMobileLayout } from "./useCanvasMobileLayout";
 import styles from "./room.module.css";
 
 const RECENT_ROOMS_KEY = "jazzboard:recent-rooms:v1";
@@ -121,6 +130,7 @@ function objectLabel(room: RoomState, objectId: string): string {
 export function JazzboardRoom({ roomId }: { roomId: string }) {
   const router = useRouter();
   const controller = useRoom(roomId);
+  const mobileLayout = useCanvasMobileLayout();
   const { room, self, participantId } = controller;
   const spotlightAction = controller.spotlight;
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
@@ -128,6 +138,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [presenceOpen, setPresenceOpen] = useState(false);
   const [statusTooltip, setStatusTooltip] = useState<"connection" | "people" | "share" | "spotlight" | null>(null);
   const [spotlightPickerOpen, setSpotlightPickerOpen] = useState(false);
+  const [mobileCollaborationSurface, setMobileCollaborationSurface] =
+    useState<MobileCollaborationSurface>("closed");
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [durabilityOpen, setDurabilityOpen] = useState(false);
@@ -205,6 +217,19 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     document.addEventListener("pointerdown", dismissOutside, true);
     return () => document.removeEventListener("pointerdown", dismissOutside, true);
   }, [followOpen]);
+
+  useEffect(() => {
+    if (!mobileLayout) return;
+    return subscribeToMobileSurfaceOpen((surfaceId) => {
+      if (surfaceId !== "collaboration") setMobileCollaborationSurface("closed");
+      if (surfaceId !== "room-share" && surfaceId !== "room-durability") setDurabilityOpen(false);
+      if (surfaceId !== "room-spotlight") setSpotlightPickerOpen(false);
+      if (surfaceId !== "room-outline") setOutlineOpen(false);
+      if (surfaceId !== "room-activity") setActivityOpen(false);
+      if (surfaceId !== "room-review") setReviewOpen(false);
+      if (surfaceId !== "room-ask") setAskSelection(null);
+    });
+  }, [mobileLayout]);
 
   useEffect(() => {
     roomStateRef.current = room;
@@ -376,6 +401,11 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         : "Spotlight";
 
   function toggleDurability(nextMode: DurabilityPanelMode) {
+    if (mobileLayout) {
+      announceMobileSurfaceOpen(nextMode === "share" ? "room-share" : "room-durability");
+      setMobileCollaborationSurface("closed");
+      setSpotlightPickerOpen(false);
+    }
     setDurabilityOpen((open) => nextMode !== durabilityMode || !open);
     setDurabilityMode(nextMode);
     setOutlineOpen(false);
@@ -387,6 +417,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }
 
   function toggleCanvasOutline() {
+    if (mobileLayout) announceMobileSurfaceOpen("room-outline");
     setOutlineOpen((open) => !open);
     setActivityOpen(false);
     setDurabilityOpen(false);
@@ -397,6 +428,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }
 
   function toggleActivity() {
+    if (mobileLayout) announceMobileSurfaceOpen("room-activity");
     setActivityOpen((open) => !open);
     setOutlineOpen(false);
     setDurabilityOpen(false);
@@ -407,6 +439,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }
 
   function toggleAgentReview() {
+    if (mobileLayout) announceMobileSurfaceOpen("room-review");
     setReviewOpen((open) => !open);
     setOutlineOpen(false);
     setActivityOpen(false);
@@ -511,11 +544,32 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     );
   }
 
+  function openMobileCollaboration() {
+    setPresenceOpen(false);
+    setFollowOpen(false);
+    setDurabilityOpen(false);
+    setSpotlightPickerOpen(false);
+  }
+
+  function openMobileSpotlight() {
+    setMobileCollaborationSurface("closed");
+    setPresenceOpen(false);
+    setFollowOpen(false);
+    setDurabilityOpen(false);
+    if (spotlight?.presenterId === participantId) {
+      void spotlightAction({ action: "stop" });
+      return;
+    }
+    announceMobileSurfaceOpen("room-spotlight");
+    setSpotlightPickerOpen(true);
+  }
+
   async function toggleAskPanel() {
     if (askSelection !== null) {
       closeAskPanel();
       return;
     }
+    if (mobileLayout) announceMobileSurfaceOpen("room-ask");
     setOutlineOpen(false);
     setActivityOpen(false);
     setDurabilityOpen(false);
@@ -562,7 +616,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     >
       <div className={styles.viewportChromeLayer} data-testid="room-viewport-chrome">
         <header className={styles.roomHeader}>
-          <div className={`${styles.floatingBar} ${styles.roomControls}`} data-testid="room-controls">
+          <div className={`${styles.floatingBar} ${styles.roomControls} ${styles.desktopRoomControls}`} data-testid="room-controls">
           <div className={styles.secondaryIndicators} aria-label="Room status">
             <span
               aria-describedby={statusTooltip === "connection" ? "connection-status-tooltip" : undefined}
@@ -722,6 +776,37 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           </button>
           </div>
         </header>
+        {mobileLayout ? (
+          <MobileRoomCollaboration
+            activeSurface={mobileCollaborationSurface}
+            canSpotlight={self.role === "participant"}
+            connectionLabel={connectionLabel}
+            connectionState={controller.connection}
+            followContent={(
+              <FollowPopover
+                participants={participants}
+                now={now}
+                selfId={participantId}
+                current={followTarget}
+                onFollow={(targetParticipantId, kind) => {
+                  follow(targetParticipantId, kind);
+                  setMobileCollaborationSurface("closed");
+                }}
+              />
+            )}
+            followSummary={followedParticipant
+              ? `Following ${followedParticipant.displayName}’s ${effectiveFollowTarget?.kind}`
+              : "Choose a person's cursor or agent"}
+            peopleContent={<PresencePopover now={now} room={room} selfId={participantId} />}
+            peopleLabel={peopleLabel}
+            participantCount={participantCount}
+            spotlightLabel={spotlightButtonLabel}
+            onOpen={openMobileCollaboration}
+            onShare={() => toggleDurability("share")}
+            onSpotlight={openMobileSpotlight}
+            onSurfaceChange={setMobileCollaborationSurface}
+          />
+        ) : null}
         <div ref={setPersistentChromeHost} className={styles.canvasChromeHost} data-testid="persistent-canvas-chrome" />
       </div>
 
@@ -960,24 +1045,26 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       ) : null}
 
       {durabilityOpen ? (
-        <DurabilityPanel
-          key={durabilityMode}
-          mode={durabilityMode}
-          room={room}
-          role={self.role}
-          selection={selection}
-          runtime={canvasRuntime}
-          getImportOrigin={() => {
-            const viewport = canvasRuntimeRef.current?.getViewport();
-            return viewport ? { x: viewport.x + 64, y: viewport.y + 64 } : { x: 120, y: 120 };
-          }}
-          acceptRoom={controller.acceptRoom}
-          onClose={() => setDurabilityOpen(false)}
-          onAnnounce={(message) => {
-            setDiagramAnnouncement(message);
-            window.setTimeout(() => setDiagramAnnouncement(""), 4_000);
-          }}
-        />
+        <div className={styles.mobileDurabilityHost}>
+          <DurabilityPanel
+            key={durabilityMode}
+            mode={durabilityMode}
+            room={room}
+            role={self.role}
+            selection={selection}
+            runtime={canvasRuntime}
+            getImportOrigin={() => {
+              const viewport = canvasRuntimeRef.current?.getViewport();
+              return viewport ? { x: viewport.x + 64, y: viewport.y + 64 } : { x: 120, y: 120 };
+            }}
+            acceptRoom={controller.acceptRoom}
+            onClose={() => setDurabilityOpen(false)}
+            onAnnounce={(message) => {
+              setDiagramAnnouncement(message);
+              window.setTimeout(() => setDiagramAnnouncement(""), 4_000);
+            }}
+          />
+        </div>
       ) : null}
 
       {reviewOpen ? (

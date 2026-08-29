@@ -25,7 +25,12 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
     const panel = document.querySelector('[data-testid="combined-left-panel"]');
     const identity = panel?.querySelector('[data-testid="room-identity"]') ?? null;
     const menu = panel?.querySelector('[data-testid="main-menu.button"]') ?? null;
-    const controls = document.querySelector('[data-testid="room-controls"]');
+    const desktopControls = document.querySelector('[data-testid="room-controls"]');
+    const mobileControls = document.querySelector('[data-testid="mobile-collaboration-launcher"]');
+    const mobileControlsActive = mobileControls
+      ? getComputedStyle(mobileControls).display !== "none"
+      : false;
+    const controls = mobileControlsActive ? mobileControls : desktopControls;
     const stylePanel = document.querySelector("[data-semantic-style-controls]");
     const overlaps = (first: Element, second: Element) => {
       const a = rect(first);
@@ -37,6 +42,7 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
       controls: controls ? rect(controls) : null,
       identity: identity ? rect(identity) : null,
       menu: menu ? rect(menu) : null,
+      mobileControlsActive,
       panel: panel ? rect(panel) : null,
       panelControlsOverlap: panel && controls ? overlaps(panel, controls) : null,
       stylePanel: stylePanel ? rect(stylePanel) : null,
@@ -51,13 +57,20 @@ async function expectTopNavigationToClearCanvasChrome(page: Page) {
   expect(layout.controls).not.toBeNull();
   expect(layout.panelControlsOverlap).toBe(false);
 
-  if (layout.viewportWidth > 720) {
+  if (!layout.mobileControlsActive) {
     expect(
       Math.abs(layout.panel!.top - layout.controls!.top),
       "left room card and right collaboration controls should share a top edge",
     ).toBeLessThanOrEqual(1);
   } else {
-    expect(layout.controls!.top).toBeGreaterThanOrEqual(layout.panel!.bottom + 8);
+    expect(
+      Math.abs(layout.panel!.top - layout.controls!.top),
+      "compact room card and collaboration launcher should share a top edge",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      layout.controls!.left,
+      "compact collaboration launcher should clear the room card horizontally",
+    ).toBeGreaterThanOrEqual(layout.panel!.right + 8);
   }
 
   for (const box of [layout.panel!, layout.controls!]) {
