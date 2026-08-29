@@ -475,6 +475,11 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(first).toMatchObject({ outcome: "drafted", draftRevision: 1, baselineRoomRevision });
     expect(first.draft.previewObjects).toHaveLength(3);
     await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 1, objectCount: 3 });
+    await expect(
+      viewerPage
+        .getByTestId(`agent-cursor-${host.participantId}`)
+        .locator('[data-agent-cursor-label="true"]'),
+    ).toHaveText("Ari Agent Owner · agent");
     await page.waitForTimeout(450);
 
     const second = await callTool<DraftedResult>(page, "apply_canvas_transaction", {

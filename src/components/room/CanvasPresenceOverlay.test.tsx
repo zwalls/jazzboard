@@ -447,14 +447,15 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveAttribute("data-agent-draft-choreography", "true");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
-    expect(marker).toHaveTextContent("Orbit Architect · agent · Drafting preview · not saved");
+    expect(marker).toHaveTextContent("Orbit Architect · agent");
+    expect(marker).not.toHaveTextContent("Drafting preview");
     const avatar = container.querySelector<HTMLElement>('[data-agent-avatar-state="working"]');
     expect(avatar).not.toBeNull();
     expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("63px");
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
   });
 
-  it("uses a truthful validating label while committing", () => {
+  it("keeps the bot label concise while committing", () => {
     const agent = inactiveRemoteAgent();
     render(
       <CanvasPresenceOverlay
@@ -465,9 +466,9 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
       />,
     );
 
-    expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveTextContent(
-      "Orbit Architect · agent · Validating draft · not saved",
-    );
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveTextContent("Orbit Architect · agent");
+    expect(marker).not.toHaveTextContent("Validating draft");
   });
 
   it("does not remount or jump when an active draft starts committing", () => {
@@ -506,7 +507,8 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     const validating = screen.getByTestId("agent-cursor-participant_orbit");
     expect(validating).toBe(marker);
     expect(validating.style.transform).toBe(before);
-    expect(validating).toHaveTextContent("Validating draft · not saved");
+    expect(validating).toHaveTextContent("Orbit Architect · agent");
+    expect(validating).not.toHaveTextContent("Validating draft");
     expect(animation.pending()).toBe(1);
   });
 

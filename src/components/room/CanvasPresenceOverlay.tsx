@@ -438,9 +438,6 @@ function DraftAgentCursor({
   ]);
 
   const initialPoint = runtime.pageToViewport(plan.startPoint);
-  const label = draft.status === "committing"
-    ? "Validating draft · not saved"
-    : "Drafting preview · not saved";
   return (
     <div
       aria-hidden="true"
@@ -471,7 +468,7 @@ function DraftAgentCursor({
         state="working"
       />
       <span className={styles.agentCursorLabel} data-agent-cursor-label="true" style={{ background: participant.color }}>
-        {participant.displayName} · agent · {label}
+        {participant.displayName} · agent
       </span>
     </div>
   );
