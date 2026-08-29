@@ -1,7 +1,12 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AgentAvatar, agentAvatarSeed, isAgentActivityWorking } from "./AgentAvatar";
+import {
+  AgentAvatar,
+  agentAvatarPrimaryColor,
+  agentAvatarSeed,
+  isAgentActivityWorking,
+} from "./AgentAvatar";
 
 afterEach(cleanup);
 
@@ -23,6 +28,15 @@ describe("AgentAvatar", () => {
     expect(firstSource).toMatch(/^data:image\/svg\+xml/);
     expect(repeatSource).toBe(firstSource);
     expect(otherSource).not.toBe(firstSource);
+  });
+
+  it("exposes the generated body's primary color for matching UI chrome", () => {
+    const primaryColor = agentAvatarPrimaryColor("Mira");
+    const { container } = render(<AgentAvatar displayName="Mira" motion="none" />);
+    const source = container.querySelector("img")?.getAttribute("src");
+
+    expect(primaryColor).toBe("#a6b142");
+    expect(decodeURIComponent(source ?? "")).toContain(`fill='${primaryColor}'`);
   });
 
   it("is decorative by default and supports an explicit accessible label", () => {

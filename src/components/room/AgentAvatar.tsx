@@ -1,6 +1,7 @@
 "use client";
 
 import { Blobatar } from "@blobatar/react";
+import { palette, traits } from "blobatar";
 import { thinking } from "blobatar/expression";
 import "blobatar/motion.css";
 import type { CSSProperties } from "react";
@@ -24,6 +25,15 @@ export type AgentAvatarProps = {
 
 export function agentAvatarSeed(displayName: string) {
   return `jazzboard-agent:${displayName}`;
+}
+
+export function agentAvatarPrimaryColor(displayName: string) {
+  const seedTraits = traits(agentAvatarSeed(displayName));
+  return palette(
+    seedTraits.num("hue", 0, 360),
+    true,
+    seedTraits("tone"),
+  ).head ?? "#5965e8";
 }
 
 export function isAgentActivityWorking(activity: AgentActivity | null, now: number) {

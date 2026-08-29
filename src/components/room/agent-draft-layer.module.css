@@ -141,12 +141,12 @@
 
 .statusPill {
   background: #fff;
-  border: 1px dashed color-mix(in srgb, var(--agent-draft-color, #5965e8) 66%, #fff);
+  border: 1px dashed var(--agent-avatar-color, var(--agent-draft-color, #5965e8));
   border-radius: 9px;
   box-shadow:
     0 2px 8px rgba(35, 43, 72, 0.11),
-    0 0 0 3px color-mix(in srgb, var(--agent-draft-color, #5965e8) 10%, transparent),
-    0 6px 18px color-mix(in srgb, var(--agent-draft-color, #5965e8) 14%, transparent);
+    0 0 0 3px color-mix(in srgb, var(--agent-avatar-color, var(--agent-draft-color, #5965e8)) 12%, transparent),
+    0 6px 18px color-mix(in srgb, var(--agent-avatar-color, var(--agent-draft-color, #5965e8)) 20%, transparent);
   color: #3f4960;
   display: flex;
   flex-direction: column;
@@ -157,19 +157,12 @@
   position: absolute;
 }
 
-.statusPill::before {
-  background: var(--agent-draft-color, #5965e8);
-  border-radius: 999px;
-  content: "";
-  height: 6px;
-  left: -3px;
-  position: absolute;
-  top: 9px;
-  width: 6px;
-}
-
 .statusPill strong {
-  color: var(--agent-draft-color, #5965e8);
+  color: color-mix(
+    in srgb,
+    var(--agent-avatar-color, var(--agent-draft-color, #5965e8)) 50%,
+    #000
+  );
   font-size: 10px;
   font-weight: 760;
   line-height: 1.2;

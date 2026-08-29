@@ -55,6 +55,7 @@ import type {
   Viewport,
 } from "@/lib/domain/types";
 
+import { agentAvatarPrimaryColor } from "./AgentAvatar";
 import styles from "./agent-draft-layer.module.css";
 
 const ANNOUNCEMENT_THROTTLE_MS = 240;
@@ -612,6 +613,7 @@ export function AgentDraftLayer({
           key={`${draft.id}:pill`}
           style={{
             ...pillPosition(bounds, viewport),
+            "--agent-avatar-color": agentAvatarPrimaryColor(draft.author.displayName),
             "--agent-draft-color": draft.author.color,
           } as CSSProperties}
         >

@@ -1371,28 +1371,6 @@ button.compactIndicator:hover {
   will-change: transform;
 }
 
-.agentCursor[data-agent-draft-choreography="true"]::after {
-  background: currentColor;
-  border: 2px solid white;
-  border-radius: 999px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
-  content: "";
-  height: 5px;
-  opacity: 0;
-  position: absolute;
-  right: -1px;
-  top: calc(var(--agent-marker-size) - 10px);
-  transform: scale(0.55);
-  width: 5px;
-}
-
-.agentCursor[data-agent-draft-choreography-phase="outline"]::after,
-.agentCursor[data-agent-draft-choreography-phase="trace"]::after,
-.agentCursor[data-agent-draft-choreography-phase="label"]::after {
-  animation: agent-tool-spark 520ms ease-in-out infinite alternate;
-  opacity: 1;
-}
-
 button.idleAgentCursor {
   appearance: none;
   background: transparent;
@@ -1419,12 +1397,12 @@ button.idleAgentCursor {
 
 .agentCursorLabel {
   background: #fff;
-  border: 1px solid color-mix(in srgb, currentColor 72%, #fff);
+  border: 1px solid var(--agent-avatar-color, currentColor);
   box-shadow:
     0 1px 3px rgba(35, 43, 72, 0.14),
-    0 0 0 3px color-mix(in srgb, currentColor 16%, transparent),
-    0 4px 14px color-mix(in srgb, currentColor 22%, transparent);
-  color: inherit;
+    0 0 0 3px color-mix(in srgb, var(--agent-avatar-color, currentColor) 18%, transparent),
+    0 4px 14px color-mix(in srgb, var(--agent-avatar-color, currentColor) 28%, transparent);
+  color: color-mix(in srgb, var(--agent-avatar-color, currentColor) 50%, #000);
   left: calc(var(--agent-marker-size) - 9px);
   top: calc(var(--agent-marker-size) - 8px);
 }
@@ -1465,18 +1443,6 @@ button.idleAgentCursor {
   transform-origin: left center;
   transition: transform 90ms linear;
   width: calc(100% + 4px);
-}
-
-@keyframes agent-tool-spark {
-  from {
-    box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
-    transform: scale(0.62);
-  }
-
-  to {
-    box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 6%, transparent);
-    transform: scale(1);
-  }
 }
 
 .leaseOutline {
@@ -1722,8 +1688,4 @@ button.idleAgentCursor {
     transition: none;
   }
 
-  .agentCursor[data-agent-draft-choreography="true"]::after {
-    animation: none;
-    opacity: 0;
-  }
 }

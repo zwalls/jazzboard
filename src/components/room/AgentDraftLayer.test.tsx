@@ -9,6 +9,7 @@ import {
 import type { ActorRef, CanvasObject, Viewport } from "@/lib/domain/types";
 import { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 
+import { agentAvatarPrimaryColor } from "./AgentAvatar";
 import { AgentDraftLayer } from "./AgentDraftLayer";
 
 const author: ActorRef = {
@@ -120,6 +121,9 @@ describe("AgentDraftLayer", () => {
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector("svg")).toHaveAttribute("pointer-events", "none");
     const statusPill = container.querySelector("[data-agent-draft-pill]");
+    expect((statusPill as HTMLElement).style.getPropertyValue("--agent-avatar-color")).toBe(
+      agentAvatarPrimaryColor(author.displayName),
+    );
     expect(statusPill).toHaveTextContent("Draft preview · not saved");
     expect(statusPill).not.toHaveTextContent("· agent");
   });

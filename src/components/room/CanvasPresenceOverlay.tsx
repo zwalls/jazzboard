@@ -22,7 +22,11 @@ import type { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
 
-import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
+import {
+  AgentAvatar,
+  agentAvatarPrimaryColor,
+  isAgentActivityWorking,
+} from "./AgentAvatar";
 import styles from "./room.module.css";
 
 const AGENT_PARK_INSET = 8;
@@ -438,6 +442,7 @@ function DraftAgentCursor({
   ]);
 
   const initialPoint = runtime.pageToViewport(plan.startPoint);
+  const avatarColor = agentAvatarPrimaryColor(participant.displayName);
   return (
     <div
       aria-hidden="true"
@@ -455,6 +460,7 @@ function DraftAgentCursor({
       data-testid={`agent-cursor-${participant.participantId}`}
       ref={markerRef}
       style={{
+        "--agent-avatar-color": avatarColor,
         "--agent-marker-size": `${AGENT_MARKER_SIZE}px`,
         color: participant.color,
         transform: `translate(${initialPoint.x}px, ${initialPoint.y}px)`,
@@ -652,6 +658,7 @@ function LocalAgentCursor({
   const placeLabelAbove = Boolean(
     overlayHeight && viewportPoint.y + AGENT_MARKER_SIZE + labelHeight > overlayHeight - AGENT_PARK_INSET,
   );
+  const avatarColor = agentAvatarPrimaryColor(participant.displayName);
   const sharedProps = {
     className: styles.agentCursor,
     "data-activity-progress": Math.round(progress * 100),
@@ -663,6 +670,7 @@ function LocalAgentCursor({
     "data-working": presentingAsWorking ? "true" : "false",
     "data-testid": `agent-cursor-${participant.participantId}`,
     style: {
+      "--agent-avatar-color": avatarColor,
       "--agent-marker-size": `${AGENT_MARKER_SIZE}px`,
       color: participant.color,
       transform: `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`,

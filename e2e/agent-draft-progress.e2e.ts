@@ -482,23 +482,36 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     const agentNameTagStyle = await agentNameTag.evaluate((element) => {
       const tagStyle = getComputedStyle(element);
       const markerStyle = getComputedStyle(element.parentElement!);
+      const avatarColor = markerStyle.getPropertyValue("--agent-avatar-color").trim();
+      const colorProbe = document.createElement("span");
+      colorProbe.style.color = avatarColor;
+      document.body.append(colorProbe);
+      const resolvedAvatarColor = getComputedStyle(colorProbe).color;
+      colorProbe.remove();
       return {
+        avatarColor,
         backgroundColor: tagStyle.backgroundColor,
         borderColor: tagStyle.borderColor,
         boxShadow: tagStyle.boxShadow,
         color: tagStyle.color,
+        draftingDot: getComputedStyle(element.parentElement!, "::after").content,
         markerColor: markerStyle.color,
+        resolvedAvatarColor,
       };
     });
     expect(agentNameTagStyle).toMatchObject({
       backgroundColor: "rgb(255, 255, 255)",
-      color: agentNameTagStyle.markerColor,
+      borderColor: agentNameTagStyle.resolvedAvatarColor,
+      draftingDot: "none",
     });
-    expect(agentNameTagStyle.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(agentNameTagStyle.avatarColor).toMatch(/^#[\da-f]{6}$/i);
+    expect(agentNameTagStyle.color).not.toBe(agentNameTagStyle.markerColor);
     expect(agentNameTagStyle.boxShadow).not.toBe("none");
-    await expect(
-      viewerPage.locator(`[data-agent-draft-pill="${first.draftId}"] strong`),
-    ).toHaveText("Ari Agent Owner");
+    const draftPillName = viewerPage.locator(`[data-agent-draft-pill="${first.draftId}"] strong`);
+    await expect(draftPillName).toHaveText("Ari Agent Owner");
+    expect(await draftPillName.evaluate((element) => (
+      getComputedStyle(element.parentElement!, "::before").content
+    ))).toBe("none");
     await page.waitForTimeout(450);
 
     const second = await callTool<DraftedResult>(page, "apply_canvas_transaction", {

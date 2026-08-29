@@ -11,6 +11,7 @@ import { agentDraftObjectFingerprint } from "@/lib/canvas/agent-draft-choreograp
 import { AgentDraftRevealRegistry } from "@/lib/canvas/agent-draft-reveal";
 import type { ActorRef, AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
 
+import { agentAvatarPrimaryColor } from "./AgentAvatar";
 import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
 
 afterEach(() => {
@@ -447,6 +448,9 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveAttribute("data-agent-draft-choreography", "true");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
+    expect(marker.style.getPropertyValue("--agent-avatar-color")).toBe(
+      agentAvatarPrimaryColor("Orbit Architect"),
+    );
     expect(marker).toHaveTextContent("Orbit Architect");
     expect(marker).not.toHaveTextContent("· agent");
     expect(marker).not.toHaveTextContent("Drafting preview");
