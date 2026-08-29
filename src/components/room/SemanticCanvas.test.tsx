@@ -573,7 +573,7 @@ describe("SemanticCanvas", () => {
     expect(menuButton).toHaveFocus();
   });
 
-  it("edits participant room titles through the first-party canvas header", async () => {
+  it("auto-saves participant room titles when the inline editor loses focus", async () => {
     const participantSelf: Participant = { ...self, role: "participant" };
     const renamedRoom = { ...room, title: "Architecture review", roomRevision: room.roomRevision + 1 };
     const renameRoom = vi.fn().mockResolvedValue(renamedRoom);
@@ -593,11 +593,17 @@ describe("SemanticCanvas", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit room title, currently Semantic test board" }));
+    const titleButton = screen.getByRole("button", {
+      name: "Edit room title, currently Semantic test board",
+    });
+    expect(titleButton.querySelector("svg")).toBeNull();
+    fireEvent.click(titleButton);
     const input = screen.getByRole("textbox", { name: "Room name" });
     expect(input).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Save room name" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel room name edit" })).toBeNull();
     fireEvent.change(input, { target: { value: "  Architecture review  " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.blur(input);
 
     await waitFor(() => expect(renameRoom).toHaveBeenCalledWith("Architecture review", "Semantic test board"));
     rendered.rerender(
@@ -616,6 +622,39 @@ describe("SemanticCanvas", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Edit room title, currently Architecture review" })).toBeVisible();
+  });
+
+  it("exits title editing without saving when Escape is pressed", async () => {
+    const participantSelf: Participant = { ...self, role: "participant" };
+    const renameRoom = vi.fn();
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        room={{ ...room, participants: { [participantSelf.participantId]: participantSelf } }}
+        self={participantSelf}
+        renameRoom={renameRoom}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
+        onExitFollow={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "Edit room title, currently Semantic test board",
+    }));
+    const input = screen.getByRole("textbox", { name: "Room name" });
+    fireEvent.change(input, { target: { value: "Discard this title" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(renameRoom).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox", { name: "Room name" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "Edit room title, currently Semantic test board",
+    })).toHaveFocus());
   });
 
   it("dismisses the board menu on pointer-away without closing it for internal pointer events", async () => {

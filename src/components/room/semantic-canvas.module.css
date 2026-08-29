@@ -218,9 +218,11 @@
 .roomTitleText,
 .roomTitleButton {
   color: #20283b;
-  font-size: 13px;
-  font-weight: 740;
-  letter-spacing: -0.018em;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 780;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
 }
 
 .roomTitleText {
@@ -237,9 +239,8 @@
   background: transparent;
   border: 0;
   border-radius: 5px;
+  cursor: text;
   display: flex;
-  font: inherit;
-  gap: 5px;
   max-width: 100%;
   min-width: 0;
   padding: 2px 3px 2px 0;
@@ -263,24 +264,12 @@
   box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.24);
 }
 
-.roomTitleEditIcon {
-  flex: 0 0 auto;
-  opacity: 0.38;
-  transition: opacity 130ms ease;
-}
-
-.roomTitleButton:hover .roomTitleEditIcon,
-.roomTitleButton:focus-visible .roomTitleEditIcon {
-  opacity: 0.82;
-}
-
 .roomTitleEditor {
-  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
   max-width: 100%;
   min-width: 0;
+  width: 100%;
 }
 
 .roomTitleEditor input {
@@ -288,11 +277,13 @@
   border: 1px solid rgba(89, 101, 232, 0.52);
   border-radius: 6px;
   color: #20283b;
-  flex: 1 1 86px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  height: 25px;
+  flex: 1 1 100%;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 780;
+  height: 28px;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
   min-width: 0;
   padding: 0 6px;
 }
@@ -303,30 +294,7 @@
   outline: none;
 }
 
-.roomTitleEditor > button {
-  align-items: center;
-  background: #eef0ff;
-  border: 0;
-  border-radius: 6px;
-  color: #4652ca;
-  display: inline-flex;
-  flex: 0 0 25px;
-  height: 25px;
-  justify-content: center;
-  padding: 0;
-}
-
-.roomTitleEditor > button:hover,
-.roomTitleEditor > button:focus-visible {
-  background: #dfe3ff;
-  outline: none;
-}
-
-.roomTitleEditor > button:focus-visible {
-  box-shadow: 0 0 0 2px rgba(89, 101, 232, 0.22);
-}
-
-.roomTitleEditor > button:disabled {
+.roomTitleEditor input:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -340,15 +308,7 @@
   margin-top: 1px;
 }
 
-.spin {
-  animation: semantic-canvas-spin 900ms linear infinite;
-}
-
-@keyframes semantic-canvas-spin {
-  to { transform: rotate(360deg); }
-}
-
-.roomIdentityText span {
+.roomIdentityText > span {
   color: #737d92;
   font-size: 11px;
   margin-top: 3px;

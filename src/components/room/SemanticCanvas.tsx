@@ -20,19 +20,15 @@ import { createPortal } from "react-dom";
 import {
   Activity,
   ArrowLeft,
-  Check,
   Download,
   ListTree,
-  LoaderCircle,
   Maximize2,
   Menu,
   MessageCircle,
   Minus,
-  Pencil,
   Plus,
   ScanSearch,
   ShieldCheck,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -295,6 +291,9 @@ function InlineRoomTitle({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const focusTriggerAfterSaveRef = useRef(false);
+  const savingRef = useRef(false);
+  const skipNextBlurRef = useRef(false);
   const [draft, setDraft] = useState(title);
   const [startingTitle, setStartingTitle] = useState(title);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -313,36 +312,38 @@ function InlineRoomTitle({
     if (focusTrigger) window.requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
-  const saveTitle = useCallback(async () => {
-    if (saving || !renameRoom) return;
+  const saveTitle = useCallback(async (focusTrigger: boolean) => {
+    if (savingRef.current || !renameRoom) return;
     const nextTitle = draft.trim();
     if (!nextTitle) {
       setError("Enter a room name.");
-      window.requestAnimationFrame(() => inputRef.current?.focus());
+      if (focusTrigger) window.requestAnimationFrame(() => inputRef.current?.focus());
       return;
     }
     if (nextTitle === title) {
-      finishEditing(true);
+      finishEditing(focusTrigger);
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
       await renameRoom(nextTitle, startingTitle);
       setDraft(nextTitle);
-      finishEditing(true);
+      finishEditing(focusTrigger);
     } catch (renameError) {
       if (renameError instanceof JazzboardApiError && renameError.failure.code === "REVISION_CONFLICT") {
         const actualTitle = renameError.failure.details?.actualTitle;
         if (typeof actualTitle === "string") setStartingTitle(actualTitle);
       }
       setError(renameError instanceof Error ? renameError.message : "Jazzboard could not rename this room.");
-      window.requestAnimationFrame(() => inputRef.current?.focus());
+      if (focusTrigger) window.requestAnimationFrame(() => inputRef.current?.focus());
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
-  }, [draft, finishEditing, renameRoom, saving, startingTitle, title]);
+  }, [draft, finishEditing, renameRoom, startingTitle, title]);
 
   if (!editable || !renameRoom) {
     return <strong className={styles.roomTitleText}>{title}</strong>;
@@ -355,6 +356,8 @@ function InlineRoomTitle({
         aria-label={`Edit room title, currently ${title}`}
         className={styles.roomTitleButton}
         onClick={() => {
+          focusTriggerAfterSaveRef.current = false;
+          skipNextBlurRef.current = false;
           setDraft(title);
           setStartingTitle(title);
           setError(null);
@@ -364,7 +367,6 @@ function InlineRoomTitle({
         type="button"
       >
         <span>{title}</span>
-        <Pencil aria-hidden="true" className={styles.roomTitleEditIcon} size={12} />
       </button>
     );
   }
@@ -374,12 +376,13 @@ function InlineRoomTitle({
       className={styles.roomTitleEditor}
       onSubmit={(event) => {
         event.preventDefault();
-        void saveTitle();
+        inputRef.current?.blur();
       }}
     >
       <input
         ref={inputRef}
         aria-describedby={error ? "semantic-room-title-error" : undefined}
+        aria-busy={saving}
         aria-invalid={Boolean(error)}
         aria-label="Room name"
         disabled={saving}
@@ -388,33 +391,33 @@ function InlineRoomTitle({
           setDraft(event.target.value);
           if (error) setError(null);
         }}
+        onBlur={() => {
+          if (skipNextBlurRef.current) {
+            skipNextBlurRef.current = false;
+            return;
+          }
+          const focusTrigger = focusTriggerAfterSaveRef.current;
+          focusTriggerAfterSaveRef.current = false;
+          void saveTitle(focusTrigger);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
             event.stopPropagation();
-            void saveTitle();
+            focusTriggerAfterSaveRef.current = true;
+            event.currentTarget.blur();
           }
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
+            focusTriggerAfterSaveRef.current = false;
+            skipNextBlurRef.current = true;
+            setDraft(title);
             finishEditing(true);
           }
         }}
         value={draft}
       />
-      <button aria-label="Save room name" disabled={saving} type="submit">
-        {saving
-          ? <LoaderCircle aria-hidden="true" className={styles.spin} size={13} />
-          : <Check aria-hidden="true" size={13} />}
-      </button>
-      <button
-        aria-label="Cancel room name edit"
-        disabled={saving}
-        onClick={() => finishEditing(true)}
-        type="button"
-      >
-        <X aria-hidden="true" size={13} />
-      </button>
       {error ? <span id="semantic-room-title-error" role="alert">{error}</span> : null}
     </form>
   );

@@ -211,6 +211,21 @@ test.describe("landing and room entry", () => {
     const originalTitle = page.getByRole("button", {
       name: "Edit room title, currently Untitled Jazzboard",
     });
+    const roomNumber = page.getByText(`Room ${host.room.code}`, { exact: true });
+    const headerTypography = await Promise.all([
+      originalTitle.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { color: style.color, fontSize: Number.parseFloat(style.fontSize), fontWeight: Number(style.fontWeight) };
+      }),
+      roomNumber.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { color: style.color, fontSize: Number.parseFloat(style.fontSize), fontWeight: Number(style.fontWeight) };
+      }),
+    ]);
+    expect(headerTypography[0].fontSize).toBeGreaterThan(headerTypography[1].fontSize);
+    expect(headerTypography[0].fontWeight).toBeGreaterThan(headerTypography[1].fontWeight);
+    expect(headerTypography[0].color).not.toBe(headerTypography[1].color);
+    await expect(originalTitle.locator("svg")).toHaveCount(0);
     await originalTitle.click();
     const titleInput = page.getByRole("textbox", { name: "Room name" });
     await expect(titleInput).toBeFocused();
@@ -226,7 +241,6 @@ test.describe("landing and room entry", () => {
       name: "Edit room title, currently Architecture review",
     });
     await expect(renamedTitle).toBeVisible();
-    await expect(renamedTitle).toBeFocused();
     await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.title).toBe("Architecture review");
     const hostPeopleButton = page.getByRole("button", { name: "Show people in this room" });
     await hostPeopleButton.hover();
@@ -278,8 +292,11 @@ test.describe("landing and room entry", () => {
         name: "Edit room title, currently Architecture review",
       });
       await collaboratorTitle.click();
-      await collaboratorPage.getByRole("textbox", { name: "Room name" }).fill("Shared architecture review");
-      await collaboratorPage.getByRole("button", { name: "Save room name" }).click();
+      const collaboratorTitleInput = collaboratorPage.getByRole("textbox", { name: "Room name" });
+      await collaboratorTitleInput.fill("Shared architecture review");
+      await expect(collaboratorPage.getByRole("button", { name: "Save room name" })).toHaveCount(0);
+      await expect(collaboratorPage.getByRole("button", { name: "Cancel room name edit" })).toHaveCount(0);
+      await collaboratorPage.getByText(`Room ${host.room.code}`, { exact: true }).click();
       await expect(page.getByRole("button", {
         name: "Edit room title, currently Shared architecture review",
       })).toBeVisible({ timeout: 15_000 });
