@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Bot,
   Check,
   Eye,
   Focus,
@@ -20,6 +19,7 @@ import type {
   RoomState,
 } from "@/lib/domain/types";
 
+import { AgentAvatar } from "./AgentAvatar";
 import styles from "./review-panel.module.css";
 
 type ReviewListResponse = {
@@ -191,7 +191,12 @@ export function ReviewPanel({
         {proposals.map((proposal) => (
           <article className={styles.card} key={proposal.id}>
             <div className={styles.cardTopline}>
-              <span style={{ background: proposal.author.color }}><Bot size={14} /></span>
+              <AgentAvatar
+                displayName={proposal.author.displayName}
+                participantColor={proposal.author.color}
+                size={26}
+                motion="none"
+              />
               <div>
                 <strong>{proposal.author.displayName}’s agent</strong>
                 <small>{proposal.status} · {relativeTime(proposal.updatedAt)}</small>

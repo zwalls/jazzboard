@@ -542,15 +542,7 @@ input:focus-visible {
 }
 
 .preview-agent-pointer {
-  align-items: center;
-  background: white;
-  border: 2px solid #2eae91;
-  border-radius: 8px;
-  box-shadow: 0 0 0 3px rgba(46, 174, 145, 0.14);
-  display: flex;
-  height: 24px;
-  justify-content: center;
-  width: 24px;
+  transform: rotate(-3deg);
 }
 
 .preview-live-pill {

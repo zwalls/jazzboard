@@ -169,7 +169,12 @@ describe("AskAgentPanel", () => {
     const { container } = renderPanel([selectedObject], { onFocus, onClose });
 
     expect(await screen.findByText("<img src=x onerror=alert(1)> Done safely.")).toBeInTheDocument();
-    expect(container.querySelector("img")).toBeNull();
+    const images = Array.from(container.querySelectorAll("img"));
+    expect(images).toHaveLength(1);
+    expect(images[0]?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
+    expect(images[0]).toHaveAttribute("alt", "");
+    expect(container.querySelector('img[src="x"]')).toBeNull();
+    expect(container.querySelector("[onerror]")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show context" }));
     expect(onFocus).toHaveBeenCalledWith(["node_gateway"]);
     fireEvent.keyDown(window, { key: "Escape" });
