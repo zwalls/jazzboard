@@ -1361,9 +1361,43 @@ button.compactIndicator:hover {
   width: 30px;
 }
 
+button.idleAgentCursor {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: grab;
+  font: inherit;
+  padding: 0;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.idleAgentCursor[data-dragging="true"] {
+  cursor: grabbing;
+  transition: none;
+}
+
+.idleAgentCursor:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
 .agentCursorLabel {
   left: 21px;
   top: 22px;
+}
+
+.agentCursor[data-label-side="left"] .agentCursorLabel {
+  left: auto;
+  right: 21px;
+}
+
+.agentCursor[data-label-vertical="above"] .agentCursorLabel {
+  bottom: 22px;
+  top: auto;
 }
 
 .agentWorkOutline {
