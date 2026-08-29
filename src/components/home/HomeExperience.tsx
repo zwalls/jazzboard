@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { JazzboardLogo } from "@/components/brand/JazzboardLogo";
+import { AgentAvatar } from "@/components/room/AgentAvatar";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
   persistDisplayName,
@@ -170,9 +171,14 @@ function HeroCanvasPreview() {
         <span>Maya</span>
       </div>
       <div className="preview-cursor preview-cursor--agent">
-        <span className="preview-agent-pointer">
-          <Bot size={13} strokeWidth={2.4} />
-        </span>
+        <AgentAvatar
+          className="preview-agent-pointer"
+          displayName="Devon"
+          motion="always"
+          participantColor="#2eae91"
+          size={24}
+          state="working"
+        />
         <span>Devon · agent</span>
       </div>
       <div className="preview-live-pill">

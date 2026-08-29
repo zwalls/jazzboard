@@ -3,7 +3,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
-  Bot,
   Boxes,
   Check,
   ChevronDown,
@@ -56,6 +55,7 @@ import { CanvasSurface, type CanvasSurfaceHandle } from "./CanvasSurface";
 import type { BoardMenuActions } from "./canvas-surface-types";
 import { CanvasPreviewHost, type CanvasPreviewHostHandle } from "./CanvasPreviewHost";
 import { ActivityTimeline, type ActivityActorFilter } from "./ActivityTimeline";
+import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import { AskAgentPanel } from "./AskAgentPanel";
 import { DurabilityPanel, type DurabilityPanelMode } from "./DurabilityPanel";
 import { ReviewPanel } from "./ReviewPanel";
@@ -340,6 +340,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }
 
   const participants = Object.values(room.participants).filter((participant) => participant.role === "participant");
+  const followedAgentWorking = followedParticipant
+    ? isAgentActivityWorking(followedParticipant.agent.activity, now)
+    : false;
+  const selfAgentWorking = isAgentActivityWorking(self.agent.activity, now);
   const spotlight = room.spotlight;
   const presenter = spotlight ? room.participants[spotlight.presenterId] : null;
   const handoffRequester = spotlight?.handoffRequest
@@ -622,7 +626,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
                   </span>
                 ) : null}
               </button>
-              {presenceOpen ? <PresencePopover room={room} selfId={participantId} /> : null}
+              {presenceOpen ? <PresencePopover now={now} room={room} selfId={participantId} /> : null}
             </div>
           </div>
           <span className={styles.controlDivider} aria-hidden="true" />
@@ -641,6 +645,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             {followOpen ? (
               <FollowPopover
                 participants={participants}
+                now={now}
                 selfId={participantId}
                 current={followTarget}
                 onFollow={follow}
@@ -718,7 +723,15 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
 
       {effectiveFollowTarget && followedParticipant ? (
         <div className={styles.followBanner} role="status">
-          {effectiveFollowTarget.kind === "agent" ? <Bot size={16} /> : <MousePointer2 size={16} />}
+          {effectiveFollowTarget.kind === "agent" ? (
+            <AgentAvatar
+              displayName={followedParticipant.displayName}
+              motion={followedAgentWorking ? "always" : "hover"}
+              participantColor={followedParticipant.color}
+              size={21}
+              state={followedAgentWorking ? "working" : "idle"}
+            />
+          ) : <MousePointer2 size={16} />}
           <span>
             {spotlightFollowTarget ? "Spotlight" : "Following"}: {followedParticipant.displayName}’s {effectiveFollowTarget.kind}
             {spotlight?.presenterId === participantId
@@ -1044,7 +1057,13 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
                   chooseSpotlightTarget("agent");
                 }}
               >
-                <Bot size={21} />
+                <AgentAvatar
+                  displayName={self.displayName}
+                  motion={selfAgentWorking ? "always" : "hover"}
+                  participantColor={self.color}
+                  size={28}
+                  state={selfAgentWorking ? "working" : "idle"}
+                />
                 <span><strong>My agent</strong><small>{self.agentActive ? "Present its live working focus" : "Available after its first site-tool call"}</small></span>
               </button>
             </div>
@@ -1541,33 +1560,49 @@ function MembershipIds({ label, ids }: { label: string; ids: string[] }) {
   );
 }
 
-function PresencePopover({ room, selfId }: { room: RoomState; selfId: string }) {
+function PresencePopover({ now, room, selfId }: { now: number; room: RoomState; selfId: string }) {
   return (
     <div className={`${styles.popover} ${styles.presencePopover}`}>
       <div className={styles.panelHeading}>
         <div><span>In this room</span><strong>{Object.keys(room.participants).length} people</strong></div>
       </div>
-      {Object.values(room.participants).map((participant) => (
-        <div className={styles.presenceRow} key={participant.participantId}>
-          <i style={{ background: participant.color }}>{participant.displayName.slice(0, 1).toUpperCase()}</i>
-          <div>
-            <strong>{participant.displayName}{participant.participantId === selfId ? " (you)" : ""}</strong>
-            <span>{participant.role} · {participant.connected ? "online" : "away"}</span>
+      {Object.values(room.participants).map((participant) => {
+        const working = isAgentActivityWorking(participant.agent.activity, now);
+        return (
+          <div className={styles.presenceRow} key={participant.participantId}>
+            <i style={{ background: participant.color }}>{participant.displayName.slice(0, 1).toUpperCase()}</i>
+            <div>
+              <strong>{participant.displayName}{participant.participantId === selfId ? " (you)" : ""}</strong>
+              <span>{participant.role} · {participant.connected ? "online" : "away"}</span>
+            </div>
+            {participant.agentActive ? (
+              <span className={styles.agentBadge}>
+                <AgentAvatar
+                  displayName={participant.displayName}
+                  motion={working ? "always" : "none"}
+                  participantColor={participant.color}
+                  size={17}
+                  state={working ? "working" : "idle"}
+                />
+                active
+              </span>
+            ) : null}
           </div>
-          {participant.agentActive ? <span className={styles.agentBadge}><Bot size={12} /> active</span> : null}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 function FollowPopover({
   participants,
+  now,
   selfId,
   current,
   onFollow,
 }: {
   participants: RoomState["participants"][string][];
+  now: number;
   selfId: string;
   current: FollowTarget;
   onFollow: (participantId: string, kind: ActorKind) => void;
@@ -1577,23 +1612,34 @@ function FollowPopover({
       <div className={styles.panelHeading}>
         <div><span>Follow</span><strong>Choose a live target</strong></div>
       </div>
-      {participants.map((participant) => (
-        <div className={styles.followRow} key={participant.participantId}>
-          <i style={{ background: participant.color }}>{participant.displayName.slice(0, 1).toUpperCase()}</i>
-          <div><strong>{participant.displayName}{participant.participantId === selfId ? " (you)" : ""}</strong><span>{participant.agentActive ? "Agent active" : "Agent ready"}</span></div>
-          <button
-            aria-label={`Follow ${participant.displayName}'s agent`}
-            disabled={!participant.agentActive}
-            className={current?.participantId === participant.participantId && current.kind === "agent" ? styles.selectedTarget : ""}
-            onClick={() => onFollow(participant.participantId, "agent")}
-          ><Bot size={16} /></button>
-          <button
-            aria-label={`Follow ${participant.displayName}'s cursor`}
-            className={current?.participantId === participant.participantId && current.kind === "human" ? styles.selectedTarget : ""}
-            onClick={() => onFollow(participant.participantId, "human")}
-          ><MousePointer2 size={16} /></button>
-        </div>
-      ))}
+      {participants.map((participant) => {
+        const working = isAgentActivityWorking(participant.agent.activity, now);
+        return (
+          <div className={styles.followRow} key={participant.participantId}>
+            <i style={{ background: participant.color }}>{participant.displayName.slice(0, 1).toUpperCase()}</i>
+            <div><strong>{participant.displayName}{participant.participantId === selfId ? " (you)" : ""}</strong><span>{participant.agentActive ? "Agent active" : "Agent ready"}</span></div>
+            <button
+              aria-label={`Follow ${participant.displayName}'s agent`}
+              disabled={!participant.agentActive}
+              className={current?.participantId === participant.participantId && current.kind === "agent" ? styles.selectedTarget : ""}
+              onClick={() => onFollow(participant.participantId, "agent")}
+            >
+              <AgentAvatar
+                displayName={participant.displayName}
+                motion={working ? "always" : "hover"}
+                participantColor={participant.color}
+                size={21}
+                state={working ? "working" : "idle"}
+              />
+            </button>
+            <button
+              aria-label={`Follow ${participant.displayName}'s cursor`}
+              className={current?.participantId === participant.participantId && current.kind === "human" ? styles.selectedTarget : ""}
+              onClick={() => onFollow(participant.participantId, "human")}
+            ><MousePointer2 size={16} /></button>
+          </div>
+        );
+      })}
     </div>
   );
 }

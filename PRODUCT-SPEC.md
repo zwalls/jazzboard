@@ -55,6 +55,7 @@ The defining experience is multiple humans and participant-owned agents collabor
 - The first successful shared-state mutation (canvas, Spotlight, lease, transaction, or layout) or shared agent-viewport action activates the current participant's agent and updates attributable presence. Private Follow changes and leaving the local room view do not manufacture shared agent presence.
 - The first demo supports one participant-owned agent per browser guest session. Persistent accounts, cross-device identity, and multiple independently identified agents per participant are deferred.
 - Human cursor activity and agent activity remain visibly distinct while sharing the participant's identity and color family.
+- Every participant-owned agent receives one deterministic, name-derived Blobatar identity rendered locally in the browser. Identity-specific surfaces reuse the same face across live presence, Follow and Spotlight, proposals, activity, and private replies; generic agent actions retain a neutral icon. Dense historical surfaces stay static, ordinary interactive identity surfaces animate only on hover, and a currently working agent uses the animated thinking expression with reduced-motion support. No avatar request, upload, persisted profile, or external name disclosure is required.
 
 ### 5. Infinite canvas and shared object model
 
@@ -343,6 +344,7 @@ The generated `/webmcp.md` and skill inventory import the executable landing, pa
 - [x] Private recent rooms remain browser-local and are authorization-checked when reopened.
 - [x] Participant and spectator room tool sets are role-scoped; spectators receive passive reads and local export operations but no shared-state mutations.
 - [x] Passive reads do not activate an agent; the first successful shared-state mutation or shared agent-viewport action does.
+- [x] Participant-owned agents use one locally rendered deterministic Blobatar identity across live presence, Follow, Spotlight, review, activity, and replies, with restrained hover motion and an active thinking expression that respects reduced-motion preferences.
 - [x] Participant WebMCP covers canvas drawing/editing plus Follow, stop, Spotlight, handoff, and leave lifecycle.
 - [x] Participant WebMCP exposes a private pull-only Ask inbox with immutable semantic selection context, bounded claim leases, idempotent replies, and no spectator tools.
 - [x] Semantic query and neighborhood reads avoid whole-board payloads for localized work.

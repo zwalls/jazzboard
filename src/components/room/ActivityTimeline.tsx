@@ -4,6 +4,7 @@ import { Bot, Eye, History, LoaderCircle, RotateCcw, UserRound, X } from "lucide
 
 import type { RoomActivitySummary } from "@/lib/domain/types";
 
+import { AgentAvatar } from "./AgentAvatar";
 import styles from "./activity-timeline.module.css";
 
 export type ActivityActorFilter = "all" | "human" | "agent";
@@ -117,9 +118,18 @@ export function ActivityTimeline({
           return (
             <article className={styles.card} key={activity.id}>
               <div className={styles.cardTopline}>
-                <span className={styles.actorMark} style={{ background: activity.actor.color }}>
-                  {activity.actor.kind === "agent" ? <Bot size={12} /> : <UserRound size={12} />}
-                </span>
+                {activity.actor.kind === "agent" ? (
+                  <AgentAvatar
+                    displayName={activity.actor.displayName}
+                    participantColor={activity.actor.color}
+                    size={26}
+                    motion="none"
+                  />
+                ) : (
+                  <span className={styles.actorMark} style={{ background: activity.actor.color }}>
+                    <UserRound size={12} />
+                  </span>
+                )}
                 <div>
                   <strong>{activity.actor.displayName}</strong>
                   <span>{activity.actor.kind} · {formatActivityTime(activity.occurredAt, now)}</span>

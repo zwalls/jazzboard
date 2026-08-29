@@ -34,7 +34,7 @@ const activity: RoomActivitySummary = {
 
 describe("ActivityTimeline", () => {
   it("renders attributable agent work and safe review actions", () => {
-    render(
+    const { container } = render(
       <ActivityTimeline
         activities={[activity]}
         actorFilter="all"
@@ -52,6 +52,9 @@ describe("ActivityTimeline", () => {
     );
 
     expect(screen.getByText("Ari")).toBeInTheDocument();
+    const avatar = container.querySelector("img");
+    expect(avatar?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
+    expect(avatar).toHaveAttribute("alt", "");
     expect(screen.getByText("agent · 1m ago")).toBeInTheDocument();
     expect(screen.getByText(activity.summary!)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show affected" })).toBeEnabled();

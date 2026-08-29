@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, LockKeyhole, MousePointer2 } from "lucide-react";
+import { LockKeyhole, MousePointer2 } from "lucide-react";
 
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { Point, RoomState } from "@/lib/domain/types";
 
+import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import styles from "./room.module.css";
 
 export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) {
@@ -69,6 +70,7 @@ export function CanvasPresenceOverlay({
           const activity = participant.agent.activity;
           const elapsed = activity ? Math.max(now - activity.startedAt, 0) : 0;
           const duration = activity?.durationMs ?? 1;
+          const working = isAgentActivityWorking(activity, now);
           const progress = activity ? Math.min(elapsed / duration, 1) : 1;
           const from = activity?.fromCursor ?? participant.agent.cursor;
           const to = activity?.toCursor ?? participant.agent.cursor;
@@ -85,10 +87,16 @@ export function CanvasPresenceOverlay({
               key={`${participant.participantId}:agent`}
               style={{ transform: `translate(${point.x}px, ${point.y}px)`, color: participant.color }}
             >
-              <Bot size={19} />
-              <span style={{ background: participant.color }}>
+              <AgentAvatar
+                displayName={participant.displayName}
+                motion={working ? "always" : "none"}
+                participantColor={participant.color}
+                size={26}
+                state={working ? "working" : "idle"}
+              />
+              <span className={styles.agentCursorLabel} style={{ background: participant.color }}>
                 {participant.displayName} · agent
-                {activity && elapsed < duration + 1_600 ? ` · ${activity.label} · ${Math.round(progress * 100)}%` : ""}
+                {working && activity ? ` · ${activity.label} · ${Math.round(progress * 100)}%` : ""}
               </span>
             </div>,
           );

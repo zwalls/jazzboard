@@ -17,6 +17,7 @@ import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import type { AgentMessage, AgentMessageListResult } from "@/lib/agent-messages/types";
 import type { CanvasObject } from "@/lib/domain/types";
 
+import { AgentAvatar } from "./AgentAvatar";
 import styles from "./ask-agent-panel.module.css";
 
 const POLL_INTERVAL_MS = 8_000;
@@ -332,7 +333,17 @@ export function AskAgentPanel({
               </div>
               {message.reply ? (
                 <div className={`${styles.reply} ${styles[message.reply.outcome]}`}>
-                  <div><Bot size={13} /><strong>{message.reply.author.displayName}</strong><span>{message.reply.outcome.replace("_", " ")}</span></div>
+                  <div>
+                    <AgentAvatar
+                      className={styles.replyAvatar}
+                      displayName={message.reply.author.displayName}
+                      participantColor={message.reply.author.color}
+                      size={20}
+                      motion="none"
+                    />
+                    <strong>{message.reply.author.displayName}</strong>
+                    <span>{message.reply.outcome.replace("_", " ")}</span>
+                  </div>
                   <p>{message.reply.text}</p>
                 </div>
               ) : null}

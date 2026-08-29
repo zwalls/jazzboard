@@ -86,9 +86,12 @@ describe("ReviewPanel", () => {
   });
 
   it("lets spectators inspect attributed proposals but not decide or change policy", async () => {
-    renderPanel("spectator");
+    const { container } = renderPanel("spectator");
 
     expect(await screen.findByText("Ari’s agent")).toBeInTheDocument();
+    const avatar = container.querySelector("img");
+    expect(avatar?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
+    expect(avatar).toHaveAttribute("alt", "");
     expect(screen.getByText("Add the authorization boundary")).toBeInTheDocument();
     expect(screen.getByText(/based on room r8/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve & apply" })).not.toBeInTheDocument();

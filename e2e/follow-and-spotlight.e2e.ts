@@ -29,17 +29,27 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
       host.room.id,
       shapeObject("far-agent-target", "Live agent focus", 1_800, 620, "green"),
     );
-    const presenceResponse = await collaboratorContext.request.post(
-      `/api/rooms/${encodeURIComponent(host.room.id)}/agent/presence`,
-      {
+    const postAgentPresence = (activityId: string) => collaboratorContext.request.post(
+      `/api/rooms/${encodeURIComponent(host.room.id)}/agent/presence`, {
         headers: { "x-jazzboard-presence-protocol": "delta-v1" },
         data: {
           cursor: { x: 1_910, y: 680 },
           viewport: { x: 1_500, y: 380, width: 820, height: 620, zoom: 1 },
-          activity: null,
+          activity: {
+            id: activityId,
+            type: "moving",
+            label: "Arranging the live canvas",
+            objectIds: ["far-agent-target"],
+            progress: 0.45,
+            startedAt: Date.now(),
+            durationMs: 10_000,
+            fromCursor: { x: 1_870, y: 660 },
+            toCursor: { x: 1_910, y: 680 },
+          },
         },
       },
     );
+    const presenceResponse = await postAgentPresence("activity_avatar_qa");
     const presence = await jsonBody<{
       ok: true;
       presence: {
@@ -63,9 +73,21 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
     await page.getByRole("button", { name: /^Follow/ }).click();
     const followAgent = page.getByRole("button", { name: "Follow Blair Builder's agent" });
     await expect(followAgent).toBeEnabled({ timeout: 10_000 });
+    const refreshedPresenceResponse = await postAgentPresence("activity_avatar_qa_refresh");
+    expect(refreshedPresenceResponse.ok()).toBe(true);
+    await expect(followAgent.locator('[data-agent-avatar-state="working"]')).toBeVisible();
+    await expect(followAgent.locator('[data-agent-avatar-motion="always"]')).toBeVisible();
     await followAgent.click();
     await expect(page.getByText("Following: Blair Builder’s agent")).toBeVisible();
-    await expect(page.getByTestId(`agent-cursor-${collaborator.participantId}`)).toBeInViewport();
+    const agentCursor = page.getByTestId(`agent-cursor-${collaborator.participantId}`);
+    await expect(agentCursor).toBeInViewport();
+    await expect(agentCursor.locator('[data-agent-avatar-state="working"]')).toBeVisible();
+    await expect(agentCursor.locator("svg")).toBeVisible();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(() => agentCursor.locator(".mo-eye").first().evaluate(
+      (eye) => getComputedStyle(eye).animationName,
+    )).toBe("none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
 
     const canvas = page.getByTestId("jazzboard-canvas");
     const canvasBox = await canvas.boundingBox();
