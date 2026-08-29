@@ -54,14 +54,14 @@ describe("room-route guest bootstrap idempotency", () => {
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
     globalThis.__jazzboardRedis = undefined;
-    globalThis.__jazzboardLocalJoinAttemptWindows = undefined;
+    globalThis.__jazzboardLocalJoinAttemptWindowsV3 = undefined;
   });
 
   afterEach(() => {
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
     globalThis.__jazzboardRedis = undefined;
-    globalThis.__jazzboardLocalJoinAttemptWindows = undefined;
+    globalThis.__jazzboardLocalJoinAttemptWindowsV3 = undefined;
     vi.unstubAllEnvs();
   });
 

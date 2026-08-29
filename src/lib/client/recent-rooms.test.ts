@@ -29,9 +29,10 @@ class MemoryStorage implements BrowserStorage {
 }
 
 function room(index: number, overrides: Partial<RecentRoom> = {}): RecentRoom {
+  const symbol = "23456789"[index % 8];
   return {
     roomId: `room-${index}`,
-    code: `${index}`.padStart(4, "0").slice(-4),
+    code: `ABC${symbol.repeat(3)}`,
     title: `Room ${index}`,
     role: "participant",
     lastOpenedAt: index,
@@ -54,6 +55,14 @@ describe("browser-private recent rooms", () => {
     expect(normalized.map((entry) => entry.lastOpenedAt)).toEqual([21, 20, 20, 19, 18, 17, 16, 15]);
     expect(normalized.find((entry) => entry.roomId === "room-2")?.title).toBe("Newest duplicate");
     expect(normalized.some((entry) => entry.roomId === "room-3")).toBe(false);
+  });
+
+  it("retains current canonical codes and exact legacy four-digit recents", () => {
+    expect(normalizeRecentRooms([
+      room(1, { roomId: "current", code: "ABC234" }),
+      room(2, { roomId: "legacy", code: "1234" }),
+      room(3, { roomId: "formatted", code: "ABC-234" }),
+    ]).map((entry) => entry.roomId)).toEqual(["legacy", "current"]);
   });
 
   it("returns an empty list for malformed or inaccessible browser storage", () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isCanvasImageUrl } from "@/lib/assets/policy";
+import { normalizeRoomCode } from "@/lib/domain/room-code";
 
 export const roomRoleSchema = z.enum(["participant", "spectator"]);
 export const actorKindSchema = z.enum(["human", "agent"]);
@@ -310,13 +311,25 @@ export const canvasCommandSchema = z.discriminatedUnion("type", [
 
 export const roomTitleSchema = z.string().trim().min(1).max(100);
 
+export const roomCodeInputSchema = z.string().transform((value, context) => {
+  const normalized = normalizeRoomCode(value);
+  if (!normalized) {
+    context.addIssue({
+      code: "custom",
+      message: "Use a six-character Jazzboard code; legacy rooms use four digits.",
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
 export const createRoomRequestSchema = z.object({
   displayName: z.string().trim().min(1).max(48),
   title: roomTitleSchema.default("Untitled Jazzboard"),
 });
 
 export const joinRoomRequestSchema = z.object({
-  code: z.string().regex(/^\d{4}$/),
+  code: roomCodeInputSchema,
   displayName: z.string().trim().min(1).max(48),
   role: roomRoleSchema,
 });

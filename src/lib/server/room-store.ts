@@ -64,6 +64,11 @@ import {
   markCurrentMutationReplayed,
 } from "./mutation-context";
 import {
+  allocateLocalRoomCode,
+  generateRoomCode,
+  ROOM_CODE_ALLOCATION_MAX_ATTEMPTS,
+} from "./room-code";
+import {
   awarenessContentFingerprint,
   composeRoomState,
   coordinationContentFingerprint,
@@ -1581,9 +1586,7 @@ class MemoryRoomStore implements RoomStore {
       markCurrentMutationReplayed();
       return room;
     }
-    let code = "";
-    do code = randomInt(0, 10_000).toString().padStart(4, "0");
-    while (state.codes.has(code));
+    const code = allocateLocalRoomCode((candidate) => state.codes.has(candidate));
 
     const now = Date.now();
     const room: RoomState = {
@@ -2307,8 +2310,12 @@ export class RedisRoomStore implements RoomStore {
     const roomId = identity
       ? roomIdFromMutationGeneration(identity.scopedKeyHash, now)
       : `room_${randomUUID()}`;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const code = randomInt(0, 10_000).toString().padStart(4, "0");
+    for (
+      let attempt = 0;
+      attempt < ROOM_CODE_ALLOCATION_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      const code = generateRoomCode();
       const room: RoomState = {
         id: roomId,
         code,

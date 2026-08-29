@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { formatRoomCode } from "@/lib/domain/room-code";
 import { createRoomViaApi, selectBoardMenuItem } from "./helpers";
 
 test("shares the live board by private invite while keeping exports separate", async ({ browser, page }) => {
@@ -22,7 +23,7 @@ test("shares the live board by private invite while keeping exports separate", a
   const sharePanel = page.getByRole("complementary", { name: "Share board" });
   await expect(sharePanel).toBeVisible();
   await expect(sharePanel.getByText("Collaborate live")).toBeVisible();
-  await expect(sharePanel.getByText(host.room.code, { exact: true })).toBeVisible();
+  await expect(sharePanel.getByText(formatRoomCode(host.room.code), { exact: true })).toBeVisible();
   await expect(sharePanel.getByText(/use Export → PNG/)).toBeVisible();
   await expect(sharePanel.getByText("Share read-only")).toHaveCount(0);
   await expect(sharePanel.getByRole("button", { name: /snapshot/i })).toHaveCount(0);
@@ -55,7 +56,7 @@ test("shares the live board by private invite while keeping exports separate", a
   const inviteText = await page.evaluate(
     () => (window as Window & { __jazzboardCopiedInvite?: string }).__jazzboardCopiedInvite ?? "",
   );
-  expect(inviteText).toContain(`Room code: ${host.room.code}`);
+  expect(inviteText).toContain(`Room code: ${formatRoomCode(host.room.code)}`);
   const inviteUrl = inviteText.split("\n").find((line) => line.includes("#join="));
   expect(inviteUrl).toBeTruthy();
   expect(new URL(inviteUrl!).hash).toBe(`#join=${host.room.code}`);

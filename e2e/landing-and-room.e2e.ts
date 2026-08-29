@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { formatRoomCode } from "@/lib/domain/room-code";
 
 import {
   createRoomFromLanding,
@@ -168,10 +169,8 @@ test.describe("landing and room entry", () => {
     await expect(page.getByText("Your boards will wait here.")).toBeVisible();
 
     await page.getByRole("tab", { name: "Join by code" }).click();
-    await page.getByLabel("Room code").fill("1a2b");
-    await expect(page.getByLabel("Room code")).toHaveValue("12");
-    await page.getByLabel("Room code").fill("12345");
-    await expect(page.getByLabel("Room code")).toHaveValue("1234");
+    await page.getByLabel("Room code").fill("abc-234");
+    await expect(page.getByLabel("Room code")).toHaveValue("ABC-234");
     await expect(page.getByRole("radio", { name: /^Participant/i })).toBeChecked();
     await expect(page.getByRole("radio", { name: /^Spectator/i })).not.toBeChecked();
 
@@ -201,17 +200,17 @@ test.describe("landing and room entry", () => {
       "data-canvas-renderer",
       "jazzboard-semantic-v1",
     );
-    expect(host.room.code).toMatch(/^\d{4}$/);
+    expect(host.room.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
     expect(host.room.participants[host.participantId]).toMatchObject({
       displayName: "Maya Host",
       role: "participant",
     });
     await expect(page.getByTestId("combined-left-panel").getByText("Untitled Jazzboard", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("combined-left-panel").getByText(`Room ${formatRoomCode(host.room.code)}`, { exact: true })).toBeVisible();
     const originalTitle = page.getByRole("button", {
       name: "Edit room title, currently Untitled Jazzboard",
     });
-    const roomNumber = page.getByText(`Room ${host.room.code}`, { exact: true });
+    const roomNumber = page.getByText(`Room ${formatRoomCode(host.room.code)}`, { exact: true });
     const headerTypography = await Promise.all([
       originalTitle.evaluate((element) => {
         const style = getComputedStyle(element);
@@ -254,7 +253,7 @@ test.describe("landing and room entry", () => {
 
     await page.getByRole("link", { name: "Back to Jazzboard home" }).click();
     const recentLink = page.getByRole("link", {
-      name: `Open Architecture review, room ${host.room.code}`,
+      name: `Open Architecture review, room ${formatRoomCode(host.room.code)}`,
     });
     await expect(recentLink).toBeVisible();
     await expect(recentLink.getByText("Participant", { exact: true })).toBeVisible();
@@ -276,7 +275,7 @@ test.describe("landing and room entry", () => {
         displayName: "Devon Collaborator",
         role: "participant",
       });
-      await expect(collaboratorPage.getByTestId("combined-left-panel").getByText(`Room ${host.room.code}`, { exact: true })).toBeVisible();
+      await expect(collaboratorPage.getByTestId("combined-left-panel").getByText(`Room ${formatRoomCode(host.room.code)}`, { exact: true })).toBeVisible();
       await expect(collaboratorPage.getByRole("button", {
         name: "Edit room title, currently Architecture review",
       })).toBeVisible();
@@ -296,7 +295,7 @@ test.describe("landing and room entry", () => {
       await collaboratorTitleInput.fill("Shared architecture review");
       await expect(collaboratorPage.getByRole("button", { name: "Save room name" })).toHaveCount(0);
       await expect(collaboratorPage.getByRole("button", { name: "Cancel room name edit" })).toHaveCount(0);
-      await collaboratorPage.getByText(`Room ${host.room.code}`, { exact: true }).click();
+      await collaboratorPage.getByText(`Room ${formatRoomCode(host.room.code)}`, { exact: true }).click();
       await expect(page.getByRole("button", {
         name: "Edit room title, currently Shared architecture review",
       })).toBeVisible({ timeout: 15_000 });

@@ -200,8 +200,9 @@
 
 .liveInvite strong {
   color: var(--brand-deep);
-  font-size: 22px;
-  letter-spacing: 0.12em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 20px;
+  letter-spacing: 0.08em;
   line-height: 1;
   margin-top: 4px;
 }

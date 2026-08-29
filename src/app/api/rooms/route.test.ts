@@ -46,30 +46,34 @@ describe("room create and exact-code join route", () => {
       remaining: 7,
       retryAfterSeconds: 0,
     });
-    mocks.createRoom.mockResolvedValue({ id: "room_created", code: "1234" });
-    mocks.joinRoom.mockResolvedValue({ id: "room_joined", code: "0042" });
+    mocks.createRoom.mockResolvedValue({ id: "room_created", code: "ABC234" });
+    mocks.joinRoom.mockResolvedValue({ id: "room_joined", code: "ABC234" });
   });
 
-  it("limits a validated join by signed session ID and joins one exact code", async () => {
+  it("normalizes and limits a validated join before exact lookup", async () => {
     const response = await POST(
-      request({ action: "join", code: "0042", displayName: "Ada", role: "participant" }, {
-        "x-forwarded-for": "203.0.113.9",
+      request({ action: "join", code: "abc-234", displayName: "Ada", role: "participant" }, {
+        "x-real-ip": "203.0.113.9",
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session", null);
+    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith(
+      "p_signed-session",
+      expect.any(Request),
+      null,
+    );
     expect(mocks.joinRoom).toHaveBeenCalledWith({
       participantId: "p_signed-session",
-      code: "0042",
+      code: "ABC234",
       displayName: "Ada",
       role: "participant",
     });
     expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
   });
 
-  it("rejects prefixes, non-four-digit codes, and arrays before consuming an attempt", async () => {
-    for (const code of ["42", "004", "00420", " 0042 ", "00*", ["0042", "0043"]]) {
+  it("rejects prefixes, invalid alphabets, Unicode lookalikes, and arrays before consuming an attempt", async () => {
+    for (const code of ["ABC23", "ABC2345", "ABO234", "ABⅠ234", "ABC*34", ["ABC234", "DEF567"]]) {
       const response = await POST(
         request({ action: "join", code, displayName: "Ada", role: "participant" }),
       );
@@ -111,7 +115,7 @@ describe("room create and exact-code join route", () => {
     });
 
     const response = await POST(
-      request({ action: "join", code: "0042", displayName: "Ada", role: "spectator" }),
+      request({ action: "join", code: "ABC234", displayName: "Ada", role: "spectator" }),
     );
 
     expect(response.status).toBe(429);
@@ -134,15 +138,51 @@ describe("room create and exact-code join route", () => {
     );
 
     const response = await POST(
-      request({ action: "join", code: "9999", displayName: "Ada", role: "participant" }),
+      request({ action: "join", code: "ZZZ999", displayName: "Ada", role: "participant" }),
     );
 
     expect(response.status).toBe(404);
     expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
     expect(await response.json()).toMatchObject({
       ok: false,
-      error: { code: "ROOM_NOT_FOUND" },
+      error: {
+        code: "ROOM_NOT_FOUND",
+        message: "Jazzboard could not join with that code.",
+      },
     });
+  });
+
+  it("keeps exact legacy four-digit rooms joinable", async () => {
+    const response = await POST(
+      request({ action: "join", code: "12-34", displayName: "Ada", role: "participant" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.joinRoom).toHaveBeenCalledWith({
+      participantId: "p_signed-session",
+      code: "1234",
+      displayName: "Ada",
+      role: "participant",
+    });
+  });
+
+  it("fails closed with a generic response when distributed join admission is unavailable", async () => {
+    mocks.consumeJoinAttempt.mockRejectedValue(new Error("redis connection failed"));
+
+    const response = await POST(
+      request({ action: "join", code: "ABC234", displayName: "Ada", role: "participant" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("set-cookie")).toContain("jazzboard_guest=new-signed-cookie");
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "JOIN_UNAVAILABLE",
+        message: "Jazzboard could not complete that join right now. Try again shortly.",
+      },
+    });
+    expect(mocks.joinRoom).not.toHaveBeenCalled();
   });
 
   it("preserves unthrottled room creation", async () => {
@@ -161,7 +201,7 @@ describe("room create and exact-code join route", () => {
     let observed = null as ReturnType<typeof currentMutationContext>;
     mocks.createRoom.mockImplementation(async () => {
       observed = currentMutationContext();
-      return { id: "room_created", code: "1234" };
+      return { id: "room_created", code: "ABC234" };
     });
 
     const response = await POST(request(
@@ -182,15 +222,19 @@ describe("room create and exact-code join route", () => {
 
   it("deduplicates join-rate accounting by the keyed canonical request", async () => {
     const response = await POST(request(
-      { action: "join", code: "0042", displayName: "Ada", role: "participant" },
+      { action: "join", code: "abc-234", displayName: "Ada", role: "participant" },
       { "idempotency-key": "landing-join-route-0001" },
     ));
 
     expect(response.status).toBe(200);
-    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith("p_signed-session", {
-      idempotencyKey: "landing-join-route-0001",
-      requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
-    });
+    expect(mocks.consumeJoinAttempt).toHaveBeenCalledWith(
+      "p_signed-session",
+      expect.any(Request),
+      {
+        idempotencyKey: "landing-join-route-0001",
+        requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+    );
   });
 
   it("rejects oversized JSON before a room mutation runs", async () => {

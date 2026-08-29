@@ -88,7 +88,8 @@ describe("agent-readable content", () => {
     const body = makeLlmsTxt();
     expect(body).toMatch(/^# Jazzboard\n\n>/);
     expect(body).toContain("discover the currently loaded page's tools before DOM inspection");
-    expect(body).toContain("exact four-digit code");
+    expect(body).toContain("exact legacy four-digit code");
+    expect(body).toContain("exact supplied six-character code");
     expect(markdownLinks(body).length).toBeGreaterThan(3);
     expect(markdownLinks(body).every((link) => /\.mdx?$/.test(new URL(link).pathname))).toBe(true);
     expect(body.length).toBeLessThan(6_000);
@@ -304,6 +305,9 @@ describe("agent-readable content", () => {
 
     expect(corpus).toContain("untrusted");
     expect(corpus).toContain("signed guest session");
+    expect(corpus).toContain("server-trusted network scope on Vercel");
+    expect(corpus).toContain("stores no raw IP address");
+    expect(corpus).toContain("no room- or code-specific rate-limit bucket");
     expect(corpus).toContain("spectator");
     expect(corpus).toContain("live page's registered tool list is authoritative");
     expect(corpus).toContain("no WebMCP tool");

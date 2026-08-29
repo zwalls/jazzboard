@@ -94,6 +94,7 @@ import {
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { SemanticCanvasEditEvent } from "@/lib/canvas/semantic-edit-events";
 import { JazzboardApiError } from "@/lib/client/api";
+import { formatRoomCode } from "@/lib/domain/room-code";
 import type {
   ConnectorRoutingInput,
   Point,
@@ -2517,7 +2518,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
                 renameRoom={renameRoom}
                 title={projectedRoom.title}
               />
-              <span>Room {projectedRoom.code}</span>
+              <span>Room {formatRoomCode(projectedRoom.code)}</span>
             </div>
           </div>
           {menuOpen ? (

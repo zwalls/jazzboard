@@ -18,6 +18,7 @@ import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { downloadCanvasPng, downloadTextFile } from "@/lib/client/download";
 import { safeDownloadStem } from "@/lib/export-filename";
 import { buildRoomInvite } from "@/lib/client/room-invite";
+import { formatRoomCode } from "@/lib/domain/room-code";
 import type { Point, RoomState } from "@/lib/domain/types";
 
 import styles from "./durability-panel.module.css";
@@ -298,7 +299,7 @@ export function DurabilityPanel({
               <div><strong>Collaborate live</strong><span>Invite someone into this live room with their own identity.</span></div>
             </div>
             <div className={styles.liveInvite}>
-              <div><span>Room code</span><strong>{room.code}</strong></div>
+              <div><span>Room code</span><strong aria-label={`Room code ${formatRoomCode(room.code)}`}>{formatRoomCode(room.code)}</strong></div>
               <button onClick={() => void copyLiveInvite()}><Copy size={15} /> Copy invite</button>
             </div>
             <p className={styles.hint}>The invite opens Jazzboard with this exact code filled in. Your friend chooses participant or spectator and joins through normal room authorization.</p>
