@@ -831,6 +831,11 @@ function LocalAgentCursor({
       type="button"
     >
       {contents}
+      <span
+        aria-hidden="true"
+        className={styles.agentCursorDragTarget}
+        data-agent-drag-target="true"
+      />
     </button>
   );
 }

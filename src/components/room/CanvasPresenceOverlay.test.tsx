@@ -226,6 +226,7 @@ describe("CanvasPresenceOverlay idle agent parking", () => {
     expect(marker.style.getPropertyValue("--agent-marker-size")).toBe("70px");
     const avatar = marker.querySelector<HTMLElement>('[data-agent-avatar-state="idle"]');
     expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("63px");
+    expect(marker.querySelector('[data-agent-drag-target="true"]')).not.toBeNull();
 
     fireEvent.keyDown(marker, { key: "ArrowRight", shiftKey: true });
     fireEvent.keyDown(marker, { key: "ArrowDown", shiftKey: true });

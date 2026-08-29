@@ -29,7 +29,9 @@ test("parks an idle agent locally and restores authoritative motion when work re
     await jsonBody(idlePresenceResponse);
 
     const marker = page.getByTestId(`agent-cursor-${collaborator.participantId}`);
+    const dragTarget = marker.locator('[data-agent-drag-target="true"]');
     await expect(marker).toBeVisible({ timeout: 10_000 });
+    await expect(dragTarget).toBeVisible();
     await expect(marker).toHaveAttribute("data-agent-draggable", "true");
     await expect(marker).toHaveAttribute("data-working", "false");
     await expect(marker).toHaveAttribute("data-local-parked", "false");
@@ -74,9 +76,16 @@ test("parks an idle agent locally and restores authoritative motion when work re
 
     const before = await marker.boundingBox();
     if (!before) throw new Error("The idle agent marker did not have a browser layout box.");
+    const beforeDragTarget = await dragTarget.boundingBox();
+    if (!beforeDragTarget) throw new Error("The idle agent drag target did not have a browser layout box.");
     expect(before.width).toBeGreaterThanOrEqual(70);
     expect(before.height).toBeGreaterThanOrEqual(70);
-    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    expect(beforeDragTarget.width).toBeLessThan(before.width / 2);
+    expect(beforeDragTarget.height).toBeLessThan(before.height / 2);
+    await page.mouse.move(
+      beforeDragTarget.x + beforeDragTarget.width / 2,
+      beforeDragTarget.y + beforeDragTarget.height / 2,
+    );
     await page.mouse.down();
     await page.mouse.move(before.x + 190, before.y + 130, { steps: 8 });
     await page.mouse.up();

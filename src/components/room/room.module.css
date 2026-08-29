@@ -1376,16 +1376,30 @@ button.idleAgentCursor {
   background: transparent;
   border: 0;
   color: inherit;
-  cursor: grab;
   font: inherit;
   padding: 0;
-  pointer-events: auto;
+  pointer-events: none;
   touch-action: none;
   user-select: none;
 }
 
-.idleAgentCursor[data-dragging="true"] {
+.agentCursorDragTarget {
+  border-radius: 999px;
+  bottom: 1px;
+  cursor: grab;
+  height: 26px;
+  pointer-events: auto;
+  position: absolute;
+  right: 1px;
+  width: 26px;
+  z-index: 1;
+}
+
+.idleAgentCursor[data-dragging="true"] .agentCursorDragTarget {
   cursor: grabbing;
+}
+
+.idleAgentCursor[data-dragging="true"] {
   transition: none;
 }
 
