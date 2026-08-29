@@ -26,8 +26,8 @@ import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import styles from "./room.module.css";
 
 const AGENT_PARK_INSET = 8;
-const AGENT_AVATAR_SIZE = 36;
-const AGENT_MARKER_SIZE = 40;
+const AGENT_AVATAR_SIZE = 63;
+const AGENT_MARKER_SIZE = 70;
 const AGENT_KEYBOARD_STEP = 8;
 const AGENT_HANDOFF_SPEED = 760;
 const AGENT_HANDOFF_MAX_FRAME_MS = 16;

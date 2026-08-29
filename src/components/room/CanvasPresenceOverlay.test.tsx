@@ -222,13 +222,13 @@ describe("CanvasPresenceOverlay idle agent parking", () => {
 
     expect(marker).toHaveAttribute("data-label-side", "left");
     expect(marker).toHaveAttribute("data-label-vertical", "above");
-    expect(marker.style.getPropertyValue("--agent-marker-size")).toBe("40px");
+    expect(marker.style.getPropertyValue("--agent-marker-size")).toBe("70px");
     const avatar = marker.querySelector<HTMLElement>('[data-agent-avatar-state="idle"]');
-    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("36px");
+    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("63px");
 
     fireEvent.keyDown(marker, { key: "ArrowRight", shiftKey: true });
     fireEvent.keyDown(marker, { key: "ArrowDown", shiftKey: true });
-    expect(marker).toHaveStyle({ transform: "translate(752px, 552px)" });
+    expect(marker).toHaveStyle({ transform: "translate(722px, 522px)" });
   });
 
   it("parks an idle agent locally with the keyboard and preserves it across idle room envelopes", () => {
@@ -450,7 +450,7 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveTextContent("Orbit Architect · agent · Drafting preview · not saved");
     const avatar = container.querySelector<HTMLElement>('[data-agent-avatar-state="working"]');
     expect(avatar).not.toBeNull();
-    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("36px");
+    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("63px");
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
   });
 
