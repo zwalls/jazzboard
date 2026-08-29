@@ -59,6 +59,16 @@ type TransitionFrame = {
   at: number;
 };
 
+type ChoreographyFrame = {
+  draft: boolean;
+  x: number;
+  y: number;
+  phase: string;
+  objectId: string;
+  revision: number;
+  at: number;
+};
+
 const NODE_REFS = ["browser", "gateway", "api", "queue", "worker", "database"] as const;
 const CONNECTOR_REFS = ["browser_gateway", "gateway_api", "api_queue", "queue_worker", "worker_database"] as const;
 const DIAGRAM_REF = "demo_architecture";
@@ -220,12 +230,12 @@ async function startTransitionSampler(page: Page): Promise<void> {
     const browserWindow = window as Window & {
       __agentDraftTransition?: { frames: TransitionFrame[]; animationFrame: number };
     };
-    const sample = () => {
+    const sample = (timestamp: number) => {
       const canvas = document.querySelector('[data-testid="semantic-canvas"]');
       frames.push({
         authoritative: canvas?.querySelectorAll("[data-object-id]").length ?? 0,
         draft: document.querySelectorAll("[data-agent-draft-object-id]").length,
-        at: performance.now(),
+        at: timestamp,
       });
       if (browserWindow.__agentDraftTransition) {
         browserWindow.__agentDraftTransition.animationFrame = requestAnimationFrame(sample);
@@ -244,6 +254,49 @@ async function stopTransitionSampler(page: Page): Promise<TransitionFrame[]> {
     if (!state) return [];
     cancelAnimationFrame(state.animationFrame);
     delete browserWindow.__agentDraftTransition;
+    return state.frames;
+  });
+}
+
+async function startChoreographySampler(page: Page, participantId: string): Promise<void> {
+  await page.evaluate((targetParticipantId) => {
+    const frames: ChoreographyFrame[] = [];
+    const browserWindow = window as Window & {
+      __agentDraftChoreography?: { frames: ChoreographyFrame[]; animationFrame: number };
+    };
+    const sample = (timestamp: number) => {
+      const marker = document.querySelector<HTMLElement>(
+        `[data-testid="agent-cursor-${CSS.escape(targetParticipantId)}"]`,
+      );
+      if (marker) {
+        const bounds = marker.getBoundingClientRect();
+        frames.push({
+          draft: marker.dataset.agentDraftChoreography === "true",
+          x: bounds.x,
+          y: bounds.y,
+          phase: marker.dataset.agentDraftChoreographyPhase ?? "",
+          objectId: marker.dataset.agentDraftChoreographyObjectId ?? "",
+          revision: Number(marker.dataset.agentDraftChoreographyRevision ?? 0),
+          at: timestamp,
+        });
+      }
+      if (browserWindow.__agentDraftChoreography) {
+        browserWindow.__agentDraftChoreography.animationFrame = requestAnimationFrame(sample);
+      }
+    };
+    browserWindow.__agentDraftChoreography = { frames, animationFrame: requestAnimationFrame(sample) };
+  }, participantId);
+}
+
+async function stopChoreographySampler(page: Page): Promise<ChoreographyFrame[]> {
+  return page.evaluate(() => {
+    const browserWindow = window as Window & {
+      __agentDraftChoreography?: { frames: ChoreographyFrame[]; animationFrame: number };
+    };
+    const state = browserWindow.__agentDraftChoreography;
+    if (!state) return [];
+    cancelAnimationFrame(state.animationFrame);
+    delete browserWindow.__agentDraftChoreography;
     return state.frames;
   });
 }
@@ -316,6 +369,17 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(spectatorTools).not.toContain("apply_canvas_transaction");
     expect(spectatorTools).not.toContain("finish_canvas_draft");
 
+    const viewerMutationRequests: string[] = [];
+    const roomApiPrefix = `/api/rooms/${encodeURIComponent(host.room.id)}`;
+    viewerPage.on("request", (request) => {
+      if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return;
+      const pathname = new URL(request.url()).pathname;
+      if (pathname === roomApiPrefix || pathname.startsWith(`${roomApiPrefix}/`)) {
+        viewerMutationRequests.push(`${request.method()} ${pathname}`);
+      }
+    });
+    await startChoreographySampler(viewerPage, host.participantId);
+
     const initial = await authoritativeState(page);
     expect(initial.objects).toEqual([]);
     expect(initial.diagrams).toEqual([]);
@@ -365,6 +429,12 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(spectatorRead.draft).toMatchObject({ revision: 3, status: "active" });
     expect(spectatorRead.draft.previewObjects).toHaveLength(11);
 
+    await expect.poll(
+      () => viewerPage!.locator('[data-agent-draft-choreography="true"]').getAttribute("data-agent-draft-choreography-phase"),
+      { timeout: 12_000, intervals: [80, 120, 160] },
+    ).toBe("trace");
+    await viewerPage.waitForTimeout(320);
+
     for (const currentPage of [page, viewerPage, spectatorPage]) {
       const state = await authoritativeState(currentPage);
       expect(state.room.roomRevision).toBe(baselineRoomRevision);
@@ -394,7 +464,34 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     });
     await expect(viewerPage.locator("[data-agent-draft-object-id]")).toHaveCount(0);
     await expect(viewerPage.locator("[data-agent-draft-pill]")).toHaveCount(0);
+    await expect(viewerPage.locator('[data-agent-draft-choreography="true"]')).toHaveCount(0);
     await page.waitForTimeout(500);
+    const choreography = await stopChoreographySampler(viewerPage);
+    expect(choreography.length).toBeGreaterThan(20);
+    expect(new Set(choreography.map((frame) => `${Math.round(frame.x)},${Math.round(frame.y)}`)).size).toBeGreaterThan(8);
+    expect(choreography.some((frame) => frame.phase === "outline")).toBe(true);
+    expect(choreography.some((frame) => frame.phase === "trace")).toBe(true);
+    expect(choreography.some((frame) => !frame.draft)).toBe(true);
+    const sampledDraftRevisions = [...new Set(
+      choreography.filter((frame) => frame.draft).map((frame) => frame.revision),
+    )];
+    expect(sampledDraftRevisions).toEqual(expect.arrayContaining([1, 2, 3]));
+    expect(sampledDraftRevisions.every((revision) => revision >= 1 && revision <= 4)).toBe(true);
+    for (let index = 1; index < choreography.length; index += 1) {
+      const previous = choreography[index - 1]!;
+      const current = choreography[index]!;
+      const elapsed = current.at - previous.at;
+      if (elapsed <= 0 || elapsed > 100) continue;
+      const travelled = Math.hypot(current.x - previous.x, current.y - previous.y);
+      // Page-space speed is multiplied by the live canvas zoom. This bound is
+      // intentionally generous for zoom while still rejecting the 40px+
+      // single-frame jumps that a missing phase/revision bridge produces.
+      expect(
+        travelled,
+        JSON.stringify({ previous, current, elapsed, travelled }),
+      ).toBeLessThanOrEqual(elapsed * 2.5 + 8);
+    }
+    expect(viewerMutationRequests).toEqual([]);
     const transition = await stopTransitionSampler(viewerPage);
     expect(transition.some((frame) => frame.authoritative === 11)).toBe(true);
     expect(transition.filter((frame) => frame.authoritative > 0).every((frame) => frame.authoritative === 11)).toBe(true);

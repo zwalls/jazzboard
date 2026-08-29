@@ -148,6 +148,31 @@ describe("AgentDraftLayer", () => {
     expect(container.querySelector("[data-agent-draft-pill]")).toBeNull();
   });
 
+  it("preserves existing artwork nodes when a cumulative revision adds more objects", () => {
+    const first = draft({ previewObjects: [shape("first")] });
+    const { container, rerender } = render(
+      <AgentDraftLayer authoritativeObjects={{}} drafts={[first]} roomId="room-1" viewport={viewport} />,
+    );
+    const existing = container.querySelector('[data-agent-draft-object-id="first"]');
+    expect(existing).not.toBeNull();
+
+    rerender(
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft({
+          revision: 2,
+          previewObjects: [shape("first"), shape("second")],
+          updatedAt: first.updatedAt + 1,
+        })]}
+        roomId="room-1"
+        viewport={viewport}
+      />,
+    );
+
+    expect(container.querySelector('[data-agent-draft-object-id="first"]')).toBe(existing);
+    expect(container.querySelector('[data-agent-draft-object-id="second"]')).not.toBeNull();
+  });
+
   it("shows truthful phase labels and throttles one live announcement", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(2_000);

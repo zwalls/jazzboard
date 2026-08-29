@@ -2657,6 +2657,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       </svg>
 
       <AgentDraftLayer
+        authoritativeDiagrams={projectedRoom.diagrams}
         authoritativeObjects={projectedRoom.objects}
         drafts={agentDrafts}
         roomId={projectedRoom.id}

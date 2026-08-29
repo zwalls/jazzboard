@@ -4,14 +4,21 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { LockKeyhole, MousePointer2 } from "lucide-react";
 
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import {
+  AgentDraftChoreographyCoordinator,
+  buildAgentDraftChoreographyPlan,
+  type AgentDraftChoreographyFrame,
+} from "@/lib/canvas/agent-draft-choreography";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
-import type { AgentActivity, CanvasBounds, Participant, Point, RoomState } from "@/lib/domain/types";
+import type { AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
 
 import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import styles from "./room.module.css";
@@ -19,12 +26,21 @@ import styles from "./room.module.css";
 const AGENT_PARK_INSET = 8;
 const AGENT_MARKER_SIZE = 30;
 const AGENT_KEYBOARD_STEP = 8;
+const AGENT_HANDOFF_SPEED = 760;
+const AGENT_HANDOFF_MAX_FRAME_MS = 16;
+const AGENT_HANDOFF_CONVERGENCE_PX = 0.75;
+const AGENT_HANDOFF_SETTLE_MS = 180;
 
 type AgentCursorDrag = {
   pointerId: number;
   grabOffset: Point;
   originalParkedPoint: Point | null;
   moved: boolean;
+};
+
+type DraftCursorHandoff = {
+  point: Point;
+  recordedAt: number;
 };
 
 export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) {
@@ -43,6 +59,7 @@ export function CanvasPresenceOverlay({
   selfId: string;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  const draftCursorHandoffs = useMemo(() => new Map<string, DraftCursorHandoff>(), []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 120);
     return () => window.clearInterval(timer);
@@ -97,19 +114,14 @@ export function CanvasPresenceOverlay({
           ? null
           : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
         if (workingDraft) {
-          const cursor = draftAgentCursor(workingDraft, runtime);
           items.push(
-            <LocalAgentCursor
-              activity={null}
-              authoritativeCursor={cursor}
-              key={`${participant.participantId}:agent:draft:${workingDraft.id}:${workingDraft.status}`}
+            <DraftAgentCursor
+              draft={workingDraft}
+              key={`${participant.participantId}:agent:draft:${workingDraft.id}`}
               participant={participant}
-              progress={0}
+              room={room}
               runtime={runtime}
-              working
-              workingLabel={workingDraft.status === "committing"
-                ? "Validating draft · not saved"
-                : "Drafting preview · not saved"}
+              handoffRegistry={draftCursorHandoffs}
             />,
           );
         } else if (participant.agentActive && participant.agent.cursor) {
@@ -124,11 +136,17 @@ export function CanvasPresenceOverlay({
             x: from.x + (to.x - from.x) * progress,
             y: from.y + (to.y - from.y) * progress,
           };
+          const draftHandoff = draftCursorHandoffs.get(participant.participantId);
+          const handoffPagePoint = working && draftHandoff && now - draftHandoff.recordedAt <= 2_000
+            ? draftHandoff.point
+            : null;
           items.push(
             <LocalAgentCursor
               activity={activity}
               authoritativeCursor={cursor}
-              key={`${participant.participantId}:agent:${working ? "working" : "idle"}:${activity?.id ?? "none"}:${activity?.startedAt ?? 0}`}
+              handoffPagePoint={handoffPagePoint}
+              handoffRegistry={draftCursorHandoffs}
+              key={`${participant.participantId}:agent:${activity?.id ?? "none"}:${activity?.startedAt ?? 0}`}
               participant={participant}
               progress={progress}
               runtime={runtime}
@@ -196,15 +214,6 @@ function clampAgentViewportPoint(point: Point, overlay: HTMLElement | null): Poi
   };
 }
 
-function unionBounds(left: CanvasBounds | null, right: CanvasBounds): CanvasBounds {
-  if (!left) return { ...right };
-  const x = Math.min(left.x, right.x);
-  const y = Math.min(left.y, right.y);
-  const maxX = Math.max(left.x + left.width, right.x + right.width);
-  const maxY = Math.max(left.y + left.height, right.y + right.height);
-  return { x, y, width: Math.max(maxX - x, 1), height: Math.max(maxY - y, 1) };
-}
-
 function activeDraftForParticipant(
   drafts: readonly AgentCanvasDraftSnapshot[],
   roomId: string,
@@ -229,30 +238,177 @@ function activeDraftForParticipant(
   }, null);
 }
 
-function draftAgentCursor(draft: AgentCanvasDraftSnapshot, runtime: CanvasRuntime): Point {
-  const nonConnectorObjects = draft.previewObjects.filter((object) => object.kind !== "connector");
-  const candidateBounds = (nonConnectorObjects.length ? nonConnectorObjects : draft.previewObjects)
-    .reduce<CanvasBounds | null>((bounds, object) => unionBounds(bounds, object), null);
-  const bounds = candidateBounds ?? draft.previewDiagrams.reduce<CanvasBounds | null>(
-    (current, diagram) => unionBounds(current, diagram.bounds),
-    null,
-  );
-  if (bounds) {
-    return {
-      x: bounds.x + bounds.width + 16,
-      y: bounds.y + bounds.height + 16,
-    };
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+  return reduced;
+}
+
+function DraftAgentCursor({
+  draft,
+  handoffRegistry,
+  participant,
+  room,
+  runtime,
+}: {
+  draft: AgentCanvasDraftSnapshot;
+  handoffRegistry: Map<string, DraftCursorHandoff>;
+  participant: Participant;
+  room: RoomState;
+  runtime: CanvasRuntime;
+}) {
+  const markerRef = useRef<HTMLDivElement | null>(null);
+  const coordinatorRef = useRef<AgentDraftChoreographyCoordinator | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const renderedViewport = runtime.getViewport();
+  const fallbackX = participant.agent.cursor?.x
+    ?? renderedViewport.x + renderedViewport.width / 2;
+  const fallbackY = participant.agent.cursor?.y
+    ?? renderedViewport.y + renderedViewport.height / 2;
+  const plan = useMemo(() => {
+    return buildAgentDraftChoreographyPlan({
+      authoritativeDiagrams: room.diagrams,
+      authoritativeObjects: room.objects,
+      draft,
+      fallbackPoint: { x: fallbackX, y: fallbackY },
+      viewportZoom: renderedViewport.zoom,
+    });
+  }, [draft, fallbackX, fallbackY, renderedViewport.zoom, room.diagrams, room.objects]);
+  if (coordinatorRef.current == null) {
+    coordinatorRef.current = new AgentDraftChoreographyCoordinator();
   }
-  const viewport = runtime.getViewport();
-  return {
-    x: viewport.x + viewport.width / 2,
-    y: viewport.y + viewport.height / 2,
-  };
+
+  useLayoutEffect(() => {
+    const coordinator = coordinatorRef.current!;
+    let animationFrame = 0;
+    let disposed = false;
+
+    const cancelAnimation = () => {
+      if (!animationFrame) return;
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+    };
+
+    const applyFrame = (frame: AgentDraftChoreographyFrame) => {
+      const marker = markerRef.current;
+      if (!marker || disposed) return;
+      const viewportPoint = runtime.pageToViewport(frame.pagePoint);
+      marker.style.transform = `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`;
+      marker.style.setProperty("--agent-choreography-progress", String(frame.phaseProgress));
+      marker.dataset.activityProgress = String(Math.round(frame.phaseProgress * 100));
+      marker.dataset.agentDraftChoreographyPhase = frame.phase;
+      marker.dataset.agentDraftChoreographyObjectId = frame.objectId ?? "";
+      handoffRegistry.set(participant.participantId, {
+        point: { ...frame.pagePoint },
+        recordedAt: Date.now(),
+      });
+
+      const viewport = runtime.getViewport();
+      const physicalWidth = viewport.width * viewport.zoom;
+      const physicalHeight = viewport.height * viewport.zoom;
+      const labelWidth = Math.min(280, Math.max(150, participant.displayName.length * 6 + 170));
+      marker.dataset.labelSide = physicalWidth && viewportPoint.x + AGENT_MARKER_SIZE + labelWidth > physicalWidth - AGENT_PARK_INSET
+        ? "left"
+        : "right";
+      marker.dataset.labelVertical = physicalHeight && viewportPoint.y + AGENT_MARKER_SIZE + 24 > physicalHeight - AGENT_PARK_INSET
+        ? "above"
+        : "below";
+    };
+
+    const reduceBeforePaint = reducedMotion || (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+    if (reduceBeforePaint || document.visibilityState === "hidden") {
+      applyFrame(coordinator.finish(plan));
+      return () => { disposed = true; };
+    }
+
+    const initial = coordinator.accept(plan, performance.now());
+    applyFrame(initial);
+    const tick = (timestamp: number) => {
+      if (disposed) return;
+      const frame = coordinator.sample(timestamp, plan.startPoint);
+      applyFrame(frame);
+      if (frame.active) animationFrame = window.requestAnimationFrame(tick);
+    };
+    if (initial.active) animationFrame = window.requestAnimationFrame(tick);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden" || disposed) return;
+      cancelAnimation();
+      applyFrame(coordinator.finish(plan));
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      cancelAnimation();
+    };
+  }, [
+    participant.displayName,
+    participant.participantId,
+    plan,
+    reducedMotion,
+    renderedViewport.height,
+    renderedViewport.width,
+    renderedViewport.x,
+    renderedViewport.y,
+    renderedViewport.zoom,
+    runtime,
+    handoffRegistry,
+  ]);
+
+  const initialPoint = runtime.pageToViewport(plan.startPoint);
+  const label = draft.status === "committing"
+    ? "Validating draft · not saved"
+    : "Drafting preview · not saved";
+  return (
+    <div
+      aria-hidden="true"
+      className={styles.agentCursor}
+      data-activity-progress="0"
+      data-agent-draft-choreography="true"
+      data-agent-draft-choreography-object-id=""
+      data-agent-draft-choreography-phase="travel"
+      data-agent-draft-choreography-revision={draft.revision}
+      data-label-side="right"
+      data-label-vertical="below"
+      data-local-parked="false"
+      data-working="true"
+      data-testid={`agent-cursor-${participant.participantId}`}
+      ref={markerRef}
+      style={{
+        color: participant.color,
+        transform: `translate(${initialPoint.x}px, ${initialPoint.y}px)`,
+      }}
+    >
+      <AgentAvatar
+        displayName={participant.displayName}
+        motion={reducedMotion ? "none" : "always"}
+        participantColor={participant.color}
+        size={26}
+        state="working"
+      />
+      <span className={styles.agentCursorLabel} data-agent-cursor-label="true" style={{ background: participant.color }}>
+        {participant.displayName} · agent · {label}
+      </span>
+    </div>
+  );
 }
 
 function LocalAgentCursor({
   activity,
   authoritativeCursor,
+  handoffPagePoint: initialHandoffPagePoint,
+  handoffRegistry,
   participant,
   progress,
   runtime,
@@ -261,6 +417,8 @@ function LocalAgentCursor({
 }: {
   activity: AgentActivity | null;
   authoritativeCursor: Point;
+  handoffPagePoint?: Point | null;
+  handoffRegistry?: Map<string, DraftCursorHandoff>;
   participant: Participant;
   progress: number;
   runtime: CanvasRuntime;
@@ -271,7 +429,131 @@ function LocalAgentCursor({
   const dragRef = useRef<AgentCursorDrag | null>(null);
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
+  const [handoffSourcePoint] = useState<Point | null>(() =>
+    working && initialHandoffPagePoint ? { ...initialHandoffPagePoint } : null
+  );
+  const handoffCurrentRef = useRef<Point | null>(handoffSourcePoint);
+  const handoffTargetRef = useRef<Point>({ ...authoritativeCursor });
+  const handoffRuntimeRef = useRef(runtime);
+  const [handoffInitialTargetAt] = useState(() => performance.now());
+  const handoffTargetChangedAtRef = useRef(handoffInitialTargetAt);
+  const [handoffActive, setHandoffActive] = useState(Boolean(handoffSourcePoint));
   const [parkedPagePoint, setParkedPagePoint] = useState<Point | null>(null);
+
+  useLayoutEffect(() => {
+    const previousTarget = handoffTargetRef.current;
+    if (
+      Math.abs(previousTarget.x - authoritativeCursor.x) > 0.001 ||
+      Math.abs(previousTarget.y - authoritativeCursor.y) > 0.001
+    ) {
+      handoffTargetChangedAtRef.current = performance.now();
+    }
+    handoffTargetRef.current = { ...authoritativeCursor };
+    handoffRuntimeRef.current = runtime;
+    const current = handoffCurrentRef.current;
+    const marker = markerRef.current;
+    if (!handoffActive || !current || !marker) return;
+    const viewportPoint = runtime.pageToViewport(current);
+    marker.style.transform = `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`;
+  }, [authoritativeCursor, handoffActive, runtime]);
+
+  useLayoutEffect(() => {
+    if (!handoffActive || !handoffCurrentRef.current) return;
+    let animationFrame = 0;
+    let disposed = false;
+    let started = false;
+    let previousTimestamp = performance.now();
+
+    const writeCurrentPoint = (point: Point) => {
+      const marker = markerRef.current;
+      const activeRuntime = handoffRuntimeRef.current;
+      if (marker) {
+        const viewportPoint = activeRuntime.pageToViewport(point);
+        marker.style.transform = `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`;
+      }
+      handoffRegistry?.set(participant.participantId, {
+        point: { ...point },
+        recordedAt: Date.now(),
+      });
+    };
+
+    const complete = () => {
+      if (disposed) return;
+      const target = { ...handoffTargetRef.current };
+      handoffCurrentRef.current = target;
+      writeCurrentPoint(target);
+      handoffRegistry?.delete(participant.participantId);
+      setHandoffActive(false);
+    };
+
+    const reduceBeforePaint = reducedMotion || (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+    if (reduceBeforePaint || document.visibilityState === "hidden") {
+      complete();
+      return () => { disposed = true; };
+    }
+
+    const tick = (timestamp: number) => {
+      if (disposed) return;
+      const current = handoffCurrentRef.current;
+      if (!current) {
+        complete();
+        return;
+      }
+      const target = handoffTargetRef.current;
+      const activeRuntime = handoffRuntimeRef.current;
+      const currentViewportPoint = activeRuntime.pageToViewport(current);
+      const targetViewportPoint = activeRuntime.pageToViewport(target);
+      const remainingPixels = Math.hypot(
+        targetViewportPoint.x - currentViewportPoint.x,
+        targetViewportPoint.y - currentViewportPoint.y,
+      );
+      const elapsed = Math.max(0, Math.min(timestamp - previousTimestamp, AGENT_HANDOFF_MAX_FRAME_MS));
+      previousTimestamp = timestamp;
+      const stepPixels = AGENT_HANDOFF_SPEED * elapsed / 1_000;
+      if (remainingPixels <= Math.max(stepPixels, AGENT_HANDOFF_CONVERGENCE_PX)) {
+        handoffCurrentRef.current = { ...target };
+        writeCurrentPoint(target);
+        if (timestamp - handoffTargetChangedAtRef.current >= AGENT_HANDOFF_SETTLE_MS) {
+          complete();
+          return;
+        }
+        animationFrame = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      const ratio = stepPixels / remainingPixels;
+      const next = {
+        x: current.x + (target.x - current.x) * ratio,
+        y: current.y + (target.y - current.y) * ratio,
+      };
+      handoffCurrentRef.current = next;
+      writeCurrentPoint(next);
+      if (!started) {
+        started = true;
+        if (markerRef.current) markerRef.current.dataset.agentHandoffPhase = "transition";
+      }
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+
+    animationFrame = window.requestAnimationFrame(tick);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden" || disposed) return;
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      complete();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+    };
+  }, [handoffActive, handoffRegistry, participant.participantId, reducedMotion]);
 
   useEffect(() => () => {
     const drag = dragRef.current;
@@ -282,7 +564,12 @@ function LocalAgentCursor({
     dragRef.current = null;
   }, []);
 
-  const pagePoint = working ? authoritativeCursor : parkedPagePoint ?? authoritativeCursor;
+  const presentingAsWorking = working || handoffActive;
+  const pagePoint = handoffActive && handoffSourcePoint
+    ? handoffSourcePoint
+    : working
+      ? authoritativeCursor
+      : parkedPagePoint ?? authoritativeCursor;
   const viewportPoint = runtime.pageToViewport(pagePoint);
   const viewport = runtime.getViewport();
   const overlayWidth = viewport.width * viewport.zoom;
@@ -298,24 +585,27 @@ function LocalAgentCursor({
   const sharedProps = {
     className: styles.agentCursor,
     "data-activity-progress": Math.round(progress * 100),
+    "data-agent-handoff": handoffActive ? "true" : "false",
+    "data-agent-handoff-phase": handoffActive ? "source" : "none",
     "data-label-side": placeLabelLeft ? "left" : "right",
     "data-label-vertical": placeLabelAbove ? "above" : "below",
     "data-local-parked": parkedPagePoint ? "true" : "false",
-    "data-working": working ? "true" : "false",
+    "data-working": presentingAsWorking ? "true" : "false",
     "data-testid": `agent-cursor-${participant.participantId}`,
     style: {
       color: participant.color,
       transform: `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`,
+      transition: handoffActive ? "none" : undefined,
     },
   } as const;
   const contents = (
     <>
       <AgentAvatar
         displayName={participant.displayName}
-        motion={working ? "always" : "hover"}
+        motion={presentingAsWorking ? "always" : "hover"}
         participantColor={participant.color}
         size={26}
-        state={working ? "working" : "idle"}
+        state={presentingAsWorking ? "working" : "idle"}
       />
       <span
         className={styles.agentCursorLabel}
@@ -325,14 +615,14 @@ function LocalAgentCursor({
         {participant.displayName} · agent
         {workingLabel
           ? ` · ${workingLabel}`
-          : working && activity
+          : presentingAsWorking && activity
             ? ` · ${activity.label} · ${Math.round(progress * 100)}%`
             : ""}
       </span>
     </>
   );
 
-  if (working) {
+  if (presentingAsWorking) {
     return (
       <div {...sharedProps} aria-hidden="true" ref={(element) => { markerRef.current = element; }}>
         {contents}

@@ -14,6 +14,8 @@ import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const self: Participant = {
@@ -88,7 +90,9 @@ function inactiveRemoteAgent(): Participant {
   };
 }
 
-function draftShape(): AgentDraftCanvasObject {
+function draftShape(
+  input: Partial<Extract<AgentDraftCanvasObject, { kind: "shape" }>> = {},
+): Extract<AgentDraftCanvasObject, { kind: "shape" }> {
   return {
     authority: "draft",
     id: "draft-shape",
@@ -111,7 +115,44 @@ function draftShape(): AgentDraftCanvasObject {
     label: "Room API",
     fill: "light-violet",
     stroke: "blue",
+    ...input,
   };
+}
+
+function installAnimationFrames() {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const cancelled: number[] = [];
+  const cancelledCallbacks: FrameRequestCallback[] = [];
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = nextId++;
+    callbacks.set(id, callback);
+    return id;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    const callback = callbacks.get(id);
+    if (callback) cancelledCallbacks.push(callback);
+    callbacks.delete(id);
+    cancelled.push(id);
+  });
+  return {
+    cancelled,
+    flush(timestamp: number) {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      act(() => pending.forEach((callback) => callback(timestamp)));
+    },
+    pending: () => callbacks.size,
+    runCancelled(timestamp: number) {
+      act(() => cancelledCallbacks.forEach((callback) => callback(timestamp)));
+    },
+  };
+}
+
+function translatedPoint(element: HTMLElement): Point {
+  const match = element.style.transform.match(/^translate\(([-\d.]+)px, ([-\d.]+)px\)$/);
+  if (!match) throw new Error(`Expected a pixel translate, received ${element.style.transform}.`);
+  return { x: Number(match[1]), y: Number(match[2]) };
 }
 
 function agentDraft(input: Partial<AgentCanvasDraftSnapshot> = {}): AgentCanvasDraftSnapshot {
@@ -363,7 +404,7 @@ describe("CanvasPresenceOverlay idle agent parking", () => {
 });
 
 describe("CanvasPresenceOverlay draft-working presence", () => {
-  it("shows an inactive participant's unique bot thinking near active candidate work", () => {
+  it("starts an inactive participant's unique bot on a real construction path", () => {
     const agent = inactiveRemoteAgent();
     const { container } = render(
       <CanvasPresenceOverlay
@@ -378,7 +419,10 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker.tagName).toBe("DIV");
     expect(marker).toHaveAttribute("aria-hidden", "true");
     expect(marker).toHaveAttribute("data-working", "true");
-    expect(marker).toHaveStyle({ transform: "translate(356px, 266px)" });
+    expect(marker).toHaveStyle({ transform: "translate(400px, 300px)" });
+    expect(marker).toHaveAttribute("data-agent-draft-choreography", "true");
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
     expect(marker).toHaveTextContent("Orbit Architect · agent · Drafting preview · not saved");
     expect(container.querySelector('[data-agent-avatar-state="working"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
@@ -398,6 +442,615 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveTextContent(
       "Orbit Architect · agent · Validating draft · not saved",
     );
+  });
+
+  it("does not remount or jump when an active draft starts committing", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const room = roomWithAgent(agent);
+    const active = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[active]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    now = 70;
+    animation.flush(now);
+    const before = marker.style.transform;
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({
+          revision: active.revision + 1,
+          status: "committing",
+          updatedAt: active.updatedAt + 1,
+        })]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const validating = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(validating).toBe(marker);
+    expect(validating.style.transform).toBe(before);
+    expect(validating).toHaveTextContent("Validating draft · not saved");
+    expect(animation.pending()).toBe(1);
+  });
+
+  it("travels through intermediate positions and outlines the authored object without React frame state", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    const start = marker.style.transform;
+    expect(animation.pending()).toBe(1);
+
+    now = 60;
+    animation.flush(now);
+    const travelMidpoint = marker.style.transform;
+    expect(travelMidpoint).not.toBe(start);
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
+
+    now = 480;
+    animation.flush(now);
+    expect(marker.style.transform).not.toBe(travelMidpoint);
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "outline");
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
+
+    now = 720;
+    animation.flush(now);
+    expect(marker.style.transform).not.toBe(travelMidpoint);
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "outline");
+  });
+
+  it("keeps the same bot at the same pixel while a cumulative revision appends more work", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const room = roomWithAgent(agent);
+    const firstDraft = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[firstDraft]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+
+    now = 70;
+    animation.flush(now);
+    const before = marker.style.transform;
+    const secondShape = draftShape({
+      id: "draft-shape-2",
+      x: 440,
+      y: 280,
+      label: "Storage",
+      zIndex: 3,
+    });
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({
+          revision: 2,
+          updatedAt: firstDraft.updatedAt + 1,
+          previewObjects: [draftShape(), secondShape],
+        })]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const sameMarker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(sameMarker).toBe(marker);
+    expect(sameMarker.style.transform).toBe(before);
+
+    const observedIds = new Set<string>();
+    for (now = 120; now <= 8_000 && animation.pending(); now += 80) {
+      animation.flush(now);
+      const objectId = sameMarker.dataset.agentDraftChoreographyObjectId;
+      if (objectId) observedIds.add(objectId);
+    }
+    expect(observedIds).toContain("draft-shape-2");
+  });
+
+  it("keeps simultaneous draft coordinators isolated when one participant finishes", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const firstAgent = inactiveRemoteAgent();
+    const secondAgent: Participant = {
+      ...inactiveRemoteAgent(),
+      participantId: "participant_nova",
+      displayName: "Nova Builder",
+      color: "#d97706",
+    };
+    const secondAuthor: ActorRef = {
+      participantId: secondAgent.participantId,
+      displayName: secondAgent.displayName,
+      color: secondAgent.color,
+      kind: "agent",
+    };
+    const room = {
+      ...roomWithAgent(firstAgent),
+      participants: {
+        ...roomWithAgent(firstAgent).participants,
+        [secondAgent.participantId]: secondAgent,
+      },
+    };
+    const firstDraft = agentDraft();
+    const secondDraft = agentDraft({
+      id: "draft-nova",
+      ownerParticipantId: secondAgent.participantId,
+      author: secondAuthor,
+      previewObjects: [draftShape({
+        id: "draft-shape-nova",
+        createdBy: secondAuthor,
+        lastEditedBy: secondAuthor,
+        x: 520,
+      })],
+    });
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[firstDraft, secondDraft]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(2);
+    now = 70;
+    animation.flush(now);
+    const survivor = screen.getByTestId("agent-cursor-participant_nova");
+    const before = survivor.style.transform;
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[secondDraft]}
+        room={room}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+    expect(screen.getByTestId("agent-cursor-participant_nova")).toBe(survivor);
+    expect(animation.pending()).toBe(1);
+
+    now = 140;
+    animation.flush(now);
+    expect(survivor.style.transform).not.toBe(before);
+    expect(animation.pending()).toBe(1);
+  });
+
+  it("honors reduced motion with one static inspection pose and no animation loop", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const { container } = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "inspect");
+    expect(marker).toHaveAttribute("data-activity-progress", "100");
+    expect(container.querySelector('[data-agent-avatar-motion="none"]')).not.toBeNull();
+    expect(animation.pending()).toBe(0);
+  });
+
+  it("finishes active playback in a static inspection pose when the document becomes hidden", () => {
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(1);
+
+    visibility = "hidden";
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "inspect");
+    expect(marker).toHaveAttribute("data-activity-progress", "100");
+    expect(animation.pending()).toBe(0);
+    expect(animation.cancelled).toHaveLength(1);
+  });
+
+  it("keeps a completed construction pose attached to page space while the camera changes", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    let mutableViewport = { x: 0, y: 0, width: 800, height: 600, zoom: 1 };
+    const cameraRuntime = {
+      ...runtime,
+      getViewport: () => mutableViewport,
+      pageToViewport: (point: Point) => ({
+        x: (point.x - mutableViewport.x) * mutableViewport.zoom,
+        y: (point.y - mutableViewport.y) * mutableViewport.zoom,
+      }),
+    } as unknown as CanvasRuntime;
+    const agent = inactiveRemoteAgent();
+    const candidate = agentDraft();
+    const room = roomWithAgent(agent);
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={room}
+        runtime={cameraRuntime}
+        selfId={self.participantId}
+      />,
+    );
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveStyle({ transform: "translate(362px, 219.2px)" });
+
+    mutableViewport = { x: 100, y: 50, width: 400, height: 300, zoom: 2 };
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={room}
+        runtime={cameraRuntime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(marker).toHaveStyle({ transform: "translate(524px, 338.4px)" });
+  });
+
+  it("cancels its only animation frame and ignores late callbacks after commit removal", () => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(1);
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+    expect(animation.pending()).toBe(0);
+    expect(animation.cancelled).toHaveLength(1);
+    animation.runCancelled(2_000);
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+    expect(animation.pending()).toBe(0);
+  });
+
+  it("cancels playback on unmount and ignores an already-delivered stale frame", () => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(1);
+
+    rendered.unmount();
+    expect(animation.pending()).toBe(0);
+    expect(animation.cancelled).toHaveLength(1);
+    animation.runCancelled(2_000);
+    expect(animation.pending()).toBe(0);
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+  });
+
+  it("cancels draft playback when canonical activity takes over without a duplicate marker", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const candidate = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(1);
+    now = 80;
+    animation.flush(now);
+    const draftMarker = screen.getByTestId("agent-cursor-participant_orbit");
+    const beforeHandoff = draftMarker.style.transform;
+
+    const activity: AgentActivity = {
+      id: "activity-takeover",
+      type: "creating",
+      label: "Building the flow",
+      objectIds: [],
+      progress: 0,
+      startedAt: Date.now(),
+      durationMs: 10_000,
+      fromCursor: { x: 300, y: 310 },
+      toCursor: { x: 340, y: 350 },
+    };
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(remoteAgent({ x: 340, y: 350 }, activity))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const markers = screen.getAllByTestId("agent-cursor-participant_orbit");
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).not.toHaveAttribute("data-agent-draft-choreography");
+    expect(markers[0]).toHaveAttribute("data-agent-handoff", "true");
+    expect(markers[0].style.transform).toBe(beforeHandoff);
+    expect(markers[0]).toHaveTextContent("Building the flow");
+    expect(animation.pending()).toBe(1);
+    expect(animation.cancelled).toHaveLength(1);
+    animation.runCancelled(2_000);
+    expect(animation.pending()).toBe(1);
+    now = 96;
+    animation.flush(now);
+    expect(markers[0]).toHaveAttribute("data-agent-handoff", "true");
+    expect(markers[0]).toHaveAttribute("data-agent-handoff-phase", "transition");
+    expect(markers[0].style.transform).not.toBe(beforeHandoff);
+    const afterFirstFrame = markers[0].style.transform;
+    now = 112;
+    animation.flush(now);
+    expect(markers[0].style.transform).not.toBe(afterFirstFrame);
+    expect(markers[0]).toHaveAttribute("data-agent-handoff-phase", "transition");
+    expect(animation.pending()).toBe(1);
+    expect(screen.getAllByTestId("agent-cursor-participant_orbit")).toHaveLength(1);
+  });
+
+  it("converges at bounded screen speed while the canonical target keeps moving", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const candidate = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    now = 80;
+    animation.flush(now);
+    const draftMarker = screen.getByTestId("agent-cursor-participant_orbit");
+    let previous = translatedPoint(draftMarker);
+    const startedAt = Date.now();
+    const activityFor = (target: Point): AgentActivity => ({
+      id: "activity-moving-handoff",
+      type: "creating",
+      label: "Building a large flow",
+      objectIds: [],
+      progress: 0,
+      startedAt,
+      durationMs: 10_000,
+      fromCursor: target,
+      toCursor: target,
+    });
+    let target = { x: 1_200, y: 300 };
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(remoteAgent(target, activityFor(target)))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(translatedPoint(marker)).toEqual(previous);
+    let maximumStep = 0;
+    for (let frame = 0; frame < 180 && animation.pending(); frame += 1) {
+      if (frame < 20) target = { x: target.x + 4, y: target.y + 1 };
+      rendered.rerender(
+        <CanvasPresenceOverlay
+          agentDrafts={[candidate]}
+          room={roomWithAgent(remoteAgent(target, activityFor(target)))}
+          runtime={runtime}
+          selfId={self.participantId}
+        />,
+      );
+      now += 16;
+      animation.flush(now);
+      const current = translatedPoint(marker);
+      maximumStep = Math.max(maximumStep, Math.hypot(current.x - previous.x, current.y - previous.y));
+      previous = current;
+    }
+
+    expect(maximumStep).toBeLessThanOrEqual(12.2);
+    expect(animation.pending()).toBe(0);
+    expect(marker).toHaveAttribute("data-agent-handoff", "false");
+    expect(marker).toHaveAttribute("data-agent-handoff-phase", "none");
+    expect(translatedPoint(marker).x).toBeCloseTo(target.x);
+    expect(translatedPoint(marker).y).toBeCloseTo(target.y);
+  });
+
+  it("keeps an extreme-distance handoff alive after canonical activity expires", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    let frameNow = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => frameNow);
+    const animation = installAnimationFrames();
+    const candidate = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(inactiveRemoteAgent())}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    frameNow = 80;
+    animation.flush(frameNow);
+
+    const target = { x: 10_000, y: 2_000 };
+    const activity: AgentActivity = {
+      id: "activity-extreme-handoff",
+      type: "creating",
+      label: "Building a distant scene",
+      objectIds: [],
+      progress: 0,
+      startedAt: Date.now(),
+      durationMs: 1_000,
+      fromCursor: target,
+      toCursor: target,
+    };
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[]}
+        room={roomWithAgent(remoteAgent(target, activity))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const handoffMarker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(handoffMarker.tagName).toBe("DIV");
+    for (let frame = 0; frame < 10; frame += 1) {
+      frameNow += 16;
+      animation.flush(frameNow);
+    }
+    const beforeExpiry = translatedPoint(handoffMarker);
+
+    act(() => vi.advanceTimersByTime(3_000));
+
+    const afterExpiry = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(afterExpiry).toBe(handoffMarker);
+    expect(afterExpiry.tagName).toBe("DIV");
+    expect(afterExpiry).toHaveAttribute("data-agent-handoff", "true");
+    expect(afterExpiry).toHaveAttribute("data-working", "true");
+    expect(translatedPoint(afterExpiry)).toEqual(beforeExpiry);
+    expect(animation.pending()).toBe(1);
+
+    let previous = beforeExpiry;
+    let maximumStep = 0;
+    for (let frame = 0; frame < 1_000 && animation.pending(); frame += 1) {
+      frameNow += 16;
+      animation.flush(frameNow);
+      const current = translatedPoint(screen.getByTestId("agent-cursor-participant_orbit"));
+      maximumStep = Math.max(maximumStep, Math.hypot(current.x - previous.x, current.y - previous.y));
+      previous = current;
+    }
+    const settled = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(maximumStep).toBeLessThanOrEqual(12.2);
+    expect(animation.pending()).toBe(0);
+    expect(settled.tagName).toBe("BUTTON");
+    expect(settled).toHaveAttribute("data-agent-handoff", "false");
+    expect(translatedPoint(settled)).toEqual(target);
+  });
+
+  it("completes a canonical handoff before paint when reduced motion is requested", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const animation = installAnimationFrames();
+    const agent = inactiveRemoteAgent();
+    const candidate = agentDraft();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(animation.pending()).toBe(0);
+
+    const target = { x: 640, y: 360 };
+    const activity: AgentActivity = {
+      id: "activity-reduced-handoff",
+      type: "creating",
+      label: "Building without motion",
+      objectIds: [],
+      progress: 0,
+      startedAt: Date.now(),
+      durationMs: 10_000,
+      fromCursor: target,
+      toCursor: target,
+    };
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[candidate]}
+        room={roomWithAgent(remoteAgent(target, activity))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveAttribute("data-agent-handoff", "false");
+    expect(marker).toHaveAttribute("data-agent-handoff-phase", "none");
+    expect(marker).toHaveStyle({ transform: "translate(640px, 360px)" });
+    expect(animation.pending()).toBe(0);
   });
 
   it("keeps a canonical in-flight activity authoritative over its draft hint", () => {
@@ -427,6 +1080,7 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveStyle({ transform: "translate(300px, 310px)" });
     expect(marker).toHaveTextContent("Building the flow · 0%");
     expect(marker).not.toHaveTextContent("Drafting preview");
+    expect(marker).not.toHaveAttribute("data-agent-draft-choreography");
   });
 
   it("does not make an awaiting-review or expired draft look actively worked", () => {

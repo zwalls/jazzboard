@@ -10,7 +10,11 @@ import {
 } from "react";
 
 import { pageToViewportPoint } from "@/lib/canvas/camera";
-import { buildSemanticScene, type SemanticSceneObject } from "@/lib/canvas/semantic-scene";
+import {
+  projectAgentDraft,
+  type AgentDraftProjection,
+} from "@/lib/canvas/agent-draft-projection";
+import type { SemanticSceneObject } from "@/lib/canvas/semantic-scene";
 import {
   SEMANTIC_CONNECTOR_ARROW_SIZE,
   SEMANTIC_CONNECTOR_LABEL_FONT_SIZE,
@@ -40,6 +44,7 @@ import type {
   CanvasBounds,
   CanvasObject,
   ConnectorObject,
+  Diagram,
   DrawObject,
   Point,
   ShapeObject,
@@ -54,14 +59,8 @@ const STATUS_PILL_WIDTH = 230;
 const STATUS_PILL_HEIGHT = 44;
 const STATUS_INSET = 10;
 
-type DraftProjection = Readonly<{
-  draft: AgentCanvasDraftSnapshot;
-  objects: readonly SemanticSceneObject[];
-  bounds: CanvasBounds;
-  connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>;
-}>;
-
 export type AgentDraftLayerProps = Readonly<{
+  authoritativeDiagrams?: Readonly<Record<string, Diagram>>;
   authoritativeObjects: Readonly<Record<string, CanvasObject>>;
   drafts: readonly AgentCanvasDraftSnapshot[];
   roomId: string;
@@ -85,22 +84,13 @@ function drawTransform(object: DrawObject): string {
   return `${translate} rotate(${finite(object.rotation * (180 / Math.PI))})`;
 }
 
-function unionBounds(left: CanvasBounds | null, right: CanvasBounds): CanvasBounds {
-  if (!left) return { ...right };
-  const x = Math.min(left.x, right.x);
-  const y = Math.min(left.y, right.y);
-  const maxX = Math.max(left.x + left.width, right.x + right.width);
-  const maxY = Math.max(left.y + left.height, right.y + right.height);
-  return { x, y, width: Math.max(maxX - x, 1), height: Math.max(maxY - y, 1) };
-}
-
 function statusLabel(draft: AgentCanvasDraftSnapshot): string {
   if (draft.status === "committing") return "Validating atomic change · not saved";
   if (draft.status === "awaiting_review") return "Awaiting human approval · not on board";
   return "Draft preview · not saved";
 }
 
-function announcementFor(projections: readonly DraftProjection[]): string {
+function announcementFor(projections: readonly AgentDraftProjection[]): string {
   return projections
     .map(({ draft, objects }) => {
       const noun = objects.length === 1 ? "element" : "elements";
@@ -151,9 +141,10 @@ function useExpiryClock(drafts: readonly AgentCanvasDraftSnapshot[]): number {
 function buildDraftProjections(
   drafts: readonly AgentCanvasDraftSnapshot[],
   authoritativeObjects: Readonly<Record<string, CanvasObject>>,
+  authoritativeDiagrams: Readonly<Record<string, Diagram>> | undefined,
   roomId: string,
   now: number,
-): DraftProjection[] {
+): AgentDraftProjection[] {
   return drafts.flatMap((draft) => {
     if (
       draft.roomId !== roomId ||
@@ -161,31 +152,8 @@ function buildDraftProjections(
       draft.hardExpiresAt <= now
     ) return [];
 
-    const visibleIds = new Set(
-      draft.previewObjects
-        .filter((object) => !authoritativeObjects[object.id])
-        .map((object) => object.id),
-    );
-    if (!visibleIds.size) return [];
-
-    const previewObjects = Object.fromEntries(
-      draft.previewObjects
-        .filter((object) => visibleIds.has(object.id))
-        .map((object) => [object.id, object as CanvasObject]),
-    );
-    const diagrams = Object.fromEntries(draft.previewDiagrams.map((diagram) => [diagram.id, diagram]));
-    const scene = buildSemanticScene({
-      id: draft.roomId,
-      roomRevision: draft.baselineRoomRevision,
-      objects: { ...authoritativeObjects, ...previewObjects },
-      diagrams,
-    });
-    const objects = scene.objects.filter(({ object }) => visibleIds.has(object.id));
-    const bounds = objects.reduce<CanvasBounds | null>(
-      (current, object) => unionBounds(current, object.bounds),
-      null,
-    );
-    return bounds ? [{ draft, objects, bounds, connectorRoutes: scene.connectorRoutes }] : [];
+    const projection = projectAgentDraft(draft, authoritativeObjects, authoritativeDiagrams);
+    return projection ? [projection] : [];
   });
 }
 
@@ -435,6 +403,7 @@ function pillPosition(bounds: CanvasBounds, viewport: Viewport): CSSProperties {
  * pointer, keyboard, export, selection, or accessibility-object semantics.
  */
 export function AgentDraftLayer({
+  authoritativeDiagrams,
   authoritativeObjects,
   drafts,
   roomId,
@@ -442,8 +411,8 @@ export function AgentDraftLayer({
 }: AgentDraftLayerProps) {
   const now = useExpiryClock(drafts);
   const projections = useMemo(
-    () => buildDraftProjections(drafts, authoritativeObjects, roomId, now),
-    [authoritativeObjects, drafts, now, roomId],
+    () => buildDraftProjections(drafts, authoritativeObjects, authoritativeDiagrams, roomId, now),
+    [authoritativeDiagrams, authoritativeObjects, drafts, now, roomId],
   );
   const liveText = useThrottledAnnouncement(announcementFor(projections));
   if (!projections.length && !liveText) return null;
@@ -463,7 +432,7 @@ export function AgentDraftLayer({
           <g transform={cameraTransform} pointerEvents="none">
             {projections.map(({ draft, objects, connectorRoutes }) => (
               <g
-                key={`${draft.id}:${draft.revision}:connectors`}
+                key={`${draft.id}:connectors`}
                 className={styles.draftArtwork}
                 data-agent-draft-id={draft.id}
                 data-agent-draft-status={draft.status}
@@ -476,7 +445,7 @@ export function AgentDraftLayer({
             ))}
             {projections.map(({ draft, objects, connectorRoutes }) => (
               <g
-                key={`${draft.id}:${draft.revision}:objects`}
+                key={`${draft.id}:objects`}
                 className={styles.draftArtwork}
                 data-agent-draft-id={draft.id}
                 data-agent-draft-status={draft.status}
