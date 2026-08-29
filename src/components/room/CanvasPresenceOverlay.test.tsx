@@ -209,6 +209,28 @@ function installPointerGeometry(marker: HTMLElement) {
 }
 
 describe("CanvasPresenceOverlay idle agent parking", () => {
+  it("keeps the larger bot, label, and parking point inside the viewport edge", () => {
+    render(
+      <CanvasPresenceOverlay
+        room={roomWithAgent(remoteAgent({ x: 750, y: 550 }))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    const marker = screen.getByRole("button", { name: /Move Orbit Architect’s idle agent locally/i });
+    installPointerGeometry(marker);
+
+    expect(marker).toHaveAttribute("data-label-side", "left");
+    expect(marker).toHaveAttribute("data-label-vertical", "above");
+    expect(marker.style.getPropertyValue("--agent-marker-size")).toBe("40px");
+    const avatar = marker.querySelector<HTMLElement>('[data-agent-avatar-state="idle"]');
+    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("36px");
+
+    fireEvent.keyDown(marker, { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(marker, { key: "ArrowDown", shiftKey: true });
+    expect(marker).toHaveStyle({ transform: "translate(752px, 552px)" });
+  });
+
   it("parks an idle agent locally with the keyboard and preserves it across idle room envelopes", () => {
     const initialRoom = roomWithAgent(remoteAgent({ x: 100, y: 120 }));
     const rendered = render(
@@ -426,7 +448,9 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(marker).toHaveAttribute("data-agent-draft-choreography-phase", "travel");
     expect(marker).toHaveAttribute("data-agent-draft-choreography-object-id", "draft-shape");
     expect(marker).toHaveTextContent("Orbit Architect · agent · Drafting preview · not saved");
-    expect(container.querySelector('[data-agent-avatar-state="working"]')).not.toBeNull();
+    const avatar = container.querySelector<HTMLElement>('[data-agent-avatar-state="working"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("36px");
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
   });
 

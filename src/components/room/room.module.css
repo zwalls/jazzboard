@@ -1360,10 +1360,10 @@ button.compactIndicator:hover {
 .agentCursor {
   align-items: center;
   display: flex;
-  height: 30px;
+  height: var(--agent-marker-size);
   justify-content: center;
   pointer-events: none;
-  width: 30px;
+  width: var(--agent-marker-size);
 }
 
 .agentCursor[data-agent-draft-choreography="true"] {
@@ -1381,7 +1381,7 @@ button.compactIndicator:hover {
   opacity: 0;
   position: absolute;
   right: -1px;
-  top: 20px;
+  top: calc(var(--agent-marker-size) - 10px);
   transform: scale(0.55);
   width: 5px;
 }
@@ -1418,17 +1418,17 @@ button.idleAgentCursor {
 }
 
 .agentCursorLabel {
-  left: 21px;
-  top: 22px;
+  left: calc(var(--agent-marker-size) - 9px);
+  top: calc(var(--agent-marker-size) - 8px);
 }
 
 .agentCursor[data-label-side="left"] .agentCursorLabel {
   left: auto;
-  right: 21px;
+  right: calc(var(--agent-marker-size) - 9px);
 }
 
 .agentCursor[data-label-vertical="above"] .agentCursorLabel {
-  bottom: 22px;
+  bottom: calc(var(--agent-marker-size) - 8px);
   top: auto;
 }
 

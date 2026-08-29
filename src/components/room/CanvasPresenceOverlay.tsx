@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -25,7 +26,8 @@ import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import styles from "./room.module.css";
 
 const AGENT_PARK_INSET = 8;
-const AGENT_MARKER_SIZE = 30;
+const AGENT_AVATAR_SIZE = 36;
+const AGENT_MARKER_SIZE = 40;
 const AGENT_KEYBOARD_STEP = 8;
 const AGENT_HANDOFF_SPEED = 760;
 const AGENT_HANDOFF_MAX_FRAME_MS = 16;
@@ -456,15 +458,16 @@ function DraftAgentCursor({
       data-testid={`agent-cursor-${participant.participantId}`}
       ref={markerRef}
       style={{
+        "--agent-marker-size": `${AGENT_MARKER_SIZE}px`,
         color: participant.color,
         transform: `translate(${initialPoint.x}px, ${initialPoint.y}px)`,
-      }}
+      } as CSSProperties}
     >
       <AgentAvatar
         displayName={participant.displayName}
         motion={reducedMotion ? "none" : "always"}
         participantColor={participant.color}
-        size={26}
+        size={AGENT_AVATAR_SIZE}
         state="working"
       />
       <span className={styles.agentCursorLabel} data-agent-cursor-label="true" style={{ background: participant.color }}>
@@ -663,10 +666,11 @@ function LocalAgentCursor({
     "data-working": presentingAsWorking ? "true" : "false",
     "data-testid": `agent-cursor-${participant.participantId}`,
     style: {
+      "--agent-marker-size": `${AGENT_MARKER_SIZE}px`,
       color: participant.color,
       transform: `translate(${viewportPoint.x}px, ${viewportPoint.y}px)`,
       transition: handoffActive ? "none" : undefined,
-    },
+    } as CSSProperties,
   } as const;
   const contents = (
     <>
@@ -674,7 +678,7 @@ function LocalAgentCursor({
         displayName={participant.displayName}
         motion={presentingAsWorking ? "always" : "hover"}
         participantColor={participant.color}
-        size={26}
+        size={AGENT_AVATAR_SIZE}
         state={presentingAsWorking ? "working" : "idle"}
       />
       <span
