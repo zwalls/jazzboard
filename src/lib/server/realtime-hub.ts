@@ -4,6 +4,10 @@ import type { WebSocket, WebSocketData } from "@vercel/functions";
 import type Redis from "ioredis";
 
 import type { RoomEvent, RoomRole, RoomState } from "@/lib/domain/types";
+import {
+  isAgentCanvasDraftEvent,
+  type AgentCanvasDraftEvent,
+} from "@/lib/agent-drafts/types";
 import { isDomainError } from "@/lib/domain/errors";
 import {
   isCompactRoomEventPayload,
@@ -29,6 +33,7 @@ import {
 } from "@/lib/realtime/redis-stream";
 
 import { readAuthorizedRoom } from "./room-service";
+import { subscribeToLocalAgentDraftEvents } from "./agent-draft-store";
 import { getRedisForRealtime, getRoomStore, subscribeToLocalRoomEvents } from "./room-store";
 
 const SOCKET_OPEN = 1;
@@ -46,11 +51,13 @@ const ROOM_RECONCILIATION_RETRY_MS = 50;
 type RoomReader = (roomId: string, participantId: string) => Promise<RoomState>;
 type RoomSnapshotReader = (roomId: string) => Promise<RoomState | null>;
 type LocalSubscriber = (listener: (event: RoomEvent) => void) => () => void;
+type LocalDraftSubscriber = (listener: (event: AgentCanvasDraftEvent) => void) => () => void;
 
 export type RealtimeHubDependencies = {
   readRoom?: RoomReader;
   readRoomSnapshot?: RoomSnapshotReader;
   subscribeLocal?: LocalSubscriber;
+  subscribeLocalDrafts?: LocalDraftSubscriber;
   getRedis?: () => Redis | null;
   createId?: () => string;
   now?: () => number;
@@ -63,6 +70,8 @@ export type AttachRealtimeSocketOptions = {
   cursor?: string | null;
   /** Explicitly negotiated by current clients. Omission is retained as true for direct/test adapters. */
   supportsPresenceDelta?: boolean;
+  /** Negotiates compact draft invalidations; old clients simply omit ghost previews. */
+  supportsAgentDrafts?: boolean;
 };
 
 type PendingEvent = {
@@ -81,6 +90,7 @@ type Peer = {
   roomId: string;
   participantId: string;
   supportsPresenceDelta: boolean;
+  supportsAgentDrafts: boolean;
   role: RoomRole | null;
   ready: boolean;
   readySent: boolean;
@@ -142,6 +152,7 @@ export class RealtimeHub {
   private readonly readRoom: RoomReader;
   private readonly readRoomSnapshot: RoomSnapshotReader;
   private readonly subscribeLocal: LocalSubscriber;
+  private readonly subscribeLocalDrafts: LocalDraftSubscriber;
   private readonly getRedis: () => Redis | null;
   private readonly createId: () => string;
   private readonly now: () => number;
@@ -150,6 +161,7 @@ export class RealtimeHub {
   private readonly peersByRoom = new Map<string, Set<Peer>>();
   private readonly roomReconciliations = new Map<string, RoomReconciliation>();
   private unsubscribeLocal: (() => void) | null = null;
+  private unsubscribeLocalDrafts: (() => void) | null = null;
   private redis: Redis | null | undefined;
   private streamReader: Redis | null = null;
   private readerReady: Promise<void> | null = null;
@@ -161,6 +173,7 @@ export class RealtimeHub {
     this.readRoomSnapshot =
       dependencies.readRoomSnapshot ?? ((roomId) => getRoomStore().getRoom(roomId));
     this.subscribeLocal = dependencies.subscribeLocal ?? subscribeToLocalRoomEvents;
+    this.subscribeLocalDrafts = dependencies.subscribeLocalDrafts ?? subscribeToLocalAgentDraftEvents;
     this.getRedis = dependencies.getRedis ?? getRedisForRealtime;
     this.createId = dependencies.createId ?? randomUUID;
     this.now = dependencies.now ?? Date.now;
@@ -179,6 +192,7 @@ export class RealtimeHub {
       roomId: options.roomId,
       participantId: options.participantId,
       supportsPresenceDelta: options.supportsPresenceDelta ?? true,
+      supportsAgentDrafts: options.supportsAgentDrafts ?? true,
       role: null,
       ready: false,
       readySent: false,
@@ -223,12 +237,17 @@ export class RealtimeHub {
     this.roomReconciliations.clear();
     this.unsubscribeLocal?.();
     this.unsubscribeLocal = null;
+    this.unsubscribeLocalDrafts?.();
+    this.unsubscribeLocalDrafts = null;
     this.stopStreamReader();
   }
 
   private ensureLocalSubscription(): void {
     this.unsubscribeLocal ??= this.subscribeLocal((event) => {
       this.broadcastEvent(event, null);
+    });
+    this.unsubscribeLocalDrafts ??= this.subscribeLocalDrafts((event) => {
+      this.broadcastDraftInvalidation(event, null);
     });
   }
 
@@ -443,6 +462,21 @@ export class RealtimeHub {
       }
     }
     if (needsReconciliation) this.requestRoomReconciliation(event, cursor);
+  }
+
+  private broadcastDraftInvalidation(event: AgentCanvasDraftEvent, cursor: string | null): void {
+    const peers = this.peersByRoom.get(event.roomId);
+    if (!peers) return;
+    for (const peer of peers) {
+      if (peer.disposed || !peer.ready || !peer.supportsAgentDrafts) continue;
+      if (peer.delivered.has(event.id)) {
+        this.advancePeerCursor(peer, cursor);
+        continue;
+      }
+      this.send(peer, { type: "draft.invalidated", cursor, event });
+      rememberDelivered(peer, event.id);
+      peer.cursor = laterStreamCursor(peer.cursor, cursor);
+    }
   }
 
   private deliverEvent(peer: Peer, event: RoomEvent, cursor: string | null): void {
@@ -759,7 +793,11 @@ export class RealtimeHub {
         if (generation !== this.readerGeneration || this.streamReader !== reader) return;
         const records = decodeXRead(result);
         for (const record of records) {
-          this.broadcastEvent(record.event, record.cursor);
+          if (isAgentCanvasDraftEvent(record.event)) {
+            this.broadcastDraftInvalidation(record.event, record.cursor);
+          } else {
+            this.broadcastEvent(record.event, record.cursor);
+          }
         }
         const batchCursor = latestCursorFromXRead(result);
         if (batchCursor) this.readerCursor = batchCursor;

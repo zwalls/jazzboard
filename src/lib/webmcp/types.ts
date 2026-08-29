@@ -1,6 +1,7 @@
 /// <reference types="webmcp-types" />
 
 import type { ApiFailure } from "@/lib/client/api";
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { FollowTarget, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
 
 import type {
@@ -27,6 +28,8 @@ export interface JazzboardWebMcpContext {
     signal: AbortSignal,
   ): Promise<void>;
   acceptRoom(room: RoomState): void;
+  acceptAgentDraft?(draft: AgentCanvasDraftSnapshot): void;
+  removeAgentDraft?(draftId: string, revision?: number): void;
   setFollowTarget(target: FollowTarget): void;
   setDeclinedSpotlight(startedAt: number | null): void;
   leaveRoomView(): void;

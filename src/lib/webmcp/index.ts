@@ -22,6 +22,12 @@ export {
   JAZZBOARD_SEMANTIC_TOOL_NAMES,
 } from "./semantic-tools";
 export {
+  createJazzboardDraftWebMcpTools,
+  JAZZBOARD_DRAFT_MUTATION_TOOL_NAMES,
+  JAZZBOARD_DRAFT_READ_TOOL_NAMES,
+  JAZZBOARD_DRAFT_TOOL_NAMES,
+} from "./draft-tools";
+export {
   createJazzboardActivityWebMcpTools,
   JAZZBOARD_ACTIVITY_MUTATION_TOOL_NAMES,
   JAZZBOARD_ACTIVITY_READ_TOOL_NAMES,

@@ -3,6 +3,7 @@ import { experimental_upgradeWebSocket } from "@vercel/functions";
 import { DomainError } from "@/lib/domain/errors";
 import {
   REALTIME_MAX_CLIENT_PAYLOAD_BYTES,
+  REALTIME_AGENT_DRAFT_CAPABILITY,
   REALTIME_PRESENCE_DELTA_CAPABILITY,
   parseStreamCursor,
 } from "@/lib/realtime/protocol";
@@ -63,6 +64,7 @@ export async function GET(request: Request): Promise<Response> {
         .filter(Boolean),
     );
     const supportsPresenceDelta = capabilities.has(REALTIME_PRESENCE_DELTA_CAPABILITY);
+    const supportsAgentDrafts = capabilities.has(REALTIME_AGENT_DRAFT_CAPABILITY);
     if (!supportsPresenceDelta) {
       throw new DomainError(
         "CLIENT_UPGRADE_REQUIRED",
@@ -82,6 +84,7 @@ export async function GET(request: Request): Promise<Response> {
           participantId,
           cursor,
           supportsPresenceDelta,
+          supportsAgentDrafts,
         });
       },
       { maxPayload: REALTIME_MAX_CLIENT_PAYLOAD_BYTES },

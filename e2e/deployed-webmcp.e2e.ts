@@ -28,6 +28,7 @@ const SHARED_ROOM_READ_TOOL_NAMES = [
   "export_canvas_artifact",
   "list_agent_edit_proposals",
   "read_agent_edit_proposal",
+  "read_canvas_drafts",
 ] as const;
 
 const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
@@ -63,6 +64,7 @@ const ROOM_MUTATION_TOOL_NAMES = [
   "dismiss_spotlight_request",
   "leave_room",
   "apply_canvas_transaction",
+  "finish_canvas_draft",
   "layout_objects",
   "create_diagram",
   "edit_diagram",
@@ -780,13 +782,13 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 48 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 50 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(48);
-    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(15);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(50);
+    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(16);
 
     await installWebMcpShim(page);
     await page.goto("/");

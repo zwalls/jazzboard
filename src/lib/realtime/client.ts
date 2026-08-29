@@ -1,10 +1,12 @@
 import type { Point, RoomEvent, RoomState, Viewport } from "@/lib/domain/types";
+import type { AgentCanvasDraftEvent } from "@/lib/agent-drafts/types";
 
 import {
   encodeRealtimeMessage,
   laterStreamCursor,
   parseRealtimeServerMessage,
   parseStreamCursor,
+  REALTIME_AGENT_DRAFT_CAPABILITY,
   REALTIME_PRESENCE_DELTA_CAPABILITY,
   type RealtimeConnectionStatus,
 } from "./protocol";
@@ -32,6 +34,7 @@ export type RoomRealtimeOptions = {
   url?: string;
   onSnapshot: (room: RoomState, metadata: RealtimeSnapshotMetadata) => void;
   onEvent: (event: RoomEvent, metadata: RealtimeEventMetadata) => void;
+  onReady?: (identity: { connectionId: string; participantId: string; role: "participant" | "spectator" }) => void;
   onTransientPresence?: (presence: {
     participantId: string;
     connectionId: string;
@@ -41,6 +44,7 @@ export type RoomRealtimeOptions = {
     cursor: Point | null;
     viewport: Viewport | null;
   }) => void;
+  onDraftInvalidated?: (event: AgentCanvasDraftEvent) => void;
   onStatusChange?: (status: RealtimeConnectionStatus) => void;
   onError?: (error: Error) => void;
   minReconnectMs?: number;
@@ -94,7 +98,10 @@ function buildRealtimeUrl(options: RoomRealtimeOptions, cursor: string | null): 
   if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
 
   url.searchParams.set("roomId", options.roomId);
-  url.searchParams.set("capabilities", REALTIME_PRESENCE_DELTA_CAPABILITY);
+  url.searchParams.set(
+    "capabilities",
+    `${REALTIME_PRESENCE_DELTA_CAPABILITY},${REALTIME_AGENT_DRAFT_CAPABILITY}`,
+  );
   if (cursor) url.searchParams.set("cursor", cursor);
   else url.searchParams.delete("cursor");
   return url.toString();
@@ -201,6 +208,11 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
         }
         reconnectAttempt = 0;
         setStatus("connected");
+        invokeSafely(options.onReady, {
+          connectionId: message.connectionId,
+          participantId: message.participantId,
+          role: message.role,
+        });
         return;
       case "snapshot":
         if (message.room.id !== options.roomId) {
@@ -257,6 +269,16 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
           cursor: message.cursor,
           viewport: message.viewport,
         });
+        return;
+      case "draft.invalidated":
+        if (message.event.roomId !== options.roomId) {
+          rejectMismatchedRoom();
+          return;
+        }
+        updateCursor(message.cursor);
+        if (rememberEvent(message.event.id)) {
+          invokeSafely(options.onDraftInvalidated, message.event);
+        }
         return;
     }
   }

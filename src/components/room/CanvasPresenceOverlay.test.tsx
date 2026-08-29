@@ -1,8 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  AGENT_CANVAS_DRAFT_SCHEMA_VERSION,
+  type AgentCanvasDraftSnapshot,
+  type AgentDraftCanvasObject,
+} from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
-import type { AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
+import type { ActorRef, AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
 
 import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
 
@@ -66,6 +71,72 @@ const runtime = {
   viewportToPage: (point: Point) => ({ ...point }),
   getObjectBounds: () => null,
 } as unknown as CanvasRuntime;
+
+const draftAuthor: ActorRef = {
+  participantId: "participant_orbit",
+  displayName: "Orbit Architect",
+  color: "#169b7d",
+  kind: "agent",
+};
+
+function inactiveRemoteAgent(): Participant {
+  const participant = remoteAgent({ x: 100, y: 120 });
+  return {
+    ...participant,
+    agentActive: false,
+    agent: { ...participant.agent, cursor: null, activity: null },
+  };
+}
+
+function draftShape(): AgentDraftCanvasObject {
+  return {
+    authority: "draft",
+    id: "draft-shape",
+    kind: "shape",
+    x: 120,
+    y: 140,
+    width: 220,
+    height: 110,
+    rotation: 0,
+    zIndex: 2,
+    revision: 1,
+    groupId: null,
+    diagramIds: [],
+    createdAt: 1,
+    updatedAt: 1,
+    createdBy: draftAuthor,
+    lastEditedBy: draftAuthor,
+    shape: "rectangle",
+    nodeType: "service",
+    label: "Room API",
+    fill: "light-violet",
+    stroke: "blue",
+  };
+}
+
+function agentDraft(input: Partial<AgentCanvasDraftSnapshot> = {}): AgentCanvasDraftSnapshot {
+  const now = Date.now();
+  return {
+    schemaVersion: AGENT_CANVAS_DRAFT_SCHEMA_VERSION,
+    id: "draft-working",
+    roomId: "room_presence",
+    ownerParticipantId: draftAuthor.participantId,
+    author: draftAuthor,
+    revision: 1,
+    baselineRoomRevision: 1,
+    status: "active",
+    temporaryReferences: {},
+    previewObjects: [draftShape()],
+    previewDiagrams: [],
+    metadata: null,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now + 10_000,
+    hardExpiresAt: now + 20_000,
+    awaitingReview: null,
+    ...input,
+  };
+}
 
 function installPointerGeometry(marker: HTMLElement) {
   const overlay = marker.parentElement as HTMLElement;
@@ -288,5 +359,130 @@ describe("CanvasPresenceOverlay idle agent parking", () => {
 
     expect(screen.getByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeVisible();
     expect(rendered.container.firstElementChild).not.toHaveAttribute("aria-hidden");
+  });
+});
+
+describe("CanvasPresenceOverlay draft-working presence", () => {
+  it("shows an inactive participant's unique bot thinking near active candidate work", () => {
+    const agent = inactiveRemoteAgent();
+    const { container } = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker.tagName).toBe("DIV");
+    expect(marker).toHaveAttribute("aria-hidden", "true");
+    expect(marker).toHaveAttribute("data-working", "true");
+    expect(marker).toHaveStyle({ transform: "translate(356px, 266px)" });
+    expect(marker).toHaveTextContent("Orbit Architect · agent · Drafting preview · not saved");
+    expect(container.querySelector('[data-agent-avatar-state="working"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
+  });
+
+  it("uses a truthful validating label while committing", () => {
+    const agent = inactiveRemoteAgent();
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({ status: "committing" })]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveTextContent(
+      "Orbit Architect · agent · Validating draft · not saved",
+    );
+  });
+
+  it("keeps a canonical in-flight activity authoritative over its draft hint", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(8_000);
+    const activity: AgentActivity = {
+      id: "activity-canonical",
+      type: "creating",
+      label: "Building the flow",
+      objectIds: [],
+      progress: 0,
+      startedAt: 8_000,
+      durationMs: 10_000,
+      fromCursor: { x: 300, y: 310 },
+      toCursor: { x: 340, y: 350 },
+    };
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={roomWithAgent(remoteAgent({ x: 340, y: 350 }, activity))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId("agent-cursor-participant_orbit");
+    expect(marker).toHaveStyle({ transform: "translate(300px, 310px)" });
+    expect(marker).toHaveTextContent("Building the flow · 0%");
+    expect(marker).not.toHaveTextContent("Drafting preview");
+  });
+
+  it("does not make an awaiting-review or expired draft look actively worked", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000);
+    const agent = inactiveRemoteAgent();
+    const rendered = render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({ status: "awaiting_review" })]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({ expiresAt: 4_999, hardExpiresAt: 10_000 })]}
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+  });
+
+  it("clears local idle parking while drafting and returns unparked after the draft ends", () => {
+    const idleRoom = roomWithAgent(remoteAgent({ x: 100, y: 120 }));
+    const rendered = render(
+      <CanvasPresenceOverlay room={idleRoom} runtime={runtime} selfId={self.participantId} />,
+    );
+    const idleMarker = screen.getByRole("button", { name: /Move Orbit Architect’s idle agent locally/i });
+    fireEvent.keyDown(idleMarker, { key: "ArrowRight" });
+    expect(idleMarker).toHaveStyle({ transform: "translate(108px, 120px)" });
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft()]}
+        room={idleRoom}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveAttribute("data-working", "true");
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        agentDrafts={[]}
+        room={idleRoom}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    const returnedIdleMarker = screen.getByRole("button", { name: /Move Orbit Architect’s idle agent locally/i });
+    expect(returnedIdleMarker).toHaveAttribute("data-local-parked", "false");
+    expect(returnedIdleMarker).toHaveStyle({ transform: "translate(100px, 120px)" });
   });
 });

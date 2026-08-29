@@ -215,7 +215,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.6.1");
+    expect(AGENT_DOC_VERSION).toBe("1.7.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -261,6 +261,31 @@ describe("agent-readable content", () => {
     expect(reference).toContain("Mermaid remains topology-only");
     expect(skill).toContain("Routing and endpoint metadata survive Diagram membership");
     expect(skill).toContain("SVG renders resolved route geometry and labels");
+  });
+
+  it("documents the genuine progressive draft lifecycle and its authority boundary", () => {
+    const guide = makeAgentGuideMarkdown();
+    const reference = makeWebMcpMarkdown();
+    const skill = makeSkillMarkdown();
+    const corpus = [guide, reference, skill].join("\n");
+
+    for (const phrase of [
+      "`delivery.mode`",
+      "complete cumulative",
+      "create-only",
+      "`read_canvas_drafts`",
+      "`finish_canvas_draft`",
+      "non-authoritative",
+      "Spectators",
+      "existing-Diagram edits",
+      "awaiting review",
+      "reserved for the draft's lifetime",
+      "reintroducing",
+    ]) {
+      expect(corpus).toContain(phrase);
+    }
+    expect(reference).toContain("not simulated animation");
+    expect(skill).toContain("omitted from committed-state queries and exports");
   });
 
   it("requires intent-led geometry interpretation and actual pixel inspection as separate steps", () => {

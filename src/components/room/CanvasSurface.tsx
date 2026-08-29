@@ -21,6 +21,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         boardMenuActions={props.boardMenuActions}
         persistentChromeHost={props.persistentChromeHost}
         room={props.room}
+        agentDrafts={props.agentDrafts}
         self={props.self}
         renameRoom={props.renameRoom}
         followTarget={props.followTarget}

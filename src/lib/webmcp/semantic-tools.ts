@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
   DEFAULT_AUTOMATIC_LAYOUT_COLUMNS,
@@ -44,6 +45,7 @@ import type {
 } from "./types";
 
 const id = z.string().min(1).max(128);
+const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
 const tempRef = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
 const finite = z.number().finite();
 const dimension = finite.positive().max(100_000);
@@ -258,13 +260,42 @@ const transactionOperation = z.discriminatedUnion("op", [
   autoLayoutOperation,
 ]);
 
+const draftDelivery = z
+  .object({
+    mode: z.literal("draft"),
+    draftId: draftId.optional(),
+    expectedDraftRevision: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.draftId === undefined) !== (value.expectedDraftRevision === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "draftId and expectedDraftRevision must be supplied together when replacing a draft.",
+      });
+    }
+  });
+
 const transactionInput = z
   .object({
     operations: z.array(transactionOperation).min(1).max(200),
+    delivery: draftDelivery.optional(),
     ...activityMetadataFields,
   })
   .strict()
   .superRefine((input, context) => {
+    if (input.delivery) {
+      input.operations.forEach((operation, index) => {
+        if (operation.op === "update" || operation.op === "edit_diagram") {
+          context.addIssue({
+            code: "custom",
+            path: ["operations", index],
+            message:
+              "Progressive drafts currently support create-only operations. Apply existing-object or existing-Diagram edits directly without delivery.",
+          });
+        }
+      });
+    }
     input.operations.forEach((operation, index) => {
       if (
         operation.op === "create_node" &&
@@ -444,100 +475,68 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           {
             properties: { op: { const: "create_node" } },
             required: ["tempRef", "label", "nodeType"],
-            propertyNames: {
-              pattern: "^(?:op|tempRef|label|nodeType|nodeMetadata|x|y|width|height|rotation|zIndex|groupId)$",
-            },
-            allOf: [
-              { properties: { label: { minLength: 1 } } },
-              {
-                anyOf: [
-                  { not: { required: ["nodeMetadata"] } },
-                  {
-                    properties: {
-                      nodeType: { const: "decision" },
-                      nodeMetadata: { properties: { kind: { const: "decision" } } },
-                    },
-                    required: ["nodeMetadata"],
-                  },
-                  {
-                    properties: {
-                      nodeType: { const: "open_question" },
-                      nodeMetadata: { properties: { kind: { const: "open_question" } } },
-                    },
-                    required: ["nodeMetadata"],
-                  },
-                ],
-              },
-            ],
+            allOf: [{ properties: { label: { minLength: 1 } } }],
           },
           {
             properties: { op: { const: "create_shape" } },
             required: ["tempRef"],
-            propertyNames: {
-              pattern: "^(?:op|tempRef|label|shape|fill|stroke|x|y|width|height|rotation|zIndex|groupId)$",
-            },
           },
           {
             properties: { op: { const: "create_text" } },
             required: ["tempRef", "content"],
-            propertyNames: {
-              pattern: "^(?:op|tempRef|content|color|size|align|x|y|width|height|rotation|zIndex|groupId)$",
-            },
           },
           {
             properties: { op: { const: "connect" } },
             required: ["tempRef", "start", "end"],
-            propertyNames: {
-              pattern: "^(?:op|tempRef|start|end|direction|label|color|routing|zIndex)$",
-            },
             allOf: [{ properties: { label: { maxLength: 2_000 } } }],
           },
           {
             properties: { op: { const: "update" } },
             required: ["objectId", "expectedRevision", "patch"],
-            propertyNames: {
-              pattern: "^(?:op|objectId|expectedRevision|leaseId|operation|patch)$",
-            },
           },
           {
             properties: { op: { const: "create_diagram" } },
             required: ["tempRef", "title"],
-            propertyNames: {
-              pattern: "^(?:op|tempRef|diagramId|title|description|diagramType|category|tags|members|connectors)$",
-            },
           },
           {
             properties: { op: { const: "edit_diagram" } },
             required: ["diagramId", "expectedRevision"],
-            propertyNames: {
-              pattern: "^(?:op|diagramId|expectedRevision|title|description|diagramType|category|tags|members|connectors)$",
-            },
-            anyOf: [
-              { required: ["title"] },
-              { required: ["description"] },
-              { required: ["diagramType"] },
-              { required: ["category"] },
-              { required: ["tags"] },
-              { required: ["members"] },
-              { required: ["connectors"] },
-            ],
           },
           {
             properties: { op: { const: "auto_layout" } },
             required: ["layout", "targets"],
-            propertyNames: {
-              pattern: "^(?:op|layout|layoutDirection|density|targets|diagramTempRef|origin|columns)$",
-            },
           },
         ],
       },
     },
     intent: { type: "string", minLength: 1, maxLength: 1_000 },
     summary: { type: "string", minLength: 1, maxLength: 500 },
+    delivery: { $ref: "#/$defs/delivery" },
   },
   $defs: {
     id: { type: "string", minLength: 1, maxLength: 128 },
     tempRef: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+    delivery: {
+      type: "object",
+      additionalProperties: false,
+      required: ["mode"],
+      properties: {
+        mode: { const: "draft" },
+        draftId: { type: "string", pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
+        expectedDraftRevision: { type: "integer", minimum: 1 },
+      },
+      oneOf: [
+        { required: ["draftId", "expectedDraftRevision"] },
+        {
+          not: {
+            anyOf: [
+              { required: ["draftId"] },
+              { required: ["expectedDraftRevision"] },
+            ],
+          },
+        },
+      ],
+    },
     point: {
       type: "object",
       additionalProperties: false,
@@ -610,51 +609,33 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       additionalProperties: false,
       required: ["kind"],
       properties: {
-        kind: {},
-        status: {},
-        owner: { $ref: "#/$defs/nodeOwner" },
-        resolution: {},
+        kind: { enum: ["decision", "open_question"] },
+        status: {
+          enum: [
+            "proposed",
+            "accepted",
+            "rejected",
+            "superseded",
+            "open",
+            "answered",
+            "deferred",
+            "closed",
+          ],
+        },
+        owner: {
+          anyOf: [
+            { type: "string", minLength: 1, maxLength: 160 },
+            { type: "null" },
+          ],
+        },
+        resolution: {
+          anyOf: [
+            { type: "string", minLength: 1, maxLength: 10_000 },
+            { type: "null" },
+          ],
+        },
       },
-      oneOf: [
-        {
-          properties: {
-            kind: { const: "decision" },
-            status: { const: "proposed" },
-            resolution: { type: "null" },
-          },
-        },
-        {
-          properties: {
-            kind: { const: "decision" },
-            status: { enum: ["accepted", "rejected", "superseded"] },
-            resolution: { $ref: "#/$defs/nodeResolutionText" },
-          },
-          required: ["status", "resolution"],
-        },
-        {
-          properties: {
-            kind: { const: "open_question" },
-            status: { const: "open" },
-            resolution: { type: "null" },
-          },
-        },
-        {
-          properties: {
-            kind: { const: "open_question" },
-            status: { enum: ["answered", "deferred", "closed"] },
-            resolution: { $ref: "#/$defs/nodeResolutionText" },
-          },
-          required: ["status", "resolution"],
-        },
-      ],
     },
-    nodeOwner: {
-      anyOf: [
-        { type: "string", minLength: 1, maxLength: 160 },
-        { type: "null" },
-      ],
-    },
-    nodeResolutionText: { type: "string", minLength: 1, maxLength: 10_000 },
     connectorEndpoint: {
       type: "object",
       additionalProperties: false,
@@ -799,6 +780,43 @@ const queryInput = z
   })
   .strict();
 
+const QUERY_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    text: { type: "string" },
+    kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw"] } },
+    nodeTypes: { type: "array", items: { enum: ["service", "component", "requirement", "decision", "open_question"] } },
+    nodeStatuses: { type: "array", items: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] } },
+    nodeOwner: { type: "string" },
+    groupId: { anyOf: [{ type: "string" }, { type: "null" }] },
+    diagramId: { type: "string" },
+    relationship: {
+      type: "object",
+      additionalProperties: false,
+      required: ["objectId"],
+      properties: {
+        objectId: { type: "string" },
+        direction: { enum: ["incoming", "outgoing", "both"] },
+        includeConnectors: { type: "boolean" },
+      },
+    },
+    region: {
+      type: "object",
+      additionalProperties: false,
+      required: ["x", "y", "width", "height"],
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number", exclusiveMinimum: 0 },
+        height: { type: "number", exclusiveMinimum: 0 },
+        mode: { enum: ["intersects", "contained"] },
+      },
+    },
+    limit: { type: "integer", minimum: 1, maximum: 200 },
+  },
+} as const;
+
 const neighborhoodInput = z
   .object({
     objectIds: z.array(id).min(1).max(50),
@@ -808,6 +826,19 @@ const neighborhoodInput = z
     maxObjects: z.number().int().min(1).max(300).default(120),
   })
   .strict();
+
+const NEIGHBORHOOD_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["objectIds"],
+  properties: {
+    objectIds: { type: "array", minItems: 1, maxItems: 50, items: { type: "string" } },
+    depth: { type: "integer", minimum: 1, maximum: 5 },
+    direction: { enum: ["incoming", "outgoing", "both"] },
+    includeDiagramPeers: { type: "boolean" },
+    maxObjects: { type: "integer", minimum: 1, maximum: 300 },
+  },
+} as const;
 
 const findDiagramsInput = z
   .object({
@@ -820,6 +851,19 @@ const findDiagramsInput = z
   })
   .strict();
 
+const FIND_DIAGRAMS_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    text: { type: "string" },
+    diagramTypes: { type: "array", items: { enum: ["architecture", "flow", "hierarchy", "system_context", "process", "custom"] } },
+    category: { type: "string" },
+    tags: { type: "array", maxItems: 32, items: { type: "string" } },
+    containsObjectId: { type: "string" },
+    limit: { type: "integer", minimum: 1, maximum: 100 },
+  },
+} as const;
+
 const readDiagramInput = z
   .object({
     diagramId: id,
@@ -827,6 +871,17 @@ const readDiagramInput = z
     includeConnectors: z.boolean().default(true),
   })
   .strict();
+
+const READ_DIAGRAM_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["diagramId"],
+  properties: {
+    diagramId: { type: "string" },
+    includeObjects: { type: "boolean" },
+    includeConnectors: { type: "boolean" },
+  },
+} as const;
 
 const analyzeDiagramLayoutInput = z
   .object({
@@ -836,6 +891,13 @@ const analyzeDiagramLayoutInput = z
   .strict();
 
 const describeDiagramInput = z.object({ diagramId: id }).strict();
+
+const DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["diagramId"],
+  properties: { diagramId: { type: "string" } },
+} as const;
 
 const createDiagramInput = createDiagramOperation.omit({ op: true, tempRef: true }).extend({
   memberObjectIds: z.array(id).max(500).default([]),
@@ -862,6 +924,36 @@ const editDiagramInput = z
     "At least one diagram field must be updated.",
   );
 
+const DIAGRAM_FIELDS_INPUT_SCHEMA = {
+  diagramId: { type: "string" },
+  title: { type: "string" },
+  description: { type: "string" },
+  diagramType: { enum: ["architecture", "flow", "hierarchy", "system_context", "process", "custom"] },
+  category: { anyOf: [{ type: "string" }, { type: "null" }] },
+  tags: { type: "array", maxItems: 32, items: { type: "string" } },
+  memberObjectIds: { type: "array", maxItems: 500, items: { type: "string" } },
+  connectorIds: { type: "array", maxItems: 500, items: { type: "string" } },
+  intent: { type: "string" },
+  summary: { type: "string" },
+} as const;
+
+const CREATE_DIAGRAM_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["title"],
+  properties: DIAGRAM_FIELDS_INPUT_SCHEMA,
+} as const;
+
+const EDIT_DIAGRAM_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["diagramId", "expectedRevision"],
+  properties: {
+    ...DIAGRAM_FIELDS_INPUT_SCHEMA,
+    expectedRevision: { type: "integer", minimum: 1 },
+  },
+} as const;
+
 type SemanticResponse = {
   ok: true;
   room: RoomState;
@@ -875,6 +967,12 @@ type SemanticResponse = {
 };
 
 type RoomResponse = { ok: true; room: RoomState };
+
+type DraftResponse = {
+  ok: true;
+  draft: AgentCanvasDraftSnapshot;
+  serverTime?: number;
+};
 
 export type JazzboardSemanticWebMcpDependencies = {
   request?: WebMcpRequest;
@@ -965,6 +1063,18 @@ function roomUrl(roomId: string): string {
 
 function semanticUrl(roomId: string): string {
   return `${roomUrl(roomId)}/agent/semantic`;
+}
+
+function draftsUrl(roomId: string): string {
+  return `${roomUrl(roomId)}/agent/drafts`;
+}
+
+function exactAgentDraftUrl(roomId: string, candidateDraftId: string): string {
+  return `${draftsUrl(roomId)}/${encodeURIComponent(candidateDraftId)}`;
+}
+
+function exactReadableDraftUrl(roomId: string, candidateDraftId: string): string {
+  return `${roomUrl(roomId)}/drafts/${encodeURIComponent(candidateDraftId)}`;
 }
 
 function post<T>(request: WebMcpRequest, url: string, body: unknown, signal: AbortSignal): Promise<T> {
@@ -1220,6 +1330,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Find bounded objects by content, kind, node type, group, Diagram, relationship, or canvas region.",
       schema: queryInput,
+      inputSchema: QUERY_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
@@ -1265,6 +1376,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Read a bounded connector subgraph around exact object IDs, with optional peers from their Diagrams.",
       schema: neighborhoodInput,
+      inputSchema: NEIGHBORHOOD_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
@@ -1348,6 +1460,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Find Diagrams by metadata or member ID without returning unrelated canvas objects.",
       schema: findDiagramsInput,
+      inputSchema: FIND_DIAGRAMS_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
@@ -1381,6 +1494,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Read one Diagram by stable ID, optionally with its exact members and connectors.",
       schema: readDiagramInput,
+      inputSchema: READ_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
@@ -1399,6 +1513,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Summarize one Diagram's nodes, relationships, metadata, bounds, and revisions.",
       schema: describeDiagramInput,
+      inputSchema: DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
@@ -1516,21 +1631,63 @@ export function createJazzboardSemanticWebMcpTools(
   const mutations: WebMCP.ModelContextTool[] = [
     defineTool({
       name: "apply_canvas_transaction",
-      title: "Apply an atomic semantic canvas transaction",
+      title: "Apply or draft a semantic canvas transaction",
       description:
-        "Atomically create or update objects and Diagrams with temporary refs. Connectors default to auto; routing and optional layout remain all-or-nothing.",
+        "Apply atomically, or set delivery.mode=draft for a genuine create-only preview. Replacements require complete cumulative operations and the exact draft revision.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
-        const currentRoom = binding.context.getRoom();
-        const refs = new Map<string, string>();
+        let currentRoom = binding.context.getRoom();
+        let existingDraft: AgentCanvasDraftSnapshot | null = null;
+        if (input.delivery) {
+          if (!currentRoom) currentRoom = await readRoom(signal);
+          if (input.delivery.draftId) {
+            const response = await request<DraftResponse>(
+              exactReadableDraftUrl(binding.roomId, input.delivery.draftId),
+              { method: "GET", signal },
+            );
+            existingDraft = response.draft;
+            binding.context.acceptAgentDraft?.(existingDraft);
+            if (existingDraft.revision !== input.delivery.expectedDraftRevision) {
+              throw new SemanticToolError(
+                "DRAFT_REVISION_CONFLICT",
+                `Draft ${existingDraft.id} changed from revision ${input.delivery.expectedDraftRevision} to ${existingDraft.revision}.`,
+                {
+                  draftId: existingDraft.id,
+                  expectedDraftRevision: input.delivery.expectedDraftRevision,
+                  currentDraftRevision: existingDraft.revision,
+                },
+              );
+            }
+          }
+        }
+        const refs = new Map<string, string>(
+          Object.entries(existingDraft?.temporaryReferences ?? {}),
+        );
+        const requestRefs = new Set<string>();
         for (const operation of input.operations) {
           if (!("tempRef" in operation)) continue;
-          if (refs.has(operation.tempRef)) {
+          if (requestRefs.has(operation.tempRef)) {
             throw new SemanticToolError("DUPLICATE_TEMP_REF", `Temporary reference ${operation.tempRef} is duplicated.`, {
               tempRef: operation.tempRef,
             });
+          }
+          requestRefs.add(operation.tempRef);
+          const persistedId = refs.get(operation.tempRef);
+          if (persistedId) {
+            if (
+              operation.op === "create_diagram" &&
+              operation.diagramId !== undefined &&
+              operation.diagramId !== persistedId
+            ) {
+              throw new SemanticToolError(
+                "TEMP_REF_ID_CONFLICT",
+                `Temporary reference ${operation.tempRef} already resolves to ${persistedId}.`,
+                { tempRef: operation.tempRef, persistedId, requestedId: operation.diagramId },
+              );
+            }
+            continue;
           }
           const prefix = {
             create_node: "node",
@@ -1814,10 +1971,64 @@ export function createJazzboardSemanticWebMcpTools(
               };
             })()
           : undefined;
+        const transaction = {
+          commands,
+          diagramCommands,
+          ...(autoLayout ? { autoLayout } : {}),
+        };
+        if (input.delivery) {
+          // Seed compilation from lifetime reservations so reintroduced
+          // tempRefs retain their IDs. Send only refs active in this cumulative
+          // preview; the server carries omitted reservations forward in the
+          // returned draft snapshot.
+          const activeTemporaryReferences = Object.fromEntries(
+            [...refs].filter(([reference]) => requestRefs.has(reference)),
+          );
+          const stagedDraftId = existingDraft?.id ?? createId("draft");
+          if (!draftId.safeParse(stagedDraftId).success) {
+            throw new SemanticToolError(
+              "INVALID_DRAFT_ID",
+              "The generated draft ID does not satisfy Jazzboard's draft identifier contract.",
+              { draftId: stagedDraftId },
+            );
+          }
+          const response = await request<DraftResponse>(
+            existingDraft
+              ? exactAgentDraftUrl(binding.roomId, stagedDraftId)
+              : draftsUrl(binding.roomId),
+            {
+              method: existingDraft ? "PUT" : "POST",
+              body: JSON.stringify({
+                ...(existingDraft
+                  ? { expectedDraftRevision: input.delivery.expectedDraftRevision }
+                  : { draftId: stagedDraftId }),
+                baselineRoomRevision:
+                  existingDraft?.baselineRoomRevision ?? currentRoom!.roomRevision,
+                transaction,
+                temporaryReferences: activeTemporaryReferences,
+                metadata: activityMetadata(input),
+              }),
+              signal,
+            },
+          );
+          binding.context.acceptAgentDraft?.(response.draft);
+          return {
+            outcome: "drafted",
+            draft: response.draft,
+            draftId: response.draft.id,
+            draftRevision: response.draft.revision,
+            baselineRoomRevision: response.draft.baselineRoomRevision,
+            temporaryReferences: response.draft.temporaryReferences,
+            previewObjects: response.draft.previewObjects,
+            previewDiagrams: response.draft.previewDiagrams,
+            nextStep:
+              "Inspect the live draft and read it if needed. Submit the complete cumulative operations with this draftId and expectedDraftRevision to replace it, or call finish_canvas_draft to commit or discard it.",
+          };
+        }
         const response = await mutate(
           {
             action: "transaction",
-            transaction: { commands, diagramCommands, ...(autoLayout ? { autoLayout } : {}) },
+            transaction,
             metadata: activityMetadata(input),
           },
           signal,
@@ -1896,6 +2107,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Create an authoritative Diagram with a stable ID, semantic metadata, members, connectors, computed bounds, revision, and agent attribution.",
       schema: createDiagramInput,
+      inputSchema: CREATE_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
         const { diagramId: requestedDiagramId, ...diagramInput } = stripActivityMetadata(input);
@@ -1947,6 +2159,7 @@ export function createJazzboardSemanticWebMcpTools(
       description:
         "Revision-check and atomically edit Diagram metadata or membership; stale revisions change nothing.",
       schema: editDiagramInput,
+      inputSchema: EDIT_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
         const { diagramId, expectedRevision, ...patch } = stripActivityMetadata(input);

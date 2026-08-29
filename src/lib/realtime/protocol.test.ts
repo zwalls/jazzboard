@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RoomEvent, RoomState } from "@/lib/domain/types";
+import type { AgentCanvasDraftEvent } from "@/lib/agent-drafts/types";
 
 import {
   compareStreamCursors,
@@ -40,6 +41,19 @@ const event: RoomEvent = {
     roomRevision: 4,
     activityId: null,
   },
+};
+
+const draftEvent: AgentCanvasDraftEvent = {
+  schemaVersion: 1,
+  id: "draft_event_1",
+  roomId: "room_1",
+  occurredAt: 1_001,
+  type: "draft.upsert",
+  draftId: "draft_1",
+  ownerParticipantId: "p_1",
+  revision: 3,
+  status: "active",
+  expiresAt: 91_001,
 };
 
 const legacyRoom: RoomState = {
@@ -108,6 +122,21 @@ describe("realtime protocol", () => {
     expect(parseRealtimeServerMessage(transient)).toEqual(transient);
     expect(transient).not.toHaveProperty("stateRevision");
     expect(parseRealtimeServerMessage({ ...transient, viewport: { ...transient.viewport, zoom: 0 } }))
+      .toBeNull();
+  });
+
+  it("validates and decodes compact draft invalidations without room watermarks", () => {
+    const message = { type: "draft.invalidated" as const, cursor: "100-2", event: draftEvent };
+    expect(parseRealtimeServerMessage(message)).toEqual(message);
+    expect(draftEvent).not.toHaveProperty("sequence");
+    expect(draftEvent).not.toHaveProperty("payload");
+    expect(Buffer.byteLength(JSON.stringify(draftEvent))).toBeLessThan(512);
+    expect(
+      decodeStreamEntries([
+        ["100-2", ["roomId", "room_1", "data", JSON.stringify(draftEvent)]],
+      ]),
+    ).toEqual([{ cursor: "100-2", event: draftEvent }]);
+    expect(parseRealtimeServerMessage({ ...message, event: { ...draftEvent, revision: 0 } }))
       .toBeNull();
   });
 

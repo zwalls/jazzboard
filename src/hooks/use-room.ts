@@ -22,6 +22,11 @@ import type {
   Viewport,
   AgentActivity,
 } from "@/lib/domain/types";
+import type {
+  AgentCanvasDraftEvent,
+  AgentCanvasDraftListResult,
+  AgentCanvasDraftSnapshot,
+} from "@/lib/agent-drafts/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { reconcileRoomSnapshot } from "@/lib/client/room-reconciliation";
 import {
@@ -77,6 +82,7 @@ export type LeaseBatchAction =
 
 type RoomResponse = { ok: true; room: RoomState; participantId?: string };
 type PresenceResponse = { ok: true; presence: RoomPresenceDelta };
+type DraftListResponse = { ok: true } & AgentCanvasDraftListResult;
 
 type RoomVisit = {
   roomId: string;
@@ -85,6 +91,12 @@ type RoomVisit = {
 type ScopedValue<T> = {
   visit: RoomVisit;
   value: T;
+};
+
+type DraftRefreshState = {
+  visit: RoomVisit;
+  running: boolean;
+  queued: boolean;
 };
 
 /** Compares aggregate state revisions; roomRevision remains document-only. */
@@ -112,9 +124,30 @@ export function useRoom(roomId: string) {
     visit: roomVisit,
     value: null,
   });
+  const [draftState, setDraftState] = useState<ScopedValue<AgentCanvasDraftSnapshot[]>>({
+    visit: roomVisit,
+    value: [],
+  });
   const roomRef = useRef<RoomState | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
   const realtimeRef = useRef<RoomRealtimeConnection | null>(null);
+  const draftsRef = useRef(new Map<string, AgentCanvasDraftSnapshot>());
+  const draftTombstonesRef = useRef(new Map<string, number>());
+  const pendingCommittedDraftRemovalsRef = useRef(
+    new Map<
+      string,
+      { draftRevision: number; authoritativeRoomRevision: number }
+    >(),
+  );
+  const pendingDraftListAbsencesRef = useRef(
+    new Map<string, { draftRevision: number; serverTime: number }>(),
+  );
+  const reconcileCommittedDraftRemovalsRef = useRef<(roomRevision: number) => void>(
+    () => undefined,
+  );
+  const refreshRoomRef = useRef<(() => Promise<RoomState>) | null>(null);
+  const requestDraftRefreshRef = useRef<(() => void) | null>(null);
+  const draftEventRefreshRef = useRef<DraftRefreshState | null>(null);
   const transientPresenceRef = useRef(
     new Map<
       string,
@@ -167,6 +200,7 @@ export function useRoom(roomId: string) {
     const projected = projectTransientPresence(reconciled);
     roomRef.current = projected;
     setRoomState({ visit: activeVisit, value: projected });
+    reconcileCommittedDraftRemovalsRef.current(projected.roomRevision);
     return true;
   }, [projectTransientPresence]);
 
@@ -214,6 +248,192 @@ export function useRoom(roomId: string) {
     setRoomState({ visit: activeVisit, value: projected });
   }, []);
 
+  const publishDraftState = useCallback(() => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit) return;
+    const drafts = [...draftsRef.current.values()].sort(
+      (left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    );
+    setDraftState({ visit: activeVisit, value: drafts });
+  }, []);
+
+  const acceptAgentDraft = useCallback((draft: AgentCanvasDraftSnapshot) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit || draft.roomId !== activeVisit.roomId) return false;
+    const pendingAbsence = pendingDraftListAbsencesRef.current.get(draft.id);
+    if (pendingAbsence && draft.revision >= pendingAbsence.draftRevision) {
+      pendingDraftListAbsencesRef.current.delete(draft.id);
+    }
+    const pendingRemoval = pendingCommittedDraftRemovalsRef.current.get(draft.id);
+    if (pendingRemoval && draft.revision > pendingRemoval.draftRevision) {
+      pendingCommittedDraftRemovalsRef.current.delete(draft.id);
+    }
+    const tombstoneRevision = draftTombstonesRef.current.get(draft.id) ?? 0;
+    const current = draftsRef.current.get(draft.id);
+    if (draft.revision <= tombstoneRevision || (current && current.revision >= draft.revision)) return false;
+    if (draft.expiresAt <= Date.now()) {
+      draftsRef.current.delete(draft.id);
+      draftTombstonesRef.current.set(draft.id, Math.max(tombstoneRevision, draft.revision));
+    } else {
+      draftsRef.current.set(draft.id, draft);
+    }
+    publishDraftState();
+    return true;
+  }, [publishDraftState]);
+
+  const removeAgentDraft = useCallback((draftId: string, revision = Number.MAX_SAFE_INTEGER) => {
+    pendingDraftListAbsencesRef.current.delete(draftId);
+    pendingCommittedDraftRemovalsRef.current.delete(draftId);
+    const current = draftsRef.current.get(draftId);
+    const tombstoneRevision = Math.max(draftTombstonesRef.current.get(draftId) ?? 0, revision);
+    draftTombstonesRef.current.set(draftId, tombstoneRevision);
+    if (!current || current.revision <= tombstoneRevision) draftsRef.current.delete(draftId);
+    publishDraftState();
+  }, [publishDraftState]);
+
+  const reconcileCommittedDraftRemovals = useCallback((roomRevision: number) => {
+    for (const [draftId, pending] of pendingCommittedDraftRemovalsRef.current) {
+      if (roomRevision < pending.authoritativeRoomRevision) continue;
+      pendingCommittedDraftRemovalsRef.current.delete(draftId);
+      removeAgentDraft(draftId, pending.draftRevision);
+    }
+  }, [removeAgentDraft]);
+
+  useEffect(() => {
+    reconcileCommittedDraftRemovalsRef.current = reconcileCommittedDraftRemovals;
+    return () => {
+      if (reconcileCommittedDraftRemovalsRef.current === reconcileCommittedDraftRemovals) {
+        reconcileCommittedDraftRemovalsRef.current = () => undefined;
+      }
+    };
+  }, [reconcileCommittedDraftRemovals]);
+
+  const fenceDraftListAbsence = useCallback((draft: AgentCanvasDraftSnapshot, serverTime: number) => {
+    const activeVisit = roomVisitRef.current;
+    const refreshRoom = refreshRoomRef.current;
+    if (!activeVisit || !refreshRoom) return;
+
+    const pending = pendingDraftListAbsencesRef.current.get(draft.id);
+    if (
+      pending &&
+      pending.draftRevision >= draft.revision &&
+      pending.serverTime >= serverTime
+    ) {
+      return;
+    }
+    const fence = { draftRevision: draft.revision, serverTime };
+    pendingDraftListAbsencesRef.current.set(draft.id, fence);
+
+    void refreshRoom()
+      .then(() => {
+        if (roomVisitRef.current !== activeVisit) return;
+        const currentFence = pendingDraftListAbsencesRef.current.get(draft.id);
+        if (
+          !currentFence ||
+          currentFence.draftRevision !== fence.draftRevision ||
+          currentFence.serverTime !== fence.serverTime
+        ) {
+          return;
+        }
+        pendingDraftListAbsencesRef.current.delete(draft.id);
+        if (pendingCommittedDraftRemovalsRef.current.has(draft.id)) return;
+        const current = draftsRef.current.get(draft.id);
+        if (!current || current.revision > fence.draftRevision) return;
+        draftsRef.current.delete(draft.id);
+        draftTombstonesRef.current.set(
+          draft.id,
+          Math.max(draftTombstonesRef.current.get(draft.id) ?? 0, fence.draftRevision),
+        );
+        publishDraftState();
+      })
+      .catch(() => {
+        const currentFence = pendingDraftListAbsencesRef.current.get(draft.id);
+        if (
+          currentFence?.draftRevision === fence.draftRevision &&
+          currentFence.serverTime === fence.serverTime
+        ) {
+          // Keep the local ghost and let the next authorized list read retry
+          // the room fence. A failed room read must never create a blank frame.
+          pendingDraftListAbsencesRef.current.delete(draft.id);
+        }
+      });
+  }, [publishDraftState]);
+
+  const acceptDraftList = useCallback((result: AgentCanvasDraftListResult) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit) return;
+    const returned = new Set<string>();
+    for (const draft of result.drafts) {
+      if (draft.roomId !== activeVisit.roomId || draft.expiresAt <= result.serverTime) continue;
+      returned.add(draft.id);
+      const pendingAbsence = pendingDraftListAbsencesRef.current.get(draft.id);
+      if (pendingAbsence && draft.revision >= pendingAbsence.draftRevision) {
+        pendingDraftListAbsencesRef.current.delete(draft.id);
+      }
+      const pendingRemoval = pendingCommittedDraftRemovalsRef.current.get(draft.id);
+      if (pendingRemoval && draft.revision > pendingRemoval.draftRevision) {
+        pendingCommittedDraftRemovalsRef.current.delete(draft.id);
+      }
+      const tombstoneRevision = draftTombstonesRef.current.get(draft.id) ?? 0;
+      const current = draftsRef.current.get(draft.id);
+      if (draft.revision > tombstoneRevision && (!current || draft.revision >= current.revision)) {
+        draftsRef.current.set(draft.id, draft);
+      }
+    }
+    for (const [draftId, draft] of draftsRef.current) {
+      const pendingRemoval = pendingCommittedDraftRemovalsRef.current.get(draftId);
+      if (pendingRemoval) {
+        if ((roomRef.current?.roomRevision ?? -1) >= pendingRemoval.authoritativeRoomRevision) {
+          removeAgentDraft(draftId, pendingRemoval.draftRevision);
+        }
+        continue;
+      }
+      if (!returned.has(draftId) && draft.updatedAt < result.serverTime) {
+        // A missing sidecar can mean a successful commit. Refresh authority
+        // after observing the absence, then retire the ghost. This makes list-
+        // first and realtime-event-first delivery equally gap-free.
+        fenceDraftListAbsence(draft, result.serverTime);
+      }
+    }
+    publishDraftState();
+  }, [fenceDraftListAbsence, publishDraftState, removeAgentDraft]);
+
+  const acceptDraftInvalidation = useCallback((event: AgentCanvasDraftEvent) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit || event.roomId !== activeVisit.roomId) return;
+    if (event.type === "draft.removed") {
+      if (event.reason === "committed") {
+        pendingDraftListAbsencesRef.current.delete(event.draftId);
+        const draft = draftsRef.current.get(event.draftId);
+        if (!draft) {
+          removeAgentDraft(event.draftId, event.revision);
+          return;
+        }
+        const currentPending = pendingCommittedDraftRemovalsRef.current.get(event.draftId);
+        pendingCommittedDraftRemovalsRef.current.set(event.draftId, {
+          draftRevision: Math.max(currentPending?.draftRevision ?? 0, event.revision),
+          authoritativeRoomRevision: Math.max(
+            currentPending?.authoritativeRoomRevision ?? 0,
+            event.authoritativeRoomRevision,
+          ),
+        });
+        if ((roomRef.current?.roomRevision ?? -1) >= event.authoritativeRoomRevision) {
+          reconcileCommittedDraftRemovalsRef.current(roomRef.current?.roomRevision ?? -1);
+        } else {
+          void refreshRoomRef.current?.().catch(() => undefined);
+        }
+        return;
+      }
+      removeAgentDraft(event.draftId, event.revision);
+      return;
+    }
+    const current = draftsRef.current.get(event.draftId);
+    const tombstoneRevision = draftTombstonesRef.current.get(event.draftId) ?? 0;
+    if ((!current || current.revision < event.revision) && tombstoneRevision < event.revision) {
+      requestDraftRefreshRef.current?.();
+    }
+  }, [removeAgentDraft]);
+
   const setConnection: Dispatch<SetStateAction<ConnectionState>> = useCallback((next) => {
     const activeVisit = roomVisitRef.current;
     if (!activeVisit) return;
@@ -230,17 +450,30 @@ export function useRoom(roomId: string) {
 
   useEffect(() => {
     const transientCache = transientPresenceRef.current;
+    const draftCache = draftsRef.current;
+    const draftTombstones = draftTombstonesRef.current;
+    const pendingCommittedDraftRemovals = pendingCommittedDraftRemovalsRef.current;
+    const pendingDraftListAbsences = pendingDraftListAbsencesRef.current;
     roomVisitRef.current = roomVisit;
     refreshGenerationRef.current += 1;
     roomRef.current = null;
     connectionRef.current = "connecting";
     transientCache.clear();
+    draftCache.clear();
+    draftTombstones.clear();
+    pendingCommittedDraftRemovals.clear();
+    pendingDraftListAbsences.clear();
 
     return () => {
       roomVisitRef.current = null;
       refreshGenerationRef.current += 1;
       realtimeRef.current = null;
+      draftEventRefreshRef.current = null;
       transientCache.clear();
+      draftCache.clear();
+      draftTombstones.clear();
+      pendingCommittedDraftRemovals.clear();
+      pendingDraftListAbsences.clear();
     };
   }, [roomVisit]);
 
@@ -288,6 +521,68 @@ export function useRoom(roomId: string) {
       throw nextError;
     }
   }, [acceptRoom, roomId, roomVisit]);
+
+  useEffect(() => {
+    refreshRoomRef.current = refresh;
+    return () => {
+      if (refreshRoomRef.current === refresh) refreshRoomRef.current = null;
+    };
+  }, [refresh]);
+
+  const refreshDrafts = useCallback(async () => {
+    const requestVisit = roomVisit;
+    const response = await apiRequest<DraftListResponse>(`/api/rooms/${roomId}/drafts`);
+    if (requestVisit === roomVisitRef.current) acceptDraftList(response);
+    return response.drafts;
+  }, [acceptDraftList, roomId, roomVisit]);
+
+  const requestDraftRefresh = useCallback(() => {
+    if (roomVisitRef.current !== roomVisit) return;
+    let state = draftEventRefreshRef.current;
+    if (!state || state.visit !== roomVisit) {
+      state = { visit: roomVisit, running: false, queued: false };
+      draftEventRefreshRef.current = state;
+    }
+    state.queued = true;
+    if (state.running) return;
+    state.running = true;
+
+    void (async () => {
+      let consecutiveFailures = 0;
+      try {
+        while (
+          roomVisitRef.current === roomVisit &&
+          state.queued &&
+          consecutiveFailures < 3
+        ) {
+          state.queued = false;
+          try {
+            await refreshDrafts();
+            consecutiveFailures = 0;
+          } catch {
+            consecutiveFailures += 1;
+            state.queued = true;
+            if (consecutiveFailures < 3) {
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, consecutiveFailures === 1 ? 120 : 360);
+              });
+            }
+          }
+        }
+      } finally {
+        state.running = false;
+      }
+    })();
+  }, [refreshDrafts, roomVisit]);
+
+  useEffect(() => {
+    requestDraftRefreshRef.current = requestDraftRefresh;
+    return () => {
+      if (requestDraftRefreshRef.current === requestDraftRefresh) {
+        requestDraftRefreshRef.current = null;
+      }
+    };
+  }, [requestDraftRefresh]);
 
   const announceChange = useCallback(() => {
     if (roomVisitRef.current !== roomVisit) return;
@@ -347,6 +642,10 @@ export function useRoom(roomId: string) {
           automaticRefreshPending = false;
         });
     };
+    const runDraftRefresh = () => {
+      if (cancelled) return;
+      requestDraftRefresh();
+    };
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(`jazzboard:${roomId}`);
     channelRef.current = channel;
     channel?.addEventListener("message", () => {
@@ -363,21 +662,54 @@ export function useRoom(roomId: string) {
         runAutomaticRefresh();
       }
     }, 5_000);
+    const draftPoll = window.setInterval(() => {
+      if (
+        document.visibilityState !== "hidden" &&
+        (
+          connectionRef.current !== "live" ||
+          draftEventRefreshRef.current?.queued === true
+        )
+      ) {
+        runDraftRefresh();
+      }
+    }, 2_000);
+    const draftExpiry = window.setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      for (const [draftId, draft] of draftsRef.current) {
+        if (pendingCommittedDraftRemovalsRef.current.has(draftId)) continue;
+        if (draft.expiresAt > now) continue;
+        draftsRef.current.delete(draftId);
+        draftTombstonesRef.current.set(
+          draftId,
+          Math.max(draftTombstonesRef.current.get(draftId) ?? 0, draft.revision),
+        );
+        changed = true;
+      }
+      if (changed) publishDraftState();
+    }, 1_000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") return;
-      if (connectionRef.current === "live") realtimeRef.current?.requestSync();
-      else runAutomaticRefresh();
+      if (connectionRef.current === "live") {
+        realtimeRef.current?.requestSync();
+        runDraftRefresh();
+      } else {
+        runAutomaticRefresh();
+        runDraftRefresh();
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearTimeout(initialRefresh);
       window.clearInterval(poll);
+      window.clearInterval(draftPoll);
+      window.clearInterval(draftExpiry);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       channel?.close();
       channelRef.current = null;
     };
-  }, [refresh, roomId]);
+  }, [publishDraftState, refresh, requestDraftRefresh, roomId]);
 
   useEffect(() => {
     const connectionVisit = roomVisit;
@@ -386,6 +718,13 @@ export function useRoom(roomId: string) {
       onSnapshot(nextRoom) {
         if (connectionVisit !== roomVisitRef.current) return;
         acceptRoom(nextRoom);
+        if ([...draftsRef.current.values()].some((draft) => draft.status === "awaiting_review")) {
+          requestDraftRefreshRef.current?.();
+        }
+      },
+      onReady() {
+        if (connectionVisit !== roomVisitRef.current) return;
+        requestDraftRefreshRef.current?.();
       },
       onEvent(event) {
         if (connectionVisit !== roomVisitRef.current) return;
@@ -397,15 +736,24 @@ export function useRoom(roomId: string) {
         const nextRoom = legacyRoomStateFromEvent(event);
         if (nextRoom) acceptRoom(nextRoom);
         requestEventRefresh(event.sequence);
+        if ([...draftsRef.current.values()].some((draft) => draft.status === "awaiting_review")) {
+          requestDraftRefreshRef.current?.();
+        }
       },
       onTransientPresence(transient) {
         if (connectionVisit !== roomVisitRef.current) return;
         acceptTransientPresence(transient);
       },
+      onDraftInvalidated(event) {
+        if (connectionVisit !== roomVisitRef.current) return;
+        acceptDraftInvalidation(event);
+      },
       onStatusChange(status) {
         if (connectionVisit !== roomVisitRef.current) return;
         refreshGenerationRef.current += 1;
-        if (status === "connected") setConnection("live");
+        if (status === "connected") {
+          setConnection("live");
+        }
         else if (status === "unavailable" || status === "closed") setConnection("polling");
         else setConnection(roomRef.current ? "polling" : "connecting");
       },
@@ -415,7 +763,7 @@ export function useRoom(roomId: string) {
       if (realtimeRef.current === realtime) realtimeRef.current = null;
       realtime.close();
     };
-  }, [acceptPresence, acceptRoom, acceptTransientPresence, requestEventRefresh, roomId, roomVisit, setConnection]);
+  }, [acceptDraftInvalidation, acceptPresence, acceptRoom, acceptTransientPresence, requestEventRefresh, roomId, roomVisit, setConnection]);
 
   const transientPresence = useCallback(
     (value: { cursor: Point | null; viewport: Viewport | null }) =>
@@ -544,6 +892,7 @@ export function useRoom(roomId: string) {
   const participantId = participant.visit === roomVisit ? participant.value : null;
   const connection = connectionState.visit === roomVisit ? connectionState.value : "connecting";
   const error = roomError.visit === roomVisit ? roomError.value : null;
+  const agentDrafts = draftState.visit === roomVisit ? draftState.value : [];
   const self = useMemo(
     () => (visibleRoom && participantId ? visibleRoom.participants[participantId] ?? null : null),
     [participantId, visibleRoom],
@@ -551,11 +900,13 @@ export function useRoom(roomId: string) {
 
   return {
     room: visibleRoom,
+    agentDrafts,
     participantId,
     self,
     connection,
     error,
     refresh,
+    refreshDrafts,
     command,
     lease,
     leaseMany,
@@ -566,6 +917,8 @@ export function useRoom(roomId: string) {
     renameRoom,
     upgradeRole,
     acceptRoom,
+    acceptAgentDraft,
+    removeAgentDraft,
     setConnection,
   };
 }

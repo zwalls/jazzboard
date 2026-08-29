@@ -102,6 +102,7 @@ import type {
   Viewport,
 } from "@/lib/domain/types";
 
+import { AgentDraftLayer } from "./AgentDraftLayer";
 import { CanvasPresenceOverlay } from "./CanvasPresenceOverlay";
 import type {
   CanvasSurfaceHandle,
@@ -144,6 +145,7 @@ export type SemanticCanvasProps = Pick<
   | "boardMenuActions"
   | "persistentChromeHost"
   | "room"
+  | "agentDrafts"
   | "self"
   | "followTarget"
   | "presence"
@@ -428,6 +430,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   boardMenuActions,
   persistentChromeHost = null,
   room,
+  agentDrafts = [],
   self,
   renameRoom,
   followTarget,
@@ -2653,6 +2656,13 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         </g>
       </svg>
 
+      <AgentDraftLayer
+        authoritativeObjects={projectedRoom.objects}
+        drafts={agentDrafts}
+        roomId={projectedRoom.id}
+        viewport={viewport}
+      />
+
       {activeTextEditor ? (() => {
         const object = scene.objectsById[activeTextEditor.objectId]?.object;
         if (!object || object.kind === "draw") return null;
@@ -2678,7 +2688,12 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         <div className={styles.empty}>This board is empty. Participants can add the first semantic object.</div>
       ) : null}
 
-      <CanvasPresenceOverlay runtime={runtime} room={projectedRoom} selfId={self.participantId} />
+      <CanvasPresenceOverlay
+        agentDrafts={agentDrafts}
+        runtime={runtime}
+        room={projectedRoom}
+        selfId={self.participantId}
+      />
 
       {activeContextMenu ? (
         <SemanticCanvasContextMenu

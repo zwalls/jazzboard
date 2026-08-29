@@ -6,6 +6,10 @@ import {
   JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
   JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES,
 } from "@/lib/webmcp/interchange-tools";
+import {
+  JAZZBOARD_DRAFT_MUTATION_TOOL_NAMES,
+  JAZZBOARD_DRAFT_READ_TOOL_NAMES,
+} from "@/lib/webmcp/draft-tools";
 import { JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/landing-tools";
 import { JAZZBOARD_MESSAGE_TOOL_NAMES } from "@/lib/webmcp/message-tools";
 import { JAZZBOARD_PNG_EXPORT_TOOL_NAMES } from "@/lib/webmcp/png-export-tools";
@@ -20,7 +24,7 @@ import {
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 export const JAZZBOARD_ORIGIN = "https://jazzboard-rho.vercel.app";
-export const AGENT_DOC_VERSION = "1.6.1";
+export const AGENT_DOC_VERSION = "1.7.0";
 export const AGENT_DOC_LAST_UPDATED = "2026-08-28";
 export const JAZZBOARD_SKILL_DESCRIPTION =
   "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, drawing, routing, laying out, analyzing and visually checking, reviewing, reverting, exporting, or templating its general semantic canvas and optional diagrams; answering participant Ask messages; or managing Follow and Spotlight without visual browser automation.";
@@ -210,6 +214,9 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "Use `apply_canvas_transaction` for a coherent multi-node change. It can create and update nodes, shapes, text, connectors, and diagrams atomically; temporary references let connectors and diagram membership target objects created earlier in the same call. Add at most one `auto_layout` operation to arrange node, shape, or text temporary references—and optionally a new Diagram temporary reference—inside that same all-or-nothing commit. Existing objects use the separate revision- and lease-checked `layout_objects` tool. Any invalid reference, stale revision, active lease conflict, permission failure, or membership error rejects the whole transaction.",
     "",
+    "For genuine progressive previews of newly created compositions, set `delivery: { mode: \"draft\" }` on `apply_canvas_transaction`. The first call creates a visible non-authoritative draft and returns its `draftId`, draft revision, and stable temporary-reference map. Every replacement must include that exact `draftId`, `expectedDraftRevision`, and the complete cumulative create-only operation list—not a delta—so earlier candidate IDs and relationships remain stable. A temporary reference is reserved for the draft's lifetime: omitting its create operation removes that candidate from the current preview, while reintroducing the same `tempRef` in a later replacement reuses its original candidate ID. Use `read_canvas_drafts` to inspect the authorized room's active previews, then call `finish_canvas_draft` with the exact latest draft revision and `commit` or `discard`.",
+    "Draft previews are transient collaboration state: ordinary committed-state reads, semantic queries, activity, exports, templates, and PNGs do not treat them as authoritative canvas content. Spectators may read room-authorized drafts but never stage, replace, commit, or discard them. Progressive staging currently supports object, connector, and Diagram creation plus layout of candidates created in that draft. Apply edits to existing objects or existing Diagrams directly without `delivery`; their revision and lease checks remain atomic. In review mode, commit can return `proposed`, leaving the draft visible as awaiting review until a human decides the proposal.",
+    "",
     "Use `layout_objects` for deterministic flow, grid, or graph-aware hierarchy layout. `comfortable` density is the default and expands individual corridors to keep connector labels readable; `compact` is an explicit tighter minimum. Numeric gaps are caller minima, not a request to clip labels. Hierarchy follows directed relationships, separates disconnected components, assigns longest-path ranks, centers unequal ranks, and uses deterministic barycentric sweeps to reduce crossings. Auto-layout preserves object IDs and relationships, redistributes high-degree incident ports, chooses obstacle-aware elbow corridors and stable lanes, and updates route- and label-aware Diagram bounds.",
     "",
     "If a new connector omits `routing`, that omission delegates route selection to obstacle-aware `auto`. The server resolves the delegation to a concrete `straight`, `curved`, or `elbow` path, but the agent remains responsible for reading the authoritative result and judging it against the requested composition. Generated singleton endpoints center on their natural side; only multiple automatic edges naturally sharing that side are distributed. Choose an explicit route whenever path shape is part of the intended drawing.",
@@ -318,6 +325,7 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     `- Portable interchange for spectators: ${JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}. Participant interchange: ${JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}.`,
     `- Local visual download for authorized participants and spectators: ${JAZZBOARD_PNG_EXPORT_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}.`,
     `- Participant private Ask inbox: ${JAZZBOARD_MESSAGE_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}.`,
+    `- Progressive draft reads for authorized room members: ${JAZZBOARD_DRAFT_READ_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}. Participant draft completion: ${JAZZBOARD_DRAFT_MUTATION_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}. Staging and replacement reuse \`apply_canvas_transaction\` with \`delivery.mode: draft\`.`,
     `- Existing snapshot-page compatibility reads: ${SNAPSHOT_TOOL_NAMES.map((name) => `\`${name}\``).join(", ")}. No participant tool issues a new hosted snapshot URL.`,
     "",
     "Activity is append-only and attributable. Summaries expose semantic affected IDs and bounds plus exact post-state guards, while private before/after snapshots stay server-side. `revert_activity` is a revision-, lease-, and relationship-checked forward compensation that appends new activity; it never removes history.",
@@ -326,6 +334,8 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     "Ask messages form a private participant-to-agent inbox, not shared room chat. The inbox is pull-only and does not wake or schedule an agent. Poll `status: pending` without `afterSequence` and honor the returned `pollAfterMs`; reserve `status: all` with `afterSequence` for discovering newly submitted messages. Expired claims appear as pending again.",
     "A selection snapshot grounds the request at submission time; current authoritative revisions must be refreshed before edits. Claim leases coordinate processing, and the returned claim token is valid only for replying to that exact claimed message before the lease expires. Every `completed`, `needs_input`, or `failed` reply moves the message to `answered`; `needs_input` does not requeue it. A reply records private message state, not proof that a requested canvas edit committed.",
+    "",
+    "Progressive create-only drafts are real server-persisted previews, not simulated animation. Set `delivery.mode` to `draft` on `apply_canvas_transaction`; replacements resend the complete cumulative operation list with the exact draft ID and revision so temporary references resolve to the same candidate IDs. A `tempRef` remains reserved for the draft's lifetime even while its operation is omitted from a preview, and reintroducing it restores the original candidate ID. `read_canvas_drafts` is room-authorized and read-only for participants and spectators. Only participants receive `finish_canvas_draft`, and only the draft owner may replace, commit, or discard. Draft content remains non-authoritative and is excluded from committed-state queries, activity, interchange, templates, and export until an applied commit. Existing-object and existing-Diagram edits bypass drafts and use the normal revision/lease transaction path. A review-mode commit returns `proposed` and keeps its awaiting-review draft visible until human resolution.",
     "",
     "Semantic JSON, directive-free Mermaid, and fixed-vocabulary SVG are server export formats. The authorized `export_canvas_png` action separately downloads an image-faithful PNG rendered from the active faithful canvas renderer; the bytes remain local and are neither returned by WebMCP nor persisted. The participant-only `render_canvas_preview` tool renders an exact revision-guarded scope into a temporary in-room surface and returns a viewport screenshot clip; rendering does not inspect the pixels, and its truthful `visualInspectionStatus` remains `not_performed`. Reusable Diagram templates strip source-room audit state and instantiate with fresh IDs through the same live-or-review gate. Jazzboard issues no new hosted snapshot URLs.",
     "",
@@ -358,6 +368,8 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "| Inspect review mode or a pending exact request | `list_agent_edit_proposals` / `read_agent_edit_proposal` |",
     "| Tighten future agent edits to human review | `enable_agent_review` |",
     "| Create and comfortably arrange a coherent multi-node diagram atomically | `apply_canvas_transaction` with one `auto_layout` operation |",
+    "| Build a visible progressive create-only preview | `apply_canvas_transaction` with `delivery.mode: draft`; resend cumulative operations with exact draft revision |",
+    "| Inspect, commit, or discard a draft | `read_canvas_drafts`; participant owner uses `finish_canvas_draft` with exact revision |",
     "| Draw an obstacle-aware connection | `draw_connection` with omitted routing or `routing.mode: auto` |",
     "| Hand-author ports, curvature, elbows, or label position | `draw_connection`, atomic connector create, or revision-checked `update_object` |",
     "| Create only a diagram container around known objects | `create_diagram` |",
@@ -543,7 +555,7 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "4. On the landing page, use `create_room` or `join_room`. Join only with the exact supplied six-character code or exact legacy four-digit code.",
     `5. Rediscover tools after navigation. The current executable inventories contain ${ROOM_PARTICIPANT_TOOL_NAMES.length} participant-room tools, ${ROOM_SPECTATOR_TOOL_NAMES.length} non-editing spectator-room tools, and ${SNAPSHOT_TOOL_NAMES.length} read-only compatibility tools on an already-issued legacy snapshot page.`,
     "6. Ground edits with `query_objects`, `find_diagrams`, `read_diagram`, `read_neighborhood`, `read_selection`, or `read_room_state` as narrowly as possible. Read decision/open-question lifecycle metadata as structured state.",
-    "7. Use exact current revisions. Use `apply_canvas_transaction` for coherent multi-object changes. Opt into `layout_objects` only when its flow, grid, or hierarchy arrangement matches the request. Omitting connector routing delegates to `auto`; use explicit routes and endpoint ports whenever attachment or path shape is part of the intended composition.",
+    "7. Use exact current revisions. Use `apply_canvas_transaction` for coherent multi-object changes. For a progressive new composition, set `delivery.mode` to `draft`, then replace it only with the complete cumulative create-only operation list and exact draft revision; inspect with `read_canvas_drafts` and finish with `finish_canvas_draft`. Existing-object edits stay on the direct revision/lease path. Opt into `layout_objects` only when its flow, grid, or hierarchy arrangement matches the request.",
     "8. Inspect whether a mutation was applied or proposed. Only a human may approve/reject a proposal or loosen review mode to live.",
     "9. For conventional diagram work, combine `read_diagram` with `analyze_diagram_layout`, correct unintended findings, and inspect the exact preview. For illustration or freeform work, preserve intentional geometry and use the analyzer only when useful. Always capture and inspect the final pixels; rendering alone is not visual inspection.",
     "10. Verify returned stable IDs, relationships, revisions, Diagram bounds, activity, and attribution. Use guarded compensation instead of assuming an activity can still be reverted.",
@@ -554,6 +566,7 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "- Recent rooms are private to the current browser and must pass server-side signed-session authorization.",
     "- Never attempt to select or impersonate another actor. Attribution comes from the signed guest session.",
     "- Spectators cannot mutate. A role upgrade requires explicit human UI action.",
+    "- Draft previews are non-authoritative, omitted from committed-state queries and exports, and mutable only by their participant owner. Spectators receive `read_canvas_drafts` only.",
     "- An agent may enable review mode but cannot approve or reject proposals or loosen the room back to live.",
     "- Jazzboard issues no new hosted read-only snapshot URLs. An already-issued legacy secret grants only its frozen redacted artifact until expiry or revocation, not room access.",
     "- Portable semantic exports omit room/session identity, presence, leases, participant IDs/colors, and image URLs. `export_canvas_png` is a separate image-faithful local download rendered from the authorized scope through the active faithful canvas renderer; Jazzboard does not retain it.",
@@ -579,6 +592,7 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "- Pull pending Ask work with `list_agent_messages`, claim one with `claim_agent_message`, refresh current revisions, then answer with `reply_to_agent_message`.",
     "- Inspect review work with `list_agent_edit_proposals` and `read_agent_edit_proposal`; never claim a proposal changed the canvas.",
     "- Build multiple related nodes/connectors atomically with `apply_canvas_transaction` and request-local temporary references.",
+    "- For a progressive create-only preview, add `delivery.mode: draft`; resend the full cumulative operations with the returned exact draft ID/revision, then use `finish_canvas_draft`. Use `read_canvas_drafts` to inspect previews. Do not claim draft pixels are committed or exported state.",
     "- Choose `auto` only when delegating obstacle and lane selection. Generated singleton endpoints center on their natural side; same-side automatic cohorts distribute. Bound endpoints may specify `port.side`, `port.position`, and `port.exact`; explicit straight, curved, and elbow modes preserve authored path intent.",
     "- Read endpoint `normalizedAnchor` and `snap` metadata to understand route control. Do not infer authorship from `isPrecise` or `isExact`; automatic routes may persist both. `snap: edge` or `edge-point` constrains an attachment, while `snap: none` remains movable. Exact routes, coordinates, grouping, overlap, and freehand drawing support arbitrary compositions.",
     "- For a conventional diagram-readability goal, call `analyze_diagram_layout` with the exact revision and correct every unintended finding until `report.status` is `pass`. For freeform work, the analyzer is optional intent-unaware evidence; preserve deliberate geometry and judge the preview pixels directly. Partial `geometryCoverage` still requires pixel inspection of unsupported freehand strokes.",

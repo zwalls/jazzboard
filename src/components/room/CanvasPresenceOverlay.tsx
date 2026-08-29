@@ -9,8 +9,9 @@ import {
 } from "react";
 import { LockKeyhole, MousePointer2 } from "lucide-react";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
-import type { AgentActivity, Participant, Point, RoomState } from "@/lib/domain/types";
+import type { AgentActivity, CanvasBounds, Participant, Point, RoomState } from "@/lib/domain/types";
 
 import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import styles from "./room.module.css";
@@ -31,10 +32,12 @@ export function shouldRenderLeaseDebugLabel(environment = process.env.NODE_ENV) 
 }
 
 export function CanvasPresenceOverlay({
+  agentDrafts = [],
   runtime,
   room,
   selfId,
 }: {
+  agentDrafts?: readonly AgentCanvasDraftSnapshot[];
   runtime: CanvasRuntime | null;
   room: RoomState;
   selfId: string;
@@ -84,7 +87,32 @@ export function CanvasPresenceOverlay({
             </div>,
           );
         }
-        if (participant.agentActive && participant.agent.cursor) {
+        const canonicalAgentActivity = participant.agent.activity;
+        const canonicalAgentWorking = Boolean(
+          participant.agentActive &&
+          participant.agent.cursor &&
+          isAgentActivityWorking(canonicalAgentActivity, now),
+        );
+        const workingDraft = canonicalAgentWorking
+          ? null
+          : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+        if (workingDraft) {
+          const cursor = draftAgentCursor(workingDraft, runtime);
+          items.push(
+            <LocalAgentCursor
+              activity={null}
+              authoritativeCursor={cursor}
+              key={`${participant.participantId}:agent:draft:${workingDraft.id}:${workingDraft.status}`}
+              participant={participant}
+              progress={0}
+              runtime={runtime}
+              working
+              workingLabel={workingDraft.status === "committing"
+                ? "Validating draft · not saved"
+                : "Drafting preview · not saved"}
+            />,
+          );
+        } else if (participant.agentActive && participant.agent.cursor) {
           const activity = participant.agent.activity;
           const elapsed = activity ? Math.max(now - activity.startedAt, 0) : 0;
           const duration = activity?.durationMs ?? 1;
@@ -168,6 +196,60 @@ function clampAgentViewportPoint(point: Point, overlay: HTMLElement | null): Poi
   };
 }
 
+function unionBounds(left: CanvasBounds | null, right: CanvasBounds): CanvasBounds {
+  if (!left) return { ...right };
+  const x = Math.min(left.x, right.x);
+  const y = Math.min(left.y, right.y);
+  const maxX = Math.max(left.x + left.width, right.x + right.width);
+  const maxY = Math.max(left.y + left.height, right.y + right.height);
+  return { x, y, width: Math.max(maxX - x, 1), height: Math.max(maxY - y, 1) };
+}
+
+function activeDraftForParticipant(
+  drafts: readonly AgentCanvasDraftSnapshot[],
+  roomId: string,
+  participantId: string,
+  now: number,
+): AgentCanvasDraftSnapshot | null {
+  return drafts.reduce<AgentCanvasDraftSnapshot | null>((current, draft) => {
+    if (
+      draft.roomId !== roomId ||
+      draft.ownerParticipantId !== participantId ||
+      (draft.status !== "active" && draft.status !== "committing") ||
+      draft.expiresAt <= now ||
+      draft.hardExpiresAt <= now
+    ) {
+      return current;
+    }
+    if (!current) return draft;
+    if (draft.updatedAt !== current.updatedAt) {
+      return draft.updatedAt > current.updatedAt ? draft : current;
+    }
+    return draft.revision > current.revision ? draft : current;
+  }, null);
+}
+
+function draftAgentCursor(draft: AgentCanvasDraftSnapshot, runtime: CanvasRuntime): Point {
+  const nonConnectorObjects = draft.previewObjects.filter((object) => object.kind !== "connector");
+  const candidateBounds = (nonConnectorObjects.length ? nonConnectorObjects : draft.previewObjects)
+    .reduce<CanvasBounds | null>((bounds, object) => unionBounds(bounds, object), null);
+  const bounds = candidateBounds ?? draft.previewDiagrams.reduce<CanvasBounds | null>(
+    (current, diagram) => unionBounds(current, diagram.bounds),
+    null,
+  );
+  if (bounds) {
+    return {
+      x: bounds.x + bounds.width + 16,
+      y: bounds.y + bounds.height + 16,
+    };
+  }
+  const viewport = runtime.getViewport();
+  return {
+    x: viewport.x + viewport.width / 2,
+    y: viewport.y + viewport.height / 2,
+  };
+}
+
 function LocalAgentCursor({
   activity,
   authoritativeCursor,
@@ -175,6 +257,7 @@ function LocalAgentCursor({
   progress,
   runtime,
   working,
+  workingLabel,
 }: {
   activity: AgentActivity | null;
   authoritativeCursor: Point;
@@ -182,6 +265,7 @@ function LocalAgentCursor({
   progress: number;
   runtime: CanvasRuntime;
   working: boolean;
+  workingLabel?: string;
 }) {
   const markerRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<AgentCursorDrag | null>(null);
@@ -239,7 +323,11 @@ function LocalAgentCursor({
         style={{ background: participant.color }}
       >
         {participant.displayName} · agent
-        {working && activity ? ` · ${activity.label} · ${Math.round(progress * 100)}%` : ""}
+        {workingLabel
+          ? ` · ${workingLabel}`
+          : working && activity
+            ? ` · ${activity.label} · ${Math.round(progress * 100)}%`
+            : ""}
       </span>
     </>
   );

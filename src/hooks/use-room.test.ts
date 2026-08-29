@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Participant, RoomEvent, RoomState } from "@/lib/domain/types";
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { RoomRealtimeOptions } from "@/lib/realtime/client";
 
 import {
@@ -135,6 +136,34 @@ function presenceEvent(sequence: number, roomRevision: number, participantId = "
         activity: null,
       },
     },
+  };
+}
+
+function agentDraft(revision = 1): AgentCanvasDraftSnapshot {
+  const now = Date.now();
+  return {
+    schemaVersion: 1,
+    id: "draft_1",
+    roomId: "room-a",
+    ownerParticipantId: "participant-a",
+    author: {
+      participantId: "participant-a",
+      displayName: "Ada",
+      color: "#4F6BED",
+      kind: "agent",
+    },
+    revision,
+    baselineRoomRevision: 1,
+    status: "active",
+    temporaryReferences: {},
+    previewObjects: [],
+    previewDiagrams: [],
+    metadata: null,
+    createdAt: now,
+    updatedAt: now + revision,
+    expiresAt: now + 90_000,
+    hardExpiresAt: now + 600_000,
+    awaitingReview: null,
   };
 }
 
@@ -283,6 +312,299 @@ describe("applyTransientHumanPresence", () => {
 });
 
 describe("useRoom request ordering", () => {
+  it("loads authorized drafts after realtime identity and removes them from compact invalidations", async () => {
+    const draft = agentDraft();
+    mocks.apiRequest.mockResolvedValueOnce({ ok: true, drafts: [draft], serverTime: Date.now() });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    await act(async () => {
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+
+    expect(mocks.apiRequest).toHaveBeenCalledWith("/api/rooms/room-a/drafts");
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    act(() => {
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_event_removed",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.removed",
+        draftId: draft.id,
+        revision: draft.revision,
+        reason: "discarded",
+      });
+    });
+    expect(result.current.agentDrafts).toEqual([]);
+  });
+
+  it("keeps a committed draft visible until its authoritative room is readable", async () => {
+    const draft = agentDraft();
+    draft.previewObjects = [{
+      id: "candidate-node",
+      kind: "shape",
+      shape: "rectangle",
+      nodeType: "component",
+      nodeMetadata: null,
+      label: "Visible draft candidate",
+      fill: "blue",
+      stroke: "blue",
+      x: 100,
+      y: 100,
+      width: 240,
+      height: 120,
+      rotation: 0,
+      zIndex: 1,
+      revision: 1,
+      groupId: null,
+      diagramIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+      createdBy: draft.author,
+      lastEditedBy: draft.author,
+      authority: "draft",
+    }];
+    const authoritative = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    let draftReadCount = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (!url.endsWith("/drafts")) return authoritative.promise;
+      draftReadCount += 1;
+      return Promise.resolve({
+        ok: true,
+        drafts: draftReadCount === 1 ? [draft] : [],
+        serverTime: Date.now(),
+      });
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    await act(async () => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: null,
+        replayTruncated: false,
+      });
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+
+    act(() => {
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_event_committed",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.removed",
+        draftId: draft.id,
+        revision: draft.revision,
+        reason: "committed",
+        authoritativeRoomRevision: 2,
+      });
+    });
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      // Even a list response that already omitted the committed sidecar must
+      // not punch a blank frame before the corresponding room revision lands.
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+    expect(draftReadCount).toBe(2);
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      authoritative.resolve({
+        ok: true,
+        // The candidate was committed at revision 2 and then deleted before
+        // this viewer refreshed. The revision fence, rather than ID presence,
+        // still makes the draft-to-authority handoff gap-free and terminal.
+        room: room("room-a", 2, ["participant-a"]),
+        participantId: "participant-a",
+      });
+      await authoritative.promise;
+    });
+    expect(result.current.agentDrafts).toEqual([]);
+  });
+
+  it("fences an empty-list-first draft disappearance behind an authoritative room read", async () => {
+    const draft = agentDraft();
+    const authoritative = deferred<{ ok: true; room: RoomState; participantId: string }>();
+    let draftReadCount = 0;
+    let roomReadCount = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        draftReadCount += 1;
+        return Promise.resolve({
+          ok: true,
+          drafts: draftReadCount === 1 ? [draft] : [],
+          serverTime: draft.updatedAt + 10,
+        });
+      }
+      roomReadCount += 1;
+      return authoritative.promise;
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    await act(async () => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: null,
+        replayTruncated: false,
+      });
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      // Simulate a visibility/reconnect refresh observing the deleted sidecar
+      // before its compact committed invalidation reaches this client.
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(draftReadCount).toBe(2);
+    expect(roomReadCount).toBe(1);
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      authoritative.resolve({
+        ok: true,
+        room: room("room-a", 2, ["participant-a"]),
+        participantId: "participant-a",
+      });
+      await authoritative.promise;
+      await Promise.resolve();
+    });
+    expect(result.current.agentDrafts).toEqual([]);
+  });
+
+  it("refetches a newer draft invalidation and ignores an older local acknowledgement", async () => {
+    const first = agentDraft(1);
+    const third = { ...agentDraft(3), status: "committing" as const };
+    mocks.apiRequest
+      .mockResolvedValueOnce({ ok: true, drafts: [first], serverTime: Date.now() })
+      .mockResolvedValueOnce({ ok: true, drafts: [third], serverTime: Date.now() });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    await act(async () => {
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+      await Promise.resolve();
+    });
+    act(() => {
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_event_3",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.upsert",
+        draftId: first.id,
+        ownerParticipantId: first.ownerParticipantId,
+        revision: 3,
+        status: "committing",
+        expiresAt: third.expiresAt,
+      });
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.agentDrafts[0]).toMatchObject({ revision: 3, status: "committing" });
+
+    act(() => {
+      result.current.acceptAgentDraft({ ...agentDraft(2), status: "active" });
+    });
+    expect(result.current.agentDrafts[0]).toMatchObject({ revision: 3, status: "committing" });
+  });
+
+  it("coalesces overlapping invalidations and recovers when the trailing fetch fails", async () => {
+    const revisionTwo = agentDraft(2);
+    const revisionThree = { ...agentDraft(3), status: "committing" as const };
+    const firstFetch = deferred<{ ok: true; drafts: AgentCanvasDraftSnapshot[]; serverTime: number }>();
+    let draftReadCount = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (!url.endsWith("/drafts")) {
+        return Promise.resolve({ ok: true, room: room("room-a", 1, ["participant-a"]), participantId: "participant-a" });
+      }
+      draftReadCount += 1;
+      if (draftReadCount === 1) return firstFetch.promise;
+      if (draftReadCount === 2) return Promise.reject(new Error("temporary draft read failure"));
+      return Promise.resolve({ ok: true, drafts: [revisionThree], serverTime: Date.now() });
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_event_2",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.upsert",
+        draftId: revisionTwo.id,
+        ownerParticipantId: revisionTwo.ownerParticipantId,
+        revision: 2,
+        status: "active",
+        expiresAt: revisionTwo.expiresAt,
+      });
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_event_3_queued",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.upsert",
+        draftId: revisionThree.id,
+        ownerParticipantId: revisionThree.ownerParticipantId,
+        revision: 3,
+        status: "committing",
+        expiresAt: revisionThree.expiresAt,
+      });
+    });
+    expect(draftReadCount).toBe(1);
+
+    await act(async () => {
+      firstFetch.resolve({ ok: true, drafts: [revisionTwo], serverTime: Date.now() });
+      await firstFetch.promise;
+      await Promise.resolve();
+    });
+    expect(result.current.agentDrafts[0]).toMatchObject({ revision: 2 });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+      await Promise.resolve();
+    });
+    expect(draftReadCount).toBe(3);
+    expect(result.current.agentDrafts[0]).toMatchObject({ revision: 3, status: "committing" });
+  });
+
+  it("retries one transient draft read failure while the realtime socket remains live", async () => {
+    const draft = agentDraft(1);
+    let draftReadCount = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (!url.endsWith("/drafts")) {
+        return Promise.resolve({ ok: true, room: room("room-a", 1, ["participant-a"]), participantId: "participant-a" });
+      }
+      draftReadCount += 1;
+      if (draftReadCount === 1) return Promise.reject(new Error("temporary draft read failure"));
+      return Promise.resolve({ ok: true, drafts: [draft], serverTime: Date.now() });
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onStatusChange?.("connected");
+      realtime.onReady?.({ connectionId: "connection-a", participantId: "participant-a", role: "participant" });
+    });
+    expect(result.current.connection).toBe("live");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+      await Promise.resolve();
+    });
+    expect(draftReadCount).toBe(2);
+    expect(result.current.agentDrafts).toEqual([draft]);
+    expect(result.current.connection).toBe("live");
+  });
+
   it("sends a title-specific compare-and-set rename and accepts the returned room", async () => {
     const current = room("room-a", 3, ["participant-a"]);
     const renamed = { ...room("room-a", 4, ["participant-a"]), title: "Architecture review" };

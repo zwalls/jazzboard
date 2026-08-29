@@ -1,4 +1,8 @@
 import type { Point, RoomEvent, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
+import {
+  isAgentCanvasDraftEvent,
+  type AgentCanvasDraftEvent,
+} from "@/lib/agent-drafts/types";
 
 import {
   isCompactRoomEventPayload,
@@ -8,6 +12,7 @@ import {
 
 export const REALTIME_PROTOCOL_VERSION = 1 as const;
 export const REALTIME_PRESENCE_DELTA_CAPABILITY = "presence-delta-v1" as const;
+export const REALTIME_AGENT_DRAFT_CAPABILITY = "agent-draft-v1" as const;
 export const SPLIT_STATE_CLIENT_CAPABILITY = "split-state-v1" as const;
 export const CLIENT_CAPABILITIES_HEADER = "x-jazzboard-client-capabilities" as const;
 export const REALTIME_MAX_CLIENT_PAYLOAD_BYTES = 32 * 1024;
@@ -78,6 +83,11 @@ export type RealtimeServerMessage =
       serverTime: number;
       cursor: Point | null;
       viewport: Viewport | null;
+    }
+  | {
+      type: "draft.invalidated";
+      cursor: string | null;
+      event: AgentCanvasDraftEvent;
     }
   | {
       type: "error";
@@ -266,6 +276,12 @@ export function parseRealtimeServerMessage(value: unknown): RealtimeServerMessag
         return null;
       }
       return message as RealtimeServerMessage;
+    case "draft.invalidated": {
+      const cursor = message.cursor;
+      if (cursor !== null && parseStreamCursor(cursor as string) === null) return null;
+      if (!isAgentCanvasDraftEvent(message.event)) return null;
+      return message as RealtimeServerMessage;
+    }
     case "error":
       if (
         !message.error ||

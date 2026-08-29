@@ -16,6 +16,11 @@ import {
   JAZZBOARD_SEMANTIC_TOOL_NAMES,
 } from "./semantic-tools";
 import {
+  createJazzboardDraftWebMcpTools,
+  JAZZBOARD_DRAFT_READ_TOOL_NAMES,
+  JAZZBOARD_DRAFT_TOOL_NAMES,
+} from "./draft-tools";
+import {
   createJazzboardActivityWebMcpTools,
   JAZZBOARD_ACTIVITY_READ_TOOL_NAMES,
   JAZZBOARD_ACTIVITY_TOOL_NAMES,
@@ -57,6 +62,7 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_WEBMCP_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_TOOL_NAMES,
+  ...JAZZBOARD_DRAFT_TOOL_NAMES,
   ...JAZZBOARD_ACTIVITY_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES,
   ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
@@ -69,6 +75,7 @@ export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_WEBMCP_READ_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_READ_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
+  ...JAZZBOARD_DRAFT_READ_TOOL_NAMES,
   ...JAZZBOARD_ACTIVITY_READ_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES,
   ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
@@ -84,6 +91,7 @@ export function createJazzboardRoomWebMcpTools(
     ...createJazzboardWebMcpTools(binding, dependencies),
     ...createJazzboardLifecycleWebMcpTools(binding, dependencies),
     ...createJazzboardSemanticWebMcpTools(binding, dependencies),
+    ...createJazzboardDraftWebMcpTools(binding, dependencies),
     ...createJazzboardActivityWebMcpTools(binding, dependencies),
     ...createJazzboardInterchangeWebMcpTools(binding, dependencies),
     ...createJazzboardPngExportWebMcpTools(binding, dependencies),

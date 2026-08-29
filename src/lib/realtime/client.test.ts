@@ -124,6 +124,8 @@ describe("connectRoomRealtime", () => {
     const statuses: string[] = [];
     const snapshots: RoomState[] = [];
     const events: RoomEvent[] = [];
+    const draftEvents: string[] = [];
+    const identities: string[] = [];
     const connection = connectRoomRealtime({
       roomId: "room_1",
       url: "https://jazzboard.example/api/ws",
@@ -131,6 +133,8 @@ describe("connectRoomRealtime", () => {
       maxReconnectMs: 1_000,
       onSnapshot: (snapshot) => snapshots.push(snapshot),
       onEvent: (roomEvent) => events.push(roomEvent),
+      onReady: (identity) => identities.push(`${identity.participantId}:${identity.role}`),
+      onDraftInvalidated: (draftEvent) => draftEvents.push(draftEvent.id),
       onStatusChange: (status) => statuses.push(status),
       webSocketFactory: (url) => {
         const socket = new FakeBrowserSocket(url);
@@ -142,7 +146,9 @@ describe("connectRoomRealtime", () => {
     expect(connection.getStatus()).toBe("connecting");
     expect(new URL(sockets[0].url).protocol).toBe("wss:");
     expect(new URL(sockets[0].url).searchParams.get("roomId")).toBe("room_1");
-    expect(new URL(sockets[0].url).searchParams.get("capabilities")).toBe("presence-delta-v1");
+    expect(new URL(sockets[0].url).searchParams.get("capabilities")).toBe(
+      "presence-delta-v1,agent-draft-v1",
+    );
 
     sockets[0].open();
     sockets[0].serverMessage({
@@ -158,11 +164,45 @@ describe("connectRoomRealtime", () => {
     sockets[0].serverMessage({ type: "event", event: event(), cursor: "11-0" });
     sockets[0].serverMessage({ type: "event", event: event(), cursor: "11-0" });
     sockets[0].serverMessage({ type: "event", event: presenceEvent(), cursor: "11-1" });
+    sockets[0].serverMessage({
+      type: "draft.invalidated",
+      cursor: "11-2",
+      event: {
+        schemaVersion: 1,
+        id: "draft_event_1",
+        roomId: "room_1",
+        occurredAt: 4,
+        type: "draft.upsert",
+        draftId: "draft_1",
+        ownerParticipantId: "p_1",
+        revision: 1,
+        status: "active",
+        expiresAt: 90_004,
+      },
+    });
+    sockets[0].serverMessage({
+      type: "draft.invalidated",
+      cursor: "11-2",
+      event: {
+        schemaVersion: 1,
+        id: "draft_event_1",
+        roomId: "room_1",
+        occurredAt: 4,
+        type: "draft.upsert",
+        draftId: "draft_1",
+        ownerParticipantId: "p_1",
+        revision: 1,
+        status: "active",
+        expiresAt: 90_004,
+      },
+    });
     sockets[0].serverMessage({ type: "checkpoint", cursor: "12-0" });
 
     expect(statuses).toEqual(["connecting", "connected"]);
+    expect(identities).toEqual(["p_1:participant"]);
     expect(snapshots).toHaveLength(1);
     expect(events).toHaveLength(2);
+    expect(draftEvents).toEqual(["draft_event_1"]);
     expect(events[1].payload).toMatchObject({ kind: "presence.delta", stateRevision: 3 });
     expect(connection.getCursor()).toBe("12-0");
 

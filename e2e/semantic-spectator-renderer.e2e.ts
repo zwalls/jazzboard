@@ -30,6 +30,7 @@ const SPECTATOR_TOOL_NAMES = [
   "query_objects",
   "read_activity",
   "read_agent_edit_proposal",
+  "read_canvas_drafts",
   "read_collaboration_state",
   "read_diagram",
   "read_neighborhood",

@@ -39,7 +39,7 @@ describe("GET /api/ws", () => {
   });
 
   it("authorizes cookie membership before upgrade and synchronously attaches the socket", async () => {
-    const request = new Request("https://jazzboard.example/api/ws?roomId=room_1&cursor=50-2&capabilities=presence-delta-v1", {
+    const request = new Request("https://jazzboard.example/api/ws?roomId=room_1&cursor=50-2&capabilities=presence-delta-v1,agent-draft-v1", {
       headers: { cookie: "jazzboard_guest=signed", origin: "https://jazzboard.example" },
     });
 
@@ -52,7 +52,13 @@ describe("GET /api/ws", () => {
     );
     expect(mocks.attach).toHaveBeenCalledWith(
       {},
-      { roomId: "room_1", participantId: "p_1", cursor: "50-2", supportsPresenceDelta: true },
+      {
+        roomId: "room_1",
+        participantId: "p_1",
+        cursor: "50-2",
+        supportsPresenceDelta: true,
+        supportsAgentDrafts: true,
+      },
     );
     expect(mocks.upgrade).toHaveBeenCalledWith(expect.any(Function), { maxPayload: 32 * 1024 });
   });

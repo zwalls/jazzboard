@@ -1,10 +1,14 @@
 import type { RoomEvent } from "@/lib/domain/types";
+import {
+  isAgentCanvasDraftEvent,
+  type AgentCanvasDraftEvent,
+} from "@/lib/agent-drafts/types";
 
 import { isRoomEvent, laterStreamCursor, parseStreamCursor } from "./protocol";
 
 export type RealtimeStreamRecord = {
   cursor: string;
-  event: RoomEvent;
+  event: RoomEvent | AgentCanvasDraftEvent;
 };
 
 function text(value: unknown): string | null {
@@ -31,7 +35,10 @@ function parseEntry(value: unknown): RealtimeStreamRecord | null {
 
   try {
     const event: unknown = JSON.parse(encodedEvent);
-    if (!isRoomEvent(event) || (encodedRoomId && encodedRoomId !== event.roomId)) return null;
+    if (
+      (!isRoomEvent(event) && !isAgentCanvasDraftEvent(event)) ||
+      (encodedRoomId && encodedRoomId !== event.roomId)
+    ) return null;
     return { cursor, event };
   } catch {
     return null;

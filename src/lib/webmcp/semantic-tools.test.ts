@@ -3,6 +3,7 @@
 import Ajv from "ajv";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import { applyLayoutCommand, applySemanticTransaction, normalizeRoomSemanticState } from "@/lib/domain/engine";
 import type { ActorRef, CanvasObject, Diagram, Participant, RoomState, Viewport } from "@/lib/domain/types";
 
@@ -152,9 +153,34 @@ function room(objects: CanvasObject[] = [node("api", "Checkout API", "service", 
   });
 }
 
+function agentDraft(
+  overrides: Partial<AgentCanvasDraftSnapshot> = {},
+): AgentCanvasDraftSnapshot {
+  return {
+    schemaVersion: 1,
+    id: "draft_architecture",
+    roomId: "room/a b",
+    ownerParticipantId: "alice",
+    author: actor("agent"),
+    revision: 2,
+    baselineRoomRevision: 7,
+    status: "active",
+    temporaryReferences: { apiNode: "node_stable" },
+    previewObjects: [],
+    previewDiagrams: [],
+    metadata: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    expiresAt: NOW + 60_000,
+    hardExpiresAt: NOW + 600_000,
+    ...overrides,
+  };
+}
+
 function fixture(initialRoom = room(), role: "participant" | "spectator" = "participant") {
   let current = initialRoom;
   const accepted: RoomState[] = [];
+  const acceptedDrafts: AgentCanvasDraftSnapshot[] = [];
   const context: JazzboardWebMcpContext = {
     getRoom: () => current,
     getSelection: () => [],
@@ -167,6 +193,9 @@ function fixture(initialRoom = room(), role: "participant" | "spectator" = "part
       current = next;
       accepted.push(next);
     },
+    acceptAgentDraft(next) {
+      acceptedDrafts.push(next);
+    },
   };
   const binding: JazzboardWebMcpBinding = {
     roomId: "room/a b",
@@ -174,7 +203,7 @@ function fixture(initialRoom = room(), role: "participant" | "spectator" = "part
     role,
     context,
   };
-  return { binding, context, accepted, getRoom: () => current };
+  return { binding, context, accepted, acceptedDrafts, getRoom: () => current };
 }
 
 function tool(tools: WebMCP.ModelContextTool[], name: string) {
@@ -309,17 +338,14 @@ describe("role-scoped semantic tool registration", () => {
       expect.arrayContaining(["op", "tempRef", "label", "nodeType"]),
     );
     expect(createNodeSchema.allOf).toContainEqual({ properties: { label: { minLength: 1 } } });
-    expect(createNodeSchema.propertyNames?.pattern).toContain("nodeMetadata");
-    expect(createNodeSchema.propertyNames?.pattern).not.toContain("description");
+    expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toEqual({
+      $ref: "#/$defs/nodeMetadata",
+    });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(expect.arrayContaining(["op", "tempRef", "title"]));
     expect(batchDiagramRequired).not.toContain("diagramId");
-    expect(operationSchema(transactionSchema, "edit_diagram").anyOf).toEqual(
-      expect.arrayContaining([
-        { required: ["title"] },
-        { required: ["members"] },
-        { required: ["connectors"] },
-      ]),
+    expect(operationSchema(transactionSchema, "edit_diagram").required).toEqual(
+      expect.arrayContaining(["op", "diagramId", "expectedRevision"]),
     );
 
     const autoLayoutRequired = operationSchema(transactionSchema, "auto_layout").required ?? [];
@@ -392,27 +418,26 @@ describe("role-scoped semantic tool registration", () => {
       { type: "null" },
     ]);
     const metadataSchema = transactionSchema.$defs?.nodeMetadata;
-    const metadataVariants = metadataSchema?.oneOf ?? [];
     expect(metadataSchema).toMatchObject({
       type: "object",
       additionalProperties: false,
       required: ["kind"],
+      properties: {
+        kind: { enum: ["decision", "open_question"] },
+        status: {
+          enum: expect.arrayContaining([
+            "proposed",
+            "accepted",
+            "rejected",
+            "superseded",
+            "open",
+            "answered",
+            "deferred",
+            "closed",
+          ]),
+        },
+      },
     });
-    for (const [kind, resolvedStatuses] of [
-      ["decision", ["accepted", "rejected", "superseded"]],
-      ["open_question", ["answered", "deferred", "closed"]],
-    ] as const) {
-      const variant = metadataVariants.find(
-        (candidate) =>
-          candidate.properties?.kind?.const === kind &&
-          candidate.required?.includes("resolution"),
-      );
-      expect(variant?.properties?.status).toMatchObject({
-        enum: expect.arrayContaining([...resolvedStatuses]),
-      });
-      expect(variant?.properties?.resolution).toEqual({ $ref: "#/$defs/nodeResolutionText" });
-    }
-    expect(metadataVariants).toHaveLength(4);
 
     const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
@@ -450,7 +475,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects cross-operation fields in both the advertised transaction schema and strict runtime", async () => {
+  it("rejects cross-operation fields in the authoritative strict runtime validator", async () => {
     const state = room();
     const request = vi.fn(async () => ({
       ok: true,
@@ -501,7 +526,6 @@ describe("role-scoped semantic tool registration", () => {
     for (const [operationIndex, field, value] of irrelevantFields) {
       const invalidInput = structuredClone(validInput);
       invalidInput.operations[operationIndex][field] = value;
-      expect(validatesAdvertisedSchema(invalidInput)).toBe(false);
       await expect(execute(transactionTool, invalidInput)).resolves.toMatchObject({
         ok: false,
         error: { code: "INVALID_TOOL_INPUT" },
@@ -510,7 +534,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it("keeps transaction node lifecycle metadata parity across descriptor and runtime", async () => {
+  it("keeps compact lifecycle discovery plus exact runtime lifecycle validation", async () => {
     const state = room();
     const request = vi.fn(async () => ({
       ok: true,
@@ -575,13 +599,303 @@ describe("role-scoped semantic tool registration", () => {
       await expect(execute(transactionTool, input)).resolves.toMatchObject({ ok: true });
     }
     for (const input of rejectedInputs) {
-      expect(validatesAdvertisedSchema(input)).toBe(false);
       await expect(execute(transactionTool, input)).resolves.toMatchObject({
         ok: false,
         error: { code: "INVALID_TOOL_INPUT" },
       });
     }
     expect(request).toHaveBeenCalledTimes(acceptedInputs.length);
+  });
+});
+
+describe("progressive draft delivery", () => {
+  it("advertises and enforces the optional create-or-replace draft delivery contract", async () => {
+    const request = vi.fn() as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture().binding, { request }),
+      "apply_canvas_transaction",
+    );
+    const schema = schemaFor([transactionTool], "apply_canvas_transaction");
+    const validates = new Ajv({ allErrors: true, logger: false }).compile(
+      transactionTool.inputSchema as object,
+    );
+    const operations = [{
+      op: "create_text",
+      tempRef: "note",
+      content: "Draft note",
+    }];
+
+    expect(schema.properties?.delivery).toEqual({ $ref: "#/$defs/delivery" });
+    expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
+    expect(validates({
+      operations,
+      delivery: {
+        mode: "draft",
+        draftId: "draft_architecture",
+        expectedDraftRevision: 2,
+      },
+    })).toBe(true);
+    expect(validates({
+      operations,
+      delivery: { mode: "draft", draftId: "draft_architecture" },
+    })).toBe(false);
+
+    await expect(execute(transactionTool, {
+      operations,
+      delivery: { mode: "draft", expectedDraftRevision: 2 },
+    })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "update",
+        objectId: "api",
+        expectedRevision: 1,
+        patch: { label: "Existing-object edit" },
+      }],
+      delivery: { mode: "draft" },
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "INVALID_TOOL_INPUT", message: expect.stringContaining("schema") },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("stages a new draft without mutating or accepting an authoritative room", async () => {
+    const state = fixture();
+    const createId = vi.fn((prefix: string) => `${prefix}_stable`);
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        draftId: string;
+        baselineRoomRevision: number;
+        temporaryReferences: Record<string, string>;
+      };
+      return {
+        ok: true,
+        draft: agentDraft({
+          id: body.draftId,
+          revision: 1,
+          baselineRoomRevision: body.baselineRoomRevision,
+          temporaryReferences: body.temporaryReferences,
+        }),
+      };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, { request, createId }),
+      "apply_canvas_transaction",
+    );
+
+    const result = await execute(transactionTool, {
+      operations: [{
+        op: "create_node",
+        tempRef: "apiNode",
+        label: "API",
+        nodeType: "service",
+      }],
+      delivery: { mode: "draft" },
+      intent: "Draft an architecture",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "drafted",
+        draftId: "draft_stable",
+        draftRevision: 1,
+        baselineRoomRevision: 7,
+        temporaryReferences: { apiNode: "node_stable" },
+      },
+    });
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("/api/rooms/room%2Fa%20b/agent/drafts", {
+      method: "POST",
+      body: expect.any(String),
+      signal: expect.any(AbortSignal),
+    });
+    const body = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
+    ));
+    expect(body).toMatchObject({
+      draftId: "draft_stable",
+      baselineRoomRevision: 7,
+      temporaryReferences: { apiNode: "node_stable" },
+      metadata: { intent: "Draft an architecture" },
+      transaction: {
+        commands: [{ type: "create", object: { id: "node_stable", label: "API" } }],
+        diagramCommands: [],
+      },
+    });
+    expect(state.accepted).toEqual([]);
+    expect(state.acceptedDrafts).toHaveLength(1);
+  });
+
+  it("keeps tempRef IDs stable when a cumulative draft omits and later reintroduces a candidate", async () => {
+    const state = fixture();
+    const prefixCounts = new Map<string, number>();
+    const createId = vi.fn((prefix: string) => {
+      const count = (prefixCounts.get(prefix) ?? 0) + 1;
+      prefixCounts.set(prefix, count);
+      return `${prefix}_${count}`;
+    });
+    let persistedDraft: AgentCanvasDraftSnapshot | null = null;
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return { ok: true, draft: persistedDraft };
+      const body = JSON.parse(String(init?.body)) as {
+        draftId?: string;
+        expectedDraftRevision?: number;
+        baselineRoomRevision: number;
+        transaction: unknown;
+        temporaryReferences: Record<string, string>;
+      };
+      if (init?.method === "POST") {
+        persistedDraft = agentDraft({
+          id: body.draftId ?? "draft_missing",
+          revision: 1,
+          baselineRoomRevision: body.baselineRoomRevision,
+          temporaryReferences: body.temporaryReferences,
+        });
+      } else {
+        const previous = persistedDraft;
+        if (!previous) throw new Error("Expected an existing draft before replacement.");
+        persistedDraft = agentDraft({
+          id: previous.id,
+          revision: (body.expectedDraftRevision ?? previous.revision) + 1,
+          baselineRoomRevision: body.baselineRoomRevision,
+          // The server keeps reservations for the lifetime of the draft even
+          // though the current cumulative preview includes only active refs.
+          temporaryReferences: {
+            ...previous.temporaryReferences,
+            ...body.temporaryReferences,
+          },
+        });
+      }
+      return { ok: true, draft: persistedDraft };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, { request, createId }),
+      "apply_canvas_transaction",
+    );
+    const firstOperations = [
+      { op: "create_shape", tempRef: "recoverable", label: "Candidate" },
+      { op: "create_text", tempRef: "anchor", content: "Anchor" },
+    ];
+
+    const first = await execute(transactionTool, {
+      operations: firstOperations,
+      delivery: { mode: "draft" },
+    });
+    expect(first).toMatchObject({
+      ok: true,
+      data: {
+        draftId: "draft_1",
+        draftRevision: 1,
+        temporaryReferences: {
+          recoverable: "shape_1",
+          anchor: "text_1",
+        },
+      },
+    });
+
+    const omitted = await execute(transactionTool, {
+      operations: [{ op: "create_text", tempRef: "anchor", content: "Anchor only" }],
+      delivery: {
+        mode: "draft",
+        draftId: "draft_1",
+        expectedDraftRevision: 1,
+      },
+    });
+    expect(omitted).toMatchObject({
+      ok: true,
+      data: {
+        draftRevision: 2,
+        temporaryReferences: {
+          recoverable: "shape_1",
+          anchor: "text_1",
+        },
+      },
+    });
+
+    const reintroduced = await execute(transactionTool, {
+      operations: [
+        { op: "create_text", tempRef: "anchor", content: "Anchor restored" },
+        { op: "create_shape", tempRef: "recoverable", label: "Candidate restored" },
+      ],
+      delivery: {
+        mode: "draft",
+        draftId: "draft_1",
+        expectedDraftRevision: 2,
+      },
+    });
+    expect(reintroduced).toMatchObject({
+      ok: true,
+      data: {
+        draftRevision: 3,
+        temporaryReferences: {
+          recoverable: "shape_1",
+          anchor: "text_1",
+        },
+      },
+    });
+
+    expect(createId.mock.calls).toEqual([["shape"], ["text"], ["draft"]]);
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/api/rooms/room%2Fa%20b/drafts/draft_1",
+      { method: "GET", signal: expect.any(AbortSignal) },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      4,
+      "/api/rooms/room%2Fa%20b/drafts/draft_1",
+      { method: "GET", signal: expect.any(AbortSignal) },
+    );
+    const calls = (request as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const omittedBody = JSON.parse(String((calls[2]?.[1] as RequestInit).body));
+    const reintroducedBody = JSON.parse(String((calls[4]?.[1] as RequestInit).body));
+    expect(omittedBody.temporaryReferences).toEqual({ anchor: "text_1" });
+    expect(omittedBody.transaction.commands).toEqual([
+      expect.objectContaining({
+        type: "create",
+        object: expect.objectContaining({ id: "text_1", content: "Anchor only" }),
+      }),
+    ]);
+    expect(reintroducedBody.temporaryReferences).toEqual({
+      recoverable: "shape_1",
+      anchor: "text_1",
+    });
+    expect(reintroducedBody.transaction.commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "create",
+        object: expect.objectContaining({ id: "shape_1", label: "Candidate restored" }),
+      }),
+    ]));
+    expect(state.acceptedDrafts.map(({ revision }) => revision)).toEqual([1, 1, 2, 2, 3]);
+  });
+
+  it("stops after exact-read when the persisted draft revision has changed", async () => {
+    const state = fixture();
+    const request = vi.fn(async () => ({
+      ok: true,
+      draft: agentDraft({ revision: 3 }),
+    })) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{ op: "create_text", tempRef: "note", content: "Draft" }],
+      delivery: {
+        mode: "draft",
+        draftId: "draft_architecture",
+        expectedDraftRevision: 2,
+      },
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "DRAFT_REVISION_CONFLICT",
+        details: { currentDraftRevision: 3, expectedDraftRevision: 2 },
+      },
+    });
+    expect(request).toHaveBeenCalledOnce();
+    expect(state.acceptedDrafts).toEqual([expect.objectContaining({ revision: 3 })]);
   });
 });
 

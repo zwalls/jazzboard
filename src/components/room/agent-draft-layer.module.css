@@ -1,0 +1,143 @@
+.layer {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  z-index: 340;
+}
+
+.art {
+  display: block;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+}
+
+.draftArtwork {
+  color: var(--agent-draft-color, #5965e8);
+  opacity: 0.68;
+  pointer-events: none;
+}
+
+.draftArtwork > g {
+  animation: draft-arrive 140ms ease-out both;
+  pointer-events: none;
+}
+
+.objectHalo {
+  fill: color-mix(in srgb, var(--agent-draft-color, #5965e8) 7%, transparent);
+  pointer-events: none;
+  stroke: var(--agent-draft-color, #5965e8);
+  stroke-dasharray: 8 6;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.shape {
+  pointer-events: none;
+}
+
+.connector {
+  fill: none;
+  pointer-events: none;
+  stroke: var(--agent-draft-color, #5965e8);
+  stroke-dasharray: 9 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5px;
+}
+
+.arrowhead {
+  fill: var(--agent-draft-color, #5965e8);
+  pointer-events: none;
+}
+
+.connectorLabel {
+  fill: color-mix(in srgb, #fff 88%, var(--agent-draft-color, #5965e8));
+  pointer-events: none;
+  stroke: color-mix(in srgb, var(--agent-draft-color, #5965e8) 55%, #fff);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.imagePlaceholder {
+  fill: color-mix(in srgb, #fff 88%, var(--agent-draft-color, #5965e8));
+  pointer-events: none;
+  stroke: var(--agent-draft-color, #5965e8);
+  stroke-dasharray: 8 6;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.statusPill {
+  background: color-mix(in srgb, #fff 94%, var(--agent-draft-color, #5965e8));
+  border: 1px dashed color-mix(in srgb, var(--agent-draft-color, #5965e8) 66%, #fff);
+  border-radius: 9px;
+  box-shadow: 0 5px 18px rgba(35, 43, 72, 0.12);
+  color: #3f4960;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 230px;
+  padding: 6px 9px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.statusPill::before {
+  background: var(--agent-draft-color, #5965e8);
+  border-radius: 999px;
+  content: "";
+  height: 6px;
+  left: -3px;
+  position: absolute;
+  top: 9px;
+  width: 6px;
+}
+
+.statusPill strong {
+  color: #252d40;
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusPill span {
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.liveRegion {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@keyframes draft-arrive {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draftArtwork > g {
+    animation: none;
+  }
+}

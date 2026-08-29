@@ -244,6 +244,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         },
       } : {}),
       acceptRoom: controller.acceptRoom,
+      acceptAgentDraft: controller.acceptAgentDraft,
+      removeAgentDraft: controller.removeAgentDraft,
       setFollowTarget: updateFollowTarget,
       setDeclinedSpotlight: updateDeclinedSpotlight,
       leaveRoomView,
@@ -258,6 +260,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     };
   }, [
     controller.acceptRoom,
+    controller.acceptAgentDraft,
+    controller.removeAgentDraft,
     canvasRuntime?.capabilities.renderPng,
     canvasRuntime?.rendererId,
     leaveRoomView,
@@ -796,6 +800,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         boardMenuActions={boardMenuActions}
         persistentChromeHost={persistentChromeHost}
         room={room}
+        agentDrafts={controller.agentDrafts}
         self={self}
         followTarget={effectiveFollowTarget}
         command={controller.command}

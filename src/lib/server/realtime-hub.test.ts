@@ -7,6 +7,7 @@ import type Redis from "ioredis";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RoomEvent, RoomState } from "@/lib/domain/types";
+import type { AgentCanvasDraftEvent } from "@/lib/agent-drafts/types";
 import { compactRoomEvent } from "@/lib/realtime/events";
 import type { RealtimeServerMessage } from "@/lib/realtime/protocol";
 
@@ -162,6 +163,51 @@ describe("RealtimeHub", () => {
     socket.emit("close");
     publishLocal!(event("event_3", 3));
     expect(socket.messages().filter((message) => message.type === "event")).toHaveLength(1);
+    hub.dispose();
+  });
+
+  it("broadcasts compact draft invalidations without reconciling room revisions", async () => {
+    let publishDraft: ((draftEvent: AgentCanvasDraftEvent) => void) | null = null;
+    const readRoomSnapshot = vi.fn(async () => room());
+    const hub = new RealtimeHub({
+      readRoom: async () => room(),
+      readRoomSnapshot,
+      subscribeLocal: () => vi.fn(),
+      subscribeLocalDrafts: (listener) => {
+        publishDraft = listener;
+        return vi.fn();
+      },
+      getRedis: () => null,
+    });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, {
+      roomId: "room_1",
+      participantId: "p_1",
+      supportsAgentDrafts: true,
+    });
+    await vi.waitFor(() =>
+      expect(socket.messages().map((message) => message.type)).toEqual(["ready", "snapshot"]),
+    );
+
+    publishDraft!({
+      schemaVersion: 1,
+      id: "draft_event_1",
+      roomId: "room_1",
+      occurredAt: 2_001,
+      type: "draft.upsert",
+      draftId: "draft_1",
+      ownerParticipantId: "p_1",
+      revision: 2,
+      status: "active",
+      expiresAt: 92_001,
+    });
+
+    expect(socket.messages().at(-1)).toMatchObject({
+      type: "draft.invalidated",
+      cursor: null,
+      event: { draftId: "draft_1", revision: 2 },
+    });
+    expect(readRoomSnapshot).not.toHaveBeenCalled();
     hub.dispose();
   });
 

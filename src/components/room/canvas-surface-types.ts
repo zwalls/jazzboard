@@ -1,4 +1,5 @@
 import type { ConnectionState, LeaseAction, LeaseBatchAction } from "@/hooks/use-room";
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type {
   ActorKind,
@@ -24,6 +25,8 @@ export type CanvasSurfaceProps = {
   boardMenuActions: BoardMenuActions;
   persistentChromeHost?: HTMLElement | null;
   room: RoomState;
+  /** Ephemeral, presentation-only agent previews; never part of RoomState. */
+  agentDrafts?: readonly AgentCanvasDraftSnapshot[];
   self: Participant;
   followTarget: FollowTarget;
   command: (command: CanvasCommand, actorKind?: ActorKind) => Promise<CommandResult>;
