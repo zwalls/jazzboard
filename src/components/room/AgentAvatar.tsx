@@ -52,7 +52,7 @@ export function AgentAvatar({
   const commonOptions = {
     name: seed,
     size: avatarSize,
-    background: "squircle" as const,
+    background: false,
     expression: state === "working" ? thinking : undefined,
   };
 

@@ -1,15 +1,9 @@
 .avatar {
   align-items: center;
-  background: #fff;
-  border-radius: 35%;
-  box-shadow:
-    0 0 0 2px var(--agent-avatar-accent),
-    0 2px 7px color-mix(in srgb, var(--agent-avatar-accent) 22%, transparent);
   display: inline-flex;
   flex: 0 0 var(--agent-avatar-size);
   height: var(--agent-avatar-size);
   justify-content: center;
-  overflow: hidden;
   position: relative;
   vertical-align: middle;
   width: var(--agent-avatar-size);
@@ -23,9 +17,6 @@
   width: 100%;
 }
 
-.avatar[data-agent-avatar-state="working"] {
-  box-shadow:
-    0 0 0 2px var(--agent-avatar-accent),
-    0 0 0 5px color-mix(in srgb, var(--agent-avatar-accent) 14%, transparent),
-    0 3px 10px color-mix(in srgb, var(--agent-avatar-accent) 28%, transparent);
+.avatar[data-agent-avatar-state="working"] > :is(img, svg) {
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--agent-avatar-accent) 28%, transparent));
 }

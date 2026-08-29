@@ -64,6 +64,7 @@ describe("AgentAvatar", () => {
     rerender(<AgentAvatar displayName="Mira" motion="hover" state="idle" />);
     expect(avatar()).toHaveAttribute("data-agent-avatar-motion", "hover");
     expect(container.querySelector("svg")).toBeInTheDocument();
+    expect(container.querySelector("svg > path")).not.toBeInTheDocument();
     expect(container.querySelector("img")).not.toBeInTheDocument();
 
     rerender(<AgentAvatar displayName="Mira" state="working" />);
