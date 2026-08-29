@@ -3,6 +3,7 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import {
   createCanvasObject,
   createRoomViaApi,
+  getRoom,
   joinRoomViaApi,
   shapeObject,
 } from "./helpers";
@@ -387,6 +388,148 @@ test("trusted touch input taps and drags objects, pans blank canvas, and pinches
     await expect(longPressMenu).toBeVisible();
     await expect(longPressMenu.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  } finally {
+    await context.close();
+  }
+});
+
+test("the Hand tool pinches through the empty-board status layer", async ({ browser }) => {
+  test.setTimeout(60_000);
+  const viewport = MOBILE_VIEWPORTS[1];
+  const context = await mobileContext(browser, viewport);
+  try {
+    const page = await context.newPage();
+    const host = await createRoomViaApi(page.request, "Empty Hand pinch QA", "Empty Hand pinch acceptance");
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+
+    const canvas = page.getByTestId("semantic-canvas");
+    const emptyState = page.getByTestId("canvas-empty-state");
+    await expect(canvas).toBeVisible({ timeout: 20_000 });
+    await expect(emptyState).toBeVisible();
+
+    await page.getByRole("button", { name: /active\. Choose a canvas tool/ }).tap();
+    await page.getByRole("dialog", { name: "Canvas tools" })
+      .getByRole("button", { name: "Pan canvas" })
+      .tap();
+    await expect(canvas).toHaveAttribute("data-active-tool", "hand");
+
+    const emptyBounds = await rect(emptyState);
+    const midpoint = {
+      x: emptyBounds.x + emptyBounds.width / 2,
+      y: emptyBounds.y + emptyBounds.height / 2,
+    };
+    const contacts = [
+      { x: midpoint.x - 34, y: midpoint.y, id: 41 },
+      { x: midpoint.x + 34, y: midpoint.y, id: 42 },
+    ];
+    const statusInterceptsTouch = await page.evaluate(({ x, y }) => (
+      document.elementFromPoint(x, y)?.closest("[data-testid='canvas-empty-state']") !== null
+    ), contacts[0]);
+    expect(statusInterceptsTouch, "empty-board status must not intercept Hand gestures").toBe(false);
+
+    const zoom = page.getByLabel(/Canvas zoom \d+%/);
+    const beforeZoom = Number.parseInt((await zoom.getAttribute("aria-label"))?.match(/\d+/)?.[0] ?? "0", 10);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [contacts[0]],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: contacts,
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: midpoint.x - 72, y: midpoint.y, id: 41 },
+        { x: midpoint.x + 72, y: midpoint.y, id: 42 },
+      ],
+    });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+    await expect.poll(async () => Number.parseInt(
+      (await zoom.getAttribute("aria-label"))?.match(/\d+/)?.[0] ?? "0",
+      10,
+    )).toBeGreaterThan(beforeZoom);
+    await expect(canvas).toHaveAttribute("data-active-tool", "hand");
+    await expect(page.getByTestId("canvas-selection-count")).toHaveText("0 selected");
+  } finally {
+    await context.close();
+  }
+});
+
+test("the Hand tool pinches the camera without selecting or mutating objects", async ({ browser }) => {
+  test.setTimeout(60_000);
+  const viewport = MOBILE_VIEWPORTS[1];
+  const context = await mobileContext(browser, viewport);
+  try {
+    const page = await context.newPage();
+    const host = await createRoomViaApi(page.request, "Hand pinch QA", "Hand tool pinch acceptance");
+    await createCanvasObject(page.request, host.room.id, {
+      ...shapeObject("mobile-hand-pinch-shape", "Camera-only target", 120, 190, "blue"),
+      nodeType: "component",
+    });
+    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+
+    const canvas = page.getByTestId("semantic-canvas");
+    const shape = page.locator('[data-object-id="mobile-hand-pinch-shape"][data-object-kind="shape"]');
+    await expect(canvas).toBeVisible({ timeout: 20_000 });
+    await expect(shape).toBeVisible();
+
+    await page.getByRole("button", { name: /active\. Choose a canvas tool/ }).tap();
+    const toolsSheet = page.getByRole("dialog", { name: "Canvas tools" });
+    await toolsSheet.getByRole("button", { name: "Pan canvas" }).tap();
+    await expect(page.getByRole("button", { name: /^Hand active\. Choose a canvas tool$/ })).toBeVisible();
+    await expect(canvas).toHaveAttribute("data-active-tool", "hand");
+    await expect(page.getByTestId("canvas-selection-count")).toHaveText("0 selected");
+
+    const beforeObject = (await getRoom(page.request, host.room.id)).room.objects["mobile-hand-pinch-shape"];
+    const objectBounds = await rect(shape);
+    const first = {
+      x: objectBounds.x + objectBounds.width / 2,
+      y: objectBounds.y + objectBounds.height / 2,
+    };
+    const second = { x: 24, y: viewport.height - 160 };
+    const secondIsBlank = await page.evaluate(({ x, y }) => {
+      const target = document.elementFromPoint(x, y);
+      return Boolean(target)
+        && target?.closest("[data-object-id], button, [role='dialog']") === null;
+    }, second);
+    expect(secondIsBlank, "the second Hand pinch contact must land on blank canvas").toBe(true);
+
+    const zoom = page.getByLabel(/Canvas zoom \d+%/);
+    const beforeZoom = Number.parseInt((await zoom.getAttribute("aria-label"))?.match(/\d+/)?.[0] ?? "0", 10);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...first, id: 31 }],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...first, id: 31 }, { ...second, id: 32 }],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: Math.min(viewport.width - 2, first.x + 28), y: Math.max(2, first.y - 28), id: 31 },
+        { x: 2, y: Math.min(viewport.height - 120, second.y + 28), id: 32 },
+      ],
+    });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+    await expect.poll(async () => Number.parseInt(
+      (await zoom.getAttribute("aria-label"))?.match(/\d+/)?.[0] ?? "0",
+      10,
+    )).toBeGreaterThan(beforeZoom);
+    await expect(canvas).toHaveAttribute("data-active-tool", "hand");
+    await expect(page.getByTestId("canvas-selection-count")).toHaveText("0 selected");
+
+    const afterObject = (await getRoom(page.request, host.room.id)).room.objects["mobile-hand-pinch-shape"];
+    expect(afterObject).toMatchObject({
+      revision: beforeObject.revision,
+      x: beforeObject.x,
+      y: beforeObject.y,
+    });
   } finally {
     await context.close();
   }

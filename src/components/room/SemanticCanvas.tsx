@@ -3071,7 +3071,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       })() : null}
 
       {!scene.objects.length ? (
-        <div className={styles.empty}>This board is empty. Participants can add the first semantic object.</div>
+        <div className={styles.empty} data-testid="canvas-empty-state">
+          This board is empty. Participants can add the first semantic object.
+        </div>
       ) : null}
 
       <CanvasPresenceOverlay

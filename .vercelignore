@@ -3,6 +3,7 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
+artifacts/
 e2e/
 **/*.test.ts
 tsconfig.tsbuildinfo

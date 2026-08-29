@@ -69,6 +69,7 @@
   left: 50%;
   line-height: 1.5;
   max-width: 310px;
+  pointer-events: none;
   position: absolute;
   text-align: center;
   top: 50%;
