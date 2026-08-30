@@ -857,6 +857,39 @@ describe("SemanticCanvas", () => {
     expect(transientPresence).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: null }));
   });
 
+  it("keeps temporary local framing out of multiplayer presence", async () => {
+    vi.useFakeTimers();
+    let runtime: CanvasRuntime | null = null;
+    const { presence, transientPresence } = renderCanvas(
+      vi.fn((next) => { runtime = next; }),
+    );
+    expect(runtime).not.toBeNull();
+    await flushMicrotasks();
+    presence.mockClear();
+    transientPresence.mockClear();
+
+    runtime!.zoomToBounds(
+      { x: 100, y: 120, width: 320, height: 180 },
+      { inset: 72, force: true, publishPresence: false },
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(ACTIVE_PRESENCE_KEYFRAME_MS);
+    });
+    await flushMicrotasks();
+
+    expect(transientPresence).not.toHaveBeenCalled();
+    expect(presence).not.toHaveBeenCalled();
+
+    const canvas = screen.getByTestId("semantic-canvas");
+    fireEvent.pointerMove(canvas, { pointerId: 71, clientX: 420, clientY: 260 });
+    await act(async () => {
+      vi.advanceTimersByTime(TRANSIENT_PRESENCE_INTERVAL_MS);
+    });
+    expect(transientPresence).toHaveBeenCalledWith(expect.objectContaining({
+      viewport: runtime!.getViewport(),
+    }));
+  });
+
   it("publishes one forced durable keyframe for every non-live to live reconnect edge", async () => {
     const presence = vi.fn().mockResolvedValue(undefined);
     const props = {

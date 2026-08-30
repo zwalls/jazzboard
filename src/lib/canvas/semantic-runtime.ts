@@ -13,7 +13,10 @@ export type SemanticCanvasRuntimeHost = {
   getRoom(): RoomState;
   getScene(): SemanticScene;
   getViewport(): Viewport;
-  setViewport(viewport: Viewport, options: Pick<CanvasZoomOptions, "durationMs" | "force">): void;
+  setViewport(
+    viewport: Viewport,
+    options: Pick<CanvasZoomOptions, "durationMs" | "force" | "publishPresence">,
+  ): void;
   getSelection(): readonly string[];
   setSelection(objectIds: readonly string[]): void;
   onDocumentChange(listener: () => void): () => void;
@@ -123,7 +126,13 @@ export function createSemanticCanvasRuntime(host: SemanticCanvasRuntimeHost): Ca
       const next = options.targetZoom === undefined
         ? fitted
         : viewportAtZoom(bounds, current, clampCanvasZoom(options.targetZoom));
-      host.setViewport(next, { durationMs: options.durationMs, force: options.force });
+      host.setViewport(next, {
+        durationMs: options.durationMs,
+        force: options.force,
+        ...(options.publishPresence === undefined
+          ? {}
+          : { publishPresence: options.publishPresence }),
+      });
     },
     isObjectProjectionExact(object) {
       const current = host.getRoom().objects[object.id];

@@ -11,6 +11,8 @@ export type CanvasZoomOptions = {
   targetZoom?: number;
   durationMs?: number;
   force?: boolean;
+  /** False for temporary local framing that must not update multiplayer presence. */
+  publishPresence?: boolean;
 };
 
 export type CanvasPngRenderOptions = {

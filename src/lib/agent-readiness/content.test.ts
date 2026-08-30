@@ -302,11 +302,11 @@ describe("agent-readable content", () => {
       expect(body, `${name} omits geometry analysis`).toContain("`analyze_diagram_layout`");
       expect(body, `${name} omits intent limits`).toMatch(/intent-unaware|requested intent/i);
       expect(body, `${name} omits freeform preservation`).toMatch(/freeform|deliberate geometry/i);
-      expect(body, `${name} omits preview rendering`).toContain("`render_canvas_preview`");
+      expect(body, `${name} omits preview framing`).toContain("`render_canvas_preview`");
       expect(body, `${name} omits screenshot capture`).toContain("`screenshotClip`");
       expect(body, `${name} omits pixel inspection`).toMatch(/inspect[^\n]*pixels|pixel inspection/i);
-      expect(body, `${name} conflates rendering and inspection`).toMatch(
-        /rendering[^\n]*(?:not|isn't|does not)[^\n]*(?:inspection|visual QA)|render[^\n]*not[^\n]*visual inspection/i,
+      expect(body, `${name} conflates framing and inspection`).toMatch(
+        /(?:rendering|framing|validation)[^\n]*(?:not|isn't|does not|do not)[^\n]*(?:inspection|visual QA)|render[^\n]*not[^\n]*visual inspection/i,
       );
     }
 
@@ -315,6 +315,11 @@ describe("agent-readable content", () => {
     expect(guide).toContain("correct every unintended finding");
     expect(guide).toContain("keep intentional geometry");
     expect(guide).toContain("visualInspectionStatus: not_performed");
+    expect(guide).toContain("existing live canvas");
+    expect(guide).toContain("without painting a duplicate modal or temporary image surface");
+    expect(guide).toMatch(/viewport, browser-window, or scoped-revision change makes the clip stale/i);
+    expect(guide).toContain("persists no image");
+    expect(guide).toContain("exposes no preview URL");
     expect(guide).toContain("graph-aware hierarchy layout");
     expect(guide).toContain("explicit ports");
     expect(guide).toMatch(/edit[^\n]*repeat/i);

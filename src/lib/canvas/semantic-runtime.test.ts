@@ -35,7 +35,13 @@ const scene = {
 function host() {
   let viewport: Viewport = { x: 0, y: 0, width: 800, height: 600, zoom: 1 };
   let selection: readonly string[] = [];
-  const setViewport = vi.fn((next: Viewport) => { viewport = next; });
+  const setViewport = vi.fn((
+    next: Viewport,
+    _options: Parameters<SemanticCanvasRuntimeHost["setViewport"]>[1],
+  ) => {
+    void _options;
+    viewport = next;
+  });
   const setSelection = vi.fn((next: readonly string[]) => { selection = next; });
   const source = {
     getRoom: () => ({ objects: { "node-a": object } }) as unknown as RoomState,
@@ -148,10 +154,14 @@ describe("semantic CanvasRuntime", () => {
     expect(runtime.pageToViewport({ x: 20, y: 30 })).toEqual({ x: 20, y: 30 });
     expect(runtime.viewportToPage({ x: 40, y: 50 })).toEqual({ x: 40, y: 50 });
 
-    runtime.zoomToBounds({ x: 100, y: 200, width: 300, height: 120 }, { inset: 100 });
+    runtime.zoomToBounds(
+      { x: 100, y: 200, width: 300, height: 120 },
+      { inset: 100, publishPresence: false },
+    );
     expect(source.setViewport).toHaveBeenCalledOnce();
     const focused = source.setViewport.mock.calls[0][0];
     expect(focused.x + focused.width / 2).toBeCloseTo(250);
     expect(focused.y + focused.height / 2).toBeCloseTo(260);
+    expect(source.setViewport.mock.calls[0][1]).toMatchObject({ publishPresence: false });
   });
 });

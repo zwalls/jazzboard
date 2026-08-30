@@ -43,9 +43,9 @@ import type {
 } from "@/lib/domain/types";
 import { useRoomActivity } from "@/hooks/use-room-activity";
 import {
-  CanvasPreviewError,
   InRoomCanvasPreviewTransport,
   JazzboardWebMcpRegistrar,
+  presentLiveCanvasPreview,
   renderCanvasPreview,
 } from "@/lib/webmcp";
 import type { JazzboardWebMcpContext } from "@/lib/webmcp";
@@ -53,7 +53,6 @@ import { useRoom } from "@/hooks/use-room";
 
 import { CanvasSurface, type CanvasSurfaceHandle } from "./CanvasSurface";
 import type { BoardMenuActions } from "./canvas-surface-types";
-import { CanvasPreviewHost, type CanvasPreviewHostHandle } from "./CanvasPreviewHost";
 import { ActivityTimeline, type ActivityActorFilter } from "./ActivityTimeline";
 import { AgentAvatar, isAgentActivityWorking } from "./AgentAvatar";
 import { AskAgentPanel } from "./AskAgentPanel";
@@ -164,7 +163,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const canvasRuntimeRef = useRef(canvasRuntime);
   const followTargetRef = useRef(followTarget);
   const followPopoverAnchorRef = useRef<HTMLDivElement | null>(null);
-  const previewHostRef = useRef<CanvasPreviewHostHandle | null>(null);
   const canvasRef = useRef<CanvasSurfaceHandle | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
   const [webMcpRegistrar] = useState(
@@ -239,7 +237,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }, [canvasRuntime, followTarget, room, selection]);
 
   useEffect(() => {
-    const previewHost = previewHostRef.current;
     const canRenderPng = canvasRuntimeRef.current?.capabilities.renderPng === true;
     const context: JazzboardWebMcpContext = {
       getRoom: () => roomStateRef.current,
@@ -253,16 +250,22 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             request,
             signal,
           ),
-        presentCanvasPreview: (artifact, signal) => {
-          const host = previewHostRef.current;
-          if (!host) {
-            throw new CanvasPreviewError(
-              "PREVIEW_PRESENTER_UNAVAILABLE",
-              "The temporary in-room preview surface is not available.",
-            );
-          }
-          return host.present(artifact, signal);
-        },
+        presentCanvasPreview: (artifact, signal) => presentLiveCanvasPreview(
+          {
+            getCanvasRuntime: () => canvasRuntimeRef.current,
+            getCanvasElement: () => canvasRef.current?.getCanvasElement() ?? null,
+            getRoom: () => roomStateRef.current,
+            isCameraFollowActive: () => Boolean(
+              followTargetRef.current
+              || (
+                participantId
+                && roomStateRef.current?.spotlight?.followingParticipantIds.includes(participantId)
+              )
+            ),
+          },
+          artifact,
+          signal,
+        ),
         saveCanvasPng: async (artifact, filename, signal) => {
           if (signal.aborted) throw new DOMException("The PNG export was cancelled.", "AbortError");
           downloadBlobFile(artifact.blob, filename);
@@ -281,7 +284,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     void webMcpRegistrar.update(binding).catch(() => undefined);
     return () => {
       webMcpRegistrar.dispose();
-      previewHost?.dismiss();
     };
   }, [
     controller.acceptRoom,
@@ -906,8 +908,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         }}
         onError={showError}
       />
-      <CanvasPreviewHost ref={previewHostRef} />
-
       {askPreparationError ? (
         <div className={styles.askPreparationError} role="alert">
           <span>{askPreparationError}</span>

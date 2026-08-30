@@ -434,7 +434,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
         geometryQualityStatus: "unknown",
-        nextStep: expect.stringMatching(/Rendering is not visual QA.*screenshotClip.*Do not report visual QA as passed/),
+        nextStep: expect.stringMatching(/Framing is not visual QA.*screenshotClip.*Do not report visual QA as passed/),
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");

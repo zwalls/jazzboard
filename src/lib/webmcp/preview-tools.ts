@@ -231,9 +231,9 @@ export function createJazzboardPreviewWebMcpTools(
   return [
     {
       name: "render_canvas_preview",
-      title: "Render an exact Jazzboard canvas preview",
+      title: "Inspect an exact Jazzboard canvas region",
       description:
-        "Render up to 1,000 exact object or Diagram targets into a temporary PNG; capture and inspect its screenshot because rendering is not visual QA.",
+        "Validate and locally frame up to 1,000 exact object or Diagram targets on the live canvas; unavailable during Follow or Spotlight, and framing is not visual QA.",
       inputSchema: {
         type: "object",
         properties: {
@@ -294,9 +294,9 @@ export function createJazzboardPreviewWebMcpTools(
         required: ["scope"],
         additionalProperties: false,
       },
-      // This does not mutate shared room state, but it intentionally paints a
-      // temporary local preview surface, so WebMCP's strict "only reads data"
-      // readOnlyHint would be misleading.
+      // This does not mutate shared room state, but it intentionally moves the
+      // local camera to frame the requested scope, so WebMCP's strict "only
+      // reads data" readOnlyHint would be misleading.
       annotations: { untrustedContentHint: true },
       async execute(rawInput, options) {
         try {

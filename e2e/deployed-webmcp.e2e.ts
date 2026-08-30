@@ -180,6 +180,7 @@ type TransactionData = {
 
 type CanvasPreviewData = {
   previewId: string;
+  presentation: "live_canvas";
   visualInspectionStatus: "not_performed";
   geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
   nextStep: string;
@@ -1051,7 +1052,7 @@ test.describe("WebMCP browser acceptance", () => {
       previewId: expect.stringMatching(/^preview_/),
       visualInspectionStatus: "not_performed",
       geometryQualityStatus: "pass",
-      nextStep: expect.stringMatching(/Rendering is not visual QA.*screenshotClip/),
+      nextStep: expect.stringMatching(/Framing is not visual QA.*screenshotClip/),
       screenshotClip: {
         coordinateSpace: "viewport-css-pixels",
         x: expect.any(Number),
@@ -1080,16 +1081,18 @@ test.describe("WebMCP browser acceptance", () => {
     expect(preview).not.toHaveProperty("imageUrl");
     expect(preview).not.toHaveProperty("dataUrl");
 
-    const previewDialog = page.getByRole("dialog", { name: "Canvas preview" });
-    const previewImage = previewDialog.getByAltText("Exact rendered Jazzboard canvas preview");
-    await expect(previewDialog).toBeVisible();
-    await expect(previewImage).toBeVisible();
-    const previewImageBounds = await previewImage.boundingBox();
-    expect(previewImageBounds).not.toBeNull();
-    expect(previewImageBounds!.x).toBeCloseTo(preview.screenshotClip.x, 1);
-    expect(previewImageBounds!.y).toBeCloseTo(preview.screenshotClip.y, 1);
-    expect(previewImageBounds!.width).toBeCloseTo(preview.screenshotClip.width, 1);
-    expect(previewImageBounds!.height).toBeCloseTo(preview.screenshotClip.height, 1);
+    expect(preview.presentation).toBe("live_canvas");
+    await expect(page.getByRole("dialog", { name: "Canvas preview" })).toHaveCount(0);
+    const liveCanvasBounds = await page.getByTestId("semantic-canvas").boundingBox();
+    expect(liveCanvasBounds).not.toBeNull();
+    expect(preview.screenshotClip.x).toBeGreaterThanOrEqual(liveCanvasBounds!.x - 1);
+    expect(preview.screenshotClip.y).toBeGreaterThanOrEqual(liveCanvasBounds!.y - 1);
+    expect(preview.screenshotClip.x + preview.screenshotClip.width).toBeLessThanOrEqual(
+      liveCanvasBounds!.x + liveCanvasBounds!.width + 1,
+    );
+    expect(preview.screenshotClip.y + preview.screenshotClip.height).toBeLessThanOrEqual(
+      liveCanvasBounds!.y + liveCanvasBounds!.height + 1,
+    );
     expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual({
       x: 0,
       y: 0,
@@ -1119,8 +1122,6 @@ test.describe("WebMCP browser acceptance", () => {
     expect(previewPng.length).toBeGreaterThan(512);
     expect(previewPng.readUInt32BE(16)).toBeGreaterThan(64);
     expect(previewPng.readUInt32BE(20)).toBeGreaterThan(32);
-    await previewDialog.getByRole("button", { name: "Dismiss canvas preview" }).click();
-    await expect(previewDialog).toBeHidden();
 
     const drawing = successData(
       await callWebMcpTool<CreateObjectData>(page, "create_drawing", {
@@ -2193,15 +2194,8 @@ test.describe("WebMCP browser acceptance", () => {
       },
     });
     expect(preview.byteLength).toBeGreaterThan(0);
-    const previewDialog = page.getByRole("dialog", { name: "Canvas preview" });
-    const previewImage = previewDialog.getByAltText("Exact rendered Jazzboard canvas preview");
-    await expect(previewImage).toBeVisible();
-    const imageBounds = await previewImage.boundingBox();
-    expect(imageBounds).not.toBeNull();
-    expect(imageBounds!.x).toBeCloseTo(preview.screenshotClip.x, 1);
-    expect(imageBounds!.y).toBeCloseTo(preview.screenshotClip.y, 1);
-    expect(imageBounds!.width).toBeCloseTo(preview.screenshotClip.width, 1);
-    expect(imageBounds!.height).toBeCloseTo(preview.screenshotClip.height, 1);
+    expect(preview.presentation).toBe("live_canvas");
+    await expect(page.getByRole("dialog", { name: "Canvas preview" })).toHaveCount(0);
     const exactPreviewPng = await page.screenshot({
       type: "png",
       clip: preview.screenshotClip,
@@ -2210,8 +2204,6 @@ test.describe("WebMCP browser acceptance", () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     );
     expect(exactPreviewPng.length).toBeGreaterThan(512);
-    await previewDialog.getByRole("button", { name: "Dismiss canvas preview" }).click();
-
     const authoritative = await getRoom(page.request, host.room.id);
     expect(authoritative.room.diagrams[afterLayout.diagram.id]).toMatchObject({
       id: afterLayout.diagram.id,

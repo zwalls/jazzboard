@@ -62,6 +62,7 @@ export type SemanticCanvasEditingHost = Pick<
 >;
 
 export type CanvasSurfaceHandle = {
+  getCanvasElement(): HTMLElement | null;
   prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
 };
 

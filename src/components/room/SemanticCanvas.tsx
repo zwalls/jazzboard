@@ -637,6 +637,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     zoom: 1,
   });
   const viewportRef = useRef(viewport);
+  const presenceViewportRef = useRef(viewport);
   const [activeTool, setActiveTool] = useState<SemanticCanvasTool>("select");
   const activeToolRef = useRef<SemanticCanvasTool>(activeTool);
   const [connectorRouting, setConnectorRouting] = useState<SemanticConnectorRoutingIntent>("auto");
@@ -781,9 +782,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     onSelectionChange(next);
   }, [onSelectionChange]);
 
-  const updateViewport = useCallback((next: Viewport) => {
+  const updateViewport = useCallback((
+    next: Viewport,
+    options: { publishPresence?: boolean } = {},
+  ) => {
     viewportRef.current = next;
     setViewport(next);
+    if (options.publishPresence === false) return;
+    presenceViewportRef.current = next;
     presencePublisherRef.current?.notifyChanged();
   }, []);
 
@@ -828,7 +834,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     getRoom: () => roomRef.current,
     getScene: () => sceneRef.current,
     getViewport: () => viewportRef.current,
-    setViewport: (next) => updateViewport(next),
+    setViewport: (next, options) => updateViewport(next, options),
     getSelection: () => selectionRef.current,
     setSelection: (objectIds) => {
       updateSelection(objectIds);
@@ -933,7 +939,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
 
   useEffect(() => {
     const publisher = new SemanticPresencePublisher({
-      current: () => ({ cursor: pointerPageRef.current, viewport: viewportRef.current }),
+      current: () => ({ cursor: pointerPageRef.current, viewport: presenceViewportRef.current }),
       transient: (value) => transientPresenceRef.current(value),
       durable: (value) => presenceRef.current(value),
       isVisible: () => document.visibilityState !== "hidden",
@@ -964,6 +970,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   commitTextEditRef.current = commitTextEdit;
 
   useImperativeHandle(ref, () => ({
+    getCanvasElement() {
+      return shellRef.current;
+    },
     async prepareSelectionForAgentMessage() {
       if (hasActivePointerSession()) {
         throw new Error("Finish the active canvas gesture before asking an agent about this selection.");
@@ -2350,6 +2359,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
     const point = pointerPage(event);
     pointerPageRef.current = point;
+    presenceViewportRef.current = viewportRef.current;
     presencePublisherRef.current?.notifyChanged();
     const touch = touchPointersRef.current.get(event.pointerId);
     if (touch) {
@@ -2433,6 +2443,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   function handlePointerLeave() {
     if (hasActivePointerSession()) return;
     pointerPageRef.current = null;
+    presenceViewportRef.current = viewportRef.current;
     presencePublisherRef.current?.notifyChanged();
   }
 

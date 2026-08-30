@@ -62,6 +62,8 @@ export type CanvasPreviewMetadata = {
   source: CanvasPreviewSource & {
     roomRevision: number;
     objectRevisions: Array<{ objectId: string; revision: number }>;
+    /** Internal identity fence; not serialized into the WebMCP result. */
+    objectIncarnations?: Array<{ objectId: string; revision: number; createdAt: number }>;
   };
   warnings: string[];
   /** Deterministic geometry QA for Diagram scope; null for arbitrary object scope. */
@@ -365,6 +367,11 @@ export async function renderCanvasPreview(
         objectRevisions: request.objects.map((object) => ({
           objectId: object.id,
           revision: object.revision,
+        })),
+        objectIncarnations: request.objects.map((object) => ({
+          objectId: object.id,
+          revision: object.revision,
+          createdAt: object.createdAt,
         })),
       },
       warnings,

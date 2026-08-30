@@ -62,6 +62,7 @@ export {
   createJazzboardWebMcpTools,
 } from "./tools";
 export { InRoomCanvasPreviewTransport } from "./in-room-preview-transport";
+export { presentLiveCanvasPreview } from "./live-canvas-preview";
 export {
   CANVAS_PREVIEW_DEFAULTS,
   CANVAS_PREVIEW_LIMITS,
@@ -99,6 +100,7 @@ export type {
   CanvasPreviewRenderRequest,
   CanvasPreviewTransportAdapter,
 } from "./canvas-preview";
+export type { LiveCanvasPreviewHost } from "./live-canvas-preview";
 export type {
   JazzboardLandingWebMcpBinding,
   JazzboardLandingWebMcpContext,
