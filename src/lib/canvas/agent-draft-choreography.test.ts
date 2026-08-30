@@ -185,7 +185,7 @@ describe("agent draft choreography planning", () => {
     expect(source).toEqual(untouched);
   });
 
-  it("keeps stable narrative anchors while prioritizing recent work on a maximum-sized canvas", () => {
+  it("retains every target in a maximum-sized semantic transaction", () => {
     const objects = Array.from({ length: 200 }, (_, index) => shape(
       `shape_${index}`,
       (index % 20) * 150,
@@ -195,8 +195,8 @@ describe("agent draft choreography planning", () => {
 
     expect(plan.targets).toHaveLength(AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxTargets);
     expect(plan.targets[0]!.objectId).toBe("shape_0");
-    expect(plan.targets[11]!.objectId).toBe("shape_11");
-    expect(plan.targets[12]!.objectId).toBe("shape_164");
+    expect(plan.targets[12]!.objectId).toBe("shape_12");
+    expect(plan.targets[164]!.objectId).toBe("shape_164");
     expect(plan.targets.at(-1)!.objectId).toBe("shape_199");
     expect(Math.max(...plan.targets.flatMap((target) => target.segments.map((segment) => segment.points.length))))
       .toBeLessThanOrEqual(AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxPointsPerPath);
@@ -206,14 +206,15 @@ describe("agent draft choreography planning", () => {
     expect(build(edited).targets.map((target) => target.objectId)).toContain("shape_100");
   });
 
-  it("does not build discarded target geometry beyond the animation cap", () => {
+  it("bounds malformed oversized snapshots at the semantic transaction ceiling", () => {
     const objects = Array.from({ length: AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxTargets + 1 }, (_, index) => shape(
       `shape_${index}`,
       (index % 10) * 150,
       Math.floor(index / 10) * 100,
     ));
-    // With 49 equal-recency objects, the stable anchors retain 0-11 and the
-    // recent-work budget retains 13-48, making index 12 the one overflow item.
+    // A valid WebMCP transaction cannot exceed this operation count. Retain a
+    // defensive bound for malformed snapshots without dropping any valid
+    // candidate work.
     const overflow = objects[12]!;
     let widthReads = 0;
     Object.defineProperty(overflow, "width", {
@@ -251,7 +252,7 @@ describe("agent draft choreography planning", () => {
     expect(widthReads).toBe(1);
   });
 
-  it("visits newly appended work when cumulative drafts grow past the cap", () => {
+  it("visits newly appended work when cumulative drafts grow beyond the former 48-target cap", () => {
     const objects = Array.from({ length: 51 }, (_, index) => shape(
       `stable_${index}`,
       (index % 10) * 140,
@@ -528,7 +529,7 @@ describe("AgentDraftChoreographyCoordinator", () => {
     });
     const firstFrame = coordinator.accept(distant, 0);
 
-    expect(firstFrame.objectId).toBe("far-12");
+    expect(firstFrame.objectId).toBe("far-0");
     expect(coordinator.sample(AGENT_DRAFT_CHOREOGRAPHY_LIMITS.maxQueuedDurationMs + 1).active)
       .toBe(false);
   });

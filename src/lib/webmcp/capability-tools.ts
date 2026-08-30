@@ -61,7 +61,8 @@ const BUNDLE_INDEX = [
 const UNIVERSAL_AGENT_PRINCIPLES = [
   "The user's requested meaning, composition, and acceptance criteria control the work.",
   "Read the narrowest authoritative semantic scope and preserve exact revisions before editing.",
-  "Use coherent atomic transactions when multiple objects or relationships form one change.",
+  "For every user-visible new multi-object composition, use a progressive draft by default so collaborators see the agent trace each part before one atomic commit. Reserve direct transactions for revision-checked corrections, explicitly instant work, or work with no live audience.",
+  "Author at full speed: submit the largest coherent candidate that fits the transaction limits, and never split, pause, or delay draft replacements merely to pace animation. The client presentation queue absorbs rapid cumulative revisions; only the final finish follows completion of the latest visible construction.",
   "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
   "Preserve deliberate overlap, asymmetry, cropping, routing, spacing, and layering.",
   "A successful mutation or geometry report is not visual QA; inspect the final exact-revision pixels.",
@@ -199,6 +200,11 @@ const AUTHORING_BUNDLE = {
     temporaryReferences: "resolve-within-one-atomic-request",
     diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact",
     progressiveDrafts: "create-only-cumulative-replacement",
+    preferredVisibleCompositionDelivery: "delivery.mode=draft",
+    directDeliveryUse:
+      "existing-object-corrections-explicitly-instant-work-or-no-live-audience",
+    authoringPace: "full-speed-no-animation-driven-chunking-or-pauses",
+    presentationPace: "client-local-queued-from-rapid-cumulative-revisions",
     progressiveDraftSizing:
       "The full cumulative candidate is revalidated on every draft replacement. Keep its retained JSON at least 16 KiB below the 192 KiB limit; simplify nonessential detail or use bounded authoritative stages instead of raising safety ceilings.",
   },
@@ -262,12 +268,15 @@ const ARCHITECTURE_BUNDLE = {
   workflow: [
     "Write a compact visual contract: audience, required entities, relationships, hierarchy, and readability target.",
     "Read the relevant Diagram or neighborhood; do not load unrelated board state.",
-    "Create one coherent graph and its Diagram atomically with stable temporary references.",
+    "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
+    "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
-    "Inspect the exact Diagram revision semantically and in pixels, then patch only identified defects.",
+    "Read the live draft while authoring, let the latest visible construction complete, finish it once atomically, then inspect exact authoritative semantics and pixels and patch only identified defects.",
   ],
   toolChoices: {
-    coherentCreate: "apply_canvas_transaction",
+    coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
+    directCorrection: "apply_canvas_transaction-without-delivery",
+    finishProgressiveCreate: "finish_canvas_draft",
     existingGraphRead: "read_diagram-or-read_neighborhood",
     deterministicLayout: "layout_objects-or-one-auto_layout-operation",
     conventionalGeometryEvidence: "analyze_diagram_layout",
@@ -280,7 +289,7 @@ const ARCHITECTURE_BUNDLE = {
     geometryFindings: "intent-unaware-evidence-not-redesign-permission",
   },
   canonicalExamples: {
-    atomicSystemDiagram: {
+    progressiveSystemDiagram: {
       tool: "apply_canvas_transaction",
       input: {
         operations: [
@@ -322,9 +331,10 @@ const ARCHITECTURE_BUNDLE = {
             diagramType: "architecture",
           },
         ],
+        delivery: { mode: "draft" },
       },
       semantics:
-        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition.",
+        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition. Rapid cumulative replacements may refine the candidate without animation-driven pauses; finish once after the latest visible construction completes.",
     },
     optionalHierarchyLayout: {
       operation: {
@@ -348,7 +358,8 @@ const ILLUSTRATION_BUNDLE = {
   workflow: [
     "Write a visual brief covering subject, recognizable parts, silhouette, palette, depth, mood, and acceptance criteria.",
     "Plan a small number of semantic layers or named parts while retaining exact object-level control.",
-    "Build one coherent layer at a time with native paths and shapes inside an atomic or progressive draft transaction.",
+    "Build each user-visible new layer as a progressive create-only draft with native paths and shapes; use a direct transaction only for revision-checked corrections or an explicitly instant result.",
+    "Submit coherent layers and rapid cumulative refinements without animation-driven pauses; the client queues visible construction independently of the agent's reasoning pace.",
     "Use exact coordinates, groupId, opacity, and zIndex; omit architecture layout unless the user explicitly requests it.",
     "Inspect actual pixels for likeness, silhouette, expression, balance, color, and unintended occlusion, then patch locally.",
   ],
@@ -423,7 +434,7 @@ const ILLUSTRATION_BUNDLE = {
         delivery: { mode: "draft" },
       },
       next:
-        "Replace with the complete cumulative create-only operation list and exact draft revision, or finish the draft after pixel inspection.",
+        "Replace with the complete cumulative create-only operation list and exact draft revision as quickly as reasoning requires. After the latest visible construction completes, finish once atomically and perform pixel inspection of the committed result.",
     },
   },
 } as const;

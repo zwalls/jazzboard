@@ -12,7 +12,12 @@ import { projectAgentDraft } from "./agent-draft-projection";
 import { CANVAS_ZOOM_LIMITS } from "./camera";
 
 export const AGENT_DRAFT_CHOREOGRAPHY_LIMITS = {
-  maxTargets: 48,
+  // A semantic transaction accepts at most 200 operations, so retaining 200
+  // presentation targets guarantees that every object in one accepted draft
+  // candidate can receive construction choreography. This remains bounded by
+  // the same product-level transaction ceiling rather than an unrelated,
+  // smaller animation cap.
+  maxTargets: 200,
   maxPointsPerPath: 20,
   maxQueuedDurationMs: 7_000,
   minimumSegmentDurationMs: 40,

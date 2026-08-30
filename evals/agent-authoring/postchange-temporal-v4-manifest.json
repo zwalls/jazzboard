@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-30T19:14:26Z",
+  "implementationBaseCommit": "1bea3a84ddea156776db295b329c0b62788edd5c",
+  "branch": "feature/agent-perception-authoring-v2",
+  "status": "passed",
+  "claim": "A browser-WebMCP agent may author one maximum-coherent semantic composition at full speed while Jazzboard presents every candidate object progressively in the browser, then performs one atomic authoritative handoff only after the latest exact presentation revision is complete.",
+  "supersedes": {
+    "manifest": "evals/agent-authoring/postchange-manifest.json",
+    "reason": "The earlier evidence used direct authoritative transactions and therefore did not demonstrate Jazzboard's progressive presentation contract. Those videos remain rejected evidence."
+  },
+  "productContract": {
+    "semanticAuthoringPacedForAnimation": false,
+    "semanticTransactionChunkingRequired": false,
+    "semanticSleepsOrTimersRequired": false,
+    "presentationRunsClientSide": true,
+    "presentationMutatesAuthoritativeState": false,
+    "latestExactPresentationMustCompleteBeforeCommit": true,
+    "closingInspectionIncludedInPresentationCompletion": true,
+    "paintGapFreeAuthoritativeHandoff": true,
+    "committedDraftRetirementIsRoomVisitScoped": true,
+    "earlyFinishBehavior": {
+      "outcome": "not_applied",
+      "reasonCode": "PRESENTATION_NOT_COMPLETE",
+      "authoritativeMutationApplied": false,
+      "serverRequestSent": false
+    },
+    "maximumPresentedTransactionOperations": 200
+  },
+  "provenanceBoundary": {
+    "freshAgentPerScenario": true,
+    "agentModel": "gpt-5.6-sol",
+    "reasoningEffort": "ultra",
+    "agentInput": "High-level creative brief plus the exact authorized Jazzboard room entry point only.",
+    "browserExposedWebMcpToolsOnlyForCanvasMutation": true,
+    "repositoryAccessByAuthoringAgents": false,
+    "preparedCanvasPlanOrCoordinates": false,
+    "operationFixtureOrReplayHarness": false,
+    "directRoomMutationApi": false,
+    "pageEvaluateMutation": false,
+    "uiAutomationForCanvasEdits": false,
+    "independentPassiveSpectatorCapture": true,
+    "spectatorInvokedOnlyReadRoomState": true
+  },
+  "requiredTemporalAssertions": {
+    "sampledAnimationFrames": true,
+    "observedDraftRevision": true,
+    "observedCursorChoreography": true,
+    "observedPerObjectRevealLifecycle": true,
+    "everyEligibleDraftLifecycleFirstRevisionHasPendingHiddenSiblingDuringActiveReveal": true,
+    "everyEligibleDraftLifecycleLatestRevisionHasPendingHiddenSiblingDuringActiveReveal": true,
+    "noDraftAuthoritativeOverlap": true,
+    "finalAuthoritativeObjectsObserved": true,
+    "allDraftAuthoritativeHandoffsAreAtomic": true,
+    "noUndraftedCompositionBatch": true,
+    "roomRevisionHistoryIsMonotonicAndEndsAtFinalState": true,
+    "spectatorToolSurfaceHasNoCanvasMutations": true,
+    "spectatorInvokedOnlyReadRoomState": true
+  },
+  "netflixArchitecture": {
+    "scenarioId": "netflix-live-closed-loop-webmcp-authoring-v2-temporal",
+    "roomId": "room_bc9bf5ab-aee0-87fc-2d98-acfa47282601",
+    "roomCode": "K7RU5Y",
+    "draft": {
+      "id": "draft_572d10bc-f09c-4dec-8ecf-29d6e51df20c",
+      "revision": 1,
+      "operationCount": 102,
+      "previewObjectCount": 101,
+      "presentationPolls": [
+        "not_observed 0/0",
+        "pending 87/101",
+        "pending 97/101",
+        "complete 101/101"
+      ],
+      "commitAfterComplete": true
+    },
+    "finalState": {
+      "roomRevision": 6,
+      "diagramId": "diagram_ffcc630d-935d-4466-8ead-6e2656604734",
+      "diagramRevision": 4,
+      "canvasObjectCount": 101,
+      "namedNodeCount": 37,
+      "connectorCount": 44,
+      "boundaryAndBackgroundShapeCount": 9,
+      "textCount": 11,
+      "correctionRounds": 2,
+      "pixelInspectionRounds": 3
+    },
+    "rawManifest": "artifacts/agent-context-v3/runs/20260830-v3-temporal-netflix/netflix-live-authoring/manifest.json",
+    "rawVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v3-temporal-netflix/netflix-live-authoring/netflix-live-authoring.raw.webm",
+      "bytes": 21585790,
+      "sha256": "5b6e96abe623b6e98bd8b01d775931ed9c0e8c6c7d7f01180b5b06dc2c4918c7"
+    },
+    "viewingVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence-v4/Jazzboard-Netflix-Progressive-WebMCP-v4-20260830.mp4",
+      "sourceSegmentsAtOneTimesSpeed": [
+        "428.0-460.0",
+        "601.5-607.5",
+        "701.0-707.0",
+        "739.5-750.0"
+      ],
+      "activePresentationAcceleratedOrSkipped": false,
+      "codec": "H.264 High Profile",
+      "pixelFormat": "yuv420p",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 54.466667,
+      "bytes": 3910640,
+      "sha256": "890b311b7ec1db064f55881c8f89f7ffa5e94e505a0963731f0aff9e0376966f"
+    },
+    "assertions": "all requiredTemporalAssertions passed"
+  },
+  "monaLisa": {
+    "scenarioId": "mona-lisa-live-closed-loop-webmcp-authoring-v2-temporal",
+    "roomId": "room_41130bc6-0bf5-842d-56d2-84a1d5fb6d2e",
+    "roomCode": "XZ9HCN",
+    "draft": {
+      "id": "draft_98eac456-cfbc-4752-85a4-e9db428d755d",
+      "revision": 1,
+      "operationCount": 60,
+      "previewObjectCount": 59,
+      "presentationPolls": [
+        "not_observed 0/0",
+        "pending 12/59",
+        "early finish blocked locally at pending 42/59",
+        "complete 59/59"
+      ],
+      "earlyFinish": {
+        "outcome": "not_applied",
+        "reasonCode": "PRESENTATION_NOT_COMPLETE",
+        "authoritativeMutationApplied": false,
+        "serverRequestSent": false
+      },
+      "commitAfterComplete": true
+    },
+    "finalState": {
+      "roomRevision": 6,
+      "diagramId": "diagram_39b74730-7c0a-462b-b64c-81e1f7dd44c7",
+      "diagramRevision": 3,
+      "canvasObjectCount": 59,
+      "shapeCount": 19,
+      "pathCount": 40,
+      "imageCount": 0,
+      "correctionRounds": 1,
+      "pixelInspectionRounds": 2,
+      "semanticFinalMarkers": [
+        "live-eval-mona-final-reviewed",
+        "live-eval-mona-v4-final-reviewed"
+      ]
+    },
+    "rawManifest": "artifacts/agent-context-v3/runs/20260830-v4-temporal-mona/mona-live-authoring/manifest.json",
+    "rawVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v4-temporal-mona/mona-live-authoring/mona-live-authoring.raw.webm",
+      "bytes": 9615042,
+      "sha256": "ace3c1d9f3076cc73c491fff6393a537bd5b02c5a6f21ea88c362ae197f23b9a"
+    },
+    "viewingVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence-v4/Jazzboard-Mona-Lisa-Progressive-WebMCP-v4-20260830.mp4",
+      "sourceSegmentsAtOneTimesSpeed": [
+        "397.5-432.0",
+        "491.5-499.0",
+        "529.5-537.0"
+      ],
+      "telemetryConfirmedPresentation": "399.8984-425.9075",
+      "atomicAuthoritativeHandoffAt": 425.9157,
+      "activePresentationAcceleratedOrSkipped": false,
+      "codec": "H.264 High Profile",
+      "pixelFormat": "yuv420p",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 49.4,
+      "bytes": 2139859,
+      "sha256": "ea58ff762e649ab67c32a1db2e5f912c1f589587ac7250185f6534df603e397b"
+    },
+    "assertions": "all requiredTemporalAssertions passed"
+  },
+  "validation": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "unitAndIntegration": "144 files passed, 1 skipped; 1422 tests passed, 12 skipped",
+    "focusedProgressivePlaywright": "1 of 1 passed",
+    "completePlaywright": "58 of 58 passed in 4.5 minutes",
+    "productionBuild": "passed",
+    "gitDiffCheck": "passed",
+    "videoDecodeAndContactSheetReview": "passed"
+  }
+}

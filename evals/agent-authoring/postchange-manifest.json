@@ -3,6 +3,12 @@
   "capturedAt": "2026-08-30T17:42:18Z",
   "implementationCommit": "248d29799abef2cc5f2da2a127deccabc4861607",
   "branch": "feature/agent-perception-authoring-v2",
+  "evidenceReview": {
+    "status": "rejected_temporal_ux_regression",
+    "reviewedAt": "2026-08-30",
+    "reason": "The agents authored genuine semantic content but used direct authoritative transactions. Whole transaction batches appeared at once, no progressive draft choreography was observed, and the edited videos therefore fail Jazzboard's bot-traces-then-object-reveals experience requirement.",
+    "supersedesClaims": true
+  },
   "claim": "Fresh agents can discover Jazzboard's browser-exposed WebMCP surface, author complex architecture and freeform illustration in coherent stages, inspect semantic state and rendered pixels, and make targeted corrections without a prepared canvas plan.",
   "provenanceBoundary": {
     "freshAgentPerScenario": true,

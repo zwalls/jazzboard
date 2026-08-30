@@ -99,6 +99,12 @@ type DraftRefreshState = {
   queued: boolean;
 };
 
+type DeferredCommittedDraftRemoval = {
+  firstFrame: number;
+  secondFrame: number | null;
+  visit: RoomVisit;
+};
+
 /** Compares aggregate state revisions; roomRevision remains document-only. */
 export function shouldAcceptRoomRevision(currentRevision: number | null, nextRevision: number): boolean {
   return currentRevision === null || nextRevision > currentRevision;
@@ -143,6 +149,9 @@ export function useRoom(roomId: string) {
       string,
       { draftRevision: number; authoritativeRoomRevision: number }
     >(),
+  );
+  const deferredCommittedDraftRemovalsRef = useRef(
+    new Map<string, DeferredCommittedDraftRemoval>(),
   );
   const pendingDraftListAbsencesRef = useRef(
     new Map<string, { draftRevision: number; serverTime: number }>(),
@@ -288,6 +297,12 @@ export function useRoom(roomId: string) {
   }, [publishDraftState]);
 
   const removeAgentDraft = useCallback((draftId: string, revision = Number.MAX_SAFE_INTEGER) => {
+    const deferred = deferredCommittedDraftRemovalsRef.current.get(draftId);
+    if (deferred) {
+      window.cancelAnimationFrame(deferred.firstFrame);
+      if (deferred.secondFrame !== null) window.cancelAnimationFrame(deferred.secondFrame);
+      deferredCommittedDraftRemovalsRef.current.delete(draftId);
+    }
     pendingDraftListAbsencesRef.current.delete(draftId);
     pendingCommittedDraftRemovalsRef.current.delete(draftId);
     const current = draftsRef.current.get(draftId);
@@ -297,13 +312,77 @@ export function useRoom(roomId: string) {
     publishDraftState();
   }, [publishDraftState]);
 
+  const scheduleCommittedDraftRemoval = useCallback((
+    draftId: string,
+    pending: { draftRevision: number; authoritativeRoomRevision: number },
+  ) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit) return;
+    const currentDeferred = deferredCommittedDraftRemovalsRef.current.get(draftId);
+    if (currentDeferred) {
+      window.cancelAnimationFrame(currentDeferred.firstFrame);
+      if (currentDeferred.secondFrame !== null) {
+        window.cancelAnimationFrame(currentDeferred.secondFrame);
+      }
+      deferredCommittedDraftRemovalsRef.current.delete(draftId);
+    }
+
+    const finalize = () => {
+      const deferred = deferredCommittedDraftRemovalsRef.current.get(draftId);
+      if (!deferred || deferred.visit !== activeVisit) return;
+      deferredCommittedDraftRemovalsRef.current.delete(draftId);
+      const latest = pendingCommittedDraftRemovalsRef.current.get(draftId);
+      if (
+        !latest ||
+        latest.draftRevision !== pending.draftRevision ||
+        latest.authoritativeRoomRevision !== pending.authoritativeRoomRevision ||
+        (roomRef.current?.roomRevision ?? -1) < pending.authoritativeRoomRevision
+      ) return;
+      removeAgentDraft(draftId, pending.draftRevision);
+    };
+
+    if (document.visibilityState === "hidden") {
+      removeAgentDraft(draftId, pending.draftRevision);
+      return;
+    }
+
+    const deferred: DeferredCommittedDraftRemoval = {
+      firstFrame: 0,
+      secondFrame: null,
+      visit: activeVisit,
+    };
+    deferred.firstFrame = window.requestAnimationFrame(() => {
+      if (deferredCommittedDraftRemovalsRef.current.get(draftId) !== deferred) return;
+      deferred.secondFrame = window.requestAnimationFrame(finalize);
+    });
+    deferredCommittedDraftRemovalsRef.current.set(draftId, deferred);
+  }, [removeAgentDraft]);
+
   const reconcileCommittedDraftRemovals = useCallback((roomRevision: number) => {
     for (const [draftId, pending] of pendingCommittedDraftRemovalsRef.current) {
       if (roomRevision < pending.authoritativeRoomRevision) continue;
-      pendingCommittedDraftRemovalsRef.current.delete(draftId);
-      removeAgentDraft(draftId, pending.draftRevision);
+      scheduleCommittedDraftRemoval(draftId, pending);
     }
-  }, [removeAgentDraft]);
+  }, [scheduleCommittedDraftRemoval]);
+
+  const retireCommittedAgentDraft = useCallback((
+    sourceRoomId: string,
+    draftId: string,
+    draftRevision: number,
+    authoritativeRoomRevision: number,
+  ) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit || activeVisit.roomId !== sourceRoomId) return;
+    const current = pendingCommittedDraftRemovalsRef.current.get(draftId);
+    pendingCommittedDraftRemovalsRef.current.set(draftId, {
+      draftRevision: Math.max(current?.draftRevision ?? 0, draftRevision),
+      authoritativeRoomRevision: Math.max(
+        current?.authoritativeRoomRevision ?? 0,
+        authoritativeRoomRevision,
+      ),
+    });
+    reconcileCommittedDraftRemovalsRef.current(roomRef.current?.roomRevision ?? -1);
+  }, []);
 
   useEffect(() => {
     reconcileCommittedDraftRemovalsRef.current = reconcileCommittedDraftRemovals;
@@ -390,7 +469,7 @@ export function useRoom(roomId: string) {
       const pendingRemoval = pendingCommittedDraftRemovalsRef.current.get(draftId);
       if (pendingRemoval) {
         if ((roomRef.current?.roomRevision ?? -1) >= pendingRemoval.authoritativeRoomRevision) {
-          removeAgentDraft(draftId, pendingRemoval.draftRevision);
+          reconcileCommittedDraftRemovalsRef.current(roomRef.current?.roomRevision ?? -1);
         }
         continue;
       }
@@ -423,7 +502,7 @@ export function useRoom(roomId: string) {
       setInitialDraftIdsState({ visit: activeVisit, value: initiallySettledDraftIds });
     }
     publishDraftState();
-  }, [fenceDraftListAbsence, publishDraftState, removeAgentDraft]);
+  }, [fenceDraftListAbsence, publishDraftState]);
 
   const acceptDraftInvalidation = useCallback((event: AgentCanvasDraftEvent) => {
     const activeVisit = roomVisitRef.current;
@@ -480,6 +559,7 @@ export function useRoom(roomId: string) {
     const draftCache = draftsRef.current;
     const draftTombstones = draftTombstonesRef.current;
     const pendingCommittedDraftRemovals = pendingCommittedDraftRemovalsRef.current;
+    const deferredCommittedDraftRemovals = deferredCommittedDraftRemovalsRef.current;
     const pendingDraftListAbsences = pendingDraftListAbsencesRef.current;
     roomVisitRef.current = roomVisit;
     refreshGenerationRef.current += 1;
@@ -489,6 +569,11 @@ export function useRoom(roomId: string) {
     draftCache.clear();
     draftTombstones.clear();
     pendingCommittedDraftRemovals.clear();
+    for (const deferred of deferredCommittedDraftRemovals.values()) {
+      window.cancelAnimationFrame(deferred.firstFrame);
+      if (deferred.secondFrame !== null) window.cancelAnimationFrame(deferred.secondFrame);
+    }
+    deferredCommittedDraftRemovals.clear();
     pendingDraftListAbsences.clear();
     initialDraftListVisitRef.current = null;
     roomVisitStartedAtRef.current = { visit: roomVisit, startedAt: performance.now() };
@@ -502,6 +587,11 @@ export function useRoom(roomId: string) {
       draftCache.clear();
       draftTombstones.clear();
       pendingCommittedDraftRemovals.clear();
+      for (const deferred of deferredCommittedDraftRemovals.values()) {
+        window.cancelAnimationFrame(deferred.firstFrame);
+        if (deferred.secondFrame !== null) window.cancelAnimationFrame(deferred.secondFrame);
+      }
+      deferredCommittedDraftRemovals.clear();
       pendingDraftListAbsences.clear();
       initialDraftListVisitRef.current = null;
       if (roomVisitStartedAtRef.current?.visit === roomVisit) {
@@ -956,6 +1046,7 @@ export function useRoom(roomId: string) {
     acceptRoom,
     acceptAgentDraft,
     removeAgentDraft,
+    retireCommittedAgentDraft,
     setConnection,
   };
 }

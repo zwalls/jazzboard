@@ -133,6 +133,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const mobileLayout = useCanvasMobileLayout();
   const { room, self, participantId } = controller;
   const spotlightAction = controller.spotlight;
+  const retireCommittedAgentDraft = controller.retireCommittedAgentDraft;
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
   const [followOpen, setFollowOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
@@ -283,6 +284,26 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       acceptRoom: controller.acceptRoom,
       acceptAgentDraft: controller.acceptAgentDraft,
       removeAgentDraft: controller.removeAgentDraft,
+      retireCommittedAgentDraft: (draftId, draftRevision, authoritativeRoomRevision) => {
+        if (!webMcpRoomId) return;
+        retireCommittedAgentDraft(
+          webMcpRoomId,
+          draftId,
+          draftRevision,
+          authoritativeRoomRevision,
+        );
+      },
+      getAgentDraftPresentation: (draftId, revision) =>
+        canvasRef.current?.getAgentDraftPresentation(draftId, revision) ?? {
+          source: "client-local",
+          draftId,
+          requestedRevision: revision,
+          observedRevision: null,
+          state: "unavailable",
+          complete: false,
+          objectCount: 0,
+          completedObjectCount: 0,
+        },
       setFollowTarget: updateFollowTarget,
       setDeclinedSpotlight: updateDeclinedSpotlight,
       leaveRoomView,
@@ -302,6 +323,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     canvasRuntime?.rendererId,
     leaveRoomView,
     participantId,
+    retireCommittedAgentDraft,
     updateDeclinedSpotlight,
     updateFollowTarget,
     webMcpRegistrar,

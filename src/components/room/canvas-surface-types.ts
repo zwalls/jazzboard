@@ -1,5 +1,6 @@
 import type { ConnectionState, LeaseAction, LeaseBatchAction } from "@/hooks/use-room";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import type { AgentDraftPresentationStatus } from "@/lib/canvas/agent-draft-reveal";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type {
   ActorKind,
@@ -65,6 +66,7 @@ export type SemanticCanvasEditingHost = Pick<
 
 export type CanvasSurfaceHandle = {
   getCanvasElement(): HTMLElement | null;
+  getAgentDraftPresentation(draftId: string, revision: number): AgentDraftPresentationStatus;
   prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
 };
 

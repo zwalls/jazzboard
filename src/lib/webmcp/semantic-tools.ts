@@ -618,6 +618,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
     responseDetail: { enum: ["concise", "detailed"] },
     delivery: {
       type: "object",
+      description: "Preferred for user-visible new multi-object composition. Omit only for revision-checked correction, explicitly instant work, or no live audience.",
       additionalProperties: false,
       required: ["mode"],
       properties: {
@@ -1450,7 +1451,10 @@ function conciseMutationReceipt(
   };
 }
 
-function conciseDraftReceipt(draft: AgentCanvasDraftSnapshot) {
+function conciseDraftReceipt(
+  draft: AgentCanvasDraftSnapshot,
+  presentation?: ReturnType<NonNullable<JazzboardWebMcpBinding["context"]["getAgentDraftPresentation"]>>,
+) {
   return {
     outcome: "drafted" as const,
     draftId: draft.id,
@@ -1463,9 +1467,10 @@ function conciseDraftReceipt(draft: AgentCanvasDraftSnapshot) {
     previewDiagramCount: draft.previewDiagrams.length,
     previewObjects: draft.previewObjects.map(compactMutationObject),
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
+    ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     nextStep:
-      "Read the live draft if needed. Submit the complete cumulative operations with this draftId and expectedDraftRevision to replace it, or call finish_canvas_draft to commit or discard it.",
+      "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, poll read_canvas_drafts until presentation.state is complete for this latest exact draftRevision, then call finish_canvas_draft to commit. Discard remains immediate.",
   };
 }
 
@@ -1923,7 +1928,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "Apply atomically, or set delivery.mode=draft for a genuine create-only preview. Replacements require complete cumulative operations and the exact draft revision.",
+        "For a user-visible new multi-object composition, set delivery.mode=draft so collaborators see bot-traced construction before one atomic finish. Omit delivery only for revision-checked corrections, explicitly instant work, or no live audience. Draft replacements require complete cumulative operations and the exact draft revision.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2359,7 +2364,13 @@ export function createJazzboardSemanticWebMcpTools(
             },
           );
           binding.context.acceptAgentDraft?.(response.draft);
-          if (input.responseDetail === "concise") return conciseDraftReceipt(response.draft);
+          const presentation = binding.context.getAgentDraftPresentation?.(
+            response.draft.id,
+            response.draft.revision,
+          );
+          if (input.responseDetail === "concise") {
+            return conciseDraftReceipt(response.draft, presentation);
+          }
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -2369,8 +2380,9 @@ export function createJazzboardSemanticWebMcpTools(
             temporaryReferences: response.draft.temporaryReferences,
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
+            ...(presentation ? { presentation } : {}),
             nextStep:
-              "Inspect the live draft and read it if needed. Submit the complete cumulative operations with this draftId and expectedDraftRevision to replace it, or call finish_canvas_draft to commit or discard it.",
+              "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, poll read_canvas_drafts until presentation.state is complete for this latest exact draftRevision, then call finish_canvas_draft to commit. Discard remains immediate.",
           };
         }
         const response = await mutate(

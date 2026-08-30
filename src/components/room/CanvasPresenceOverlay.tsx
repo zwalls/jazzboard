@@ -354,6 +354,9 @@ function DraftAgentCursor({
     const applyFrame = (frame: AgentDraftChoreographyFrame) => {
       revealRegistry?.applyEvents(draft.id, coordinator.drainRevealEvents());
       revealRegistry?.applyFrame(draft.id, frame);
+      if (!frame.active) {
+        revealRegistry?.markPresentationComplete(draft.id, plan.revision);
+      }
       const marker = markerRef.current;
       if (!marker || disposed) return;
       const viewportPoint = runtime.pageToViewport(frame.pagePoint);

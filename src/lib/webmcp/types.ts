@@ -2,6 +2,7 @@
 
 import type { ApiFailure } from "@/lib/client/api";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import type { AgentDraftPresentationStatus } from "@/lib/canvas/agent-draft-reveal";
 import type { FollowTarget, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
 
 import type {
@@ -35,6 +36,12 @@ export interface JazzboardWebMcpContext {
   acceptRoom(room: RoomState): void;
   acceptAgentDraft?(draft: AgentCanvasDraftSnapshot): void;
   removeAgentDraft?(draftId: string, revision?: number): void;
+  retireCommittedAgentDraft?(
+    draftId: string,
+    draftRevision: number,
+    authoritativeRoomRevision: number,
+  ): void;
+  getAgentDraftPresentation?(draftId: string, revision: number): AgentDraftPresentationStatus;
   setFollowTarget(target: FollowTarget): void;
   setDeclinedSpotlight(startedAt: number | null): void;
   leaveRoomView(): void;

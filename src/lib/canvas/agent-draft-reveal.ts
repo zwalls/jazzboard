@@ -14,6 +14,17 @@ export type AgentDraftRevealSnapshot = Readonly<{
   fingerprint: string;
 }>;
 
+export type AgentDraftPresentationStatus = Readonly<{
+  source: "client-local";
+  draftId: string;
+  requestedRevision: number;
+  observedRevision: number | null;
+  state: "not_observed" | "pending" | "complete" | "superseded" | "unavailable";
+  complete: boolean;
+  objectCount: number;
+  completedObjectCount: number;
+}>;
+
 type RevealEntry = {
   element: SVGGElement | null;
   fingerprint: string;
@@ -26,6 +37,7 @@ type DraftRevealState = {
   initialized: boolean;
   objects: Map<string, RevealEntry>;
   revision: number;
+  presentationCompleteRevision: number | null;
 };
 
 export type AgentDraftRevealObject = Readonly<{
@@ -55,6 +67,7 @@ export class AgentDraftRevealRegistry {
 
   syncRenderedDraft(input: {
     draftId: string;
+    revision?: number;
     objects: readonly AgentDraftRevealObject[];
     revealImmediately: boolean;
     seedComplete: boolean;
@@ -62,8 +75,18 @@ export class AgentDraftRevealRegistry {
     if (this.disposed) return;
     let draft = this.drafts.get(input.draftId);
     if (!draft) {
-      draft = { initialized: false, objects: new Map(), revision: -1 };
+      draft = {
+        initialized: false,
+        objects: new Map(),
+        revision: -1,
+        presentationCompleteRevision: null,
+      };
       this.drafts.set(input.draftId, draft);
+    }
+    if (input.revision !== undefined) {
+      if (input.revision < draft.revision) return;
+      if (input.revision > draft.revision) draft.presentationCompleteRevision = null;
+      draft.revision = input.revision;
     }
     const firstSync = !draft.initialized;
     const completeNewObjects = input.revealImmediately || (firstSync && input.seedComplete);
@@ -103,10 +126,16 @@ export class AgentDraftRevealRegistry {
     if (this.disposed) return;
     let draft = this.drafts.get(plan.draftId);
     if (!draft) {
-      draft = { initialized: true, objects: new Map(), revision: -1 };
+      draft = {
+        initialized: true,
+        objects: new Map(),
+        revision: -1,
+        presentationCompleteRevision: null,
+      };
       this.drafts.set(plan.draftId, draft);
     }
     if (plan.revision < draft.revision) return;
+    if (plan.revision > draft.revision) draft.presentationCompleteRevision = null;
     draft.revision = plan.revision;
     const scheduled = new Map(plan.targets.map((target) => [target.objectId, target.fingerprint]));
     const visible = plan.visibleObjects ?? plan.targets;
@@ -147,7 +176,12 @@ export class AgentDraftRevealRegistry {
     if (this.disposed) return () => undefined;
     let draft = this.drafts.get(input.draftId);
     if (!draft) {
-      draft = { initialized: false, objects: new Map(), revision: -1 };
+      draft = {
+        initialized: false,
+        objects: new Map(),
+        revision: -1,
+        presentationCompleteRevision: null,
+      };
       this.drafts.set(input.draftId, draft);
     }
     let entry = draft.objects.get(input.objectId);
@@ -216,6 +250,7 @@ export class AgentDraftRevealRegistry {
         this.markComplete(entry);
         this.apply(entry);
       }
+      if (draft.revision >= 0) draft.presentationCompleteRevision = draft.revision;
     }
   }
 
@@ -226,6 +261,13 @@ export class AgentDraftRevealRegistry {
       this.markComplete(entry);
       this.apply(entry);
     }
+    if (draft.revision >= 0) draft.presentationCompleteRevision = draft.revision;
+  }
+
+  markPresentationComplete(draftId: string, revision: number): void {
+    const draft = this.drafts.get(draftId);
+    if (!draft || this.disposed || draft.revision !== revision) return;
+    draft.presentationCompleteRevision = revision;
   }
 
   removeMissingDrafts(visibleDraftIds: ReadonlySet<string>): void {
@@ -233,6 +275,42 @@ export class AgentDraftRevealRegistry {
     for (const draftId of this.drafts.keys()) {
       if (!visibleDraftIds.has(draftId)) this.drafts.delete(draftId);
     }
+  }
+
+  presentationStatus(draftId: string, requestedRevision: number): AgentDraftPresentationStatus {
+    if (this.disposed) {
+      return {
+        source: "client-local",
+        draftId,
+        requestedRevision,
+        observedRevision: null,
+        state: "unavailable",
+        complete: false,
+        objectCount: 0,
+        completedObjectCount: 0,
+      };
+    }
+    const draft = this.drafts.get(draftId);
+    const observedRevision = draft && draft.revision >= 0 ? draft.revision : null;
+    const entries = draft ? [...draft.objects.values()] : [];
+    const completedObjectCount = entries.filter((entry) => entry.state === "complete").length;
+    const base = {
+      source: "client-local" as const,
+      draftId,
+      requestedRevision,
+      observedRevision,
+      objectCount: entries.length,
+      completedObjectCount,
+    };
+    if (observedRevision === null || observedRevision < requestedRevision) {
+      return { ...base, state: "not_observed", complete: false };
+    }
+    if (observedRevision > requestedRevision) {
+      return { ...base, state: "superseded", complete: false };
+    }
+    const complete = completedObjectCount === entries.length &&
+      draft?.presentationCompleteRevision === requestedRevision;
+    return { ...base, state: complete ? "complete" : "pending", complete };
   }
 
   snapshot(draftId: string, objectId: string): AgentDraftRevealSnapshot | null {

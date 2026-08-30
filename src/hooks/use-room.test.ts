@@ -471,8 +471,65 @@ describe("useRoom request ordering", () => {
         participantId: "participant-a",
       });
       await authoritative.promise;
+      await vi.advanceTimersByTimeAsync(40);
     });
     expect(result.current.agentDrafts).toEqual([]);
+  });
+
+  it("retires a locally committed draft only after authority has had a paint boundary", async () => {
+    const draft = agentDraft();
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: null,
+        replayTruncated: false,
+      });
+      result.current.acceptAgentDraft(draft);
+      result.current.retireCommittedAgentDraft("room-a", draft.id, draft.revision, 2);
+    });
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    act(() => {
+      result.current.acceptRoom(room("room-a", 2, ["participant-a"]));
+    });
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16);
+    });
+    expect(result.current.agentDrafts).toEqual([draft]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16);
+    });
+    expect(result.current.agentDrafts).toEqual([]);
+  });
+
+  it("ignores a committed-draft retirement that resolves after navigation", async () => {
+    const draft = agentDraft();
+    const { result, rerender } = renderHook(
+      ({ roomId }: { roomId: string }) => useRoom(roomId),
+      { initialProps: { roomId: "room-a" } },
+    );
+    const staleRetirement = result.current.retireCommittedAgentDraft;
+
+    rerender({ roomId: "room-b" });
+    const roomBDraft = { ...draft, roomId: "room-b" };
+    act(() => {
+      realtimeFor("room-b").onSnapshot(room("room-b", 5, ["participant-b"]), {
+        cursor: null,
+        replayTruncated: false,
+      });
+      result.current.acceptAgentDraft(roomBDraft);
+      staleRetirement("room-a", draft.id, draft.revision, 2);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40);
+    });
+    expect(result.current.agentDrafts).toEqual([roomBDraft]);
   });
 
   it("fences an empty-list-first draft disappearance behind an authoritative room read", async () => {
@@ -524,6 +581,7 @@ describe("useRoom request ordering", () => {
       });
       await authoritative.promise;
       await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(40);
     });
     expect(result.current.agentDrafts).toEqual([]);
   });

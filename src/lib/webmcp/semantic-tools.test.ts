@@ -574,7 +574,7 @@ describe("role-scoped semantic tool registration", () => {
 });
 
 describe("progressive draft delivery", () => {
-  it("advertises and enforces the optional create-or-replace draft delivery contract", async () => {
+  it("advertises progressive delivery as the preferred visible-composition contract and enforces create-or-replace inputs", async () => {
     const request = vi.fn() as unknown as WebMcpRequest;
     const transactionTool = tool(
       createJazzboardSemanticWebMcpTools(fixture().binding, { request }),
@@ -594,7 +594,10 @@ describe("progressive draft delivery", () => {
       type: "object",
       required: ["mode"],
       oneOf: expect.any(Array),
+      description: expect.stringMatching(/preferred.*user-visible new multi-object composition/i),
     });
+    expect(transactionTool.description).toMatch(/user-visible new multi-object composition.*delivery\.mode=draft/i);
+    expect(transactionTool.description).toMatch(/revision-checked corrections.*explicitly instant.*no live audience/i);
     expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
     expect(validates({
       operations,
@@ -718,8 +721,20 @@ describe("progressive draft delivery", () => {
       previewObjects: [previewObject],
       previewDiagrams: [previewDiagram],
     });
+    const state = fixture();
+    const getPresentation = vi.fn((draftId: string, revision: number) => ({
+      source: "client-local" as const,
+      draftId,
+      requestedRevision: revision,
+      observedRevision: revision,
+      state: "pending" as const,
+      complete: false,
+      objectCount: 1,
+      completedObjectCount: 0,
+    }));
+    state.context.getAgentDraftPresentation = getPresentation;
     const request = vi.fn(async () => ({ ok: true, draft })) as unknown as WebMcpRequest;
-    const tools = createJazzboardSemanticWebMcpTools(fixture().binding, {
+    const tools = createJazzboardSemanticWebMcpTools(state.binding, {
       request,
       createId: (prefix) => prefix === "draft" ? "draft_generated" : `${prefix}_generated`,
     });
@@ -745,6 +760,16 @@ describe("progressive draft delivery", () => {
         temporaryReferenceCount: 2,
         previewObjectCount: 1,
         previewDiagramCount: 1,
+        presentation: {
+          source: "client-local",
+          requestedRevision: 4,
+          observedRevision: 4,
+          state: "pending",
+          complete: false,
+        },
+        nextStep: expect.stringMatching(
+          /poll read_canvas_drafts until presentation\.state is complete.*finish_canvas_draft/i,
+        ),
         previewObjects: [{
           id: "node_preview",
           revision: 1,
@@ -786,8 +811,19 @@ describe("progressive draft delivery", () => {
         },
         previewObjects: [{ id: "node_preview", label: "Preview API", createdAt: NOW }],
         previewDiagrams: [{ id: "diagram_preview", memberObjectIds: ["node_preview"] }],
+        presentation: {
+          source: "client-local",
+          requestedRevision: 4,
+          observedRevision: 4,
+          state: "pending",
+          complete: false,
+        },
+        nextStep: expect.stringMatching(
+          /poll read_canvas_drafts until presentation\.state is complete.*finish_canvas_draft/i,
+        ),
       },
     });
+    expect(getPresentation).toHaveBeenCalledTimes(2);
   });
 
   it("keeps tempRef IDs stable when a cumulative draft omits and later reintroduces a candidate", async () => {

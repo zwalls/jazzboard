@@ -34,7 +34,18 @@ type DraftedResult = {
 
 type DetailedDraftedResult = DraftedResult & { draft: DraftSnapshot };
 
-type ReadDraftResult = { draft: DraftSnapshot; serverTime: number };
+type DraftPresentationStatus = {
+  source: "client-local";
+  requestedRevision: number;
+  observedRevision: number | null;
+  state: "not_observed" | "pending" | "complete" | "superseded" | "unavailable";
+  complete: boolean;
+};
+type ReadDraftResult = {
+  draft: DraftSnapshot;
+  serverTime: number;
+  presentation: DraftPresentationStatus;
+};
 type ReadDraftsResult = { drafts: DraftSnapshot[]; serverTime: number };
 
 type ReadRoomResult = {
@@ -461,7 +472,7 @@ async function stopArtworkSampler(page: Page): Promise<ArtworkFrame[]> {
 }
 
 test("progressively previews a real WebMCP draft and commits it atomically", async ({ browser, page }, testInfo) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   const configuredBaseUrl = testInfo.project.use.baseURL;
   if (typeof configuredBaseUrl !== "string") {
     throw new Error("Agent draft progress E2E requires Playwright use.baseURL.");
@@ -664,13 +675,23 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       await latePage.close();
     }
 
-    // Let the richer multi-branch graph finish its visible construction before
-    // committing, so the recording proves every draft object is actually
-    // traced instead of cutting the choreography short.
+    // Wait for the exact browser-local playback lifecycle, including the
+    // closing inspection movement, rather than inferring completion only from
+    // object reveal attributes.
     await expect(viewerPage.locator('[data-agent-draft-reveal-state="complete"]')).toHaveCount(21, {
       timeout: 20_000,
     });
-    await viewerPage.waitForTimeout(350);
+    await expect.poll(async () => {
+      const current = await callTool<ReadDraftResult>(page, "read_canvas_drafts", {
+        draftId: first.draftId,
+      });
+      expect(current.presentation).toMatchObject({
+        source: "client-local",
+        requestedRevision: third.draftRevision,
+        observedRevision: third.draftRevision,
+      });
+      return current.presentation.state;
+    }, { timeout: 20_000, intervals: [80, 120, 160] }).toBe("complete");
 
     await startTransitionSampler(viewerPage);
     const finish = await callTool<FinishDraftResult>(page, "finish_canvas_draft", {
@@ -719,6 +740,22 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       "room_presence",
     ]
       .map((temporaryReference) => first.temporaryReferences[temporaryReference]!);
+    const firstRevisionIdSet = new Set(firstRevisionObjectIds);
+    const firstCoreActiveFrame = artwork.find((frame) => frame.objects.some((object) => (
+      firstRevisionIdSet.has(object.objectId) &&
+      object.state === "active" &&
+      object.progress > 0 &&
+      object.progress < 1 &&
+      object.visibleParts > 0
+    )));
+    expect(
+      firstCoreActiveFrame?.objects.some((object) => (
+        firstRevisionIdSet.has(object.objectId) &&
+        object.state === "pending" &&
+        object.visibleParts === 0
+      )),
+      JSON.stringify(firstCoreActiveFrame),
+    ).toBe(true);
     for (const objectId of firstRevisionObjectIds) {
       const objectFrames = artwork
         .flatMap((frame) => frame.objects)

@@ -94,6 +94,8 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             expect.stringMatching(/preserve deliberate|deliberate.*geometry/i),
             expect.stringMatching(/pixels/i),
             expect.stringMatching(/retrying blindly/i),
+            expect.stringMatching(/progressive draft.*by default/i),
+            expect.stringMatching(/full speed/i),
           ]),
           coordinateSystem: {
             space: "canvas",
@@ -172,6 +174,11 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           transactions: {
             atomic: true,
             progressiveDrafts: "create-only-cumulative-replacement",
+            preferredVisibleCompositionDelivery: "delivery.mode=draft",
+            directDeliveryUse:
+              "existing-object-corrections-explicitly-instant-work-or-no-live-audience",
+            authoringPace: "full-speed-no-animation-driven-chunking-or-pauses",
+            presentationPace: "client-local-queued-from-rapid-cumulative-revisions",
           },
           canonicalExamples: {
             structuredPath: {
@@ -194,7 +201,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
         bundle: "architecture",
         data: {
           toolChoices: {
-            coherentCreate: "apply_canvas_transaction",
+            coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
+            directCorrection: "apply_canvas_transaction-without-delivery",
+            finishProgressiveCreate: "finish_canvas_draft",
             preferredInspection: "inspect_canvas_scope",
           },
           judgment: {
@@ -204,8 +213,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               "intent-unaware-evidence-not-redesign-permission",
           },
           canonicalExamples: {
-            atomicSystemDiagram: {
+            progressiveSystemDiagram: {
               tool: "apply_canvas_transaction",
+              input: { delivery: { mode: "draft" } },
             },
             optionalHierarchyLayout: {
               useOnlyWhen: expect.stringMatching(/user's requested architecture/i),

@@ -271,4 +271,117 @@ describe("AgentDraftRevealRegistry", () => {
     });
     expect(registry.snapshot("draft-a", "existing")?.state).toBe("complete");
   });
+
+  it("reports truthful client-local presentation state for one exact draft revision", () => {
+    const registry = new AgentDraftRevealRegistry();
+    expect(registry.presentationStatus("draft-a", 2)).toMatchObject({
+      requestedRevision: 2,
+      observedRevision: null,
+      state: "not_observed",
+      complete: false,
+    });
+
+    registry.syncRenderedDraft({
+      draftId: "draft-a",
+      revision: 2,
+      objects: [visible("object-a"), visible("object-b")],
+      revealImmediately: false,
+      seedComplete: false,
+    });
+    expect(registry.presentationStatus("draft-a", 2)).toEqual({
+      source: "client-local",
+      draftId: "draft-a",
+      requestedRevision: 2,
+      observedRevision: 2,
+      state: "pending",
+      complete: false,
+      objectCount: 2,
+      completedObjectCount: 0,
+    });
+    expect(registry.presentationStatus("draft-a", 3)).toMatchObject({
+      observedRevision: 2,
+      state: "not_observed",
+      complete: false,
+    });
+
+    registry.finishDraft("draft-a");
+    expect(registry.presentationStatus("draft-a", 2)).toMatchObject({
+      state: "complete",
+      complete: true,
+      completedObjectCount: 2,
+    });
+
+    registry.syncRenderedDraft({
+      draftId: "draft-a",
+      revision: 3,
+      objects: [visible("object-a", "object-a:changed"), visible("object-b")],
+      revealImmediately: false,
+      seedComplete: false,
+    });
+    expect(registry.presentationStatus("draft-a", 2)).toMatchObject({
+      observedRevision: 3,
+      state: "superseded",
+      complete: false,
+    });
+    expect(registry.presentationStatus("draft-a", 3)).toMatchObject({
+      state: "pending",
+      complete: false,
+      completedObjectCount: 1,
+    });
+
+    registry.dispose();
+    expect(registry.presentationStatus("draft-a", 3)).toMatchObject({
+      observedRevision: null,
+      state: "unavailable",
+      complete: false,
+    });
+  });
+
+  it("waits for the exact revision's closing inspection after every object is revealed", () => {
+    const registry = new AgentDraftRevealRegistry();
+    const object = visible("object-a");
+    registry.syncRenderedDraft({
+      draftId: "draft-a",
+      revision: 1,
+      objects: [object],
+      revealImmediately: false,
+      seedComplete: false,
+    });
+    registry.syncPlan(plan({ revision: 1, visible: [object] }));
+    registry.applyEvents("draft-a", [{
+      type: "object-complete",
+      objectId: object.objectId,
+      fingerprint: object.fingerprint,
+      phase: "outline",
+    }]);
+
+    expect(registry.presentationStatus("draft-a", 1)).toMatchObject({
+      state: "pending",
+      complete: false,
+      completedObjectCount: 1,
+      objectCount: 1,
+    });
+
+    registry.markPresentationComplete("draft-a", 1);
+    expect(registry.presentationStatus("draft-a", 1)).toMatchObject({
+      state: "complete",
+      complete: true,
+      completedObjectCount: 1,
+      objectCount: 1,
+    });
+
+    registry.syncRenderedDraft({
+      draftId: "draft-a",
+      revision: 2,
+      objects: [object, visible("object-b")],
+      revealImmediately: false,
+      seedComplete: false,
+    });
+    registry.syncPlan(plan({ revision: 2, visible: [object, visible("object-b")] }));
+    registry.markPresentationComplete("draft-a", 1);
+    expect(registry.presentationStatus("draft-a", 2)).toMatchObject({
+      state: "pending",
+      complete: false,
+    });
+  });
 });

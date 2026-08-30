@@ -984,6 +984,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     getCanvasElement() {
       return shellRef.current;
     },
+    getAgentDraftPresentation(draftId, revision) {
+      return agentDraftRevealRegistry.presentationStatus(draftId, revision);
+    },
     async prepareSelectionForAgentMessage() {
       if (hasActivePointerSession()) {
         throw new Error("Finish the active canvas gesture before asking an agent about this selection.");
@@ -996,7 +999,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         room: controller?.getAuthoritativeRoom() ?? roomRef.current,
       };
     },
-  }), [controller]);
+  }), [agentDraftRevealRegistry, controller]);
 
   useLayoutEffect(() => {
     const touchGesture = touchGestureRef.current;

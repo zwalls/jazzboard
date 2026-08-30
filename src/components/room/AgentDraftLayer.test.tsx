@@ -74,7 +74,7 @@ function connector(id = "draft-connector"): AgentDraftCanvasObject {
   };
 }
 
-function path(id = "draft-path"): AgentDraftCanvasObject {
+function path(id = "draft-path"): Extract<AgentDraftCanvasObject, { kind: "path" }> {
   return {
     authority: "draft",
     id,
@@ -135,7 +135,42 @@ afterEach(() => {
 });
 
 describe("AgentDraftLayer", () => {
-  it("renders native paths in draft previews with their geometry and style", () => {
+  it("renders native paths as separate fill, final-stroke, and construction layers", () => {
+    const filledPath = {
+      ...path(),
+      closed: true,
+      fill: "light-blue",
+    };
+    const { container } = render(
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft({ previewObjects: [filledPath] })]}
+        roomId="room-1"
+        viewport={viewport}
+      />,
+    );
+
+    const element = container.querySelector('[data-agent-draft-object-id="draft-path"]');
+    const artwork = element!.querySelector("g");
+    const fill = element!.querySelector('[data-agent-draft-reveal-part="fill"]');
+    const finalStroke = element!.querySelector('[data-agent-draft-reveal-part="final"]');
+    const trace = element!.querySelector('[data-agent-draft-reveal-part="trace"]');
+    expect(artwork).toHaveAttribute("opacity", "0.7");
+    expect(artwork).toHaveAttribute("transform", "rotate(30 100 75)");
+    expect(fill).toHaveAttribute("d", "M 20 75 Q 100 30 180 75 Z");
+    expect(fill).toHaveAttribute("fill", "#deedf8");
+    expect(fill).toHaveAttribute("fill-rule", "evenodd");
+    expect(fill).toHaveAttribute("stroke", "none");
+    expect(finalStroke).toHaveAttribute("fill", "none");
+    expect(finalStroke).toHaveAttribute("stroke", "#d9484a");
+    expect(finalStroke).toHaveAttribute("stroke-width", "5");
+    expect(trace).toHaveAttribute("fill", "none");
+    expect(trace).toHaveAttribute("stroke", "#d9484a");
+    expect(trace).toHaveAttribute("stroke-width", "5");
+    expect(trace).toHaveAttribute("pathLength", "1");
+  });
+
+  it("keeps open unfilled paths visible through construction and final-stroke layers", () => {
     const { container } = render(
       <AgentDraftLayer
         authoritativeObjects={{}}
@@ -145,12 +180,19 @@ describe("AgentDraftLayer", () => {
       />,
     );
 
-    const element = container.querySelector('[data-agent-draft-object-id="draft-path"] path');
-    expect(element).toHaveAttribute("d", "M 20 75 Q 100 30 180 75");
-    expect(element).toHaveAttribute("stroke", "#d9484a");
-    expect(element).toHaveAttribute("stroke-width", "5");
-    expect(element).toHaveAttribute("opacity", "0.7");
-    expect(element).toHaveAttribute("transform", "rotate(30 100 75)");
+    const element = container.querySelector('[data-agent-draft-object-id="draft-path"]')!;
+    expect(element.querySelector('[data-agent-draft-reveal-part="fill"]')).toHaveAttribute(
+      "fill",
+      "none",
+    );
+    expect(element.querySelector('[data-agent-draft-reveal-part="final"]')).toHaveAttribute(
+      "stroke",
+      "#d9484a",
+    );
+    expect(element.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
+      "stroke",
+      "#d9484a",
+    );
   });
 
   it("renders draft artwork in authoritative z-order without canonical IDs or interaction semantics", () => {
@@ -192,7 +234,13 @@ describe("AgentDraftLayer", () => {
     const { container } = render(
       <AgentDraftLayer
         authoritativeObjects={{}}
-        drafts={[draft()]}
+        drafts={[draft({
+          previewObjects: [
+            shape(),
+            connector(),
+            { ...path(), closed: true, fill: "light-blue" },
+          ],
+        })]}
         revealRegistry={revealRegistry}
         roomId="room-1"
         viewport={viewport}
@@ -204,8 +252,12 @@ describe("AgentDraftLayer", () => {
     const connectorElement = container.querySelector<SVGGElement>(
       '[data-agent-draft-object-id="draft-connector"]',
     )!;
+    const pathElement = container.querySelector<SVGGElement>(
+      '[data-agent-draft-object-id="draft-path"]',
+    )!;
     expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
     expect(connectorElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
+    expect(pathElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
     expect(shapeElement.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
       "pathLength",
       "1",
@@ -217,6 +269,18 @@ describe("AgentDraftLayer", () => {
     expect(connectorElement.querySelector('[data-agent-draft-reveal-part="final"]')).not.toBeNull();
     expect(connectorElement.querySelector('[data-agent-draft-reveal-part="terminal"]')).not.toBeNull();
     expect(connectorElement.querySelector('[data-agent-draft-reveal-part="label"]')).not.toBeNull();
+    expect(pathElement.querySelector('[data-agent-draft-reveal-part="fill"]')).toHaveAttribute(
+      "fill",
+      "#deedf8",
+    );
+    expect(pathElement.querySelector('[data-agent-draft-reveal-part="final"]')).toHaveAttribute(
+      "fill",
+      "none",
+    );
+    expect(pathElement.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
+      "fill",
+      "none",
+    );
 
     const fingerprint = shapeElement.getAttribute("data-agent-draft-reveal-fingerprint")!;
     expect(revealRegistry.snapshot("draft-1", "draft-shape")?.fingerprint).toBe(fingerprint);
@@ -234,6 +298,7 @@ describe("AgentDraftLayer", () => {
     expect(shapeElement).toHaveAttribute("data-agent-draft-reveal-phase", "outline");
     expect(shapeElement.style.getPropertyValue("--agent-draft-reveal-progress")).toBe("0.5");
     expect(connectorElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
+    expect(pathElement).toHaveAttribute("data-agent-draft-reveal-state", "pending");
 
     act(() => {
       revealRegistry.applyEvents("draft-1", [{

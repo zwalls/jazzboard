@@ -409,20 +409,39 @@ function DraftOtherObject({ object }: { object: Exclude<CanvasObject, TextObject
     );
   }
   if (object.kind === "path") {
+    const d = vectorPathSvgData(object, finite);
+    const fill = semanticFillColor(object.fill, "black", true);
+    const stroke = semanticStrokeColor(object.stroke, "black", true);
     return (
-      <path
-        d={vectorPathSvgData(object, finite)}
-        transform={rotationTransform(object)}
-        fill={semanticFillColor(object.fill, "black", true)}
-        stroke={semanticStrokeColor(object.stroke, "black", true)}
-        strokeWidth={object.strokeWidth}
-        opacity={object.opacity}
-        strokeLinecap={object.lineCap}
-        strokeLinejoin={object.lineJoin}
-        fillRule={object.fillRule}
-        data-agent-draft-reveal-part="trace"
-        pathLength={1}
-      />
+      <g transform={rotationTransform(object)} opacity={object.opacity}>
+        <path
+          d={d}
+          fill={fill}
+          fillRule={object.fillRule}
+          stroke="none"
+          data-agent-draft-reveal-part="fill"
+        />
+        <path
+          d={d}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={object.strokeWidth}
+          strokeLinecap={object.lineCap}
+          strokeLinejoin={object.lineJoin}
+          data-agent-draft-reveal-part="final"
+        />
+        <path
+          className={styles.vectorPathConstruction}
+          d={d}
+          fill="none"
+          stroke={stroke === "none" ? "currentColor" : stroke}
+          strokeWidth={stroke === "none" ? Math.max(object.strokeWidth, 2.5) : object.strokeWidth}
+          strokeLinecap={object.lineCap}
+          strokeLinejoin={object.lineJoin}
+          data-agent-draft-reveal-part="trace"
+          pathLength={1}
+        />
+      </g>
     );
   }
   const label = object.alt.trim() || "Image preview";
@@ -550,6 +569,7 @@ export function AgentDraftLayer({
       const initiallySettled = initiallySettledDraftIds.has(projection.draft.id);
       revealRegistry.syncRenderedDraft({
         draftId: projection.draft.id,
+        revision: projection.draft.revision,
         objects: projection.objects.map(({ object }) => ({
           objectId: object.id,
           fingerprint: projection.fingerprints.get(object.id)!,

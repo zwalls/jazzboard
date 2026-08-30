@@ -374,7 +374,9 @@ type CanvasArchitectureCapabilityData = {
   useWithCore: true;
   workflow: string[];
   toolChoices: {
-    coherentCreate: "apply_canvas_transaction";
+    coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft";
+    directCorrection: "apply_canvas_transaction-without-delivery";
+    finishProgressiveCreate: "finish_canvas_draft";
     preferredInspection: "inspect_canvas_scope";
   };
   judgment: {
@@ -382,7 +384,10 @@ type CanvasArchitectureCapabilityData = {
     geometryFindings: "intent-unaware-evidence-not-redesign-permission";
   };
   canonicalExamples: {
-    atomicSystemDiagram: { tool: "apply_canvas_transaction" };
+    progressiveSystemDiagram: {
+      tool: "apply_canvas_transaction";
+      input: { delivery: { mode: "draft" } };
+    };
     optionalHierarchyLayout: { useOnlyWhen: string };
   };
 };
@@ -1070,6 +1075,8 @@ test.describe("WebMCP browser acceptance", () => {
           expect.stringMatching(/user's requested meaning/i),
           expect.stringMatching(/preserve deliberate/i),
           expect.stringMatching(/pixels/i),
+          expect.stringMatching(/progressive draft.*by default/i),
+          expect.stringMatching(/full speed/i),
         ]),
         coordinateSystem: {
           space: "canvas",
@@ -1122,7 +1129,9 @@ test.describe("WebMCP browser acceptance", () => {
       data: {
         useWithCore: true,
         toolChoices: {
-          coherentCreate: "apply_canvas_transaction",
+          coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
+          directCorrection: "apply_canvas_transaction-without-delivery",
+          finishProgressiveCreate: "finish_canvas_draft",
           preferredInspection: "inspect_canvas_scope",
         },
         judgment: {
@@ -1130,7 +1139,10 @@ test.describe("WebMCP browser acceptance", () => {
           geometryFindings: "intent-unaware-evidence-not-redesign-permission",
         },
         canonicalExamples: {
-          atomicSystemDiagram: { tool: "apply_canvas_transaction" },
+          progressiveSystemDiagram: {
+            tool: "apply_canvas_transaction",
+            input: { delivery: { mode: "draft" } },
+          },
           optionalHierarchyLayout: {
             useOnlyWhen: expect.stringMatching(/user's requested architecture/i),
           },

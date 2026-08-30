@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import type { AgentDraftPresentationStatus } from "@/lib/canvas/agent-draft-reveal";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import type { AgentEditProposalSummary, RoomActivitySummary, RoomState } from "@/lib/domain/types";
 
@@ -101,6 +102,30 @@ function exactAgentDraftUrl(roomId: string, candidateDraftId: string): string {
   return `${agentDraftsUrl(roomId)}/${encodeURIComponent(candidateDraftId)}`;
 }
 
+function exactPresentationStatus(
+  binding: JazzboardWebMcpBinding,
+  candidateDraftId: string,
+  requestedRevision: number,
+): AgentDraftPresentationStatus {
+  return binding.context.getAgentDraftPresentation?.(candidateDraftId, requestedRevision) ?? {
+    source: "client-local",
+    draftId: candidateDraftId,
+    requestedRevision,
+    observedRevision: null,
+    state: "unavailable",
+    complete: false,
+    objectCount: 0,
+    completedObjectCount: 0,
+  };
+}
+
+function presentationStatus(
+  binding: JazzboardWebMcpBinding,
+  draft: AgentCanvasDraftSnapshot,
+): AgentDraftPresentationStatus {
+  return exactPresentationStatus(binding, draft.id, draft.revision);
+}
+
 function failure(tool: string, error: unknown): JazzboardToolFailure {
   if (error instanceof JazzboardApiError) return { ok: false, tool, error: error.failure };
   if (error instanceof z.ZodError) {
@@ -183,7 +208,7 @@ export function createJazzboardDraftWebMcpTools(
       name: "read_canvas_drafts",
       title: "Read canvas drafts",
       description:
-        "Read active agent drafts in this authorized room, or one exact draft by ID, including preview objects and stable temporary references.",
+        "Read active agent drafts in this authorized room, or one exact draft by ID, including preview objects, stable temporary references, and browser-local presentation state. presentation.state=complete means both every object reveal and the exact revision's closing inspection motion have finished.",
       schema: readDraftsInput,
       inputSchema: READ_DRAFTS_INPUT_SCHEMA,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -194,14 +219,22 @@ export function createJazzboardDraftWebMcpTools(
             { method: "GET", signal },
           );
           binding.context.acceptAgentDraft?.(response.draft);
-          return { draft: response.draft, serverTime: response.serverTime };
+          return {
+            draft: response.draft,
+            serverTime: response.serverTime,
+            presentation: presentationStatus(binding, response.draft),
+          };
         }
         const response = await request<DraftListResponse>(readableDraftsUrl(binding.roomId), {
           method: "GET",
           signal,
         });
         response.drafts.forEach((draft) => binding.context.acceptAgentDraft?.(draft));
-        return { drafts: response.drafts, serverTime: response.serverTime };
+        return {
+          drafts: response.drafts,
+          serverTime: response.serverTime,
+          presentations: response.drafts.map((draft) => presentationStatus(binding, draft)),
+        };
       },
     }),
   ];
@@ -214,11 +247,32 @@ export function createJazzboardDraftWebMcpTools(
       name: "finish_canvas_draft",
       title: "Finish a canvas draft",
       description:
-        "Commit one exact draft atomically, or discard it, using its latest draft revision. A review-mode commit may return proposed instead of applied.",
+        "Commit one exact draft atomically only after read_canvas_drafts reports browser-local presentation.state=complete for that latest exact draft revision, including its closing inspection motion; an earlier commit returns not_applied without a server mutation. Discard remains immediate. A review-mode commit may return proposed instead of applied.",
       schema: finishDraftInput,
       inputSchema: FINISH_DRAFT_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
+        if (input.action === "commit") {
+          const presentation = exactPresentationStatus(
+            binding,
+            input.draftId,
+            input.expectedDraftRevision,
+          );
+          if (presentation.state !== "complete" || !presentation.complete) {
+            return {
+              draftId: input.draftId,
+              draftRevision: input.expectedDraftRevision,
+              action: input.action,
+              outcome: "not_applied",
+              reasonCode: "PRESENTATION_NOT_COMPLETE",
+              authoritativeMutationApplied: false,
+              serverRequestSent: false,
+              presentation,
+              nextStep:
+                "Poll read_canvas_drafts for this draft ID. Commit only when presentation.state is complete for the latest exact draft revision; if it is superseded, use the latest returned revision.",
+            };
+          }
+        }
         const url = exactAgentDraftUrl(binding.roomId, input.draftId);
         const response = await request<FinishDraftResponse>(
           input.action === "commit" ? `${url}/commit` : url,
@@ -238,6 +292,17 @@ export function createJazzboardDraftWebMcpTools(
             : undefined;
         if (input.action === "commit" && outcome === "proposed") {
           if (response.draft) binding.context.acceptAgentDraft?.(response.draft);
+        } else if (
+          input.action === "commit" &&
+          outcome === "applied" &&
+          authoritativeRoom &&
+          binding.context.retireCommittedAgentDraft
+        ) {
+          binding.context.retireCommittedAgentDraft(
+            input.draftId,
+            removedRevision ?? input.expectedDraftRevision,
+            authoritativeRoom.roomRevision,
+          );
         } else {
           binding.context.removeAgentDraft?.(input.draftId, removedRevision);
         }
