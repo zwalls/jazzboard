@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "public-production-webmcp-contract-verification",
-  "capturedAt": "2026-08-30T20:56:29.576Z",
+  "capturedAt": "2026-08-30T21:09:20.618Z",
   "baseline": {
     "gitCommit": "48a52e0837144ea0db8a09e43217397226759f83",
     "gitTree": "a25e8ec9f8fcc08b227d710a8517333af90f491e",
@@ -14,13 +14,13 @@
     "immutableUrlAccess": "deployment_protection_requires_authenticated_bypass"
   },
   "runner": {
-    "attemptId": "contract-prod-baseline-v6",
+    "attemptId": "contract-prod-baseline-v7",
     "mode": "contract",
     "status": "contract_verified",
-    "scriptDigest": "sha256:c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24",
-    "attemptBundleDigest": "sha256:b2a5ee97e285ac6ee6cd99d3912e3a73f4f3acc8f1f56ec8e03ae66cec7c7dff",
-    "artifactRoot": "sha256:9f4676e385dbc0b40b72a4216f2d4183fa87a74839bf76e6545f2849fb63fd26",
-    "elapsedMs": 8203,
+    "scriptDigest": "sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12",
+    "attemptBundleDigest": "sha256:69d4f769bbd0be98c9a5ab144d35913533e5db86ad214df61c56d9411dee121b",
+    "artifactRoot": "sha256:e32b76c48f4e651fa5dcc69a514756807b1846a3883df2ea21297e91ce871cb7",
+    "elapsedMs": 7999,
     "node": "v22.22.0",
     "browser": {
       "engine": "chromium",

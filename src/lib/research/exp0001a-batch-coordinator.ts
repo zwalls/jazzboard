@@ -239,7 +239,10 @@ function appendEvent(
     previousEventDigest: registry.events.at(-1)?.eventDigest ?? null,
   };
   const event = batchRegistryEventSchema.parse({ ...unsigned, eventDigest: eventDigest(unsigned as Omit<BatchRegistryEvent, "eventDigest">) });
-  const content = batchRegistryContentSchema.parse({ ...registry, events: [...registry.events, event] });
+  const content = batchRegistryContentSchema.parse({
+    ...withoutKey(registry as unknown as Record<string, unknown>, "registryDigest"),
+    events: [...registry.events, event],
+  });
   return batchRegistrySchema.parse({ ...content, registryDigest: registryDigest(content) });
 }
 

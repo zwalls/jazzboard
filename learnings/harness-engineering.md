@@ -137,4 +137,38 @@ Do not preserve scaffolding solely because it once helped.
 - Retention of human edits after agent work.
 - Improvement or degradation after each correction round.
 
+## Live Jazzboard measurement lesson — EXP-0000
+
+The first clean-room production smoke made context amplification measurable.
+One simple diagram attempt reached 184,024 cumulative input tokens across ten
+stateless Responses turns even though its largest single turn was 41,327 input
+tokens. This is cumulative billing/accounting, not a claim that the model's
+one-million-token context window was exhausted. The author had already staged
+and committed the artifact; the frozen cumulative budget blocked the requested
+closing inspection.
+
+The current OpenAI GPT-5.6 guidance says that manual stateless history must
+preserve every prior output item and, with `store: false`, replay encrypted
+reasoning items. It also warns that long sessions amplify repeated prompts and
+tool content, recommends intentional compaction, and explicitly says to track
+`cached_tokens` and `cache_write_tokens` because cache writes and hits have
+different prices. See [Model guidance](https://developers.openai.com/api/docs/guides/latest-model)
+and the [Responses create reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
+
+**Measurement implications:**
+
+- Do not confuse cumulative provider input with live context-window size.
+- Preserve stateless reasoning continuity unless compaction is a frozen,
+  separately evaluated treatment.
+- Retain uncached, cached, cache-write, output, and reasoning-token details;
+  total-input-only accounting cannot reconstruct billed cost.
+- Set budgets from observed complete-attempt distributions, not a visually
+  small task or a single-turn intuition.
+- Treat verbose capability receipts and repeated draft-state reads as measured
+  context contributors; optimize them only through a preregistered harness
+  candidate, not by silently changing the evaluator.
+- Gate a fixed-sample experiment on exact final-state and exact-revision pixel
+  capture. A plausible semantic artifact is not a substitute for missing
+  visual evidence.
+
 See [Jazzboard context engineering](./jazzboard-context-engineering.md) for the proposed application of these findings.

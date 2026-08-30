@@ -3,7 +3,7 @@
 - Status: passed
 - Product commit: `48a52e0837144ea0db8a09e43217397226759f83`
 - Deployment: `dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD`
-- Contract attempt: `contract-prod-baseline-v6`
+- Contract attempt: `contract-prod-baseline-v7`
 - Responses API calls: none
 - Sealed benchmark data accessed: none
 
@@ -16,9 +16,10 @@ the spectator contract digest is
 `sha256:1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2`.
 
 This contract-only attempt used runner digest
-`sha256:c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24`.
+`sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12`.
 Its author result records zero completed provider turns, so it verifies the new
-provider-provenance artifact shape without calling the Responses API.
+provider-provenance and detailed usage artifact shape without calling the
+Responses API.
 
 The immutable Vercel deployment URL is deployment-protected. The public alias
 was therefore used only after an authenticated Vercel CLI inspection confirmed

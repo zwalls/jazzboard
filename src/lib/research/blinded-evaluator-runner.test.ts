@@ -21,6 +21,7 @@ const {
   runBlindedEvaluation,
   sha256,
   validateEvaluatorConfig,
+  validateSealedAuthorVisibleSpec,
   validateStructuredReviewerOutput,
   verifySealedAttemptDirectory,
 } = await import(runnerModulePath);
@@ -32,12 +33,33 @@ const taxonomy = parseFrozenTaxonomy(await readFile(path.join(repoRoot, "researc
 const taskRubric = rubricManifest.rubrics[0];
 const benchmarkTask = benchmarkManifest.tasks.find((task: { id: string }) => task.id === taskRubric.taskId);
 const criterionIds = taskRubric.criteria.map((criterion: { criterionId: string }) => criterion.criterionId);
+const frozenBrief = renderPublicAuthorBrief(publicAuthorPacket(benchmarkTask));
+
+function liveAuthorVisibleSpec() {
+  return {
+    attemptId: "opaque-attempt",
+    model: "author-model-snapshot",
+    brief: frozenBrief,
+    allowedToolNames: ["read_room_state", "apply_canvas_transaction", "inspect_canvas_scope"],
+    budgets: {
+      wallMs: 600_000,
+      toolCalls: 80,
+      perToolTimeoutMs: 30_000,
+      inputTokens: 100_000,
+      outputTokens: 20_000,
+    },
+  };
+}
 
 function bytes(value: unknown): Buffer {
   return Buffer.from(`${canonicalJson(value)}\n`);
 }
 
-async function sealedFixture(options: { inspectionRevision?: number } = {}) {
+async function sealedFixture(options: {
+  inspectionRevision?: number;
+  omitPixels?: boolean;
+  authorVisibleSpec?: unknown;
+} = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "blinded-eval-"));
   const attemptDirectory = path.join(root, "attempt");
   await import("node:fs/promises").then(({ mkdir }) => mkdir(attemptDirectory));
@@ -45,7 +67,7 @@ async function sealedFixture(options: { inspectionRevision?: number } = {}) {
     create: { width: 4, height: 3, channels: 4, background: { r: 20, g: 40, b: 80, alpha: 1 } },
   }).png().toBuffer();
   const authorFiles = new Map<string, Buffer>([
-    ["author-brief.json", bytes(renderPublicAuthorBrief(publicAuthorPacket(benchmarkTask)))],
+    ["author-brief.json", bytes(options.authorVisibleSpec ?? liveAuthorVisibleSpec())],
     ["author-events.jsonl", Buffer.from('{"type":"author_finished"}\n')],
     ["author-final.json", bytes({ termination: "completed", finalText: "done" })],
   ]);
@@ -69,11 +91,11 @@ async function sealedFixture(options: { inspectionRevision?: number } = {}) {
     ...authorFiles,
     ["author-evidence-seal.json", bytes(authorSeal)],
     ["spectator-final-state.json", bytes(state)],
-    ["spectator-final-r7.png", png],
     ["spectator-inspection.json", bytes({ result: { ok: true }, pixel: { roomRevision: options.inspectionRevision ?? 7, sha256: sha256(png) } })],
     ["spectator-tool-contract.json", bytes({ hash: "a".repeat(64), tools: [] })],
     ["coordinator-events.jsonl", Buffer.from('{"type":"spectator_captured"}\n')],
   ]);
+  if (!options.omitPixels) files.set("spectator-final-r7.png", png);
   for (const [artifactPath, contents] of files) await writeFile(path.join(attemptDirectory, artifactPath), contents);
   const leaves = [...files].map(([artifactPath, contents]) => ({
     path: artifactPath,
@@ -188,6 +210,9 @@ describe("blinded evaluator sealed evidence", () => {
     expect(first.authorEvidenceRoot).toBe(fixture.config.expectedAuthorEvidenceRoot);
     expect(first.finalStateSha256).toBe(second.finalStateSha256);
     expect(first.pixelSha256).toBe(second.pixelSha256);
+    expect(first.authorVisibleSpecVersion).toBe("clean-room-author-visible-spec/v1");
+    expect(first.authorVisibleSpecSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.authorExecutionContractSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(first.finalState.data.room).not.toHaveProperty("id");
     expect(JSON.stringify(first.finalState)).not.toContain("Research Author");
   });
@@ -228,6 +253,93 @@ describe("blinded evaluator sealed evidence", () => {
       ok: true,
       data: { room: { id: "[REDACTED]", code: "[REDACTED]", roomRevision: 1 }, authorTranscript: "hidden" },
     })).toThrow(/trace material/);
+  });
+
+  it("accepts only the exact versioned live author-visible spec shape and byte-exact frozen brief", () => {
+    const spec = liveAuthorVisibleSpec();
+    const validated = validateSealedAuthorVisibleSpec(spec, frozenBrief, "opaque-attempt");
+    expect(validated).toMatchObject({ version: "clean-room-author-visible-spec/v1" });
+    expect(validated.executionContractSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(() => validateSealedAuthorVisibleSpec(frozenBrief, frozenBrief, "opaque-attempt")).toThrow(/exact clean-room-author-visible-spec\/v1 shape/);
+    expect(() => validateSealedAuthorVisibleSpec({ ...spec, brief: `${frozenBrief} ` }, frozenBrief, "opaque-attempt"))
+      .toThrow(/brief bytes/);
+    expect(() => validateSealedAuthorVisibleSpec({ ...spec, model: undefined }, frozenBrief, "opaque-attempt"))
+      .toThrow(/exact clean-room-author-visible-spec/);
+    for (const forbidden of [
+      { condition: "baseline" },
+      { pairId: "pair-1" },
+      { orderIndex: 0 },
+      { roomCode: "ABC234" },
+      { sessionToken: "secret" },
+      { evaluatorRubric: "hidden" },
+    ]) {
+      expect(() => validateSealedAuthorVisibleSpec({ ...spec, ...forbidden }, frozenBrief, "opaque-attempt"))
+        .toThrow(/without extra, secret, evaluator, or assignment fields/);
+    }
+  });
+
+  it("binds author model, tool allowlist, and budgets without placing them in reviewer inputs", async () => {
+    const spec = liveAuthorVisibleSpec();
+    const base = validateSealedAuthorVisibleSpec(spec, frozenBrief, "opaque-attempt");
+    const changedModel = validateSealedAuthorVisibleSpec({ ...spec, model: "another-author-model" }, frozenBrief, "opaque-attempt");
+    const changedTools = validateSealedAuthorVisibleSpec({ ...spec, allowedToolNames: [...spec.allowedToolNames, "query_objects"] }, frozenBrief, "opaque-attempt");
+    const changedBudgets = validateSealedAuthorVisibleSpec({ ...spec, budgets: { ...spec.budgets, toolCalls: 79 } }, frozenBrief, "opaque-attempt");
+    expect(new Set([
+      base.executionContractSha256,
+      changedModel.executionContractSha256,
+      changedTools.executionContractSha256,
+      changedBudgets.executionContractSha256,
+    ]).size).toBe(4);
+
+    const fixture = await sealedFixture();
+    const evidence = await verifySealedAttemptDirectory(fixture.config);
+    const rubric = await loadExactRubric(fixture.config);
+    const request = buildReviewerRequest({
+      model: fixture.config.model,
+      reasoningEffort: fixture.config.reasoningEffort,
+      outputTokenBudget: fixture.config.outputTokenBudget,
+      instructions: "Frozen evaluator instructions.",
+      rubric: rubric.rubric,
+      finalState: evidence.finalState,
+      pixelBytes: evidence.pixelBytes,
+      outputSchema: buildReviewerOutputJsonSchema(rubric.criterionIds, taxonomy),
+    });
+    const reviewerInput = JSON.stringify(request.input);
+    expect(reviewerInput).not.toContain(spec.model);
+    expect(reviewerInput).not.toContain("apply_canvas_transaction");
+    expect(reviewerInput).not.toContain(`"toolCalls":${spec.budgets.toolCalls}`);
+  });
+
+  it("accepts a live-shaped author spec before failing closed on missing spectator pixels without an API call", async () => {
+    const fixture = await sealedFixture({ omitPixels: true });
+    const fetch = vi.fn();
+    await expect(runBlindedEvaluation(fixture.config, { fetch, apiKey: "not-used" }))
+      .rejects.toMatchObject({ code: "SPECTATOR_PIXELS_MISSING" });
+    expect(fetch).not.toHaveBeenCalled();
+    const record = JSON.parse(await readFile(evaluationOutputPath(fixture.config), "utf8"));
+    expect(record).toMatchObject({
+      status: "failed",
+      accepted: false,
+      failure: { code: "SPECTATOR_PIXELS_MISSING" },
+    });
+  });
+
+  it("retains null rather than an unverified claimed rubric digest when rubric commitment verification fails", async () => {
+    const fixture = await sealedFixture();
+    const config = { ...fixture.config, expectedRubricSha256: `sha256:${"0".repeat(64)}` };
+    const fetch = vi.fn();
+    await expect(runBlindedEvaluation(config, { fetch, apiKey: "not-used" }))
+      .rejects.toMatchObject({ code: "TASK_RUBRIC_HASH_MISMATCH" });
+    expect(fetch).not.toHaveBeenCalled();
+    const record = JSON.parse(await readFile(evaluationOutputPath(config), "utf8"));
+    expect(record).toMatchObject({
+      status: "failed",
+      evidence: {
+        rubricSha256: null,
+        authorVisibleSpecVersion: "clean-room-author-visible-spec/v1",
+      },
+      failure: { code: "TASK_RUBRIC_HASH_MISMATCH" },
+    });
   });
 });
 
@@ -322,6 +434,10 @@ describe("blinded evaluator request and output contract", () => {
       pairedArtifactSeenBeforeLock: false,
       failure: { code: "SCORER_API_FAILED", stage: "provider_response" },
     });
+    expect(record.evidence.rubricSha256).toBe(sha256(canonicalJson(taskRubric)));
+    expect(record.evidence.authorVisibleSpecVersion).toBe("clean-room-author-visible-spec/v1");
+    expect(record.evidence.authorVisibleSpecSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(record.evidence.authorExecutionContractSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("enforces cumulative input and output budgets fail-closed", async () => {

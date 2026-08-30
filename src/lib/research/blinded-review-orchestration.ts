@@ -84,7 +84,7 @@ export const evaluatorRunnerConfigSchema = z.object({
   outputDirectory: z.string().trim().min(1),
 }).strict();
 
-const reviewerWorkItemSchema = z.object({
+export const reviewerWorkItemSchema = z.object({
   schemaVersion: z.literal(1),
   workItemId: opaqueIdSchema,
   artifactId: opaqueIdSchema,
@@ -94,7 +94,7 @@ const reviewerWorkItemSchema = z.object({
   evaluatorConfigSha256: bareSha256Schema,
 }).strict();
 
-const trustedArtifactPlanSchema = z.object({
+export const trustedArtifactPlanSchema = z.object({
   artifactId: opaqueIdSchema,
   attemptId: stableIdSchema,
   taskId: stableIdSchema,
@@ -131,12 +131,15 @@ const evaluatorEvidenceSchema = z.object({
   attemptBundleSha256: bareSha256Schema,
   artifactRoot: bareSha256Schema,
   authorEvidenceRoot: bareSha256Schema,
-  rubricSha256: bareSha256Schema,
+  rubricSha256: bareSha256Schema.nullable(),
   finalStateSha256: bareSha256Schema,
   spectatorPngSha256: bareSha256Schema,
   spectatorRevision: z.number().int().nonnegative(),
   spectatorPngDimensions: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).strict(),
   publicPacketSha256: bareSha256Schema,
+  authorVisibleSpecVersion: z.literal("clean-room-author-visible-spec/v1"),
+  authorVisibleSpecSha256: bareSha256Schema,
+  authorExecutionContractSha256: bareSha256Schema,
   coverageComplete: z.boolean(),
 }).strict();
 
@@ -172,12 +175,18 @@ export const lockedEvaluatorRecordSchema = z.object({
   }).strict(),
   accepted: z.boolean(),
   primaryFailureClass: primaryFailureClassSchema,
-  result: z.unknown().nullable(),
+  result: z.object({
+    accepted: z.boolean(),
+    primaryFailureClass: primaryFailureClassSchema,
+  }).passthrough().nullable(),
   failure: z.object({ stage: stableIdSchema, code: stableIdSchema, message: z.string().trim().min(1).max(1_000) }).strict().nullable(),
   recordSha256: bareSha256Schema,
 }).strict().superRefine((record, context) => {
   if (record.status === "scored" && (record.result === null || record.failure !== null || record.evidence === null)) {
     context.addIssue({ code: "custom", message: "Scored records require result and evidence and cannot carry a failure." });
+  }
+  if (record.status === "scored" && record.evidence?.rubricSha256 === null) {
+    context.addIssue({ code: "custom", message: "Scored records require a verified rubric digest." });
   }
   if (record.status === "failed" && (record.result !== null || record.failure === null || record.accepted)) {
     context.addIssue({ code: "custom", message: "Failed records require a failure, no result, and non-acceptance." });
@@ -185,9 +194,8 @@ export const lockedEvaluatorRecordSchema = z.object({
   if ((record.primaryFailureClass === "SUCCESS") !== record.accepted) {
     context.addIssue({ code: "custom", message: "SUCCESS must exactly match acceptance." });
   }
-  if (record.result && typeof record.result === "object") {
-    const result = record.result as { accepted?: unknown; primaryFailureClass?: unknown };
-    if (result.accepted !== record.accepted || result.primaryFailureClass !== record.primaryFailureClass) {
+  if (record.result) {
+    if (record.result.accepted !== record.accepted || record.result.primaryFailureClass !== record.primaryFailureClass) {
       context.addIssue({ code: "custom", message: "Top-level decision must match the structured result." });
     }
   }
@@ -204,7 +212,7 @@ const lockedReviewSchema = z.object({
   record: lockedEvaluatorRecordSchema,
 }).strict();
 
-const adjudicationAssignmentSchema = z.object({
+export const adjudicationAssignmentSchema = z.object({
   artifactId: opaqueIdSchema,
   reviewerId: opaqueIdSchema,
   workItem: reviewerWorkItemSchema,
@@ -222,7 +230,7 @@ const reviewLedgerWithoutRootSchema = z.object({
 
 export const reviewLedgerSchema = reviewLedgerWithoutRootSchema.extend({ ledgerRoot: digestSchema }).strict();
 
-const artifactClassificationSchema = z.object({
+export const artifactClassificationSchema = z.object({
   artifactId: opaqueIdSchema,
   attemptId: stableIdSchema,
   taskId: stableIdSchema,
@@ -282,8 +290,7 @@ export function computeEvaluatorConfigSha256(configInput: EvaluatorRunnerConfig)
 }
 
 function planProjection(plan: Omit<BlindedReviewPlan, "planRoot"> | BlindedReviewPlan) {
-  const { planRoot: _planRoot, ...projection } = plan as BlindedReviewPlan;
-  return projection;
+  return Object.fromEntries(Object.entries(plan).filter(([key]) => key !== "planRoot"));
 }
 
 export function computeBlindedReviewPlanRoot(plan: Omit<BlindedReviewPlan, "planRoot"> | BlindedReviewPlan): string {
@@ -291,8 +298,7 @@ export function computeBlindedReviewPlanRoot(plan: Omit<BlindedReviewPlan, "plan
 }
 
 function ledgerProjection(ledger: Omit<ReviewLedger, "ledgerRoot"> | ReviewLedger) {
-  const { ledgerRoot: _ledgerRoot, ...projection } = ledger as ReviewLedger;
-  return projection;
+  return Object.fromEntries(Object.entries(ledger).filter(([key]) => key !== "ledgerRoot"));
 }
 
 export function computeReviewLedgerRoot(ledger: Omit<ReviewLedger, "ledgerRoot"> | ReviewLedger): string {
@@ -300,8 +306,7 @@ export function computeReviewLedgerRoot(ledger: Omit<ReviewLedger, "ledgerRoot">
 }
 
 function classificationProjection(book: Omit<ClassificationBook, "classificationRoot"> | ClassificationBook) {
-  const { classificationRoot: _classificationRoot, ...projection } = book as ClassificationBook;
-  return projection;
+  return Object.fromEntries(Object.entries(book).filter(([key]) => key !== "classificationRoot"));
 }
 
 export function computeClassificationRoot(book: Omit<ClassificationBook, "classificationRoot"> | ClassificationBook): string {
@@ -469,8 +474,7 @@ export function verifyBlindedReviewPlan(planInput: BlindedReviewPlan): void {
 }
 
 function recordProjection(record: LockedEvaluatorRecord) {
-  const { recordSha256: _recordSha256, ...projection } = record;
-  return projection;
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== "recordSha256"));
 }
 
 export function computeEvaluatorRecordSha256(record: Omit<LockedEvaluatorRecord, "recordSha256"> | LockedEvaluatorRecord): string {
@@ -495,7 +499,8 @@ function verifyRecordForWorkItem(rawRecord: LockedEvaluatorRecord, item: Reviewe
     record.evidence.attemptBundleSha256 !== item.evaluatorConfig.expectedAttemptBundleSha256
     || record.evidence.artifactRoot !== item.evaluatorConfig.expectedArtifactRoot
     || record.evidence.authorEvidenceRoot !== item.evaluatorConfig.expectedAuthorEvidenceRoot
-    || `sha256:${record.evidence.rubricSha256}` !== item.evaluatorConfig.expectedRubricSha256
+    || (record.evidence.rubricSha256 !== null
+      && `sha256:${record.evidence.rubricSha256}` !== item.evaluatorConfig.expectedRubricSha256)
   )) throw new Error("Evaluator result evidence commitments drifted.");
   if (record.status === "scored" && record.result !== null && record.hashes.outputSha256 !== bareHash(record.result)) {
     throw new Error("Evaluator structured result hash is invalid.");
@@ -558,7 +563,62 @@ export function verifyReviewLedger(planInput: BlindedReviewPlan, ledgerInput: Re
     const item = plan.artifacts.flatMap((artifact) => artifact.primaryWorkItems)
       .find((candidate) => candidate.artifactId === lock.artifactId && candidate.reviewerId === lock.reviewerId);
     if (!item || lock.reviewerRole !== "primary") throw new Error("Review ledger contains an invalid primary lock.");
-    verifyRecordForWorkItem(lock.record, item);
+    const record = verifyRecordForWorkItem(lock.record, item);
+    if (lock.recordSha256 !== record.recordSha256 || lock.lockedAt !== record.lockedAt
+        || lock.accepted !== record.accepted || lock.primaryFailureClass !== record.primaryFailureClass
+        || lock.reviewerId !== record.reviewer.id || lock.artifactId !== record.artifactId) {
+      throw new Error("Review ledger contains an invalid primary lock summary.");
+    }
+  }
+  const disagreements = new Set(plan.artifacts.flatMap((artifact) => {
+    const locks = ledger.primaryLocks.filter((lock) => lock.artifactId === artifact.artifactId);
+    return locks[0].accepted === locks[1].accepted ? [] : [artifact.artifactId];
+  }));
+  if (ledger.phase === "primaries_locked") {
+    if (ledger.adjudicationAssignments.length > 0 || ledger.adjudicationLocks.length > 0) throw new Error("Premature adjudication is forbidden.");
+    return;
+  }
+  if (ledger.adjudicationAssignments.length !== disagreements.size
+      || ledger.adjudicationAssignments.some((assignment) => !disagreements.has(assignment.artifactId))) {
+    throw new Error("Adjudication assignments must cover every and only binary disagreement.");
+  }
+  for (const assignment of ledger.adjudicationAssignments) {
+    const artifact = plan.artifacts.find((candidate) => candidate.artifactId === assignment.artifactId)!;
+    const primaryLocks = ledger.primaryLocks.filter((lock) => lock.artifactId === artifact.artifactId);
+    const source = evaluatorArtifactSourceSchema.parse({
+      schemaVersion: 1,
+      attemptId: artifact.attemptId,
+      authorIdentityCommitment: artifact.authorIdentityCommitment,
+      ...artifact.evidence,
+    });
+    const reviewer = eligibleReviewers(
+      plan.reviewerRoster,
+      source,
+      plan.registryRoot,
+      plan.policy.assignmentSeed,
+      "adjudication",
+      artifact.primaryReviewerIds,
+    )[0];
+    if (!reviewer) throw new Error("Independent adjudicator is unavailable.");
+    const expectedItem = workItem(source, artifact.taskId, reviewer.reviewerId, "adjudicator", plan.policy);
+    if (assignment.reviewerId !== reviewer.reviewerId || canonicalJson(assignment.workItem) !== canonicalJson(expectedItem)
+        || canonicalJson(assignment.primaryRecordSha256s) !== canonicalJson(primaryLocks.map((lock) => lock.recordSha256))) {
+      throw new Error("Adjudication assignment drifted.");
+    }
+  }
+  if (ledger.phase === "adjudication_pending" && ledger.adjudicationLocks.length > 0) throw new Error("Adjudication locks cannot be partial.");
+  if (ledger.phase === "classifiable" && ledger.adjudicationLocks.length !== ledger.adjudicationAssignments.length) {
+    throw new Error("Classifiable ledger lacks required adjudication locks.");
+  }
+  for (const lock of ledger.adjudicationLocks) {
+    const assignment = ledger.adjudicationAssignments.find((candidate) => candidate.artifactId === lock.artifactId);
+    if (!assignment || lock.reviewerRole !== "adjudicator") throw new Error("Review ledger contains a selective adjudication lock.");
+    const record = verifyRecordForWorkItem(lock.record, assignment.workItem);
+    if (lock.recordSha256 !== record.recordSha256 || lock.lockedAt !== record.lockedAt
+        || lock.accepted !== record.accepted || lock.primaryFailureClass !== record.primaryFailureClass
+        || lock.reviewerId !== record.reviewer.id || lock.artifactId !== record.artifactId) {
+      throw new Error("Review ledger contains an invalid adjudication lock summary.");
+    }
   }
 }
 

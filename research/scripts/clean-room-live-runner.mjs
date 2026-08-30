@@ -179,20 +179,81 @@ export function assertSpectatorToolIsolation(liveTools) {
   return descriptors;
 }
 
-export function accumulateResponseUsage(current, usage, budgets) {
-  const inputTokens = Number(usage?.input_tokens ?? 0);
-  const outputTokens = Number(usage?.output_tokens ?? 0);
-  if (![inputTokens, outputTokens].every((value) => Number.isInteger(value) && value >= 0)) {
-    throw new Error("Responses API returned invalid token usage.");
+export function emptyResponseUsageTotals() {
+  return {
+    inputTokens: 0,
+    uncachedInputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function tokenCount(value, field) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Responses API returned invalid token usage for ${field}.`);
   }
+  return value;
+}
+
+function optionalTokenDetails(value, field) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Responses API returned invalid token usage for ${field}.`);
+  }
+  return value;
+}
+
+export function responseUsageCostInputs(totals) {
+  return Object.freeze({
+    uncachedInputTokens: totals.uncachedInputTokens ?? totals.inputTokens ?? 0,
+    cachedInputTokens: totals.cachedInputTokens ?? 0,
+    cacheWriteInputTokens: totals.cacheWriteInputTokens ?? 0,
+    outputTokens: totals.outputTokens ?? 0,
+  });
+}
+
+export function accumulateResponseUsage(current, usage, budgets) {
+  const inputDetails = optionalTokenDetails(usage?.input_tokens_details, "input_tokens_details");
+  const outputDetails = optionalTokenDetails(usage?.output_tokens_details, "output_tokens_details");
+  const inputTokens = tokenCount(usage?.input_tokens ?? 0, "input_tokens");
+  const cachedInputTokens = tokenCount(inputDetails.cached_tokens ?? 0, "input_tokens_details.cached_tokens");
+  const cacheWriteInputTokens = tokenCount(inputDetails.cache_write_tokens ?? 0, "input_tokens_details.cache_write_tokens");
+  const outputTokens = tokenCount(usage?.output_tokens ?? 0, "output_tokens");
+  const reasoningOutputTokens = tokenCount(outputDetails.reasoning_tokens ?? 0, "output_tokens_details.reasoning_tokens");
+  if (usage?.total_tokens !== undefined
+      && tokenCount(usage.total_tokens, "total_tokens") !== inputTokens + outputTokens) {
+    throw new Error("Responses API total token usage does not equal input_tokens plus output_tokens.");
+  }
+  if (cachedInputTokens + cacheWriteInputTokens > inputTokens) {
+    throw new Error("Responses API token usage details exceed input_tokens.");
+  }
+  if (reasoningOutputTokens > outputTokens) {
+    throw new Error("Responses API reasoning token usage exceeds output_tokens.");
+  }
+  const uncachedInputTokens = inputTokens - cachedInputTokens - cacheWriteInputTokens;
   const totals = {
     inputTokens: current.inputTokens + inputTokens,
+    uncachedInputTokens: (current.uncachedInputTokens ?? current.inputTokens) + uncachedInputTokens,
+    cachedInputTokens: (current.cachedInputTokens ?? 0) + cachedInputTokens,
+    cacheWriteInputTokens: (current.cacheWriteInputTokens ?? 0) + cacheWriteInputTokens,
     outputTokens: current.outputTokens + outputTokens,
+    reasoningOutputTokens: (current.reasoningOutputTokens ?? 0) + reasoningOutputTokens,
     totalTokens: current.totalTokens + inputTokens + outputTokens,
   };
   return {
     totals,
-    turn: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+    turn: {
+      inputTokens,
+      uncachedInputTokens,
+      cachedInputTokens,
+      cacheWriteInputTokens,
+      outputTokens,
+      reasoningOutputTokens,
+      totalTokens: inputTokens + outputTokens,
+    },
     exhausted: {
       input: totals.inputTokens >= budgets.inputTokenBudget,
       output: totals.outputTokens >= budgets.outputTokenBudget,
@@ -308,15 +369,39 @@ export function extractPixelCapture(toolName, result, viewport, now = Date.now()
   if (typeof selector !== "string" || !selector) {
     throw new Error(`${toolName} did not return an active validation selector.`);
   }
-  const expiresAt = Date.parse(result.data.expiresAt);
-  if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new Error(`${toolName} pixel lease has expired.`);
+  const rawExpiresAt = result.data.expiresAt;
+  const isoMatch = typeof rawExpiresAt === "string"
+    ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(rawExpiresAt)
+    : null;
+  if (isoMatch) {
+    const [, year, month, day, hour, minute, second] = isoMatch.map(Number);
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]
+        || hour > 23 || minute > 59 || second > 59) {
+      throw new Error(`${toolName} returned an invalid pixel lease expiry.`);
+    }
+  }
+  const expiresAtMs = typeof rawExpiresAt === "number"
+    ? rawExpiresAt
+    : isoMatch
+      ? Date.parse(rawExpiresAt)
+      : Number.NaN;
+  if (!Number.isSafeInteger(expiresAtMs)) throw new Error(`${toolName} returned an invalid pixel lease expiry.`);
+  let expiresAt;
+  try {
+    expiresAt = new Date(expiresAtMs).toISOString();
+  } catch {
+    throw new Error(`${toolName} returned an invalid pixel lease expiry.`);
+  }
+  if (expiresAtMs <= now) throw new Error(`${toolName} pixel lease has expired.`);
   const roomRevision = toolName === "inspect_canvas_scope"
     ? result.data.sceneContext?.revisions?.roomRevision
     : result.data.sourceRevisions?.roomRevision;
   if (!Number.isInteger(roomRevision) || roomRevision < 0) {
     throw new Error(`${toolName} did not bind its pixels to a room revision.`);
   }
-  return { clip, selector, expiresAt: result.data.expiresAt, roomRevision };
+  return { clip, selector, expiresAt, roomRevision };
 }
 
 export function validateRunnerConfig(raw, dryRun = false) {
@@ -717,6 +802,17 @@ export function responsesRequestCompletedData(turn, usage, cumulativeUsage, resp
   });
 }
 
+/** Rebuilds durable usage from completed response events after an interrupted run. */
+export function recoverCompletedResponseUsage(events, fallbackTotals = emptyResponseUsageTotals()) {
+  const completedTurns = events.filter((event) => event?.type === "responses_request_completed");
+  const totals = structuredClone(completedTurns.at(-1)?.data?.cumulativeUsage ?? fallbackTotals);
+  return {
+    totals,
+    byTurn: completedTurns.map((event) => ({ turn: event.data.turn, ...structuredClone(event.data.usage) })),
+    costInputs: responseUsageCostInputs(totals),
+  };
+}
+
 async function runAuthor({ config, page, tools, events, secrets, artifacts, startedAt, concurrentEvents }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for a live run and is read only from the process environment.");
@@ -732,7 +828,7 @@ async function runAuthor({ config, page, tools, events, secrets, artifacts, star
   let toolCalls = 0;
   let finalText = "";
   let termination = "author_completed";
-  let usageTotals = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  let usageTotals = emptyResponseUsageTotals();
   const usageByTurn = [];
   const providerByTurn = [];
   while (true) {
@@ -871,7 +967,7 @@ async function runAuthor({ config, page, tools, events, secrets, artifacts, star
     termination,
     finalText: redactString(finalText, secrets),
     toolCalls,
-    usage: { totals: usageTotals, byTurn: usageByTurn },
+    usage: { totals: usageTotals, byTurn: usageByTurn, costInputs: responseUsageCostInputs(usageTotals) },
     observedProvider: summarizeObservedProvider(providerByTurn),
   };
 }
@@ -944,7 +1040,11 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
     termination: dryRun ? "contract_only" : "not_started",
     finalText: "",
     toolCalls: 0,
-    usage: { totals: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, byTurn: [] },
+    usage: {
+      totals: emptyResponseUsageTotals(),
+      byTurn: [],
+      costInputs: responseUsageCostInputs(emptyResponseUsageTotals()),
+    },
     observedProvider: summarizeObservedProvider([]),
   };
   let participantContract = null;
@@ -1178,10 +1278,7 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
     if (authorEvents && !authorEventsSealed) {
       authorEvents.add("author_attempt_interrupted", failure);
       const completedTurns = authorEvents.events.filter((event) => event.type === "responses_request_completed");
-      const retainedUsage = {
-        totals: completedTurns.at(-1)?.data?.cumulativeUsage ?? authorResult.usage.totals,
-        byTurn: completedTurns.map((event) => ({ turn: event.data.turn, ...event.data.usage })),
-      };
+      const retainedUsage = recoverCompletedResponseUsage(authorEvents.events, authorResult.usage.totals);
       authorResult = {
         termination: "runner_failed",
         finalText: "",

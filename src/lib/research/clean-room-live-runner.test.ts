@@ -18,8 +18,11 @@ const {
   assertSpectatorToolIsolation,
   extractFunctionCalls,
   extractPixelCapture,
+  emptyResponseUsageTotals,
   hashArtifactSet,
+  recoverCompletedResponseUsage,
   responseProviderObservation,
+  responseUsageCostInputs,
   responsesRequestCompletedData,
   sanitizeForResearch,
   summarizeObservedProvider,
@@ -162,6 +165,33 @@ describe("clean-room live runner pure contracts", () => {
       ...result,
       data: { ...result.data, expiresAt: "2020-01-01T00:00:00.000Z" },
     }, { width: 1280, height: 720 }, Date.UTC(2029, 0, 1))).toThrow(/expired/);
+
+    const productionEpochMs = 1_788_123_768_754;
+    expect(extractPixelCapture("inspect_canvas_scope", {
+      ...result,
+      data: { ...result.data, expiresAt: productionEpochMs },
+    }, { width: 1280, height: 720 }, productionEpochMs - 1)).toMatchObject({
+      expiresAt: new Date(productionEpochMs).toISOString(),
+      roomRevision: 12,
+    });
+    for (const expiresAt of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      1.5,
+      "not-a-timestamp",
+      "2030-02-30T00:00:00.000Z",
+      {},
+      null,
+    ]) {
+      expect(() => extractPixelCapture("inspect_canvas_scope", {
+        ...result,
+        data: { ...result.data, expiresAt },
+      }, { width: 1280, height: 720 }, Date.UTC(2029, 0, 1))).toThrow(/invalid pixel lease expiry/);
+    }
+    expect(() => extractPixelCapture("inspect_canvas_scope", {
+      ...result,
+      data: { ...result.data, expiresAt: productionEpochMs },
+    }, { width: 1280, height: 720 }, productionEpochMs)).toThrow(/expired/);
   });
 
   it("runs frozen setup before delivery, outside author budgets, and retains its provenance", async () => {
@@ -308,12 +338,34 @@ describe("clean-room live runner pure contracts", () => {
 
   it("tracks cumulative provider usage and exhausts separate input/output budgets", () => {
     const first = accumulateResponseUsage(
-      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-      { input_tokens: 80, output_tokens: 20, output_tokens_details: { reasoning_tokens: 12 } },
+      emptyResponseUsageTotals(),
+      {
+        input_tokens: 80,
+        input_tokens_details: { cached_tokens: 20, cache_write_tokens: 10 },
+        output_tokens: 20,
+        output_tokens_details: { reasoning_tokens: 12 },
+      },
       { inputTokenBudget: 150, outputTokenBudget: 50 },
     );
     expect(first).toMatchObject({
-      totals: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
+      totals: {
+        inputTokens: 80,
+        uncachedInputTokens: 50,
+        cachedInputTokens: 20,
+        cacheWriteInputTokens: 10,
+        outputTokens: 20,
+        reasoningOutputTokens: 12,
+        totalTokens: 100,
+      },
+      turn: {
+        inputTokens: 80,
+        uncachedInputTokens: 50,
+        cachedInputTokens: 20,
+        cacheWriteInputTokens: 10,
+        outputTokens: 20,
+        reasoningOutputTokens: 12,
+        totalTokens: 100,
+      },
       exhausted: { input: false, output: false },
       remaining: { input: 70, output: 30 },
     });
@@ -323,7 +375,99 @@ describe("clean-room live runner pure contracts", () => {
     });
     expect(second.exhausted).toEqual({ input: true, output: true });
     // reasoning_tokens is already included in provider output_tokens and is not double counted.
-    expect(second.totals).toEqual({ inputTokens: 155, outputTokens: 50, totalTokens: 205 });
+    expect(second.totals).toEqual({
+      inputTokens: 155,
+      uncachedInputTokens: 125,
+      cachedInputTokens: 20,
+      cacheWriteInputTokens: 10,
+      outputTokens: 50,
+      reasoningOutputTokens: 12,
+      totalTokens: 205,
+    });
+    expect(responseUsageCostInputs(second.totals)).toEqual({
+      uncachedInputTokens: 125,
+      cachedInputTokens: 20,
+      cacheWriteInputTokens: 10,
+      outputTokens: 50,
+    });
+  });
+
+  it("rejects inconsistent or non-integer provider token detail counts", () => {
+    const budgets = { inputTokenBudget: 1_000, outputTokenBudget: 1_000 };
+    const accumulate = (usage: unknown) => accumulateResponseUsage(emptyResponseUsageTotals(), usage, budgets);
+    expect(() => accumulate({
+      input_tokens: 10,
+      input_tokens_details: { cached_tokens: 8, cache_write_tokens: 3 },
+      output_tokens: 1,
+    })).toThrow(/exceed input_tokens/);
+    expect(() => accumulate({
+      input_tokens: 1,
+      output_tokens: 2,
+      output_tokens_details: { reasoning_tokens: 3 },
+    })).toThrow(/exceeds output_tokens/);
+    expect(() => accumulate({ input_tokens: 2, output_tokens: 3, total_tokens: 6 }))
+      .toThrow(/does not equal/);
+    for (const usage of [
+      { input_tokens: 1, input_tokens_details: { cached_tokens: -1 }, output_tokens: 0 },
+      { input_tokens: 1, input_tokens_details: { cache_write_tokens: 0.5 }, output_tokens: 0 },
+      { input_tokens: 1, input_tokens_details: { cached_tokens: "1" }, output_tokens: 0 },
+      { input_tokens: 1, input_tokens_details: [], output_tokens: 0 },
+      { input_tokens: 1, output_tokens: 1, output_tokens_details: { reasoning_tokens: Number.NaN } },
+    ]) {
+      expect(() => accumulate(usage)).toThrow(/invalid token usage/);
+    }
+  });
+
+  it("recovers detailed usage after interruption without retaining response secrets", () => {
+    const first = accumulateResponseUsage(emptyResponseUsageTotals(), {
+      input_tokens: 40,
+      input_tokens_details: { cached_tokens: 10, cache_write_tokens: 5 },
+      output_tokens: 15,
+      output_tokens_details: { reasoning_tokens: 8 },
+    }, { inputTokenBudget: 1_000, outputTokenBudget: 1_000 });
+    const second = accumulateResponseUsage(first.totals, {
+      input_tokens: 30,
+      input_tokens_details: { cached_tokens: 12 },
+      output_tokens: 10,
+      output_tokens_details: { reasoning_tokens: 4 },
+    }, { inputTokenBudget: 1_000, outputTokenBudget: 1_000 });
+    const events = [
+      { type: "responses_request_started", data: { turn: 1 } },
+      {
+        type: "responses_request_completed",
+        data: {
+          turn: 1,
+          usage: first.turn,
+          cumulativeUsage: first.totals,
+          responseId: "resp_secret_1",
+          token: "sk-secret-1",
+        },
+      },
+      {
+        type: "responses_request_completed",
+        data: {
+          turn: 2,
+          usage: second.turn,
+          cumulativeUsage: second.totals,
+          responseId: "resp_secret_2",
+          payload: "encrypted-secret-payload",
+        },
+      },
+      { type: "author_attempt_interrupted", data: { message: "host failed" } },
+    ];
+    const recovered = recoverCompletedResponseUsage(events);
+    expect(recovered.totals).toEqual(second.totals);
+    expect(recovered.byTurn).toEqual([
+      { turn: 1, ...first.turn },
+      { turn: 2, ...second.turn },
+    ]);
+    expect(recovered.costInputs).toEqual({
+      uncachedInputTokens: 43,
+      cachedInputTokens: 22,
+      cacheWriteInputTokens: 5,
+      outputTokens: 25,
+    });
+    expect(JSON.stringify(recovered)).not.toMatch(/resp_secret|sk-secret|encrypted-secret/);
   });
 
   it("retains only sanitized per-turn provider model and service tier provenance", () => {
@@ -335,16 +479,25 @@ describe("clean-room live runner pure contracts", () => {
       api_key: "sk-secret-token",
       output: [{ type: "message", encrypted_content: "secret-response-token" }],
     };
+    const turnUsage = {
+      inputTokens: 20,
+      uncachedInputTokens: 12,
+      cachedInputTokens: 6,
+      cacheWriteInputTokens: 2,
+      outputTokens: 10,
+      reasoningOutputTokens: 4,
+      totalTokens: 30,
+    };
     const completed = responsesRequestCompletedData(
       1,
-      { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
-      { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+      turnUsage,
+      turnUsage,
       providerResponse,
     );
     expect(completed).toEqual({
       turn: 1,
-      usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
-      cumulativeUsage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+      usage: turnUsage,
+      cumulativeUsage: turnUsage,
       status: "completed",
       provider: { model: "gpt-5.6-sol-2026-08-01", serviceTier: "priority" },
     });

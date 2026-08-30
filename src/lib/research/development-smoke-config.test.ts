@@ -8,6 +8,7 @@ import developmentRubrics from "../../../research/benchmarks/development-evaluat
 import developmentFixtureSpecs from "../../../research/benchmarks/development-fixture-specs-v1.json";
 import smokeConfig from "../../../research/data/exp-0000-run-config-v1.json";
 import supplementalSmokeConfig from "../../../research/data/exp-0000-run-config-v2.json";
+import diagnosticSmokeConfig from "../../../research/data/exp-0000-run-config-v3.json";
 
 import {
   compileBenchmarkTaskExecution,
@@ -101,13 +102,87 @@ describe("EXP-0000 frozen smoke configuration", () => {
       .toBe("sha256:dfc1884328ebdeb381950a7f9f4a130a5540805d17c73d6a29b1dbd894817146");
   });
 
-  it("binds supplemental execution to the authorized provenance runner and live receipt", () => {
+  it("preserves historical v1/v2 bindings while leaving the current runner for a new amendment", () => {
+    const parentProtocol = readFileSync("research/protocols/exp-0000-live-author-smoke.md", "utf8");
+    const amendmentOne = readFileSync("research/protocols/exp-0000-amendment-1.md", "utf8");
     const runnerBytes = readFileSync("research/scripts/clean-room-live-runner.mjs");
     const receiptBytes = readFileSync("research/data/baseline-live-contract-v1.json");
+    const currentRunnerDigest = `sha256:${createHash("sha256").update(runnerBytes).digest("hex")}`;
+    const currentReceiptDigest = `sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`;
 
-    expect(`sha256:${createHash("sha256").update(runnerBytes).digest("hex")}`)
-      .toBe("sha256:c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24");
-    expect(`sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`)
-      .toBe("sha256:d71dc2052428ac644ad09361358c65d4832823c2cc98ddb04773732f190716fd");
+    const v1RunnerDigest = "sha256:03ab941fcf2663ed713b19258ae5e81f0dd581098fd5b3dff88a8b2c59584f04";
+    const v2RunnerDigest = "sha256:c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24";
+    const v2ReceiptDigest = "sha256:d71dc2052428ac644ad09361358c65d4832823c2cc98ddb04773732f190716fd";
+
+    expect(parentProtocol).toContain(v1RunnerDigest);
+    expect(amendmentOne).toContain(v1RunnerDigest);
+    expect(amendmentOne).toContain(v2RunnerDigest);
+    expect(amendmentOne).toContain(v2ReceiptDigest);
+    expect(currentRunnerDigest).toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
+    expect(currentReceiptDigest).toBe("sha256:799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff");
+    expect(amendmentOne).not.toContain(currentRunnerDigest);
+    expect(amendmentOne).not.toContain(currentReceiptDigest);
+  });
+
+  it("freezes amendment 2 to only the v3 identifier and input-budget changes from v2", () => {
+    const differingKeys = [...new Set([
+      ...Object.keys(supplementalSmokeConfig),
+      ...Object.keys(diagnosticSmokeConfig),
+    ])].filter((key) => (
+      JSON.stringify(supplementalSmokeConfig[key as keyof typeof supplementalSmokeConfig])
+      !== JSON.stringify(diagnosticSmokeConfig[key as keyof typeof diagnosticSmokeConfig])
+    )).sort();
+
+    expect(differingKeys).toEqual(["attemptId", "inputTokenBudget"]);
+    expect(diagnosticSmokeConfig).toMatchObject({
+      attemptId: "smoke-exp0000-checkout-solmax-v3",
+      inputTokenBudget: 400_000,
+      outputTokenBudget: 40_000,
+      perResponseMaxOutputTokens: 20_000,
+    });
+    expect(diagnosticSmokeConfig.allowedToolNames).toEqual(supplementalSmokeConfig.allowedToolNames);
+    expect(diagnosticSmokeConfig.model).toBe(supplementalSmokeConfig.model);
+    expect(diagnosticSmokeConfig.reasoningEffort).toBe(supplementalSmokeConfig.reasoningEffort);
+    expect(diagnosticSmokeConfig.baseUrl).toBe(supplementalSmokeConfig.baseUrl);
+  });
+
+  it("preserves the exact compiler-derived public brief in v3", () => {
+    const task = compileBenchmarkTaskExecution(bundle, "dev-architecture-create-checkout");
+
+    expect(diagnosticSmokeConfig.brief).toBe(supplementalSmokeConfig.brief);
+    expect(diagnosticSmokeConfig.brief).toBe(smokeConfig.brief);
+    expect(diagnosticSmokeConfig.brief).toBe(task.author.renderedBrief);
+  });
+
+  it("pins exact v1/v2 history and amendment 2 config, runner, evaluator, receipt, and contract hashes", () => {
+    const fileDigest = (file: string) => `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
+    const amendmentTwo = readFileSync("research/protocols/exp-0000-amendment-2.md", "utf8");
+
+    expect(fileDigest("research/data/exp-0000-run-config-v1.json"))
+      .toBe("sha256:6cb2004e123f67e2885f2057fb5f4a0c027ba2f5982fed3587afa79df1099790");
+    expect(hashCanonicalJson(smokeConfig))
+      .toBe("sha256:9e9831e82edbe7551572d147748fddf611221d22a6b6f852829522db3778ddad");
+    expect(fileDigest("research/data/exp-0000-run-config-v2.json"))
+      .toBe("sha256:fb7b08b62ed8da156b94634ffe118ced119e1143372d82518140a71b8e5de9f2");
+    expect(hashCanonicalJson(supplementalSmokeConfig))
+      .toBe("sha256:dfc1884328ebdeb381950a7f9f4a130a5540805d17c73d6a29b1dbd894817146");
+    expect(fileDigest("research/data/exp-0000-run-config-v3.json"))
+      .toBe("sha256:a46f725395f1884ca0551862c8f6eef604967b7068bdc0641010c71fa2423add");
+    expect(hashCanonicalJson(diagnosticSmokeConfig))
+      .toBe("sha256:530a33e0ae1e14f15d25de015899f4854e3ecbd648fa0ce6a5d842f671555cfd");
+    expect(fileDigest("research/scripts/clean-room-live-runner.mjs"))
+      .toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
+    expect(fileDigest("research/scripts/blinded-evaluator-runner.mjs"))
+      .toBe("sha256:1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6");
+    expect(fileDigest("research/data/baseline-live-contract-v1.json"))
+      .toBe("sha256:799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff");
+
+    for (const digest of [
+      "sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12",
+      "sha256:1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6",
+      "sha256:799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff",
+      "sha256:69d4f769bbd0be98c9a5ab144d35913533e5db86ad214df61c56d9411dee121b",
+      "sha256:e32b76c48f4e651fa5dcc69a514756807b1846a3883df2ea21297e91ce871cb7",
+    ]) expect(amendmentTwo).toContain(digest);
   });
 });
