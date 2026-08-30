@@ -1,7 +1,7 @@
 # EXP-0000 clean-room live-author smoke report
 
 - Report version: 1
-- Status: final for attempts v1 and v2; measurement remediation in progress
+- Status: final for attempts v1–v3; measurement-readiness diagnostic passed
 - Product baseline: `48a52e0837144ea0db8a09e43217397226759f83`
 - Research pre-execution checkpoint: `92b611a599c770b3ac284be3e90801a692a6dea7`
 - Partition: development only
@@ -9,24 +9,19 @@
 
 ## Decision and permitted claim
 
-The smoke did **not** pass its measurement-readiness gate. Both begun attempts
-remain failures in the all-attempt record. V1 stopped before any mutation when
-one response exhausted its 4,000-token response ceiling. The preregistered v2
-supplement created and atomically committed a 16-object, one-Diagram candidate,
-then crossed its cumulative input ceiling before the model's final inspection
-call could execute. Independent spectator capture subsequently exposed a
-numeric-expiry parsing defect in the research runner, leaving no final PNG.
+The linked smoke series now **passes its narrow measurement-readiness gate**.
+V1 and v2 remain immutable failures in the all-attempt record. The separately
+preregistered v3 diagnostic completed normally, retained detailed provider
+usage, captured exact author inspection pixels and a fresh spectator PNG bound
+to authoritative room revision 4, recomputed every evidence commitment, and
+received one accepted decision from a preregistered blinded primary reviewer.
 
-The only permitted conclusion is that room provisioning, live WebMCP role
-isolation, raw model/tool execution, progressive drafting, atomic finish,
-semantic-state retention, author-evidence sealing, and provider-identity
-retention worked, while token accounting and final evidence capture were not
-yet ready for EXP-0001A. Neither attempt estimates task success probability,
-reviewer accuracy, A/A bias, or harness improvement.
-
-Recommendation: repair and re-freeze the measurement runner, run one new linked
-diagnostic under a preregistered amendment, and do not begin the fixed 48-session
-A/A calibration until exact final pixels and complete cost accounting pass.
+The permitted conclusion is only that the development-only author, evidence,
+cost-accounting, and individual-review path can complete fail-closed against
+the frozen production baseline. This is sufficient to proceed to a separately
+frozen A/A calibration gate. It does not erase v1/v2, estimate task success
+probability, validate inter-rater reliability or adjudication, measure A/A bias,
+or show harness improvement.
 
 ## Frozen inputs and hashes
 
@@ -34,14 +29,21 @@ A/A calibration until exact final pixels and complete cost accounting pass.
 | --- | --- |
 | Parent protocol | `c62ac0fd6dad99c21f7eb8aa4b5001c27224366d7e5aca0a0885e32a2706feab` |
 | Amendment 1 | `59e28581a5a0038a8ca59eafb716b9e4fe9fc34288ccee8f39e06c1821608015` |
+| Amendment 2 | `d7ad62fcaf410ca98970976c2bf7734e98204e4bf7f9d60fb0d2e15850ab8a7e` |
+| Evaluator supplement 1 | `17aedeade29e5a8b0f99aed3b81009005800feb4a0f954dee38370aebcf3ae89` |
 | V1 runner config | `6cb2004e123f67e2885f2057fb5f4a0c027ba2f5982fed3587afa79df1099790` |
 | V2 runner config | `fb7b08b62ed8da156b94634ffe118ced119e1143372d82518140a71b8e5de9f2` |
+| V3 runner config | `a46f725395f1884ca0551862c8f6eef604967b7068bdc0641010c71fa2423add` |
 | Pre-v2 live contract receipt | `d71dc2052428ac644ad09361358c65d4832823c2cc98ddb04773732f190716fd` |
+| Pre-v3 live contract receipt | `799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff` |
 | V1 runner | `03ab941fcf2663ed713b19258ae5e81f0dd581098fd5b3dff88a8b2c59584f04` |
 | V2 runner | `c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24` |
+| V3 runner | `699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12` |
+| V3 blinded evaluator | `1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6` |
+| V3 reviewer config | `4f004adeaccdd52c0e4f7595a5401e0b00f5e388bbf2b7b70c21ffdc3de31805` |
 | Failure taxonomy | `d2c3b9613e66ef37395aabcbe5d58a7d065d604e2ba74313e31891e44678b9df` |
 
-Both attempts used `gpt-5.6-sol` with reasoning effort `max`, Playwright
+All three author attempts used `gpt-5.6-sol` with reasoning effort `max`, Playwright
 Chromium `151.0.7922.34`, a `1280 × 720` viewport, and the verified public
 alias for production deployment `dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD` / build
 `bld_crjsfx08s`. Participant and spectator contracts remained exactly 54 and
@@ -51,18 +53,19 @@ respectively.
 
 ## Run accounting
 
-| Item | V1 primary smoke | V2 supplemental diagnostic | Total |
-| --- | ---: | ---: | ---: |
-| Planned sessions | 1 | 1 | 2 |
-| Attempts begun | 1 | 1 | 2 |
-| Completed normally | 0 | 0 | 0 |
-| Author noncompletion | 1 | 1 | 2 |
-| Candidate mutation committed | 0 | 1 | 1 |
-| Exact spectator PNG available | 0 | 0 | 0 |
-| Attempts retained | 1 | 1 | 2 |
+| Item | V1 primary smoke | V2 supplemental diagnostic | V3 remediation diagnostic | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Planned sessions | 1 | 1 | 1 | 3 |
+| Attempts begun | 1 | 1 | 1 | 3 |
+| Completed normally | 0 | 0 | 1 | 1 |
+| Author noncompletion | 1 | 1 | 0 | 2 |
+| Candidate mutation committed | 0 | 1 | 1 | 2 |
+| Exact spectator PNG available | 0 | 0 | 1 | 1 |
+| Attempts retained | 1 | 1 | 1 | 3 |
 
-V2 is diagnostic and never replaces V1. Both count wherever this smoke's
-all-attempt accounting is reported; neither enters a product-effect estimate.
+V2 and v3 are linked diagnostics and never replace an earlier result. All three
+count wherever this smoke's all-attempt accounting is reported; none enters a
+product-effect estimate.
 
 ## Attempt results
 
@@ -125,18 +128,65 @@ epoch-millisecond `expiresAt`. That evaluates as invalid and produced
 verified research capture defect. No visual acceptance decision is permitted
 from semantic state, geometry summaries, or author prose alone.
 
+### V3 — `smoke-exp0000-checkout-solmax-v3`
+
+- Terminal runner status: `author_completed`
+- Elapsed time: 182,080 ms
+- Tool calls: 14
+- Completed Responses turns: 15
+- Usage: 332,150 input, 11,801 output, 343,951 total tokens
+- Detailed input: 5,927 uncached, 275,817 cached, 50,406 cache-write
+- Reasoning output: 7,623 tokens, already included in output totals
+- Observed provider: `gpt-5.6-sol`, service tier `default`, reported on every
+  completed turn
+- Canvas outcome: 12 authoritative objects and one first-class Diagram at room
+  revision 4
+- Exact author inspection PNGs: revisions 2 and 3
+- Exact spectator PNG: 1,125 × 576 at revision 4, SHA-256
+  `15552c1d0ec0213def7b82928417eee014816d7a52cdf93301c6bf5e5757f0df`
+- Primary failure class: `SUCCESS` from the one preregistered measurement-smoke
+  reviewer; this is not an inter-rater or product-effect result
+- Attempt-bundle file SHA-256:
+  `4d688dbfa7f7b1dc6e17511a44a9596c49fc069cb1d417547f00741a0adc98ae`
+- Author-evidence root:
+  `51e0cd6a857773d7cd78b0ca1b9b9a27e78d5a52ee13fc3fbdd41834b5b130e1`
+- Artifact root:
+  `7a33f2e367bc0c70cfbace8db24fcc6c395313f8553231f85cfaaaa38a9745b5`
+
+V3 differed from v2 only in its opaque attempt ID and preregistered cumulative
+input ceiling. The author created the requested entities, three semantically
+bound directed relationships, an explicit trust-boundary shape, and a
+first-class Diagram, inspected revisions 2 and 3, and completed. A new spectator
+then read room revision 4 and captured the clean exact-revision render. The
+evaluator preflight independently recomputed the attempt bundle, artifact root,
+author root, exact semantic state, author-visible execution contract, rubric,
+PNG digest, dimensions, and room revision before making a model request.
+
 ## Cost accounting
 
-The historical runners retained total input/output usage but not cached-input
-or cache-write detail. Consequently exact billed cost is unavailable and must
-not be labeled "actual cost." At the published standard rates of $4.00/M input
-and $20.00/M output, treating every input token as uncached gives conservative
-nominal amounts of $0.19184 for V1 and $0.940716 for V2. The combined nominal
-amount is $1.132556. Actual billed cost may be lower because cached input is
-priced separately; the remediated runner must retain provider
-`input_tokens_details` before pilot budgeting.
+The historical v1/v2 runners retained total input/output usage but not
+cached-input or cache-write detail. Their exact billed cost remains unavailable
+and must not be labeled actual: all-uncached nominal amounts are $0.19184 for
+v1 and $0.940716 for v2, or $1.132556 combined.
 
-## Evaluator preflight incident
+V3 retained all pricing inputs. At the frozen $4.00/M uncached input, $0.40/M
+cached input, $5.00/M cache-write input, and $20.00/M output rates, its
+reconstructable estimate is:
+
+| Component | Tokens | Estimated USD |
+| --- | ---: | ---: |
+| Uncached input | 5,927 | $0.0237080 |
+| Cached input | 275,817 | $0.1103268 |
+| Cache-write input | 50,406 | $0.2520300 |
+| Output | 11,801 | $0.2360200 |
+| **V3 author total** | 343,951 total provider tokens | **$0.6220848** |
+
+The independent v3 reviewer used 6,531 input and 878 output tokens and records
+an estimated $0.043684. The v3 author-plus-review measurement-path estimate is
+$0.6657688. This does not retroactively make v1/v2 exact and is not yet a
+48-session pilot cost estimate.
+
+## Evaluator incidents and v3 validation
 
 A no-network invocation of the blinded evaluator against V2 failed closed and
 retained review record
@@ -160,41 +210,53 @@ with file SHA-256
 `734c3a27d927534b2f02a55ebec3f95d15c90efd96b448125edc08c127abd424`.
 The earlier task-binding failure remains retained; it was not overwritten.
 
+After v3 evidence sealed, evaluator supplement 1 preregistered a new opaque
+reviewer, exact evidence commitments, `gpt-5.6-sol` at high reasoning, token
+budgets, and frozen pricing before prompt delivery. The evaluator verified the
+entire package and locked an accepted `SUCCESS` record at
+`research/results/runs/_reviews/4d688dbfa7f7b1dc6e17511a/primary-rvw-7f4c2d91.json`.
+Its file SHA-256 is
+`534cfdf843c1ed4677c1ae7846b0fd4109ca26b0f417a8402268cb1b95bfa482`
+and internal record commitment is
+`8e1c093ccdae1fdf14a939683305f0dfb4bd235ec61c681441f652fd2271bf2d`.
+The reviewer saw no paired artifact or treatment label, invoked no tools, and
+marked correction, progressive presentation, and efficiency `not_observable`
+rather than inferring them from final-state evidence.
+
 ## Protocol adherence and deviations
 
-| Check | Result | Evidence |
-| --- | --- | --- |
-| Exact product deployment and contracts | pass | v6 live receipt |
-| V1 retained after failure | pass | V1 attempt root |
-| V2 preregistered before brief | pass | Amendment 1 and checkpoint `92b611a` |
-| No sealed data accessed | pass | coordinator and protocol scope |
-| Author/evaluator context separation | pass | both attempt bundles |
-| Final exact-revision PNG | fail | V2 spectator inspection `pixelError`; V1 no inspectable object |
-| Exact billed-cost accounting | fail | cached/cache-write usage not retained |
-| Independent accepted score | fail | evidence incomplete and evaluator binding incident |
+| Check | V1/V2 result | V3 result | Evidence |
+| --- | --- | --- | --- |
+| Exact product deployment and contracts | pass | pass | v6 before v2; v7 plus immediate Vercel preflight before v3 |
+| Earlier attempts retained after failure | pass | pass | v1/v2 attempt roots remain unchanged |
+| Attempt preregistered before brief | pass | pass | Amendments 1–2 and checkpoints `92b611a`, `98b0c87` |
+| No sealed data accessed | pass | pass | coordinator and protocol scope |
+| Author/evaluator context separation | pass | pass | all attempt bundles and evaluator input commitments |
+| Final exact-revision PNG | fail | pass | v3 spectator revision 4 PNG; v1/v2 lacked accepted pixels |
+| Reconstructable cost accounting | fail | pass | v3 detailed provider usage and frozen rates |
+| Independent accepted score | fail | pass | preregistered v3 reviewer record |
 
 No result was excluded, overwritten, or promoted to success. The v2 budget
 change was preregistered and its provenance-only runner change was explicitly
 authorized before execution. The capture and evaluator defects were discovered
 after v2 and are not retrospectively repaired in its artifacts.
 
-## Required remediation before EXP-0001A
+## Gate disposition and remaining work before EXP-0001A
 
-1. Parse numeric and ISO inspection expiries and prove exact screenshot capture
-   against a live-shaped fixture.
-2. Retain cached-input, cache-write, and reasoning-token details and compute
-   cost from frozen rates.
-3. Bind the evaluator to the strict live author-visible spec object and prove
-   it rejects extra or secret-bearing fields.
-4. Re-freeze every changed runner digest and publish a new supplemental
-   amendment before another brief.
-5. Require one linked diagnostic to finish with exact semantic state, exact
-   revision-bound PNG, recomputable seals, and a fail-closed blinded review
-   before freezing the 48-session A/A profile.
+The five measurement-remediation items identified after v2 are complete: lease
+parsing, detailed usage, strict author-visible-spec binding, digest re-freeze,
+and one complete exact-state/pixel/reviewer diagnostic all passed.
+
+EXP-0001A still requires a separate pre-brief freeze of realistic author and
+reviewer budgets informed by v3, two distinct primary reviewers per artifact,
+an independently tested adjudication path for disagreements, exact all-attempt
+cost and denominator reconciliation, and a fresh production/contract receipt.
+No A/A brief has been delivered as part of EXP-0000.
 
 ## Claim audit
 
 This report makes no product-quality, architecture-quality, drawing-quality,
 model-superiority, evaluator-accuracy, causal, equivalence, or harness-lift
-claim. The attractive or complete-looking parts of V2's semantic artifact are
-not scored evidence without the required exact pixels and independent review.
+claim. V2 remains unscored because its required pixels are absent; v3's one
+accepted reviewer proves only that the individual measurement path can run,
+not that the reviewer is accurate or reliable across artifacts.
