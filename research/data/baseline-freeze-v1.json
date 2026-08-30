@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "baseline-freeze-v1",
+  "frozenAt": "2026-08-30T20:18:00.000Z",
+  "product": {
+    "gitCommit": "48a52e0837144ea0db8a09e43217397226759f83",
+    "gitTree": "a25e8ec9f8fcc08b227d710a8517333af90f491e",
+    "nodeVersion": "24.x",
+    "roomRouteDigest": "sha256:8a2e7309dc54e2ad70de749525d2c3b41c8bb68c1ece5cd9a55e565a971e8b55"
+  },
+  "deployment": {
+    "deploymentId": "dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD",
+    "buildId": "bld_crjsfx08s",
+    "immutableUrl": "https://jazzboard-noy5qxxfd-zwalls-projects.vercel.app",
+    "productionUrl": "https://www.jazzboard.xyz",
+    "state": "READY",
+    "createdAt": 1788119806714,
+    "buildIdentityDigest": "sha256:0342169d87c8c5b4aa770745222488fe934e83940a01e296872daa096e6465d4"
+  },
+  "health": {
+    "url": "https://www.jazzboard.xyz/api/health",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "environment": "production",
+      "realtime": "vercel-websocket+redis-streams",
+      "assets": "vercel-blob",
+      "assetPrivacy": "private-authenticated-room-proxy",
+      "synchronization": {
+        "storage": "redis-three-plane-v3",
+        "documentRevision": "roomRevision",
+        "aggregateRevision": "stateRevision",
+        "mutationIdempotency": "participant-scoped-24h-receipts"
+      },
+      "capacity": {
+        "mode": "enforce",
+        "limits": {
+          "durableDocumentBytes": 3145728,
+          "awarenessBytes": 393216,
+          "coordinationBytes": 131072,
+          "persistedRoomBytes": 3932160,
+          "retainedProposalBytes": 786432,
+          "activityBytes": 1048576,
+          "objects": 5000,
+          "diagrams": 500,
+          "participants": 128,
+          "drawingPoints": 250000
+        }
+      },
+      "canvasRenderer": {
+        "id": "jazzboard-semantic-v1",
+        "ownership": "first-party"
+      },
+      "checks": {
+        "redis": true,
+        "blob": true,
+        "blobConfigured": true,
+        "blobPrivate": true,
+        "sessionSecret": true,
+        "cronSecret": true,
+        "assetStorage": true
+      },
+      "missing": [],
+      "warnings": []
+    },
+    "bodyDigest": "sha256:865fdd40a151c3f9e95d675d2d10b20b211e2734bae94f20b7b1dcfc4a91cc61"
+  },
+  "webMcpInventory": {
+    "path": "research/data/baseline-webmcp-inventory-v1.json",
+    "fileDigest": "sha256:e9c82b98c02fd747bc3d6015bdf2235e6249099c3e2124ef2770f818eb37f5da",
+    "landing": {
+      "toolCount": 5,
+      "inventoryDigest": "sha256:37369b1b3bec8fa9f0c591c479a8852e5ea52254b4ab9da8239d4a66eba2b376"
+    },
+    "participant": {
+      "toolCount": 54,
+      "inventoryDigest": "sha256:dd0a654798c27dc7a4cef64408fe583f1a3fdf51b097f1cac21c5534af436997"
+    }
+  },
+  "sensitiveMaterialRedacted": true,
+  "receiptDigest": "sha256:32fddd038f6ec696f633bc5ee28ec587540282dbbd1e451e5d2debeb67069b23"
+}

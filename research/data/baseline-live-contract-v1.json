@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "public-production-webmcp-contract-verification",
+  "capturedAt": "2026-08-30T20:56:29.576Z",
+  "baseline": {
+    "gitCommit": "48a52e0837144ea0db8a09e43217397226759f83",
+    "gitTree": "a25e8ec9f8fcc08b227d710a8517333af90f491e",
+    "deploymentId": "dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD",
+    "buildId": "bld_crjsfx08s",
+    "immutableDeploymentUrl": "https://jazzboard-noy5qxxfd-zwalls-projects.vercel.app",
+    "executionUrl": "https://www.jazzboard.xyz",
+    "executionUrlVerifiedDeploymentId": "dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD",
+    "aliasPreflight": "authenticated_vercel_cli_immediately_before_contract",
+    "immutableUrlAccess": "deployment_protection_requires_authenticated_bypass"
+  },
+  "runner": {
+    "attemptId": "contract-prod-baseline-v6",
+    "mode": "contract",
+    "status": "contract_verified",
+    "scriptDigest": "sha256:c2cbeaf5b216a5699b7e7fcc88326ff78763988d33943256f8eb193112426c24",
+    "attemptBundleDigest": "sha256:b2a5ee97e285ac6ee6cd99d3912e3a73f4f3acc8f1f56ec8e03ae66cec7c7dff",
+    "artifactRoot": "sha256:9f4676e385dbc0b40b72a4216f2d4183fa87a74839bf76e6545f2849fb63fd26",
+    "elapsedMs": 8203,
+    "node": "v22.22.0",
+    "browser": {
+      "engine": "chromium",
+      "version": "151.0.7922.34"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "deviceScaleFactor": 1
+    },
+    "responsesApiInvoked": false,
+    "authorContextClosedBeforeEvaluation": true
+  },
+  "participant": {
+    "toolCount": 54,
+    "contractDigest": "sha256:d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e",
+    "contractArtifactDigest": "sha256:2d30a59151eca6a0764256d82694b463a4111c84699ac5ad221581b1b846f62a"
+  },
+  "spectator": {
+    "toolCount": 18,
+    "contractDigest": "sha256:1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2",
+    "contractArtifactDigest": "sha256:1fdd0cfcfe657f94921946cebd5aa085cbd5a63cf5685becd783318d15b11149",
+    "toolNames": [
+      "analyze_diagram_layout",
+      "describe_diagram",
+      "export_canvas_artifact",
+      "export_canvas_png",
+      "find_diagrams",
+      "get_canvas_capabilities",
+      "inspect_canvas_scope",
+      "list_activity",
+      "list_agent_edit_proposals",
+      "query_objects",
+      "read_activity",
+      "read_agent_edit_proposal",
+      "read_canvas_drafts",
+      "read_collaboration_state",
+      "read_diagram",
+      "read_neighborhood",
+      "read_room_state",
+      "read_selection"
+    ]
+  },
+  "privacy": {
+    "roomIdentifiersPersisted": false,
+    "sessionCredentialsPersisted": false,
+    "apiCredentialsPersisted": false,
+    "responsesApiInvoked": false
+  },
+  "limitations": [
+    "The public alias must be re-resolved through the authenticated Vercel CLI before every execution batch because the immutable deployment URL is protected.",
+    "This verifies live registration, schemas, role isolation, redaction, and browser-context separation; it is not an autonomous authoring result or product-quality score."
+  ]
+}

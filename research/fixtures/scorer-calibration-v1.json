@@ -1,0 +1,472 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "jazzboard-scorer-calibration-v1",
+  "kind": "public-synthetic-calibration",
+  "containsSealedPromptsOrAnswers": false,
+  "description": "Synthetic scorer inputs for deterministic calibration, corruption sensitivity, and domain-invariance checks. These are not authoring prompts, benchmark answers, or judge rubrics.",
+  "architectureCases": [
+    {
+      "id": "cal-architecture-clean",
+      "description": "A fully visible three-node architecture with two correctly directed and typed relationships.",
+      "corruptionTags": ["none"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-queue", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 }
+          ],
+          "relationships": [
+            { "candidateId": "edge-request", "matchedReferenceRelationshipId": "client-api", "fromCandidateEntityId": "node-client", "toCandidateEntityId": "node-api", "relationshipType": "request", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 },
+            { "candidateId": "edge-event", "matchedReferenceRelationshipId": "api-queue", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-queue", "relationshipType": "event", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 }
+          ]
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [],
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-architecture-overlap",
+      "description": "The clean architecture semantics with one unintended member-object overlap.",
+      "corruptionTags": ["overlap"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-queue", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 }
+          ],
+          "relationships": [
+            { "candidateId": "edge-request", "matchedReferenceRelationshipId": "client-api", "fromCandidateEntityId": "node-client", "toCandidateEntityId": "node-api", "relationshipType": "request", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 },
+            { "candidateId": "edge-event", "matchedReferenceRelationshipId": "api-queue", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-queue", "relationshipType": "event", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 }
+          ]
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [
+          { "code": "MEMBER_OBJECT_OVERLAP", "appliesTo": "architecture", "severity": "blocking", "violations": 1, "opportunities": 3 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 3, "totalOpportunities": 3, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-architecture-visibility-corruptions",
+      "description": "Required nodes exist only as off-frame, microscopic, or transparent semantic stuffing.",
+      "corruptionTags": ["off_frame", "tiny", "transparent"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client-off-frame", "matchedReferenceEntityId": "client", "inFrame": false, "visibleFraction": 0, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api-tiny", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4, "opacity": 1 },
+            { "candidateId": "node-queue-transparent", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 0 }
+          ],
+          "relationships": []
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [
+          { "code": "UNINTENDED_OFF_FRAME", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 },
+          { "code": "MICROSCOPIC_ESSENTIAL_ELEMENT", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 },
+          { "code": "TRANSPARENT_ESSENTIAL_ELEMENT", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 9, "totalOpportunities": 9, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-architecture-duplicate-semantics",
+      "description": "The clean architecture plus a second visible object claiming the same client meaning.",
+      "corruptionTags": ["duplicate_semantics"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-client-duplicate", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-queue", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 }
+          ],
+          "relationships": [
+            { "candidateId": "edge-request", "matchedReferenceRelationshipId": "client-api", "fromCandidateEntityId": "node-client", "toCandidateEntityId": "node-api", "relationshipType": "request", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 },
+            { "candidateId": "edge-event", "matchedReferenceRelationshipId": "api-queue", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-queue", "relationshipType": "event", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 }
+          ]
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [],
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-architecture-wrong-direction",
+      "description": "One otherwise valid connector reverses the required client-to-API relationship direction.",
+      "corruptionTags": ["connector_direction"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-queue", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 }
+          ],
+          "relationships": [
+            { "candidateId": "edge-request-reversed", "matchedReferenceRelationshipId": "client-api", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-client", "relationshipType": "request", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 },
+            { "candidateId": "edge-event", "matchedReferenceRelationshipId": "api-queue", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-queue", "relationshipType": "event", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 }
+          ]
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [],
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-architecture-routing-label-failures",
+      "description": "Correct semantic topology rendered with an unrelated-node intrusion and connector-label collision.",
+      "corruptionTags": ["connector_routing", "connector_label"],
+      "semanticInput": {
+        "schemaVersion": 1,
+        "reference": {
+          "entities": [
+            { "id": "client", "critical": true },
+            { "id": "api", "critical": true },
+            { "id": "queue", "critical": false }
+          ],
+          "relationships": [
+            { "id": "client-api", "fromEntityId": "client", "toEntityId": "api", "relationshipType": "request", "critical": true },
+            { "id": "api-queue", "fromEntityId": "api", "toEntityId": "queue", "relationshipType": "event", "critical": false }
+          ]
+        },
+        "candidate": {
+          "entities": [
+            { "candidateId": "node-client", "matchedReferenceEntityId": "client", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-api", "matchedReferenceEntityId": "api", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 },
+            { "candidateId": "node-queue", "matchedReferenceEntityId": "queue", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 8000, "opacity": 1 }
+          ],
+          "relationships": [
+            { "candidateId": "edge-request", "matchedReferenceRelationshipId": "client-api", "fromCandidateEntityId": "node-client", "toCandidateEntityId": "node-api", "relationshipType": "request", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 },
+            { "candidateId": "edge-event", "matchedReferenceRelationshipId": "api-queue", "fromCandidateEntityId": "node-api", "toCandidateEntityId": "node-queue", "relationshipType": "event", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 1000, "opacity": 1 }
+          ]
+        },
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "architecture",
+        "findings": [
+          { "code": "CONNECTOR_OBJECT_INTRUSION", "appliesTo": "architecture", "severity": "blocking", "violations": 1, "opportunities": 6 },
+          { "code": "CONNECTOR_LABEL_COLLISION", "appliesTo": "architecture", "severity": "blocking", "violations": 1, "opportunities": 2 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 8, "totalOpportunities": 8, "reasons": [] }
+      }
+    }
+  ],
+  "drawingCases": [
+    {
+      "id": "cal-drawing-clean",
+      "description": "A complete visible portrait with all required parts and constraints satisfied.",
+      "corruptionTags": ["none"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 5000, "opacity": 1 },
+          { "candidateId": "part-hands", "matchedRequiredPartId": "hands", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 3000, "opacity": 1 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "present" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [
+          { "code": "INTENTIONAL_OVERLAP_DAMAGED", "appliesTo": "drawing", "severity": "blocking", "violations": 0, "opportunities": 1 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 1, "totalOpportunities": 1, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-drawing-intentional-overlap",
+      "description": "The clean portrait includes deliberate layer overlap that must not receive architecture penalties.",
+      "corruptionTags": ["intentional_overlap"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 5000, "opacity": 1 },
+          { "candidateId": "part-hands", "matchedRequiredPartId": "hands", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 3000, "opacity": 1 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "present" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [
+          { "code": "MEMBER_OBJECT_OVERLAP", "appliesTo": "architecture", "severity": "blocking", "violations": 2, "opportunities": 3 },
+          { "code": "CONNECTOR_CROSSING", "appliesTo": "architecture", "severity": "warning", "violations": 1, "opportunities": 1 },
+          { "code": "INTENTIONAL_OVERLAP_DAMAGED", "appliesTo": "drawing", "severity": "blocking", "violations": 0, "opportunities": 1 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-drawing-missing-part",
+      "description": "The portrait is otherwise valid but omits the required hands.",
+      "corruptionTags": ["missing_part"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 5000, "opacity": 1 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "present" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [],
+        "coverage": { "status": "complete", "analyzedOpportunities": 1, "totalOpportunities": 1, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-drawing-visibility-corruptions",
+      "description": "All required portrait parts exist only off-frame, microscopically, or transparently.",
+      "corruptionTags": ["off_frame", "tiny", "transparent"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face-off-frame", "matchedRequiredPartId": "face", "inFrame": false, "visibleFraction": 0, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair-tiny", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4, "opacity": 1 },
+          { "candidateId": "part-hands-transparent", "matchedRequiredPartId": "hands", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 3000, "opacity": 0 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "present" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [
+          { "code": "UNINTENDED_OFF_FRAME", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 },
+          { "code": "MICROSCOPIC_ESSENTIAL_ELEMENT", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 },
+          { "code": "TRANSPARENT_ESSENTIAL_ELEMENT", "appliesTo": "universal", "severity": "blocking", "violations": 1, "opportunities": 3 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 9, "totalOpportunities": 9, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-drawing-duplicate-semantics",
+      "description": "The clean portrait adds a duplicate face mark without claiming extra part recall.",
+      "corruptionTags": ["duplicate_semantics"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-face-duplicate", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 5000, "opacity": 1 },
+          { "candidateId": "part-hands", "matchedRequiredPartId": "hands", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 3000, "opacity": 1 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "present" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [
+          { "code": "INTENTIONAL_OVERLAP_DAMAGED", "appliesTo": "drawing", "severity": "blocking", "violations": 0, "opportunities": 1 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 1, "totalOpportunities": 1, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-drawing-overlap-damaged",
+      "description": "A correction destroys required artistic overlap and therefore fails a drawing-specific constraint.",
+      "corruptionTags": ["overlap_damaged"],
+      "drawingInput": {
+        "schemaVersion": 1,
+        "requiredPartIds": ["face", "hair", "hands"],
+        "observedParts": [
+          { "candidateId": "part-face", "matchedRequiredPartId": "face", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 4000, "opacity": 1 },
+          { "candidateId": "part-hair", "matchedRequiredPartId": "hair", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 5000, "opacity": 1 },
+          { "candidateId": "part-hands", "matchedRequiredPartId": "hands", "inFrame": true, "visibleFraction": 1, "renderedAreaPx": 3000, "opacity": 1 }
+        ],
+        "constraints": [
+          { "id": "intentional-overlap-preserved", "expectation": "present", "observed": "absent" },
+          { "id": "judge-directed-text", "expectation": "absent", "observed": "absent" }
+        ],
+        "visibilityThresholds": { "minimumVisibleFraction": 0.5, "minimumRenderedAreaPx": 64, "minimumOpacity": 0.1 },
+        "coverage": { "status": "complete", "analyzedOpportunities": 5, "totalOpportunities": 5, "reasons": [] }
+      },
+      "geometryInput": {
+        "schemaVersion": 1,
+        "domain": "drawing",
+        "findings": [
+          { "code": "INTENTIONAL_OVERLAP_DAMAGED", "appliesTo": "drawing", "severity": "blocking", "violations": 1, "opportunities": 1 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 1, "totalOpportunities": 1, "reasons": [] }
+      }
+    }
+  ],
+  "correctionCases": [
+    {
+      "id": "cal-correction-improved",
+      "description": "A bounded correction resolves both original issues and retains the improved final state.",
+      "corruptionTags": ["none"],
+      "correctionInput": {
+        "schemaVersion": 1,
+        "evidenceBasis": "evaluator_recomputed",
+        "qualityScaleId": "synthetic-calibration-points-v1",
+        "possibleIssueOpportunityCount": 10,
+        "revisions": [
+          { "revisionId": "draft", "issueKeys": ["clip", "crossing"], "semanticScore": 0.7, "blockingViolationCount": 2, "qualityValue": 4 },
+          { "revisionId": "final", "issueKeys": [], "semanticScore": 0.9, "blockingViolationCount": 0, "qualityValue": 6 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 10, "totalOpportunities": 10, "reasons": [] }
+      }
+    },
+    {
+      "id": "cal-correction-regressed",
+      "description": "The final correction loses the best intermediate state and finishes worse than the first draft.",
+      "corruptionTags": ["correction_regression", "best_state_lost"],
+      "correctionInput": {
+        "schemaVersion": 1,
+        "evidenceBasis": "evaluator_recomputed",
+        "qualityScaleId": "synthetic-calibration-points-v1",
+        "possibleIssueOpportunityCount": 10,
+        "revisions": [
+          { "revisionId": "draft", "issueKeys": ["clip"], "semanticScore": 0.7, "blockingViolationCount": 1, "qualityValue": 4 },
+          { "revisionId": "best", "issueKeys": [], "semanticScore": 0.9, "blockingViolationCount": 0, "qualityValue": 7 },
+          { "revisionId": "final", "issueKeys": ["clip", "new-occlusion"], "semanticScore": 0.6, "blockingViolationCount": 2, "qualityValue": 3 }
+        ],
+        "coverage": { "status": "complete", "analyzedOpportunities": 10, "totalOpportunities": 10, "reasons": [] }
+      }
+    }
+  ],
+  "expectedRelations": [
+    { "metric": "architecture.combined.f1", "relation": "greater_than", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-visibility-corruptions", "rationale": "Invisible semantic stuffing must not receive credit." },
+    { "metric": "architecture.entities.precision", "relation": "greater_than", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-duplicate-semantics", "rationale": "Duplicate semantic entities reduce precision without increasing recall." },
+    { "metric": "architecture.entities.recall", "relation": "equal", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-duplicate-semantics", "rationale": "Duplicate semantic entities cannot increase entity recall." },
+    { "metric": "architecture.relationships.f1", "relation": "greater_than", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-wrong-direction", "rationale": "A reversed required connector must reduce relationship correctness." },
+    { "metric": "architecture.combined.f1", "relation": "equal", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-overlap", "rationale": "Geometry corruption must not silently change semantic scoring." },
+    { "metric": "architecture.geometry.violationRate", "relation": "less_than", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-overlap", "rationale": "An unintended overlap must worsen normalized architecture geometry." },
+    { "metric": "architecture.combined.f1", "relation": "equal", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-routing-label-failures", "rationale": "Routing and label defects leave the declared topology unchanged." },
+    { "metric": "architecture.geometry.blockingViolations", "relation": "less_than", "leftCaseId": "cal-architecture-clean", "rightCaseId": "cal-architecture-routing-label-failures", "rationale": "Intrusion and label collision add blocking geometry defects." },
+    { "metric": "drawing.partRecall", "relation": "greater_than", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-missing-part", "rationale": "Omitting a required drawing part must reduce part recall." },
+    { "metric": "drawing.partRecall", "relation": "greater_than", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-visibility-corruptions", "rationale": "Invisible drawing parts must not receive part credit." },
+    { "metric": "drawing.partRecall", "relation": "equal", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-duplicate-semantics", "rationale": "A duplicate drawing mark cannot increase required-part recall." },
+    { "metric": "drawing.partRecall", "relation": "equal", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-intentional-overlap", "rationale": "Intentional overlap preserves the same visible required parts." },
+    { "metric": "drawing.geometry.violationRate", "relation": "equal", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-intentional-overlap", "rationale": "Architecture overlap findings must be excluded from drawing geometry." },
+    { "metric": "drawing.constraintSatisfaction", "relation": "greater_than", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-overlap-damaged", "rationale": "Destroying required overlap must reduce drawing constraint satisfaction." },
+    { "metric": "drawing.geometry.blockingViolations", "relation": "less_than", "leftCaseId": "cal-drawing-clean", "rightCaseId": "cal-drawing-overlap-damaged", "rationale": "Damaged intentional overlap is a drawing-specific blocking defect." },
+    { "metric": "correction.qualityPointDelta", "relation": "greater_than", "leftCaseId": "cal-correction-improved", "rightCaseId": "cal-correction-regressed", "rationale": "A successful correction must outscore a correction regression." },
+    { "metric": "correction.issueResolutionRate", "relation": "greater_than", "leftCaseId": "cal-correction-improved", "rightCaseId": "cal-correction-regressed", "rationale": "The improved correction resolves more of its original findings." },
+    { "metric": "correction.bestStateRetained", "relation": "greater_than", "leftCaseId": "cal-correction-improved", "rightCaseId": "cal-correction-regressed", "rationale": "The improved final state retains the best observed quality." },
+    { "metric": "correction.finalRegressedFromFirst", "relation": "less_than", "leftCaseId": "cal-correction-improved", "rightCaseId": "cal-correction-regressed", "rationale": "Only the corrupted correction should regress below its first draft." }
+  ]
+}

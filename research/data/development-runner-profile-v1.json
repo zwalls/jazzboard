@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "profileId": "exp-0001a-sol-max-production-v1",
+  "baseUrl": "https://www.jazzboard.xyz/",
+  "expectedDeployment": {
+    "deploymentId": "dpl_2m1qqwE4xXuTX1huy4nwoEqy5fmD",
+    "buildId": "bld_crjsfx08s",
+    "gitCommit": "48a52e0837144ea0db8a09e43217397226759f83",
+    "gitTree": "a25e8ec9f8fcc08b227d710a8517333af90f491e",
+    "baselineReceiptDigest": "sha256:32fddd038f6ec696f633bc5ee28ec587540282dbbd1e451e5d2debeb67069b23",
+    "buildIdentityDigest": "sha256:0342169d87c8c5b4aa770745222488fe934e83940a01e296872daa096e6465d4"
+  },
+  "aliasPreflight": {
+    "required": true,
+    "method": "authenticated-vercel-cli-or-api",
+    "immutableUrlProtected": true
+  },
+  "model": {
+    "id": "gpt-5.6-sol",
+    "reasoningEffort": "max"
+  },
+  "browser": {
+    "engine": "chromium",
+    "product": "Google Chrome for Testing",
+    "version": "151.0.7922.34",
+    "playwrightVersion": "1.62.1",
+    "headless": true
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "locale": "en-US",
+    "timezone": "UTC"
+  },
+  "budgets": {
+    "wallBudgetMs": 900000,
+    "toolCallBudget": 120,
+    "perToolTimeoutMs": 30000,
+    "inputTokenBudget": 300000,
+    "outputTokenBudget": 80000,
+    "perResponseMaxOutputTokens": 20000,
+    "maxCorrectionRounds": 3
+  },
+  "allowedToolNames": [
+    "get_canvas_capabilities",
+    "read_room_state",
+    "query_objects",
+    "read_neighborhood",
+    "find_diagrams",
+    "read_diagram",
+    "describe_diagram",
+    "analyze_diagram_layout",
+    "read_canvas_drafts",
+    "inspect_canvas_scope",
+    "render_canvas_preview",
+    "focus_viewport",
+    "apply_canvas_transaction",
+    "create_diagram",
+    "create_node",
+    "create_shape",
+    "create_text",
+    "create_drawing",
+    "create_path",
+    "create_polygon",
+    "draw_connection",
+    "edit_diagram",
+    "update_object",
+    "move_objects",
+    "delete_objects",
+    "group_objects",
+    "layout_objects",
+    "finish_canvas_draft",
+    "export_canvas_artifact",
+    "export_canvas_png"
+  ],
+  "participantToolContractHash": "d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e",
+  "spectatorToolContractHash": "1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2",
+  "sensitiveMaterialRedacted": true,
+  "profileDigest": "sha256:a19cce624843cee156f38b5514e2e1b1590f2ad05752e8f70f520ab5d6d34ba4"
+}
