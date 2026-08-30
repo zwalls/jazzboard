@@ -36,6 +36,8 @@ export type PortableAttribution = {
 
 export type PortableCanvasObjectBase = {
   id: string;
+  semanticName?: string | null;
+  semanticRole?: string | null;
   x: number;
   y: number;
   width: number;
@@ -190,6 +192,8 @@ export type JazzboardSemanticArtifactV1 = {
 
 export type TemplateCanvasObjectBase = {
   id: string;
+  semanticName?: string | null;
+  semanticRole?: string | null;
   x: number;
   y: number;
   width: number;

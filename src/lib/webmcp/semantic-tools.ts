@@ -25,7 +25,9 @@ import {
   nodeMetadataInputSchema,
   SEMANTIC_COLOR_NAMES,
   semanticColorSchema,
+  semanticNameSchema,
   semanticPaintSchema,
+  semanticRoleSchema,
 } from "@/lib/domain/schemas";
 import {
   normalizeWorldDrawing,
@@ -38,6 +40,7 @@ import type {
   CanvasCommand,
   CanvasObject,
   CreateCanvasObject,
+  Diagram,
   DiagramCommand,
   DiagramNodeType,
   LayoutCommand,
@@ -54,6 +57,7 @@ import type {
   JazzboardWebMcpBinding,
   WebMcpRequest,
 } from "./types";
+import { CANVAS_PREVIEW_LIMITS } from "./preview-contract";
 
 const id = z.string().min(1).max(128);
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
@@ -98,6 +102,8 @@ const REVIEW_MODE_RESULT_NOTE =
   " Review outcome `proposed` is not applied.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
 const objectKind = z.enum(["text", "shape", "connector", "image", "draw", "path"]);
+const responseDetail = z.enum(["concise", "detailed"]);
+const readDetail = z.enum(["summary", "full"]);
 
 const placement = {
   x: finite.optional(),
@@ -108,6 +114,30 @@ const placement = {
   zIndex: z.number().int().min(0).max(1_000_000).optional(),
   groupId: id.nullable().optional(),
 };
+
+const semanticIdentityFields = {
+  semanticName: semanticNameSchema.optional(),
+  semanticRole: semanticRoleSchema.optional(),
+};
+
+function semanticNameFromTempRef(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function transactionSemanticIdentity(input: {
+  tempRef: string;
+  semanticName?: string;
+  semanticRole?: string;
+}) {
+  return {
+    semanticName: input.semanticName ?? semanticNameFromTempRef(input.tempRef),
+    ...(input.semanticRole !== undefined ? { semanticRole: input.semanticRole } : {}),
+  };
+}
 
 const activityMetadataFields = {
   intent: z.string().trim().min(1).max(1_000).optional(),
@@ -154,6 +184,8 @@ const connectorEndpointPatch = point.extend({
 
 const objectPatch = z
   .object({
+    semanticName: semanticNameSchema.nullable().optional(),
+    semanticRole: semanticRoleSchema.nullable().optional(),
     x: finite.optional(),
     y: finite.optional(),
     width: dimension.optional(),
@@ -195,6 +227,7 @@ const createNodeOperation = z
     label: z.string().min(1).max(10_000),
     nodeType,
     nodeMetadata: nodeMetadataInputSchema.optional(),
+    ...semanticIdentityFields,
     ...placement,
   })
   .strict();
@@ -207,6 +240,7 @@ const createShapeOperation = z
     shape: z.enum(["rectangle", "ellipse", "diamond"]).default("rectangle"),
     fill: semanticPaintSchema.default("blue"),
     stroke: semanticPaintSchema.default("blue"),
+    ...semanticIdentityFields,
     ...placement,
   })
   .strict();
@@ -219,6 +253,7 @@ const createTextOperation = z
     color: semanticColorSchema.default("black"),
     size: z.enum(["s", "m", "l", "xl"]).default("m"),
     align: z.enum(["start", "middle", "end"]).default("start"),
+    ...semanticIdentityFields,
     ...placement,
   })
   .strict();
@@ -233,6 +268,7 @@ const createDrawingOperation = z
     rotation: finite.default(0),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     groupId: id.nullable().default(null),
+    ...semanticIdentityFields,
   })
   .strict();
 
@@ -247,6 +283,7 @@ const pathStyle = {
   rotation: finite.default(0),
   zIndex: z.number().int().min(0).max(1_000_000).optional(),
   groupId: id.nullable().default(null),
+  ...semanticIdentityFields,
 };
 
 function visiblePathStyle(
@@ -288,6 +325,7 @@ const connectOperation = z
     color: semanticColorSchema.default("black"),
     routing: connectorRoutingInputSchema.default({ mode: "auto" }),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
+    ...semanticIdentityFields,
   })
   .strict();
 
@@ -383,6 +421,7 @@ const transactionInput = z
   .object({
     operations: z.array(transactionOperation).min(1).max(200),
     delivery: draftDelivery.optional(),
+    responseDetail: responseDetail.default("concise"),
     ...activityMetadataFields,
   })
   .strict()
@@ -515,6 +554,8 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
           patch: { type: "object", description: "Object patch. Path start/segments use normalized object-local 0..1 coordinates; draw points use local canvas units." },
+          semanticName: { type: "string", minLength: 1, maxLength: 160 },
+          semanticRole: { type: "string", minLength: 1, maxLength: 128 },
           label: { type: "string" },
           content: { type: "string" },
           nodeType: { enum: ["service", "component", "requirement", "decision", "open_question"] },
@@ -574,6 +615,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
     },
     intent: { type: "string" },
     summary: { type: "string" },
+    responseDetail: { enum: ["concise", "detailed"] },
     delivery: {
       type: "object",
       additionalProperties: false,
@@ -618,6 +660,7 @@ const layoutInput = z
     columns: z.number().int().min(1).max(50).optional(),
     diagramId: id.optional(),
     expectedDiagramRevision: z.number().int().positive().optional(),
+    responseDetail: responseDetail.default("concise"),
     ...activityMetadataFields,
   })
   .strict()
@@ -661,6 +704,7 @@ const LAYOUT_TOOL_INPUT_SCHEMA = {
     columns: { type: "integer", minimum: 1, maximum: 50 },
     diagramId: { type: "string", minLength: 1, maxLength: 128 },
     expectedDiagramRevision: { type: "integer", minimum: 1 },
+    responseDetail: { enum: ["concise", "detailed"] },
     intent: { type: "string", minLength: 1, maxLength: 1_000 },
     summary: { type: "string", minLength: 1, maxLength: 500 },
   },
@@ -691,6 +735,8 @@ const regionFilter = z
 const queryInput = z
   .object({
     text: z.string().trim().min(1).max(500).optional(),
+    semanticName: semanticNameSchema.optional(),
+    semanticRole: semanticRoleSchema.optional(),
     kinds: z.array(objectKind).min(1).max(5).optional(),
     nodeTypes: z.array(nodeType).min(1).max(5).optional(),
     nodeStatuses: z.array(nodeStatus).min(1).max(8).optional(),
@@ -700,6 +746,7 @@ const queryInput = z
     relationship: relationshipFilter.optional(),
     region: regionFilter.optional(),
     limit: z.number().int().min(1).max(200).default(50),
+    detail: readDetail.default("summary"),
   })
   .strict();
 
@@ -708,6 +755,8 @@ const QUERY_TOOL_INPUT_SCHEMA = {
   additionalProperties: false,
   properties: {
     text: { type: "string" },
+    semanticName: { type: "string", minLength: 1, maxLength: 160 },
+    semanticRole: { type: "string", minLength: 1, maxLength: 128 },
     kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw", "path"] } },
     nodeTypes: { type: "array", items: { enum: ["service", "component", "requirement", "decision", "open_question"] } },
     nodeStatuses: { type: "array", items: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] } },
@@ -737,6 +786,7 @@ const QUERY_TOOL_INPUT_SCHEMA = {
       },
     },
     limit: { type: "integer", minimum: 1, maximum: 200 },
+    detail: { enum: ["summary", "full"] },
   },
 } as const;
 
@@ -747,6 +797,7 @@ const neighborhoodInput = z
     direction: z.enum(["incoming", "outgoing", "both"]).default("both"),
     includeDiagramPeers: z.boolean().default(false),
     maxObjects: z.number().int().min(1).max(300).default(120),
+    detail: readDetail.default("summary"),
   })
   .strict();
 
@@ -760,6 +811,7 @@ const NEIGHBORHOOD_TOOL_INPUT_SCHEMA = {
     direction: { enum: ["incoming", "outgoing", "both"] },
     includeDiagramPeers: { type: "boolean" },
     maxObjects: { type: "integer", minimum: 1, maximum: 300 },
+    detail: { enum: ["summary", "full"] },
   },
 } as const;
 
@@ -1004,12 +1056,18 @@ function post<T>(request: WebMcpRequest, url: string, body: unknown, signal: Abo
   return request<T>(url, { method: "POST", body: JSON.stringify(body), signal });
 }
 
+function objectVisibleText(object: CanvasObject): string {
+  return object.kind === "text"
+    ? object.content
+    : object.kind === "shape" || object.kind === "connector"
+      ? object.label
+      : object.kind === "image"
+        ? `${object.alt} ${object.sourceUrl ?? ""}`
+        : "";
+}
+
 function objectText(object: CanvasObject): string {
-  if (object.kind === "text") return object.content;
-  if (object.kind === "shape") return object.label;
-  if (object.kind === "connector") return object.label;
-  if (object.kind === "image") return `${object.alt} ${object.sourceUrl ?? ""}`;
-  return "";
+  return [object.semanticName, object.semanticRole, objectVisibleText(object)].filter(Boolean).join(" ");
 }
 
 function intersects(
@@ -1131,6 +1189,283 @@ function visualVerification(
       : reportedGeometryQualityStatus === "pass"
       ? "Geometry checks pass. Render each exact Diagram revision, capture its screenshotClip, inspect the pixels, and only then report visual QA."
       : "Fix every deterministic visual-quality finding, rerun analyze_diagram_layout until it passes, then render and inspect the exact preview pixels.",
+  };
+}
+
+const COMPACT_TEXT_LIMIT = 512;
+const COMPACT_DIAGRAM_SUMMARY_LIMIT = 32;
+const COMPACT_DIAGRAM_OMITTED_ID_LIMIT = 64;
+const COMPACT_OBJECT_DIAGRAM_ID_LIMIT = 16;
+const COMPACT_OBJECT_DIAGRAM_OMITTED_ID_LIMIT = 16;
+const INSPECTION_PADDING = 24;
+
+function boundsForObject(object: CanvasObject) {
+  return { x: object.x, y: object.y, width: object.width, height: object.height };
+}
+
+function boundedText(value: string) {
+  return {
+    value: value.slice(0, COMPACT_TEXT_LIMIT),
+    originalLength: value.length,
+    truncated: value.length > COMPACT_TEXT_LIMIT,
+  };
+}
+
+function compactMutationObject(object: CanvasObject) {
+  return {
+    id: object.id,
+    revision: object.revision,
+    kind: object.kind,
+    semanticName: object.semanticName ?? null,
+    semanticRole: object.semanticRole ?? null,
+    bounds: boundsForObject(object),
+    ...(object.kind === "connector"
+      ? {
+          startObjectId: object.start.objectId,
+          endObjectId: object.end.objectId,
+        }
+      : {}),
+    ...("authority" in object && object.authority === "draft" ? { authority: "draft" as const } : {}),
+  };
+}
+
+function compactDiagram(diagram: Diagram) {
+  return {
+    id: diagram.id,
+    revision: diagram.revision,
+    title: diagram.title,
+    diagramType: diagram.diagramType,
+    bounds: diagram.bounds,
+    memberObjectCount: diagram.memberObjectIds.length,
+    connectorCount: diagram.connectorIds.length,
+    ...("authority" in diagram && diagram.authority === "draft" ? { authority: "draft" as const } : {}),
+  };
+}
+
+function compactDiagramSummaries(room: RoomState, diagramIds: readonly string[]) {
+  const availableDiagramIds = uniqueStrings(diagramIds)
+    .filter((diagramId) => Boolean(room.diagrams?.[diagramId]))
+    .sort();
+  const returnedDiagramIds = availableDiagramIds.slice(0, COMPACT_DIAGRAM_SUMMARY_LIMIT);
+  const omittedDiagramCount = Math.max(0, availableDiagramIds.length - returnedDiagramIds.length);
+  const omittedDiagramIds = availableDiagramIds.slice(
+    COMPACT_DIAGRAM_SUMMARY_LIMIT,
+    COMPACT_DIAGRAM_SUMMARY_LIMIT + COMPACT_DIAGRAM_OMITTED_ID_LIMIT,
+  );
+  return {
+    diagrams: returnedDiagramIds.map((diagramId) => compactDiagram(room.diagrams[diagramId])),
+    diagramSummaryCoverage: {
+      totalDiagramCount: availableDiagramIds.length,
+      returnedDiagramCount: returnedDiagramIds.length,
+      limit: COMPACT_DIAGRAM_SUMMARY_LIMIT,
+      truncated: omittedDiagramCount > 0,
+      omittedDiagramCount,
+      omittedDiagramIds,
+      omittedDiagramIdsTruncated: omittedDiagramIds.length < omittedDiagramCount,
+    },
+  };
+}
+
+function compactDiagramMembership(diagramIds: readonly string[]) {
+  const availableDiagramIds = uniqueStrings(diagramIds).sort();
+  const returnedDiagramIds = availableDiagramIds.slice(0, COMPACT_OBJECT_DIAGRAM_ID_LIMIT);
+  const omittedDiagramCount = Math.max(0, availableDiagramIds.length - returnedDiagramIds.length);
+  const omittedDiagramIds = availableDiagramIds.slice(
+    COMPACT_OBJECT_DIAGRAM_ID_LIMIT,
+    COMPACT_OBJECT_DIAGRAM_ID_LIMIT + COMPACT_OBJECT_DIAGRAM_OMITTED_ID_LIMIT,
+  );
+  return {
+    diagramIds: returnedDiagramIds,
+    diagramMembershipCoverage: {
+      totalDiagramCount: availableDiagramIds.length,
+      returnedDiagramCount: returnedDiagramIds.length,
+      limit: COMPACT_OBJECT_DIAGRAM_ID_LIMIT,
+      truncated: omittedDiagramCount > 0,
+      omittedDiagramCount,
+      omittedDiagramIds,
+      omittedDiagramIdsTruncated: omittedDiagramIds.length < omittedDiagramCount,
+    },
+  };
+}
+
+function compactReadObject(room: RoomState, object: CanvasObject) {
+  const base = {
+    ...compactMutationObject(object),
+    rotation: object.rotation,
+    groupId: object.groupId,
+    ...compactDiagramMembership(object.diagramIds),
+  };
+  if (object.kind === "text") {
+    const text = boundedText(object.content);
+    return {
+      ...base,
+      content: text.value,
+      contentLength: text.originalLength,
+      contentTruncated: text.truncated,
+    };
+  }
+  if (object.kind === "shape") {
+    const text = boundedText(object.label);
+    return {
+      ...base,
+      label: text.value,
+      labelLength: text.originalLength,
+      labelTruncated: text.truncated,
+      nodeType: object.nodeType,
+      nodeStatus: object.nodeMetadata?.status ?? null,
+      nodeOwner: object.nodeMetadata?.owner ?? null,
+    };
+  }
+  if (object.kind === "connector") {
+    const text = boundedText(object.label);
+    const route = materializeConnectorRoute(object, room);
+    return {
+      ...base,
+      label: text.value,
+      labelLength: text.originalLength,
+      labelTruncated: text.truncated,
+      direction: object.direction,
+      start: route.start,
+      end: route.end,
+      routing: route.routing,
+      route: {
+        points: route.points,
+        arc: route.arc,
+        pathBounds: route.pathBounds,
+        labelBounds: route.labelBounds,
+        bounds: route.bounds,
+      },
+    };
+  }
+  if (object.kind === "image") {
+    const text = boundedText(object.alt);
+    return {
+      ...base,
+      alt: text.value,
+      altLength: text.originalLength,
+      altTruncated: text.truncated,
+    };
+  }
+  return base;
+}
+
+function compactValidation(
+  quality: ReturnType<typeof diagramQualityReports>,
+  totalChangedDiagramCount: number,
+) {
+  const verification = visualVerification(
+    quality.reports,
+    quality.omittedDiagramIds,
+    quality.omittedDiagramCount,
+    quality.omittedDiagramIdsTruncated,
+  );
+  return {
+    geometryQualityStatus: verification?.geometryQualityStatus ?? "not_applicable",
+    coverageStatus: verification?.coverageStatus ?? "not_applicable",
+    totalChangedDiagramCount,
+    analyzedDiagramCount: quality.reports.length,
+    omittedDiagramCount: quality.omittedDiagramCount,
+    omittedDiagramIds: quality.omittedDiagramIds,
+    omittedDiagramIdsTruncated: quality.omittedDiagramIdsTruncated,
+    findingCount: quality.reports.reduce((total, report) => total + report.metrics.findingCount, 0),
+    failCount: quality.reports.reduce((total, report) => total + report.metrics.failCount, 0),
+    warningCount: quality.reports.reduce((total, report) => total + report.metrics.warningCount, 0),
+    diagrams: quality.reports.map((report) => ({
+      diagramId: report.diagramId,
+      diagramRevision: report.diagramRevision,
+      status: report.status,
+      coverageStatus: report.geometryCoverage.status,
+      findingCount: report.metrics.findingCount,
+      failCount: report.metrics.failCount,
+      warningCount: report.metrics.warningCount,
+      findingsTruncated: report.metrics.findingsTruncated,
+    })),
+  };
+}
+
+function recommendedInspection(
+  room: RoomState,
+  changedObjectIds: readonly string[],
+  changedDiagramIds: readonly string[],
+) {
+  const diagram = changedDiagramIds
+    .map((diagramId) => room.diagrams?.[diagramId])
+    .find((candidate) => candidate && candidate.memberObjectIds.length + candidate.connectorIds.length > 0);
+  if (diagram) {
+    const targetCount = uniqueStrings([...diagram.memberObjectIds, ...diagram.connectorIds]).length;
+    return {
+      tool: "inspect_canvas_scope" as const,
+      input: {
+        scope: { kind: "diagram" as const, diagramId: diagram.id, expectedRevision: diagram.revision },
+        padding: INSPECTION_PADDING,
+        representation: targetCount > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
+          ? "overview" as const
+          : "working_set" as const,
+      },
+    };
+  }
+  const targets = uniqueStrings(changedObjectIds)
+    .flatMap((objectId) => room.objects[objectId] ?? [])
+    .slice(0, CANVAS_PREVIEW_LIMITS.maxTargets)
+    .map((object) => ({ objectId: object.id, expectedRevision: object.revision }));
+  return targets.length
+    ? {
+        tool: "inspect_canvas_scope" as const,
+        input: {
+          scope: { kind: "objects" as const, targets },
+          padding: INSPECTION_PADDING,
+          representation: targets.length > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
+            ? "overview" as const
+            : "working_set" as const,
+        },
+      }
+    : null;
+}
+
+function conciseMutationReceipt(
+  response: SemanticResponse,
+  temporaryReferences: Record<string, string> | undefined,
+  quality: ReturnType<typeof diagramQualityReports>,
+) {
+  const objects = response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []);
+  const diagrams = response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []);
+  return {
+    outcome: response.outcome,
+    roomRevision: response.room.roomRevision,
+    ...(temporaryReferences ? { temporaryReferences } : {}),
+    changedObjectIds: response.changedObjectIds,
+    deletedObjectIds: response.changedObjectIds.filter((objectId) => !response.room.objects[objectId]),
+    changedDiagramIds: response.changedDiagramIds,
+    deletedDiagramIds: response.changedDiagramIds.filter((diagramId) => !response.room.diagrams?.[diagramId]),
+    membershipObjectIds: response.membershipObjectIds,
+    objects: objects.map(compactMutationObject),
+    diagrams: diagrams.map(compactDiagram),
+    validation: compactValidation(quality, response.changedDiagramIds.length),
+    visualInspectionStatus: "not_performed" as const,
+    recommendedInspection: response.outcome === "applied"
+      ? recommendedInspection(response.room, response.changedObjectIds, response.changedDiagramIds)
+      : null,
+    activity: response.activity,
+    proposal: response.proposal,
+  };
+}
+
+function conciseDraftReceipt(draft: AgentCanvasDraftSnapshot) {
+  return {
+    outcome: "drafted" as const,
+    draftId: draft.id,
+    draftRevision: draft.revision,
+    baselineRoomRevision: draft.baselineRoomRevision,
+    draftStatus: draft.status,
+    temporaryReferences: draft.temporaryReferences,
+    temporaryReferenceCount: Object.keys(draft.temporaryReferences).length,
+    previewObjectCount: draft.previewObjects.length,
+    previewDiagramCount: draft.previewDiagrams.length,
+    previewObjects: draft.previewObjects.map(compactMutationObject),
+    previewDiagrams: draft.previewDiagrams.map(compactDiagram),
+    visualInspectionStatus: "not_performed" as const,
+    nextStep:
+      "Read the live draft if needed. Submit the complete cumulative operations with this draftId and expectedDraftRevision to replace it, or call finish_canvas_draft to commit or discard it.",
   };
 }
 
@@ -1259,8 +1594,12 @@ export function createJazzboardSemanticWebMcpTools(
         const room = await readRoom(signal);
         const related = input.relationship ? relationshipIds(room, input.relationship) : null;
         const query = input.text?.toLocaleLowerCase();
+        const semanticName = input.semanticName?.toLocaleLowerCase();
+        const semanticRole = input.semanticRole?.toLocaleLowerCase();
         const matches = Object.values(room.objects)
           .filter((object) => !query || objectText(object).toLocaleLowerCase().includes(query))
+          .filter((object) => !semanticName || object.semanticName?.toLocaleLowerCase().includes(semanticName))
+          .filter((object) => !semanticRole || object.semanticRole?.toLocaleLowerCase().includes(semanticRole))
           .filter((object) => !input.kinds || input.kinds.includes(object.kind))
           .filter(
             (object) =>
@@ -1285,11 +1624,22 @@ export function createJazzboardSemanticWebMcpTools(
           .filter((object) => !related || related.has(object.id))
           .filter((object) => !input.region || intersects(object, input.region))
           .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id));
+        const selected = matches.slice(0, input.limit);
+        if (input.detail === "full") {
+          return {
+            roomRevision: room.roomRevision,
+            totalMatched: matches.length,
+            truncated: matches.length > input.limit,
+            objects: selected,
+          };
+        }
+        const diagramIds = selected.flatMap((object) => object.diagramIds);
         return {
           roomRevision: room.roomRevision,
           totalMatched: matches.length,
           truncated: matches.length > input.limit,
-          objects: matches.slice(0, input.limit),
+          objects: selected.map((object) => compactReadObject(room, object)),
+          ...compactDiagramSummaries(room, diagramIds),
         };
       },
     }),
@@ -1364,15 +1714,28 @@ export function createJazzboardSemanticWebMcpTools(
           return object?.kind === "connector" ? [object] : [];
         });
         const diagramIds = new Set(limitedIds.flatMap((objectId) => room.objects[objectId]?.diagramIds ?? []));
+        if (input.detail === "full") {
+          return {
+            roomRevision: room.roomRevision,
+            rootObjectIds: input.objectIds,
+            missingObjectIds,
+            depthReached,
+            truncated,
+            objects,
+            connectors,
+            diagrams: [...diagramIds].flatMap((diagramId) => room.diagrams?.[diagramId] ?? []),
+            boundaryObjectIds: frontier.filter((objectId) => limitedSet.has(objectId)),
+          };
+        }
         return {
           roomRevision: room.roomRevision,
           rootObjectIds: input.objectIds,
           missingObjectIds,
           depthReached,
           truncated,
-          objects,
-          connectors,
-          diagrams: [...diagramIds].flatMap((diagramId) => room.diagrams?.[diagramId] ?? []),
+          objects: objects.map((object) => compactReadObject(room, object)),
+          connectors: connectors.map((object) => compactReadObject(room, object)),
+          ...compactDiagramSummaries(room, [...diagramIds]),
           boundaryObjectIds: frontier.filter((objectId) => limitedSet.has(objectId)),
         };
       },
@@ -1469,14 +1832,18 @@ export function createJazzboardSemanticWebMcpTools(
           members: members.map((object) => ({
             id: object.id,
             kind: object.kind,
+            semanticName: object.semanticName ?? null,
+            semanticRole: object.semanticRole ?? null,
             nodeType: object.kind === "shape" ? object.nodeType : null,
             nodeMetadata: object.kind === "shape" ? object.nodeMetadata ?? null : null,
-            label: objectText(object),
+            label: objectVisibleText(object),
             revision: object.revision,
             bounds: { x: object.x, y: object.y, width: object.width, height: object.height },
           })),
           relationships: connectors.map((connector) => ({
             connectorId: connector.id,
+            semanticName: connector.semanticName ?? null,
+            semanticRole: connector.semanticRole ?? null,
             label: connector.label,
             direction: connector.direction,
             routing: normalizeConnectorRouting(connector.routing),
@@ -1703,6 +2070,7 @@ export function createJazzboardSemanticWebMcpTools(
             const drawing = normalizeWorldDrawing(operation.points);
             const object: CreateCanvasObject = {
               id: objectId,
+              ...transactionSemanticIdentity(operation),
               kind: "draw",
               ...drawing,
               rotation: operation.rotation,
@@ -1721,6 +2089,7 @@ export function createJazzboardSemanticWebMcpTools(
               : polygonWorldVectorPath(operation.points);
             const object: CreateCanvasObject = {
               id: objectId,
+              ...transactionSemanticIdentity(operation),
               kind: "path",
               ...path,
               closed: operation.op === "create_path" ? operation.closed : true,
@@ -1743,6 +2112,7 @@ export function createJazzboardSemanticWebMcpTools(
           const position = batchPosition(operation, automaticOrigins[createIndex]!, defaults);
           const common = {
             id: objectId,
+            ...transactionSemanticIdentity(operation),
             ...position,
             rotation: operation.rotation ?? 0,
             zIndex: operation.zIndex ?? zIndex++,
@@ -1839,6 +2209,7 @@ export function createJazzboardSemanticWebMcpTools(
           const end = endpointFor(operation.end);
           const object: CreateCanvasObject = {
             id: objectId,
+            ...transactionSemanticIdentity(operation),
             kind: "connector",
             x: Math.min(start.x, end.x),
             y: Math.min(start.y, end.y),
@@ -1988,6 +2359,7 @@ export function createJazzboardSemanticWebMcpTools(
             },
           );
           binding.context.acceptAgentDraft?.(response.draft);
+          if (input.responseDetail === "concise") return conciseDraftReceipt(response.draft);
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -2012,6 +2384,9 @@ export function createJazzboardSemanticWebMcpTools(
         const quality = response.outcome === "applied"
           ? diagramQualityReports(response.room, response.changedDiagramIds)
           : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
+        if (input.responseDetail === "concise") {
+          return conciseMutationReceipt(response, Object.fromEntries(refs), quality);
+        }
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
@@ -2046,7 +2421,8 @@ export function createJazzboardSemanticWebMcpTools(
       inputSchema: LAYOUT_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
-        const layout = stripActivityMetadata(input);
+        const { responseDetail: requestedResponseDetail, ...layoutWithMetadata } = input;
+        const layout = stripActivityMetadata(layoutWithMetadata);
         const response = await mutate(
           { action: "layout", layout, metadata: activityMetadata(input) },
           signal,
@@ -2054,6 +2430,9 @@ export function createJazzboardSemanticWebMcpTools(
         const quality = response.outcome === "applied"
           ? diagramQualityReports(response.room, response.changedDiagramIds)
           : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
+        if (requestedResponseDetail === "concise") {
+          return conciseMutationReceipt(response, undefined, quality);
+        }
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,

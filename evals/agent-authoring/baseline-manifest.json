@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-30T14:05:00Z",
+  "gitCommit": "a9864a1",
+  "scenarioId": "mona-lisa-shape-and-path-illustration",
+  "image": {
+    "ignoredPath": "artifacts/mona-lisa-proof/Mona-Lisa-Final.png",
+    "width": 1280,
+    "height": 720,
+    "sha256": "635d62479644be16557243f9e7f35f39a5d288017567d08ce78226b2244a570b"
+  },
+  "video": {
+    "ignoredPath": "artifacts/mona-lisa-proof/Jazzboard-Mona-Lisa-Agent-Drawing.mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": 25,
+    "durationSeconds": 37.84,
+    "bytes": 642451,
+    "sha256": "47d37f475cd2b22c541d4cd083e479f53c1d06bd65bce2b9168097153744a488"
+  },
+  "harness": {
+    "ignoredPath": "artifacts/mona-lisa-proof/mona-lisa.e2e.ts",
+    "objectCount": 46,
+    "pathCount": 36,
+    "shapeCount": 10,
+    "draftStages": 3,
+    "usesBrowserWebMcp": true,
+    "agentDesignedOperations": false
+  },
+  "interpretation": "This is the strongest honest pre-change visual checkpoint. The recorded harness proves browser WebMCP transport, draft choreography, and rendering, but its operations are fixed and therefore do not measure open-ended model authoring quality."
+}

@@ -13,7 +13,9 @@ import {
   nodeMetadataInputSchema,
   SEMANTIC_COLOR_NAMES,
   semanticColorSchema,
+  semanticNameSchema,
   semanticPaintSchema,
+  semanticRoleSchema,
 } from "@/lib/domain/schemas";
 import {
   normalizeWorldDrawing,
@@ -82,25 +84,26 @@ const AGENT_IMAGE_URL_SCHEMA = {
 } as const;
 const WORLD_POINT_JSON_SCHEMA = {
   type: "object",
-  description: "Canvas-world {x,y} in canvas units.",
+  description: "Canvas-world {x,y}.",
 } as const;
 const PATH_SEGMENT_JSON_SCHEMA = {
   type: "object",
-  description: "World coords: line={kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}.",
+  description: "World {kind,to}; curves add control or control1/control2.",
 } as const;
 const NORMALIZED_PATH_SEGMENT_JSON_SCHEMA = {
   type: "object",
-  description: "Normalized 0..1 coords: line={kind,to}; quadratic adds control; cubic adds control1/control2.",
+  description: "Normalized 0..1 {kind,to}; curves add controls.",
 } as const;
 const COLOR_JSON_SCHEMA = {
   type: "string",
   pattern: `^(?:${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Named Jazzboard color or #RGB/#RRGGBB/#RRGGBBAA.",
 } as const;
 const PAINT_JSON_SCHEMA = {
   type: "string",
   pattern: `^(?:none|${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Color format above, or none for no paint.",
+} as const;
+const PAINT_FROM_COLOR_JSON_SCHEMA = {
+  anyOf: [{ $ref: "#/$defs/color" }, { const: "none" }],
 } as const;
 const REVIEW_MODE_RESULT_NOTE =
   " Review outcome `proposed` is not applied.";
@@ -137,6 +140,18 @@ const placementFields = {
   groupId: idSchema.nullable().optional(),
 };
 
+const semanticIdentityFields = {
+  semanticName: semanticNameSchema.optional(),
+  semanticRole: semanticRoleSchema.optional(),
+};
+
+function semanticIdentity(input: { semanticName?: string; semanticRole?: string }) {
+  return {
+    ...(input.semanticName !== undefined ? { semanticName: input.semanticName } : {}),
+    ...(input.semanticRole !== undefined ? { semanticRole: input.semanticRole } : {}),
+  };
+}
+
 const activityMetadataFields = {
   intent: z.string().trim().min(1).max(1_000).optional(),
   summary: z.string().trim().min(1).max(500).optional(),
@@ -149,6 +164,7 @@ function activityMetadata(input: { intent?: string; summary?: string }) {
 const createTextInputSchema = z
   .object({
     content: z.string().min(1).max(20_000),
+    ...semanticIdentityFields,
     ...activityMetadataFields,
     ...placementFields,
     color: colorSchema.optional(),
@@ -160,6 +176,7 @@ const createTextInputSchema = z
 const createShapeInputSchema = z
   .object({
     label: z.string().max(10_000).optional(),
+    ...semanticIdentityFields,
     ...activityMetadataFields,
     shape: z.enum(["rectangle", "ellipse", "diamond"]).optional(),
     ...placementFields,
@@ -171,6 +188,7 @@ const createShapeInputSchema = z
 const createNodeInputSchema = z
   .object({
     label: z.string().min(1).max(10_000),
+    ...semanticIdentityFields,
     ...activityMetadataFields,
     nodeType: z.enum(["component", "service", "requirement", "decision", "open_question"]).optional(),
     nodeMetadata: nodeMetadataInputSchema.optional(),
@@ -190,6 +208,7 @@ const createNodeInputSchema = z
 const addImageInputSchema = z
   .object({
     url: agentImageUrlSchema,
+    ...semanticIdentityFields,
     alt: z.string().max(2_000).optional(),
     mimeType: z.string().min(1).max(128).optional(),
     locked: z.boolean().optional(),
@@ -208,6 +227,7 @@ const drawingPointSchema = z
 const createDrawingInputSchema = z
   .object({
     points: z.array(drawingPointSchema).min(2).max(2_000),
+    ...semanticIdentityFields,
     ...activityMetadataFields,
     color: colorSchema.optional(),
     size: z.enum(["s", "m", "l"]).optional(),
@@ -260,12 +280,14 @@ const createPathInputSchema = z.object({
   start: drawingPointSchema,
   segments: z.array(vectorPathSegmentInputSchema).min(1).max(VECTOR_PATH_LIMITS.maxSegments),
   closed: z.boolean().optional(),
+  ...semanticIdentityFields,
   ...activityMetadataFields,
   ...vectorPathStyleInputFields,
 }).strict().superRefine(refineVisiblePathStyle);
 
 const createPolygonInputSchema = z.object({
   points: z.array(drawingPointSchema).min(3).max(VECTOR_PATH_LIMITS.maxSegments + 1),
+  ...semanticIdentityFields,
   ...activityMetadataFields,
   ...vectorPathStyleInputFields,
 }).strict().superRefine(refineVisiblePathStyle);
@@ -295,6 +317,7 @@ const drawConnectionInputSchema = z
   .object({
     start: endpointInputSchema,
     end: endpointInputSchema,
+    ...semanticIdentityFields,
     ...activityMetadataFields,
     direction: z.enum(["none", "end", "both"]).optional(),
     label: z.string().max(2_000).optional(),
@@ -306,6 +329,8 @@ const drawConnectionInputSchema = z
 
 const objectPatchSchema = z
   .object({
+    semanticName: semanticNameSchema.nullable().optional(),
+    semanticRole: semanticRoleSchema.nullable().optional(),
     x: finite.optional(),
     y: finite.optional(),
     width: positiveDimension.optional(),
@@ -435,13 +460,26 @@ const DIMENSION = { type: "number", exclusiveMinimum: 0, maximum: 100_000 } as c
 const LEASE_ID = { type: "string", minLength: 1, maxLength: 128 } as const;
 
 const PLACEMENT_PROPERTIES = {
-  x: { ...COORDINATE, description: "Canvas-unit x of the unrotated top-left." },
-  y: { ...COORDINATE, description: "Canvas-unit y of the unrotated top-left." },
-  width: { ...DIMENSION, description: "Unrotated width in canvas units." },
-  height: { ...DIMENSION, description: "Unrotated height in canvas units." },
-  rotation: { ...COORDINATE, description: "Clockwise radians about the object center." },
-  zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
-  groupId: { anyOf: [ID, { type: "null" }] },
+  x: COORDINATE,
+  y: COORDINATE,
+  width: DIMENSION,
+  height: DIMENSION,
+  rotation: COORDINATE,
+  zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
+  groupId: { type: ["string", "null"], minLength: 1, maxLength: 128 },
+} as const;
+
+const SEMANTIC_IDENTITY_PROPERTIES = {
+  semanticName: {
+    type: "string",
+    minLength: 1,
+    maxLength: 160,
+  },
+  semanticRole: {
+    type: "string",
+    minLength: 1,
+    maxLength: 128,
+  },
 } as const;
 
 const ACTIVITY_METADATA_PROPERTIES = {
@@ -798,12 +836,12 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_text",
       title: "Create semantic canvas text",
-      description:
-        "Create semantic text at coordinates or in the viewport.",
+      description: "Create semantic text.",
       inputSchema: {
         type: "object",
         properties: {
           content: { type: "string", minLength: 1, maxLength: 20_000 },
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,
           color: COLOR_JSON_SCHEMA,
@@ -823,6 +861,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("text"),
+              ...semanticIdentity(input),
               kind: "text",
               ...dimensions,
               rotation: input.rotation ?? 0,
@@ -842,12 +881,12 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_shape",
       title: "Create a diagram shape",
-      description:
-        "Create a labeled rectangle, ellipse, or diamond.",
+      description: "Create a diagram shape.",
       inputSchema: {
         type: "object",
         properties: {
           label: { type: "string", maxLength: 10_000 },
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           ...ACTIVITY_METADATA_PROPERTIES,
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           ...PLACEMENT_PROPERTIES,
@@ -867,6 +906,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("shape"),
+              ...semanticIdentity(input),
               kind: "shape",
               ...dimensions,
               rotation: input.rotation ?? 0,
@@ -887,16 +927,16 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_node",
       title: "Create an architecture node",
-      description:
-        "Create a component, service, requirement, decision, or open-question node.",
+      description: "Create an architecture node.",
       inputSchema: {
         type: "object",
         properties: {
           label: { type: "string", minLength: 1, maxLength: 10_000 },
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           nodeType: { enum: ["component", "service", "requirement", "decision", "open_question"] },
           nodeMetadata: {
             type: "object",
-            description: "Decision/open-question {kind,status?,owner?,resolution?}; kind matches nodeType and resolved states require resolution.",
+            description: "Lifecycle metadata; kind matches nodeType.",
           },
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,
@@ -922,6 +962,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("node"),
+              ...semanticIdentity(input),
               kind: "shape",
               ...dimensions,
               rotation: input.rotation ?? 0,
@@ -942,12 +983,12 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "add_image",
       title: "Add an image by HTTPS or authorized Jazzboard asset URL",
-      description:
-        "Place an HTTPS or authorized room asset as an accessible semantic image.",
+      description: "Add an authorized image.",
       inputSchema: {
         type: "object",
         properties: {
           url: AGENT_IMAGE_URL_SCHEMA,
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           alt: { type: "string", maxLength: 2_000 },
           mimeType: { type: "string", minLength: 1, maxLength: 128 },
           locked: { type: "boolean" },
@@ -967,6 +1008,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("image"),
+              ...semanticIdentity(input),
               kind: "image",
               ...dimensions,
               rotation: input.rotation ?? 0,
@@ -988,14 +1030,13 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_drawing",
       title: "Create a freehand canvas drawing",
-      description:
-        "Create one semantic freehand stroke from 2–2,000 bounded canvas points.",
+      description: "Create a bounded freehand stroke.",
       inputSchema: {
         type: "object",
         properties: {
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           points: {
             type: "array",
-            description: "Canvas-world points; Jazzboard derives the local object bounds and stores local canvas-unit points.",
             minItems: 2,
             maxItems: 2_000,
             items: {
@@ -1010,9 +1051,9 @@ export function createJazzboardWebMcpTools(
           },
           color: COLOR_JSON_SCHEMA,
           size: { enum: ["s", "m", "l"] },
-          rotation: { ...COORDINATE, description: "Clockwise radians about the drawing's derived local origin." },
+          rotation: COORDINATE,
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
-          groupId: { anyOf: [ID, { type: "null" }] },
+          groupId: { type: ["string", "null"], minLength: 1, maxLength: 128 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["points"],
@@ -1028,6 +1069,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("draw"),
+              ...semanticIdentity(input),
               kind: "draw",
               ...drawing,
               rotation: input.rotation ?? 0,
@@ -1045,11 +1087,11 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_path",
       title: "Create a native vector path",
-      description:
-        "Create a numeric world-coordinate path. Segments: line {kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}; no SVG data.",
+      description: "Create a native vector path.",
       inputSchema: {
         type: "object",
         properties: {
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           start: WORLD_POINT_JSON_SCHEMA,
           segments: {
             type: "array",
@@ -1060,14 +1102,14 @@ export function createJazzboardWebMcpTools(
           closed: { type: "boolean" },
           fill: { $ref: "#/$defs/paint" },
           stroke: { $ref: "#/$defs/paint" },
-          strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
-          opacity: { type: "number", minimum: 0, maximum: 1, description: "Whole-path opacity from transparent 0 to opaque 1." },
+          strokeWidth: { type: "number", minimum: 0, maximum: 256 },
+          opacity: { type: "number", minimum: 0, maximum: 1 },
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          rotation: { ...COORDINATE, description: "Clockwise radians about the derived path-box center." },
-          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
-          groupId: { anyOf: [ID, { type: "null" }] },
+          rotation: COORDINATE,
+          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
+          groupId: { type: ["string", "null"], minLength: 1, maxLength: 128 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["start", "segments"],
@@ -1084,6 +1126,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("path"),
+              ...semanticIdentity(input),
               kind: "path",
               ...path,
               rotation: input.rotation ?? 0,
@@ -1107,27 +1150,27 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_polygon",
       title: "Create a native polygon",
-      description: "Create a closed native polygon from 3–2,001 canvas-world {x,y} points.",
+      description: "Create a native polygon.",
       inputSchema: {
         type: "object",
         properties: {
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           points: {
             type: "array",
-            description: "Canvas-world vertices; closes automatically.",
             minItems: 3,
             maxItems: 2_001,
             items: WORLD_POINT_JSON_SCHEMA,
           },
           fill: { $ref: "#/$defs/paint" },
           stroke: { $ref: "#/$defs/paint" },
-          strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
-          opacity: { type: "number", minimum: 0, maximum: 1, description: "Whole-polygon opacity from transparent 0 to opaque 1." },
+          strokeWidth: { type: "number", minimum: 0, maximum: 256 },
+          opacity: { type: "number", minimum: 0, maximum: 1 },
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          rotation: { ...COORDINATE, description: "Clockwise radians about the derived polygon-box center." },
-          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
-          groupId: { anyOf: [ID, { type: "null" }] },
+          rotation: COORDINATE,
+          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
+          groupId: { type: ["string", "null"], minLength: 1, maxLength: 128 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["points"],
@@ -1144,6 +1187,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("path"),
+              ...semanticIdentity(input),
               kind: "path",
               ...path,
               rotation: input.rotation ?? 0,
@@ -1167,17 +1211,17 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "draw_connection",
       title: "Connect semantic canvas objects",
-      description:
-        "Connect IDs or points; auto delegates routing, while explicit ports and routes preserve intent.",
+      description: "Connect objects or canvas points.",
       inputSchema: {
         type: "object",
         properties: {
-          start: { type: "object", description: "World {x,y}, or {objectId,port?}; port={side,position? 0..1,exact?}." },
-          end: { type: "object", description: "World {x,y}, or {objectId,port?}; port={side,position? 0..1,exact?}." },
+          start: { type: "object", description: "World {x,y} or {objectId,port?}." },
+          end: { type: "object", description: "World {x,y} or {objectId,port?}." },
+          ...SEMANTIC_IDENTITY_PROPERTIES,
           direction: { enum: ["none", "end", "both"] },
           label: { type: "string", maxLength: 2_000 },
           color: COLOR_JSON_SCHEMA,
-          routing: { type: "object", description: "{mode:auto|straight|curved|elbow,bend?,elbowMidPoint?,labelPosition?}; curved requires bend." },
+          routing: { type: "object", description: "{mode:auto|straight|curved|elbow,...}." },
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
@@ -1195,6 +1239,7 @@ export function createJazzboardWebMcpTools(
             type: "create",
             object: {
               id: createId("connector"),
+              ...semanticIdentity(input),
               kind: "connector",
               x: Math.min(start.x, end.x),
               y: Math.min(start.y, end.y),
@@ -1219,8 +1264,7 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "update_object",
       title: "Update a semantic canvas object",
-      description:
-        "Revision- and lease-checked edit; busy objects return OBJECT_BUSY.",
+      description: "Edit one revision-checked object.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1233,6 +1277,18 @@ export function createJazzboardWebMcpTools(
             minProperties: 1,
             properties: {
               ...PLACEMENT_PROPERTIES,
+              semanticName: {
+                type: ["string", "null"],
+                minLength: 1,
+                maxLength: 160,
+                description: "Revise or clear identity.",
+              },
+              semanticRole: {
+                type: ["string", "null"],
+                minLength: 1,
+                maxLength: 128,
+                description: "Revise or clear classification.",
+              },
               content: { type: "string", maxLength: 20_000 },
               color: { $ref: "#/$defs/color" },
               size: { enum: ["s", "m", "l", "xl"] },
@@ -1247,11 +1303,11 @@ export function createJazzboardWebMcpTools(
               stroke: { $ref: "#/$defs/paint" },
               start: {
                 type: "object",
-                description: "Connector endpoint, or path start as normalized object-local {x,y} (0..1).",
+                description: "Connector endpoint or normalized path {x,y}.",
               },
               end: { type: "object", description: "Connector {x,y,objectId}; attachment metadata is optional." },
               direction: { enum: ["none", "end", "both"] },
-              routing: { type: "object", description: "Routing mode auto/straight/curved/elbow plus mode-specific numeric fields." },
+              routing: { type: "object", description: "auto/straight/curved/elbow routing." },
               url: { type: "string" },
               assetId: { type: ["string", "null"] },
               alt: { type: "string" },
@@ -1260,16 +1316,14 @@ export function createJazzboardWebMcpTools(
               locked: { type: "boolean" },
               points: {
                 type: "array",
-                description: "Freehand patch points in object-local canvas units, not canvas-world coordinates.",
                 items: { type: "object" },
               },
               segments: {
                 type: "array",
-                description: "Path patch segments using normalized object-local endpoints and controls (0..1).",
                 items: NORMALIZED_PATH_SEGMENT_JSON_SCHEMA,
               },
               closed: { type: "boolean" },
-              strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
+              strokeWidth: { type: "number", minimum: 0, maximum: 256 },
               opacity: { type: "number", minimum: 0, maximum: 1 },
               lineCap: { enum: ["butt", "round", "square"] },
               lineJoin: { enum: ["miter", "round", "bevel"] },
@@ -1281,7 +1335,7 @@ export function createJazzboardWebMcpTools(
         },
         required: ["objectId", "expectedRevision", "patch"],
         additionalProperties: false,
-        $defs: { color: COLOR_JSON_SCHEMA, paint: PAINT_JSON_SCHEMA },
+        $defs: { color: COLOR_JSON_SCHEMA, paint: PAINT_FROM_COLOR_JSON_SCHEMA },
       },
       schema: updateObjectInputSchema,
       annotations: { untrustedContentHint: true },
@@ -1309,8 +1363,7 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "move_objects",
       title: "Move semantic canvas objects",
-      description:
-        "Atomically move revision-checked objects; include any active lease token.",
+      description: "Move revision-checked objects atomically.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1339,13 +1392,12 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "group_objects",
       title: "Group or ungroup semantic objects",
-      description:
-        "Atomically group revision-checked objects; omit groupId to create one or pass null to ungroup.",
+      description: "Group or ungroup objects atomically.",
       inputSchema: {
         type: "object",
         properties: {
           targets: { type: "array", minItems: 1, maxItems: 200, items: TARGET_JSON_SCHEMA },
-          groupId: { anyOf: [ID, { type: "null" }] },
+          groupId: { type: ["string", "null"], minLength: 1, maxLength: 128 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["targets"],
@@ -1364,8 +1416,7 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "delete_objects",
       title: "Delete semantic canvas objects",
-      description:
-        "Atomically delete revision-checked objects; any busy target rejects all.",
+      description: "Delete revision-checked objects atomically.",
       inputSchema: {
         type: "object",
         properties: {

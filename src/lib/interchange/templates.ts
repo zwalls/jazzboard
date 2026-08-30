@@ -49,6 +49,8 @@ function stripObject(
 ): TemplateCanvasObject {
   const base = {
     id: object.id,
+    ...(object.semanticName !== undefined ? { semanticName: object.semanticName } : {}),
+    ...(object.semanticRole !== undefined ? { semanticRole: object.semanticRole } : {}),
     x: object.x,
     y: object.y,
     width: object.width,
@@ -204,6 +206,8 @@ function createObject(
 ): CreateCanvasObject {
   const base = {
     id: objectIds.get(object.id)!,
+    ...(object.semanticName !== undefined ? { semanticName: object.semanticName } : {}),
+    ...(object.semanticRole !== undefined ? { semanticRole: object.semanticRole } : {}),
     x: object.x + dx,
     y: object.y + dy,
     width: object.width,

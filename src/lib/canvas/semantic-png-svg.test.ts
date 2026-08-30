@@ -202,21 +202,16 @@ describe("semantic PNG SVG generation", () => {
       "image",
       "path",
     ]);
-    const shaftIndex = result.svg.indexOf(
-      'data-semantic-object-id="connector" data-semantic-layer="connector-shaft"',
+    const connectorIndex = result.svg.indexOf(
+      'data-semantic-object-id="connector" data-semantic-layer="object"',
     );
-    const ordinaryOrder = result.objectIds
-      .filter((id) => id !== "connector")
-      .map((id) => result.svg.indexOf(
-        `data-semantic-object-id="${id}" data-semantic-layer="object"`,
-      ));
-    const overlayIndex = result.svg.indexOf(
-      'data-semantic-connector-overlay-id="connector" data-semantic-layer="connector-overlay"',
-    );
-    expect(shaftIndex).toBeGreaterThanOrEqual(0);
-    expect(ordinaryOrder).toEqual([...ordinaryOrder].sort((left, right) => left - right));
-    expect(shaftIndex).toBeLessThan(Math.min(...ordinaryOrder));
-    expect(overlayIndex).toBeGreaterThan(Math.max(...ordinaryOrder));
+    const basePaintOrder = result.objectIds.map((id) => result.svg.indexOf(
+      `data-semantic-object-id="${id}" data-semantic-layer="object"`,
+    ));
+    expect(connectorIndex).toBeGreaterThanOrEqual(0);
+    expect(basePaintOrder).toEqual([...basePaintOrder].sort((left, right) => left - right));
+    expect(connectorIndex).toBeGreaterThan(basePaintOrder[result.objectIds.indexOf("diamond")]!);
+    expect(connectorIndex).toBeLessThan(basePaintOrder[result.objectIds.indexOf("draw")]!);
     expect(result.svg).not.toContain("OUTSIDE_SECRET");
     expect(result.svg).not.toContain("<script");
     expect(withoutMarkup(objectMarkup(result.svg, "text"))).toContain(
@@ -246,16 +241,12 @@ describe("semantic PNG SVG generation", () => {
     expect(rectangle).toContain(
       'stroke="#f2e5f7" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"',
     );
-    const connectorShaft = objectMarkup(result.svg, "connector", "connector-shaft");
-    const connectorOverlay = objectMarkup(result.svg, "connector", "connector-overlay");
-    expect(connectorShaft).toContain(
+    const connector = objectMarkup(result.svg, "connector");
+    expect(connector).toContain(
       'stroke="#9050c8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"',
     );
-    expect(connectorShaft).not.toContain("<polygon");
-    expect(connectorShaft).not.toContain('rx="4" fill="#ffffff" stroke="none"');
-    expect(connectorOverlay).not.toContain("<path");
-    expect(connectorOverlay).toContain("<polygon");
-    expect(connectorOverlay).toContain('rx="4" fill="#ffffff" stroke="none"');
+    expect(connector).toContain("<polygon");
+    expect(connector).toContain('rx="4" fill="#ffffff" stroke="none"');
     expect(objectMarkup(result.svg, "draw")).toContain(
       'stroke="#d9484a" stroke-width="4.5"',
     );
@@ -299,11 +290,7 @@ describe("semantic PNG SVG generation", () => {
       { padding: 0 },
     );
     const textMarkup = objectMarkup(result.svg, longText.id);
-    const connectorLabelMarkup = objectMarkup(
-      result.svg,
-      longConnector.id,
-      "connector-overlay",
-    );
+    const connectorLabelMarkup = objectMarkup(result.svg, longConnector.id);
 
     expect(textMarkup.match(/<tspan\b/g)).toHaveLength(6);
     expect(withoutMarkup(textMarkup)).toContain("line6...");

@@ -20,243 +20,173 @@ export const JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES = [
   "get_canvas_capabilities",
 ] as const;
 
-const CANONICAL_AUTHORING_EXAMPLES = {
-  createNodeLifecycle: {
-    tool: "create_node",
-    inputExamples: [
-      {
-        label: "Use regional failover",
-        nodeType: "decision",
-        nodeMetadata: {
-          kind: "decision",
-          status: "accepted",
-          owner: "Platform team",
-          resolution: "Adopt active-passive failover for the first release.",
-        },
-      },
-      {
-        label: "Which recovery objective applies?",
-        nodeType: "open_question",
-        nodeMetadata: {
-          kind: "open_question",
-          status: "open",
-          owner: "Reliability lead",
-          resolution: null,
-        },
-      },
-    ],
-    lifecycleContracts: {
-      decisionStatuses: ["proposed", "accepted", "rejected", "superseded"],
-      openQuestionStatuses: ["open", "answered", "deferred", "closed"],
-      unresolved: "proposed-decision-or-open-status-question-requires-null-resolution",
-      resolved: "all-other-statuses-require-nonempty-resolution",
-      owner: "nonempty-string-or-null",
-    },
+export const JAZZBOARD_CANVAS_CAPABILITY_BUNDLES = [
+  "core",
+  "authoring",
+  "architecture",
+  "illustration",
+  "inspection",
+] as const;
+
+export type JazzboardCanvasCapabilityBundle =
+  (typeof JAZZBOARD_CANVAS_CAPABILITY_BUNDLES)[number];
+
+const BUNDLE_INDEX = [
+  {
+    bundle: "authoring",
+    useWhen:
+      "Exact primitive, color, transparency, point-space, transaction, or update mechanics are needed.",
+    call: { bundle: "authoring" },
   },
-  createDrawing: {
-    tool: "create_drawing",
-    input: {
-      points: [{ x: 120, y: 160 }, { x: 180, y: 120 }, { x: 240, y: 180 }],
-      color: "black",
-      size: "m",
-      rotation: 0,
-    },
+  {
+    bundle: "architecture",
+    useWhen:
+      "Creating or revising a system, flow, hierarchy, process, or other relationship-heavy Diagram.",
+    call: { bundle: "architecture" },
   },
-  createPath: {
-    tool: "create_path",
-    input: {
-      start: { x: 100, y: 240 },
-      segments: [
-        { kind: "line", to: { x: 180, y: 240 } },
-        { kind: "quadratic", control: { x: 230, y: 160 }, to: { x: 280, y: 240 } },
-        {
-          kind: "cubic",
-          control1: { x: 330, y: 320 },
-          control2: { x: 380, y: 160 },
-          to: { x: 440, y: 240 },
-        },
-      ],
-      closed: false,
-      fill: "none",
-      stroke: "#334155",
-      strokeWidth: 4.5,
-      opacity: 1,
-      lineCap: "round",
-      lineJoin: "round",
-      fillRule: "nonzero",
-    },
+  {
+    bundle: "illustration",
+    useWhen:
+      "Creating a portrait, scene, storyboard, annotation, path-heavy drawing, or layered freeform composition.",
+    call: { bundle: "illustration" },
   },
-  createPolygon: {
-    tool: "create_polygon",
-    input: {
-      points: [{ x: 520, y: 180 }, { x: 660, y: 180 }, { x: 700, y: 300 }, { x: 560, y: 330 }],
-      fill: "light-blue",
-      stroke: "blue",
-      strokeWidth: 3,
-      opacity: 0.9,
-    },
+  {
+    bundle: "inspection",
+    useWhen:
+      "Reviewing an exact rendered scope, diagnosing visual defects, or deciding whether work is complete.",
+    call: { bundle: "inspection" },
   },
-  drawConnection: {
-    tool: "draw_connection",
-    input: {
-      start: { objectId: "node_client", port: { side: "right", position: 0.5, exact: true } },
-      end: { objectId: "node_api", port: { side: "left", position: 0.5, exact: true } },
-      direction: "end",
-      label: "request",
-      routing: { mode: "elbow", elbowMidPoint: 0.5, labelPosition: 0.5 },
+] as const;
+
+const UNIVERSAL_AGENT_PRINCIPLES = [
+  "The user's requested meaning, composition, and acceptance criteria control the work.",
+  "Read the narrowest authoritative semantic scope and preserve exact revisions before editing.",
+  "Use coherent atomic transactions when multiple objects or relationships form one change.",
+  "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
+  "Preserve deliberate overlap, asymmetry, cropping, routing, spacing, and layering.",
+  "A successful mutation or geometry report is not visual QA; inspect the final exact-revision pixels.",
+  "On a stale revision, active lease conflict, proposal, or uncertain outcome, re-read instead of retrying blindly.",
+] as const;
+
+const CORE_CAPABILITIES = {
+  coordinateSystem: {
+    space: "canvas",
+    unit: "canvas-unit",
+    origin: "unbounded",
+    xDirection: "right",
+    yDirection: "down",
+    objectBoundsOrigin: "unrotated-top-left",
+    dimensions: "positive-width-and-height",
+    rotation: {
+      unit: "radian",
+      positiveDirectionOnScreen: "clockwise",
+      zero: "unrotated",
+      rectangularObjectPivot: "object-center",
+      freehandDrawingPivot: "object-local-origin",
+      pathAndPolygonPivot: "object-center",
     },
-    endpointContract: "objectId-with-optional-port-or-absolute-canvas-point",
-    routingExamples: [
-      { mode: "auto" },
-      { mode: "straight", labelPosition: 0.5 },
-      { mode: "curved", bend: 48, labelPosition: 0.5 },
-      { mode: "elbow", elbowMidPoint: 0.5, labelPosition: 0.5 },
-    ],
+    createPointSpace: "absolute-canvas",
+    persistedDrawingPointSpace: "object-local-canvas-units",
+    persistedPathAndPolygonPointSpace: "normalized-object-local-0-to-1",
+    connectorPointSpace: "absolute-canvas",
   },
-  applyCanvasTransaction: {
-    tool: "apply_canvas_transaction",
-    input: {
-      operations: [
-        { op: "create_node", tempRef: "client", label: "Client", nodeType: "component" },
-        { op: "create_node", tempRef: "api", label: "API", nodeType: "service" },
-        {
-          op: "connect",
-          tempRef: "request",
-          start: { tempRef: "client" },
-          end: { tempRef: "api" },
-          direction: "end",
-          label: "request",
-        },
-        { op: "create_diagram", tempRef: "system", title: "System context" },
-      ],
-    },
-    expectedSemantics:
-      "members/connectors are omitted, so this single Diagram infers compatible objects created in the transaction; tempRef values resolve atomically",
+  paintOrder: {
+    field: "zIndex",
+    minimum: 0,
+    maximum: 1_000_000,
+    higherValue: "front",
+    equalValuePaintOrder: "object-id-ascending",
+    omittedCreateValue: "current-maximum-plus-one",
   },
-  updateObjectPath: {
-    tool: "update_object",
-    input: {
-      objectId: "path_example",
-      expectedRevision: 3,
-      operation: "edit",
-      patch: {
-        start: { x: 0, y: 0.5 },
-        segments: [
-          { kind: "line", to: { x: 0.35, y: 0.1 } },
-          { kind: "quadratic", control: { x: 0.65, y: 0 }, to: { x: 1, y: 0.5 } },
-        ],
-        closed: false,
-      },
-    },
-    pointSpace: "normalized-object-local-0-to-1",
+  limits: {
+    maximumTransactionOperations: 200,
+    maximumDrawingPointsPerStroke: 2_000,
+    maximumPathSegments: VECTOR_PATH_LIMITS.maxSegments,
+    maximumPolygonPoints: 2_001,
+    maximumPathStrokeWidth: VECTOR_PATH_LIMITS.maxStrokeWidth,
+    maximumDiagramMembers: 500,
+    maximumDiagramConnectors: 500,
+    maximumProgressiveDraftRequestBytes: 256 * 1024,
+    maximumRetainedProgressiveDraftBytes: 192 * 1024,
+    recommendedRetainedDraftHeadroomBytes: 16 * 1024,
+  },
+  visualInspection: {
+    preferredTool: "inspect_canvas_scope",
+    visualInspectionRequiresPixelCapture: true,
+    framingOrGeometryAloneIsVisualInspection: false,
+    recommendedPixelCapture: "full-viewport-then-crop-screenshotClip",
   },
 } as const;
 
-export type JazzboardCanvasCapabilities = Readonly<{
-  schemaVersion: 1;
-  role: JazzboardWebMcpBinding["role"];
-  authority: Readonly<{
-    currentPageToolRegistryIsAuthoritative: true;
-    roleCanMutateCanvas: boolean;
-    exactRevisionsGuardExistingEntityEdits: true;
-  }>;
-  coordinateSystem: Readonly<{
-    space: "canvas";
-    unit: "canvas-unit";
-    origin: "unbounded";
-    xDirection: "right";
-    yDirection: "down";
-    objectBoundsOrigin: "unrotated-top-left";
-    dimensions: "positive-width-and-height";
-    rotation: Readonly<{
-      unit: "radian";
-      positiveDirectionOnScreen: "clockwise";
-      zero: "unrotated";
-      rectangularObjectPivot: "object-center";
-      freehandDrawingPivot: "object-local-origin";
-      pathAndPolygonPivot: "object-center";
-      quarterTurnExample: number;
-    }>;
-    authoredPointSpaces: Readonly<{
-      createDrawingPathAndPolygonInput: "absolute-canvas";
-      persistedAndPatchDrawingPoints: "object-local-canvas-units";
-      persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1";
-      connectorPoints: "absolute-canvas";
-    }>;
-  }>;
-  paintOrder: Readonly<{
-    field: "zIndex";
-    minimum: 0;
-    maximum: 1_000_000;
-    higherValue: "front";
-    equalValuePaintOrder: "object-id-ascending";
-    equalValueFrontmost: "lexicographically-later-object-id";
-    omittedCreateValue: "current-maximum-plus-one";
-  }>;
-  colors: Readonly<{
-    acceptedCustomFormats: readonly ["#RGB", "#RRGGBB", "#RRGGBBAA"];
-    namedColors: typeof SEMANTIC_COLOR_PALETTE;
-    namedColorBehavior: "solid-for-ink-pastel-for-fill";
-    invalidValues: "rejected";
-    transparency: Readonly<{
-      transparentShapeOrPathFill: "none";
-      transparentPathStroke: "none";
-      alphaHexSupported: true;
-      pathOpacityRange: readonly [0, 1];
-    }>;
-    canvasBackground: typeof SEMANTIC_CANVAS_BACKGROUND;
-  }>;
-  styleMetrics: Readonly<{
-    textFontSizes: typeof SEMANTIC_TEXT_FONT_SIZES;
-    freehandStrokeWidths: typeof SEMANTIC_DRAW_STROKE_WIDTHS;
-    shapeStrokeWidth: typeof SEMANTIC_SHAPE_STROKE_WIDTH;
-    connectorStrokeWidth: typeof SEMANTIC_CONNECTOR_STROKE_WIDTH;
-  }>;
-  primitives: Readonly<{
-    text: Readonly<{ supported: true; defaultBounds: Readonly<{ width: 320; height: 96 }> }>;
-    shape: Readonly<{
-      supported: true;
-      kinds: readonly ["rectangle", "ellipse", "diamond"];
-      directDefaultBounds: Readonly<{ width: 260; height: 140 }>;
-      transactionDefaultBounds: Readonly<{ width: 280; height: 152 }>;
-    }>;
-    node: Readonly<{ supported: true; defaultBounds: Readonly<{ width: 280; height: 152 }> }>;
-    image: Readonly<{ supported: true; defaultBounds: Readonly<{ width: 640; height: 360 }> }>;
-    drawing: Readonly<{
-      supported: true;
-      minimumPoints: 2;
-      maximumPointsPerStroke: 2_000;
-      transactionCreateOperation: "create_drawing";
-    }>;
-    path: Readonly<{
-      supported: true;
-      transactionCreateOperation: "create_path";
-      segments: readonly ["line", "quadratic", "cubic"];
-      maximumSegments: typeof VECTOR_PATH_LIMITS.maxSegments;
-      mayClose: true;
-      styleFields: readonly ["fill", "stroke", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule"];
-      maximumStrokeWidth: typeof VECTOR_PATH_LIMITS.maxStrokeWidth;
-      lineCaps: readonly ["butt", "round", "square"];
-      lineJoins: readonly ["miter", "round", "bevel"];
-      fillRules: readonly ["nonzero", "evenodd"];
-    }>;
-    polygon: Readonly<{
-      supported: true;
-      transactionCreateOperation: "create_polygon";
-      representation: "closed-path";
-      minimumPoints: 3;
-      maximumPoints: 2_001;
-      styleFields: readonly ["fill", "stroke", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule"];
-    }>;
-    connector: Readonly<{
-      supported: true;
-      routingModes: readonly ["auto", "straight", "curved", "elbow"];
-    }>;
-  }>;
-  transactions: Readonly<{
-    atomic: true;
-    maximumOperations: 200;
-    createOperations: readonly [
+const AUTHORING_BUNDLE = {
+  purpose:
+    "Renderer-neutral mechanics for precise primitive creation, styling, transactions, and revision-guarded updates.",
+  useWithCore: true,
+  colors: {
+    acceptedCustomFormats: ["#RGB", "#RRGGBB", "#RRGGBBAA"],
+    namedColors: SEMANTIC_COLOR_PALETTE,
+    namedColorBehavior: "solid-for-ink-pastel-for-fill",
+    invalidValues: "rejected",
+    transparency: {
+      transparentShapeOrPathFill: "none",
+      transparentPathStroke: "none",
+      alphaHexSupported: true,
+      pathOpacityRange: [0, 1],
+    },
+    canvasBackground: SEMANTIC_CANVAS_BACKGROUND,
+  },
+  styleMetrics: {
+    textFontSizes: SEMANTIC_TEXT_FONT_SIZES,
+    freehandStrokeWidths: SEMANTIC_DRAW_STROKE_WIDTHS,
+    shapeStrokeWidth: SEMANTIC_SHAPE_STROKE_WIDTH,
+    connectorStrokeWidth: SEMANTIC_CONNECTOR_STROKE_WIDTH,
+  },
+  primitives: {
+    text: { defaultBounds: { width: 320, height: 96 } },
+    shape: {
+      kinds: ["rectangle", "ellipse", "diamond"],
+      directDefaultBounds: { width: 260, height: 140 },
+      transactionDefaultBounds: { width: 280, height: 152 },
+    },
+    node: { defaultBounds: { width: 280, height: 152 } },
+    image: { defaultBounds: { width: 640, height: 360 } },
+    drawing: {
+      operation: "create_drawing",
+      inputPointSpace: "absolute-canvas",
+      persistedPointSpace: "object-local-canvas-units",
+    },
+    path: {
+      operation: "create_path",
+      segments: ["line", "quadratic", "cubic"],
+      mayClose: true,
+      persistedPointSpace: "normalized-object-local-0-to-1",
+      styleFields: [
+        "fill",
+        "stroke",
+        "strokeWidth",
+        "opacity",
+        "lineCap",
+        "lineJoin",
+        "fillRule",
+      ],
+      lineCaps: ["butt", "round", "square"],
+      lineJoins: ["miter", "round", "bevel"],
+      fillRules: ["nonzero", "evenodd"],
+    },
+    polygon: {
+      operation: "create_polygon",
+      representation: "closed-path",
+      inputPointSpace: "absolute-canvas",
+    },
+    connector: {
+      operation: "connect",
+      routingModes: ["auto", "straight", "curved", "elbow"],
+    },
+  },
+  transactions: {
+    tool: "apply_canvas_transaction",
+    atomic: true,
+    createOperations: [
       "create_node",
       "create_shape",
       "create_text",
@@ -265,177 +195,408 @@ export type JazzboardCanvasCapabilities = Readonly<{
       "create_polygon",
       "connect",
       "create_diagram",
-    ];
-    diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact";
-    progressiveDrafts: "create-only-cumulative-replacement";
-  }>;
-  canonicalExamples: typeof CANONICAL_AUTHORING_EXAMPLES;
-  inspection: Readonly<{
-    preferredTool: "inspect_canvas_scope";
-    legacyGeometryTool: "analyze_diagram_layout";
-    legacyFramingTool: "render_canvas_preview";
-    visualInspectionRequiresPixelCapture: true;
-    framingOrGeometryAloneIsVisualInspection: false;
-    recommendedPixelCapture: "full-viewport-then-crop-screenshotClip";
-    freehandGeometryCoverage: "partial";
-    vectorPathGeometryCoverage: "partial";
-    correctionLoop: readonly [
-      "read-exact-revision",
-      "inspect-semantics-and-pixels",
-      "compare-with-requested-intent",
-      "correct-unintended-problems",
-      "repeat-until-verified",
-    ];
-  }>;
+    ],
+    temporaryReferences: "resolve-within-one-atomic-request",
+    diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact",
+    progressiveDrafts: "create-only-cumulative-replacement",
+    progressiveDraftSizing:
+      "The full cumulative candidate is revalidated on every draft replacement. Keep its retained JSON at least 16 KiB below the 192 KiB limit; simplify nonessential detail or use bounded authoritative stages instead of raising safety ceilings.",
+  },
+  canonicalExamples: {
+    structuredPath: {
+      tool: "apply_canvas_transaction",
+      input: {
+        operations: [{
+          op: "create_path",
+          tempRef: "accent",
+          start: { x: 100, y: 240 },
+          segments: [
+            { kind: "line", to: { x: 180, y: 240 } },
+            {
+              kind: "quadratic",
+              control: { x: 230, y: 160 },
+              to: { x: 280, y: 240 },
+            },
+            {
+              kind: "cubic",
+              control1: { x: 330, y: 320 },
+              control2: { x: 380, y: 160 },
+              to: { x: 440, y: 240 },
+            },
+          ],
+          closed: false,
+          fill: "none",
+          stroke: "#334155",
+          strokeWidth: 4.5,
+          opacity: 1,
+          lineCap: "round",
+          lineJoin: "round",
+          fillRule: "nonzero",
+        }],
+      },
+    },
+    normalizedPathUpdate: {
+      tool: "update_object",
+      input: {
+        objectId: "path_example",
+        expectedRevision: 3,
+        operation: "edit",
+        patch: {
+          start: { x: 0, y: 0.5 },
+          segments: [{
+            kind: "quadratic",
+            control: { x: 0.5, y: 0 },
+            to: { x: 1, y: 0.5 },
+          }],
+        },
+      },
+      patchPointSpace: "normalized-object-local-0-to-1",
+    },
+  },
+} as const;
+
+const ARCHITECTURE_BUNDLE = {
+  purpose:
+    "Intent-led authoring for relationship-heavy diagrams with optional deterministic layout and route evidence.",
+  useWithCore: true,
+  workflow: [
+    "Write a compact visual contract: audience, required entities, relationships, hierarchy, and readability target.",
+    "Read the relevant Diagram or neighborhood; do not load unrelated board state.",
+    "Create one coherent graph and its Diagram atomically with stable temporary references.",
+    "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
+    "Inspect the exact Diagram revision semantically and in pixels, then patch only identified defects.",
+  ],
+  toolChoices: {
+    coherentCreate: "apply_canvas_transaction",
+    existingGraphRead: "read_diagram-or-read_neighborhood",
+    deterministicLayout: "layout_objects-or-one-auto_layout-operation",
+    conventionalGeometryEvidence: "analyze_diagram_layout",
+    preferredInspection: "inspect_canvas_scope",
+  },
+  judgment: {
+    automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",
+    automaticRouting: "delegates-path-choice-but-does-not-certify-readability",
+    explicitRouting: "use-when-ports-curvature-elbows-or-label-position-carry-meaning",
+    geometryFindings: "intent-unaware-evidence-not-redesign-permission",
+  },
+  canonicalExamples: {
+    atomicSystemDiagram: {
+      tool: "apply_canvas_transaction",
+      input: {
+        operations: [
+          {
+            op: "create_node",
+            tempRef: "client",
+            label: "Client",
+            nodeType: "component",
+            x: 80,
+            y: 220,
+          },
+          {
+            op: "create_node",
+            tempRef: "api",
+            label: "API",
+            nodeType: "service",
+            x: 480,
+            y: 220,
+          },
+          {
+            op: "connect",
+            tempRef: "request",
+            start: {
+              tempRef: "client",
+              port: { side: "right", position: 0.5, exact: true },
+            },
+            end: {
+              tempRef: "api",
+              port: { side: "left", position: 0.5, exact: true },
+            },
+            direction: "end",
+            label: "request",
+            routing: { mode: "straight", labelPosition: 0.5 },
+          },
+          {
+            op: "create_diagram",
+            tempRef: "system",
+            title: "System context",
+            diagramType: "architecture",
+          },
+        ],
+      },
+      semantics:
+        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition.",
+    },
+    optionalHierarchyLayout: {
+      operation: {
+        op: "auto_layout",
+        layout: "hierarchy",
+        layoutDirection: "right",
+        density: "comfortable",
+        targets: ["client", "api"],
+        diagramTempRef: "system",
+      },
+      useOnlyWhen:
+        "The user's requested architecture is a conventional directed hierarchy and automatic placement is desired.",
+    },
+  },
+} as const;
+
+const ILLUSTRATION_BUNDLE = {
+  purpose:
+    "Intent-led layered illustration using exact shapes, paths, strokes, transparency, grouping, and paint order.",
+  useWithCore: true,
+  workflow: [
+    "Write a visual brief covering subject, recognizable parts, silhouette, palette, depth, mood, and acceptance criteria.",
+    "Plan a small number of semantic layers or named parts while retaining exact object-level control.",
+    "Build one coherent layer at a time with native paths and shapes inside an atomic or progressive draft transaction.",
+    "Use exact coordinates, groupId, opacity, and zIndex; omit architecture layout unless the user explicitly requests it.",
+    "Inspect actual pixels for likeness, silhouette, expression, balance, color, and unintended occlusion, then patch locally.",
+  ],
+  compositionConvention: {
+    container: "custom-Diagram",
+    title: "composition-name",
+    description: "visual-brief-and-acceptance-criteria",
+    category: "medium-or-artifact-kind",
+    tags: "style-and-subject-tokens",
+    groupId: "namespaced-named-part-or-layer",
+    zIndex: "authoritative-layer-order",
+    note:
+      "This convention uses existing semantic fields; it does not force freeform work through architecture layout rules.",
+  },
+  judgment: {
+    deliberateGeometry: "preserve-overlap-asymmetry-cropping-and-layering",
+    deterministicAnalysis: "optional-evidence-for-art",
+    pixelInspection: "required-for-final-visual-judgment",
+    creativeControl: "agent-chooses-form-style-and-correction-from-user-intent",
+  },
+  canonicalExamples: {
+    layeredPortraitFragment: {
+      tool: "apply_canvas_transaction",
+      input: {
+        operations: [
+          {
+            op: "create_shape",
+            tempRef: "face",
+            shape: "ellipse",
+            label: "",
+            x: 420,
+            y: 150,
+            width: 150,
+            height: 190,
+            fill: "#c99372",
+            stroke: "#6c4738",
+            groupId: "portrait:face",
+            zIndex: 20,
+          },
+          {
+            op: "create_path",
+            tempRef: "shadow",
+            start: { x: 535, y: 175 },
+            segments: [{
+              kind: "cubic",
+              control1: { x: 580, y: 215 },
+              control2: { x: 575, y: 285 },
+              to: { x: 540, y: 325 },
+            }],
+            closed: true,
+            fill: "#8b5948",
+            stroke: "none",
+            strokeWidth: 0,
+            opacity: 0.28,
+            lineCap: "round",
+            lineJoin: "round",
+            fillRule: "nonzero",
+            groupId: "portrait:face",
+            zIndex: 21,
+          },
+          {
+            op: "create_diagram",
+            tempRef: "portrait",
+            title: "Portrait study",
+            description:
+              "A recognizable, softly modeled portrait with a clear silhouette, subtle expression, and layered atmospheric depth.",
+            diagramType: "custom",
+            category: "vector-art",
+            tags: ["portrait", "layered", "soft-modeling"],
+          },
+        ],
+        delivery: { mode: "draft" },
+      },
+      next:
+        "Replace with the complete cumulative create-only operation list and exact draft revision, or finish the draft after pixel inspection.",
+    },
+  },
+} as const;
+
+const INSPECTION_BUNDLE = {
+  purpose:
+    "Exact-revision semantic, deterministic, and pixel evidence for issue-focused visual correction.",
+  useWithCore: true,
+  preferredTool: "inspect_canvas_scope",
+  fallbackTools: ["analyze_diagram_layout", "render_canvas_preview"],
+  correctionLoop: [
+    "Read the exact current scope and requested intent.",
+    "Run deterministic checks where they are relevant; treat findings as facts, not design commands.",
+    "Frame the exact revision with inspect_canvas_scope when registered.",
+    "While validation is active, capture the full clean viewport and crop to screenshotClip.",
+    "Inspect the cropped pixels against the visual contract and identify defects by stable object ID.",
+    "Patch only the affected region, re-render, and stop after success or bounded stagnation.",
+  ],
+  coverage: {
+    freehandGeometry: "partial",
+    vectorPathGeometry: "partial",
+    actualPixelsRequiredFor:
+      "likeness-hierarchy-readability-color-context-occlusion-and-aesthetic-judgment",
+  },
+  canonicalExamples: {
+    diagramScope: {
+      tool: "inspect_canvas_scope",
+      input: {
+        scope: {
+          kind: "diagram",
+          diagramId: "diagram_system",
+          expectedRevision: 4,
+        },
+        padding: 24,
+      },
+    },
+    objectScope: {
+      tool: "inspect_canvas_scope",
+      input: {
+        scope: {
+          kind: "objects",
+          targets: [
+            { objectId: "path_face", expectedRevision: 3 },
+            { objectId: "path_hair", expectedRevision: 2 },
+          ],
+        },
+        padding: 24,
+      },
+    },
+    pixelCapture:
+      "Capture the full clean viewport while validation.activeSelector exists, crop to screenshotClip in viewport CSS pixels, and inspect the resulting image. The JSON result alone is not visual QA.",
+  },
+} as const;
+
+type CapabilityAuthority = Readonly<{
+  currentPageToolRegistryIsAuthoritative: true;
+  serverAuthorizationAndValidationRemainAuthoritative: true;
+  bundlesAreGuidanceNotPermissions: true;
+  roleCanMutateCanvas: boolean;
+  exactRevisionsGuardExistingEntityEdits: true;
 }>;
 
-function canvasCapabilities(role: JazzboardWebMcpBinding["role"]): JazzboardCanvasCapabilities {
+type CapabilityEnvelope<
+  TBundle extends JazzboardCanvasCapabilityBundle,
+  TData,
+> = Readonly<{
+  schemaVersion: 2;
+  bundle: TBundle;
+  role: JazzboardWebMcpBinding["role"];
+  authority: CapabilityAuthority;
+  data: TData;
+}>;
+
+export type JazzboardCanvasCapabilities =
+  | CapabilityEnvelope<"core", Readonly<{
+      bundleIndex: typeof BUNDLE_INDEX;
+      universalAgentPrinciples: typeof UNIVERSAL_AGENT_PRINCIPLES;
+      coordinateSystem: typeof CORE_CAPABILITIES.coordinateSystem;
+      paintOrder: typeof CORE_CAPABILITIES.paintOrder;
+      limits: typeof CORE_CAPABILITIES.limits;
+      visualInspection: typeof CORE_CAPABILITIES.visualInspection;
+    }>>
+  | CapabilityEnvelope<"authoring", typeof AUTHORING_BUNDLE>
+  | CapabilityEnvelope<"architecture", typeof ARCHITECTURE_BUNDLE>
+  | CapabilityEnvelope<"illustration", typeof ILLUSTRATION_BUNDLE>
+  | CapabilityEnvelope<"inspection", typeof INSPECTION_BUNDLE>;
+
+function authority(role: JazzboardWebMcpBinding["role"]): CapabilityAuthority {
   return {
-    schemaVersion: 1,
-    role,
-    authority: {
-      currentPageToolRegistryIsAuthoritative: true,
-      roleCanMutateCanvas: role === "participant",
-      exactRevisionsGuardExistingEntityEdits: true,
-    },
-    coordinateSystem: {
-      space: "canvas",
-      unit: "canvas-unit",
-      origin: "unbounded",
-      xDirection: "right",
-      yDirection: "down",
-      objectBoundsOrigin: "unrotated-top-left",
-      dimensions: "positive-width-and-height",
-      rotation: {
-        unit: "radian",
-        positiveDirectionOnScreen: "clockwise",
-        zero: "unrotated",
-        rectangularObjectPivot: "object-center",
-        freehandDrawingPivot: "object-local-origin",
-        pathAndPolygonPivot: "object-center",
-        quarterTurnExample: Math.PI / 2,
-      },
-      authoredPointSpaces: {
-        createDrawingPathAndPolygonInput: "absolute-canvas",
-        persistedAndPatchDrawingPoints: "object-local-canvas-units",
-        persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1",
-        connectorPoints: "absolute-canvas",
-      },
-    },
-    paintOrder: {
-      field: "zIndex",
-      minimum: 0,
-      maximum: 1_000_000,
-      higherValue: "front",
-      equalValuePaintOrder: "object-id-ascending",
-      equalValueFrontmost: "lexicographically-later-object-id",
-      omittedCreateValue: "current-maximum-plus-one",
-    },
-    colors: {
-      acceptedCustomFormats: ["#RGB", "#RRGGBB", "#RRGGBBAA"],
-      namedColors: SEMANTIC_COLOR_PALETTE,
-      namedColorBehavior: "solid-for-ink-pastel-for-fill",
-      invalidValues: "rejected",
-      transparency: {
-        transparentShapeOrPathFill: "none",
-        transparentPathStroke: "none",
-        alphaHexSupported: true,
-        pathOpacityRange: [0, 1],
-      },
-      canvasBackground: SEMANTIC_CANVAS_BACKGROUND,
-    },
-    styleMetrics: {
-      textFontSizes: SEMANTIC_TEXT_FONT_SIZES,
-      freehandStrokeWidths: SEMANTIC_DRAW_STROKE_WIDTHS,
-      shapeStrokeWidth: SEMANTIC_SHAPE_STROKE_WIDTH,
-      connectorStrokeWidth: SEMANTIC_CONNECTOR_STROKE_WIDTH,
-    },
-    primitives: {
-      text: { supported: true, defaultBounds: { width: 320, height: 96 } },
-      shape: {
-        supported: true,
-        kinds: ["rectangle", "ellipse", "diamond"],
-        directDefaultBounds: { width: 260, height: 140 },
-        transactionDefaultBounds: { width: 280, height: 152 },
-      },
-      node: { supported: true, defaultBounds: { width: 280, height: 152 } },
-      image: { supported: true, defaultBounds: { width: 640, height: 360 } },
-      drawing: {
-        supported: true,
-        minimumPoints: 2,
-        maximumPointsPerStroke: 2_000,
-        transactionCreateOperation: "create_drawing",
-      },
-      path: {
-        supported: true,
-        transactionCreateOperation: "create_path",
-        segments: ["line", "quadratic", "cubic"],
-        maximumSegments: VECTOR_PATH_LIMITS.maxSegments,
-        mayClose: true,
-        styleFields: ["fill", "stroke", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule"],
-        maximumStrokeWidth: VECTOR_PATH_LIMITS.maxStrokeWidth,
-        lineCaps: ["butt", "round", "square"],
-        lineJoins: ["miter", "round", "bevel"],
-        fillRules: ["nonzero", "evenodd"],
-      },
-      polygon: {
-        supported: true,
-        transactionCreateOperation: "create_polygon",
-        representation: "closed-path",
-        minimumPoints: 3,
-        maximumPoints: 2_001,
-        styleFields: ["fill", "stroke", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule"],
-      },
-      connector: {
-        supported: true,
-        routingModes: ["auto", "straight", "curved", "elbow"],
-      },
-    },
-    transactions: {
-      atomic: true,
-      maximumOperations: 200,
-      createOperations: [
-        "create_node",
-        "create_shape",
-        "create_text",
-        "create_drawing",
-        "create_path",
-        "create_polygon",
-        "connect",
-        "create_diagram",
-      ],
-      diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact",
-      progressiveDrafts: "create-only-cumulative-replacement",
-    },
-    canonicalExamples: CANONICAL_AUTHORING_EXAMPLES,
-    inspection: {
-      preferredTool: "inspect_canvas_scope",
-      legacyGeometryTool: "analyze_diagram_layout",
-      legacyFramingTool: "render_canvas_preview",
-      visualInspectionRequiresPixelCapture: true,
-      framingOrGeometryAloneIsVisualInspection: false,
-      recommendedPixelCapture: "full-viewport-then-crop-screenshotClip",
-      freehandGeometryCoverage: "partial",
-      vectorPathGeometryCoverage: "partial",
-      correctionLoop: [
-        "read-exact-revision",
-        "inspect-semantics-and-pixels",
-        "compare-with-requested-intent",
-        "correct-unintended-problems",
-        "repeat-until-verified",
-      ],
-    },
+    currentPageToolRegistryIsAuthoritative: true,
+    serverAuthorizationAndValidationRemainAuthoritative: true,
+    bundlesAreGuidanceNotPermissions: true,
+    roleCanMutateCanvas: role === "participant",
+    exactRevisionsGuardExistingEntityEdits: true,
   };
 }
 
-function invalidInput(): JazzboardToolFailure {
+function canvasCapabilities(
+  role: JazzboardWebMcpBinding["role"],
+  bundle: JazzboardCanvasCapabilityBundle,
+): JazzboardCanvasCapabilities {
+  const envelope = {
+    schemaVersion: 2 as const,
+    bundle,
+    role,
+    authority: authority(role),
+  };
+  if (bundle === "core") {
+    return {
+      ...envelope,
+      bundle,
+      data: {
+        bundleIndex: BUNDLE_INDEX,
+        universalAgentPrinciples: UNIVERSAL_AGENT_PRINCIPLES,
+        ...CORE_CAPABILITIES,
+      },
+    };
+  }
+  if (bundle === "authoring") {
+    return { ...envelope, bundle, data: AUTHORING_BUNDLE };
+  }
+  if (bundle === "architecture") {
+    return { ...envelope, bundle, data: ARCHITECTURE_BUNDLE };
+  }
+  if (bundle === "illustration") {
+    return { ...envelope, bundle, data: ILLUSTRATION_BUNDLE };
+  }
+  return { ...envelope, bundle, data: INSPECTION_BUNDLE };
+}
+
+function invalidInput(details?: Record<string, unknown>): JazzboardToolFailure {
   return {
     ok: false,
     tool: "get_canvas_capabilities",
     error: {
       code: "INVALID_TOOL_INPUT",
-      message: "get_canvas_capabilities accepts no arguments.",
+      message:
+        "get_canvas_capabilities accepts only an optional core, authoring, architecture, illustration, or inspection bundle.",
+      ...(details ? { details } : {}),
     },
+  };
+}
+
+function parseBundle(rawInput: unknown):
+  | { ok: true; bundle: JazzboardCanvasCapabilityBundle }
+  | { ok: false; failure: JazzboardToolFailure } {
+  if (
+    rawInput === null ||
+    typeof rawInput !== "object" ||
+    Array.isArray(rawInput)
+  ) {
+    return { ok: false, failure: invalidInput() };
+  }
+  const record = rawInput as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.some((key) => key !== "bundle")) {
+    return {
+      ok: false,
+      failure: invalidInput({ unexpectedFields: keys.filter((key) => key !== "bundle") }),
+    };
+  }
+  if (record.bundle === undefined) return { ok: true, bundle: "core" };
+  if (
+    typeof record.bundle !== "string" ||
+    !JAZZBOARD_CANVAS_CAPABILITY_BUNDLES.includes(
+      record.bundle as JazzboardCanvasCapabilityBundle,
+    )
+  ) {
+    return { ok: false, failure: invalidInput({ bundle: record.bundle }) };
+  }
+  return {
+    ok: true,
+    bundle: record.bundle as JazzboardCanvasCapabilityBundle,
   };
 }
 
@@ -444,28 +605,28 @@ export function createJazzboardCanvasCapabilityWebMcpTools(
 ): WebMCP.ModelContextTool[] {
   return [{
     name: "get_canvas_capabilities",
-    title: "Read the Jazzboard canvas contract",
+    title: "Read a Jazzboard canvas capability bundle",
     description:
-      "Read the current role plus authoritative coordinate, rotation, color, transparency, paint-order, primitive, transaction, and inspection conventions before authoring.",
+      "Read the compact core canvas contract or one task-scoped authoring, architecture, illustration, or inspection guidance bundle. Bundles never grant permissions.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        bundle: {
+          type: "string",
+          enum: JAZZBOARD_CANVAS_CAPABILITY_BUNDLES,
+          description: "Defaults to core; request one task bundle only when relevant.",
+        },
+      },
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true },
     async execute(rawInput): Promise<JazzboardToolResult<JazzboardCanvasCapabilities>> {
-      if (
-        rawInput === null ||
-        typeof rawInput !== "object" ||
-        Array.isArray(rawInput) ||
-        Object.keys(rawInput).length > 0
-      ) {
-        return invalidInput();
-      }
+      const parsed = parseBundle(rawInput);
+      if (!parsed.ok) return parsed.failure;
       return {
         ok: true,
         tool: "get_canvas_capabilities",
-        data: canvasCapabilities(binding.role),
+        data: canvasCapabilities(binding.role, parsed.bundle),
       };
     },
   }];

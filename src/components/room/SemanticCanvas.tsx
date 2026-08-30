@@ -130,10 +130,7 @@ import {
   type SemanticCanvasContextMenuActionId,
   type SemanticCanvasContextMenuItem,
 } from "./SemanticCanvasContextMenu";
-import {
-  SemanticCanvasConnectorOverlay,
-  SemanticCanvasObject,
-} from "./SemanticCanvasObject";
+import { SemanticCanvasObject } from "./SemanticCanvasObject";
 import {
   SemanticImagePicker,
   type SemanticImagePickerHandle,
@@ -3005,30 +3002,12 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     >
       <svg className={styles.viewport} width="100%" height="100%" aria-label="Board objects">
         <g transform={`translate(${-viewport.x * viewport.zoom} ${-viewport.y * viewport.zoom}) scale(${viewport.zoom})`}>
-          {scene.objects.map(({ object, bounds }) => object.kind === "connector" ? (
-            <SemanticCanvasObject
-              key={`connector-shaft:${object.id}`}
-              object={object}
-              bounds={bounds}
-              connectorRoute={scene.connectorRoutes[object.id]}
-              connectorLayer="shaft"
-              selected={!cleanInspectionActive && selectionSet.has(object.id)}
-              focused={!cleanInspectionActive && focusedObjectId === object.id}
-              suppressFocusVisual={cleanInspectionActive}
-              tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
-              className={styles.objectHitTarget}
-              onSelect={handleObjectSelect}
-              onPointerStart={controller ? handleObjectPointerStart : undefined}
-              onEditRequested={controller ? requestTextEdit : undefined}
-              onFocus={handleObjectFocus}
-              onBlur={(objectId) => setFocusedObjectId((current) => current === objectId ? null : current)}
-            />
-          ) : null)}
-          {scene.objects.map(({ object, bounds }) => object.kind !== "connector" ? (
+          {scene.objects.map(({ object, bounds }) => (
             <SemanticCanvasObject
               key={`object:${object.id}`}
               object={object}
               bounds={bounds}
+              connectorRoute={object.kind === "connector" ? scene.connectorRoutes[object.id] : undefined}
               selected={!cleanInspectionActive && selectionSet.has(object.id)}
               focused={!cleanInspectionActive && focusedObjectId === object.id}
               suppressFocusVisual={cleanInspectionActive}
@@ -3040,18 +3019,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               onFocus={handleObjectFocus}
               onBlur={(objectId) => setFocusedObjectId((current) => current === objectId ? null : current)}
             />
-          ) : null)}
-          {scene.objects.map(({ object, bounds }) => object.kind === "connector" ? (
-            <SemanticCanvasConnectorOverlay
-              key={`connector-overlay:${object.id}`}
-              object={object}
-              bounds={bounds}
-              connectorRoute={scene.connectorRoutes[object.id]}
-              focused={!cleanInspectionActive && focusedObjectId === object.id}
-              onSelect={handleObjectSelect}
-              onPointerStart={controller ? handleObjectPointerStart : undefined}
-            />
-          ) : null)}
+          ))}
           {!cleanInspectionActive && activeMarqueeSession ? (
             <rect
               className={styles.marquee}

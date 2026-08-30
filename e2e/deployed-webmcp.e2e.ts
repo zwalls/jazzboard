@@ -216,57 +216,180 @@ type CanvasInspectionData = {
   visualInspectionStatus: "not_performed";
   geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
   screenshotClip: CanvasPreviewData["screenshotClip"];
-  sourceRevisions: {
-    roomRevision: number;
-    diagramRevision: number | null;
-    objects: Array<{ objectId: string; revision: number }>;
-    visualContributors: Array<{ objectId: string; revision: number }>;
-  };
-  targets: Array<{ objectId: string; revision: number }>;
-  semanticEvidence: {
-    schemaVersion: 1;
-    objects: Array<{
+  resultSerialization: { byteLength: number; byteLimit: number };
+  sceneContext: {
+    schemaVersion: 2;
+    rendererId: string;
+    representation: "overview" | "working_set" | "focus";
+    revisions: {
+      roomRevision: number;
+      diagramRevision: number | null;
+      explicitObjectRevisions: Array<{ objectId: string; revision: number }>;
+      explicitObjectRevisionCoverage: {
+        totalCount: number;
+        returnedCount: number;
+        omittedCount: number;
+        truncated: boolean;
+        fullSetDigest: string;
+      };
+    };
+    overview: {
+      bounds: { x: number; y: number; width: number; height: number };
+      objectCount: number;
+      kinds: Record<string, number>;
+    };
+    workingSet: Array<{
       objectId: string;
       revision: number;
       kind: string;
+      semanticName: string | null;
+      semanticRole: string | null;
       inRequestedScope: boolean;
-      semantic: { kind: string; segmentCount?: number; closed?: boolean };
     }>;
-    intersections: { totalCount: number; truncated: boolean };
-    occlusions: { totalCount: number; truncated: boolean };
+    focused: Array<{
+      objectId: string;
+      revision: number;
+      kind: string;
+      semanticName: string | null;
+      semanticRole: string | null;
+      inRequestedScope: boolean;
+      semantic: {
+        kind: string;
+        start?: CanvasPointData;
+        segmentCount?: number;
+        sample?: Array<{ kind: string; to: CanvasPointData }>;
+        sampleTruncated?: boolean;
+        closed?: boolean;
+        fill?: string;
+        stroke?: string;
+        strokeWidth?: number;
+        opacity?: number;
+      };
+    }>;
+    boundsOverlaps: {
+      totalCount: number;
+      truncated: boolean;
+      items: Array<{
+        factKey: string;
+        method: "axis_aligned_renderer_bounds";
+        objectIds: [string, string];
+        interpretation: "bounds_overlap_only_not_proof_of_painted_intersection_or_occlusion";
+      }>;
+    };
     coverage: {
+      scopeObjectCount: number;
+      visualContributorCount: number;
+      compactRecordCount: number;
+      focusedRecordCount: number;
+      omittedCompactRecordCount: number;
+      allExplicitTargetsRepresented: boolean;
+      resultByteLength: number;
+      resultByteLimit: number;
       geometry: "complete" | "partial";
       unsupported: Array<{ objectId?: string; analysis: string }>;
       omittedUnsupportedCount: number;
     };
+    pixels: {
+      delivery: "host_capture_required";
+      nativeImageResultSupported: false;
+      clip: CanvasPreviewData["screenshotClip"];
+      validationSelector: string | null;
+      expiresAt: number;
+      visualInspectionStatus: "not_performed";
+    };
   };
 };
 
-type CanvasCapabilitiesData = {
-  schemaVersion: 1;
+type CanvasCapabilityAuthority = {
+  currentPageToolRegistryIsAuthoritative: true;
+  serverAuthorizationAndValidationRemainAuthoritative: true;
+  bundlesAreGuidanceNotPermissions: true;
+  roleCanMutateCanvas: boolean;
+  exactRevisionsGuardExistingEntityEdits: true;
+};
+
+type CanvasCapabilityEnvelope<TBundle extends string, TData> = {
+  schemaVersion: 2;
+  bundle: TBundle;
   role: "participant" | "spectator";
-  authority: {
-    currentPageToolRegistryIsAuthoritative: true;
-    roleCanMutateCanvas: boolean;
-  };
+  authority: CanvasCapabilityAuthority;
+  data: TData;
+};
+
+type CanvasCoreCapabilityData = {
+  bundleIndex: Array<{
+    bundle: "authoring" | "architecture" | "illustration" | "inspection";
+    useWhen: string;
+    call: { bundle: "authoring" | "architecture" | "illustration" | "inspection" };
+  }>;
+  universalAgentPrinciples: string[];
   coordinateSystem: {
+    space: "canvas";
     unit: "canvas-unit";
+    origin: "unbounded";
     xDirection: "right";
     yDirection: "down";
-    rotation: { unit: "radian"; positiveDirectionOnScreen: "clockwise" };
-    authoredPointSpaces: {
-      createDrawingPathAndPolygonInput: "absolute-canvas";
-      persistedAndPatchDrawingPoints: "object-local-canvas-units";
-      persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1";
+    objectBoundsOrigin: "unrotated-top-left";
+    dimensions: "positive-width-and-height";
+    rotation: {
+      unit: "radian";
+      positiveDirectionOnScreen: "clockwise";
+      zero: "unrotated";
+      rectangularObjectPivot: "object-center";
+      freehandDrawingPivot: "object-local-origin";
+      pathAndPolygonPivot: "object-center";
     };
+    createPointSpace: "absolute-canvas";
+    persistedDrawingPointSpace: "object-local-canvas-units";
+    persistedPathAndPolygonPointSpace: "normalized-object-local-0-to-1";
+    connectorPointSpace: "absolute-canvas";
   };
-  paintOrder: { field: "zIndex"; higherValue: "front" };
-  primitives: {
-    path: { supported: true; segments: ["line", "quadratic", "cubic"] };
-    polygon: { supported: true; representation: "closed-path" };
+  paintOrder: {
+    field: "zIndex";
+    minimum: 0;
+    maximum: 1_000_000;
+    higherValue: "front";
+    equalValuePaintOrder: "object-id-ascending";
+    omittedCreateValue: "current-maximum-plus-one";
   };
-  inspection: { preferredTool: "inspect_canvas_scope" };
+  limits: {
+    maximumTransactionOperations: 200;
+    maximumDrawingPointsPerStroke: 2_000;
+    maximumPathSegments: 2_000;
+    maximumPolygonPoints: 2_001;
+    maximumPathStrokeWidth: 256;
+    maximumDiagramMembers: 500;
+    maximumDiagramConnectors: 500;
+  };
+  visualInspection: {
+    preferredTool: "inspect_canvas_scope";
+    visualInspectionRequiresPixelCapture: true;
+    framingOrGeometryAloneIsVisualInspection: false;
+    recommendedPixelCapture: "full-viewport-then-crop-screenshotClip";
+  };
 };
+
+type CanvasArchitectureCapabilityData = {
+  purpose: string;
+  useWithCore: true;
+  workflow: string[];
+  toolChoices: {
+    coherentCreate: "apply_canvas_transaction";
+    preferredInspection: "inspect_canvas_scope";
+  };
+  judgment: {
+    automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent";
+    geometryFindings: "intent-unaware-evidence-not-redesign-permission";
+  };
+  canonicalExamples: {
+    atomicSystemDiagram: { tool: "apply_canvas_transaction" };
+    optionalHierarchyLayout: { useOnlyWhen: string };
+  };
+};
+
+type CanvasCapabilitiesData =
+  | CanvasCapabilityEnvelope<"core", CanvasCoreCapabilityData>
+  | CanvasCapabilityEnvelope<"architecture", CanvasArchitectureCapabilityData>;
 
 type ReadDiagramData = {
   roomRevision: number;
@@ -642,11 +765,10 @@ async function readRenderedConnector(
   const shape = renderedObject(page, objectId);
   await expect(shape).toBeVisible({ timeout: 15_000 });
   await expect(shape).toHaveAttribute("data-object-kind", "connector");
-  const overlay = page.locator(`[data-connector-overlay-id="${objectId}"]`);
-  await expect(overlay.locator(".semantic-canvas-object__connector-label-text")).toContainText(expectedLabel, {
+  await expect(shape.locator(".semantic-canvas-object__connector-label-text")).toContainText(expectedLabel, {
     timeout: 15_000,
   });
-  return shape.evaluate((element, connectorId) => {
+  return shape.evaluate((element) => {
     const path = element.querySelector<SVGPathElement>(
       ".semantic-canvas-object__connector-path",
     );
@@ -673,9 +795,7 @@ async function readRenderedConnector(
       if (distances[index - 1] > discontinuityThreshold) pathSegments.push([]);
       pathSegments.at(-1)!.push(points[index]);
     }
-    const label = element.ownerDocument
-      .querySelector<SVGGElement>(`[data-connector-overlay-id="${CSS.escape(connectorId)}"]`)
-      ?.querySelector<SVGGElement>(".semantic-canvas-object__connector-label");
+    const label = element.querySelector<SVGGElement>(".semantic-canvas-object__connector-label");
     if (!label) throw new Error("Rendered connector is missing its semantic label.");
     const labelBounds = label.getBoundingClientRect();
     if (labelBounds.width <= 2 || labelBounds.height <= 2) {
@@ -704,7 +824,7 @@ async function readRenderedConnector(
       },
       semanticLabelBounds,
     };
-  }, objectId);
+  });
 }
 
 async function waitForRenderedShapeRevision(
@@ -929,30 +1049,95 @@ test.describe("WebMCP browser acceptance", () => {
       await callWebMcpTool<CanvasCapabilitiesData>(page, "get_canvas_capabilities", {}),
     );
     expect(capabilities).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      bundle: "core",
       role: "participant",
       authority: {
         currentPageToolRegistryIsAuthoritative: true,
+        serverAuthorizationAndValidationRemainAuthoritative: true,
+        bundlesAreGuidanceNotPermissions: true,
         roleCanMutateCanvas: true,
+        exactRevisionsGuardExistingEntityEdits: true,
       },
-      coordinateSystem: {
-        unit: "canvas-unit",
-        xDirection: "right",
-        yDirection: "down",
-        rotation: { unit: "radian", positiveDirectionOnScreen: "clockwise" },
-        authoredPointSpaces: {
-          createDrawingPathAndPolygonInput: "absolute-canvas",
-          persistedAndPatchDrawingPoints: "object-local-canvas-units",
-          persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1",
+      data: {
+        bundleIndex: [
+          { bundle: "authoring", call: { bundle: "authoring" } },
+          { bundle: "architecture", call: { bundle: "architecture" } },
+          { bundle: "illustration", call: { bundle: "illustration" } },
+          { bundle: "inspection", call: { bundle: "inspection" } },
+        ],
+        universalAgentPrinciples: expect.arrayContaining([
+          expect.stringMatching(/user's requested meaning/i),
+          expect.stringMatching(/preserve deliberate/i),
+          expect.stringMatching(/pixels/i),
+        ]),
+        coordinateSystem: {
+          space: "canvas",
+          unit: "canvas-unit",
+          origin: "unbounded",
+          xDirection: "right",
+          yDirection: "down",
+          objectBoundsOrigin: "unrotated-top-left",
+          rotation: { unit: "radian", positiveDirectionOnScreen: "clockwise" },
+          createPointSpace: "absolute-canvas",
+          persistedDrawingPointSpace: "object-local-canvas-units",
+          persistedPathAndPolygonPointSpace: "normalized-object-local-0-to-1",
+          connectorPointSpace: "absolute-canvas",
+        },
+        paintOrder: {
+          field: "zIndex",
+          higherValue: "front",
+          equalValuePaintOrder: "object-id-ascending",
+        },
+        limits: {
+          maximumTransactionOperations: 200,
+          maximumDrawingPointsPerStroke: 2_000,
+          maximumPathSegments: 2_000,
+          maximumPolygonPoints: 2_001,
+        },
+        visualInspection: {
+          preferredTool: "inspect_canvas_scope",
+          visualInspectionRequiresPixelCapture: true,
+          framingOrGeometryAloneIsVisualInspection: false,
         },
       },
-      paintOrder: { field: "zIndex", higherValue: "front" },
-      primitives: {
-        path: { supported: true, segments: ["line", "quadratic", "cubic"] },
-        polygon: { supported: true, representation: "closed-path" },
-      },
-      inspection: { preferredTool: "inspect_canvas_scope" },
     });
+    expect(capabilities.data).not.toHaveProperty("canonicalExamples");
+
+    const architectureCapabilities = successData(
+      await callWebMcpTool<CanvasCapabilitiesData>(page, "get_canvas_capabilities", {
+        bundle: "architecture",
+      }),
+    );
+    expect(architectureCapabilities).toMatchObject({
+      schemaVersion: 2,
+      bundle: "architecture",
+      role: "participant",
+      authority: {
+        currentPageToolRegistryIsAuthoritative: true,
+        serverAuthorizationAndValidationRemainAuthoritative: true,
+        bundlesAreGuidanceNotPermissions: true,
+        roleCanMutateCanvas: true,
+      },
+      data: {
+        useWithCore: true,
+        toolChoices: {
+          coherentCreate: "apply_canvas_transaction",
+          preferredInspection: "inspect_canvas_scope",
+        },
+        judgment: {
+          automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",
+          geometryFindings: "intent-unaware-evidence-not-redesign-permission",
+        },
+        canonicalExamples: {
+          atomicSystemDiagram: { tool: "apply_canvas_transaction" },
+          optionalHierarchyLayout: {
+            useOnlyWhen: expect.stringMatching(/user's requested architecture/i),
+          },
+        },
+      },
+    });
+    expect(architectureCapabilities.data).not.toHaveProperty("coordinateSystem");
 
     const hostBefore = successData(await callWebMcpTool<ReadRoomData>(page, "read_room_state", {}));
     const hostMembershipBefore = hostBefore.participants.find(
@@ -962,6 +1147,7 @@ test.describe("WebMCP browser acceptance", () => {
 
     const transaction = successData(
       await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+        responseDetail: "detailed",
         operations: [
           {
             op: "create_node",
@@ -1238,6 +1424,8 @@ test.describe("WebMCP browser acceptance", () => {
 
     const polygon = successData(
       await callWebMcpTool<CreateObjectData>(page, "create_polygon", {
+        semanticName: "Inspection acceptance polygon",
+        semanticRole: "illustration-region",
         points: [
           { x: 440, y: 700 },
           { x: 600, y: 700 },
@@ -1261,6 +1449,8 @@ test.describe("WebMCP browser acceptance", () => {
           kind: "objects",
           targets: [{ objectId: polygonId, expectedRevision: 1 }],
         },
+        representation: "focus",
+        focusObjectIds: [polygonId],
       }),
     );
     expect(polygonInspection).toMatchObject({
@@ -1268,42 +1458,118 @@ test.describe("WebMCP browser acceptance", () => {
       presentation: "live_canvas",
       visualInspectionStatus: "not_performed",
       geometryQualityStatus: "unknown",
-      sourceRevisions: {
-        objects: [{ objectId: polygonId, revision: 1 }],
-        visualContributors: expect.arrayContaining([{ objectId: polygonId, revision: 1 }]),
+      resultSerialization: {
+        byteLength: expect.any(Number),
+        byteLimit: 96_000,
       },
-      targets: [{ objectId: polygonId, revision: 1 }],
-      semanticEvidence: {
-        schemaVersion: 1,
-        intersections: { totalCount: expect.any(Number), truncated: false },
-        occlusions: { totalCount: expect.any(Number), truncated: false },
+      sceneContext: {
+        schemaVersion: 2,
+        rendererId: expect.any(String),
+        representation: "focus",
+        revisions: {
+          roomRevision: expect.any(Number),
+          diagramRevision: null,
+          explicitObjectRevisions: [{ objectId: polygonId, revision: 1 }],
+        },
+        overview: {
+          objectCount: 1,
+          kinds: { path: 1 },
+        },
+        workingSet: expect.arrayContaining([
+          expect.objectContaining({
+            objectId: polygonId,
+            revision: 1,
+            kind: "path",
+            semanticName: "Inspection acceptance polygon",
+            semanticRole: "illustration-region",
+            inRequestedScope: true,
+          }),
+        ]),
+        focused: expect.arrayContaining([
+          expect.objectContaining({
+            objectId: polygonId,
+            revision: 1,
+            kind: "path",
+            semanticName: "Inspection acceptance polygon",
+            semanticRole: "illustration-region",
+            inRequestedScope: true,
+          }),
+        ]),
+        boundsOverlaps: {
+          totalCount: expect.any(Number),
+          truncated: false,
+          items: expect.any(Array),
+        },
+        coverage: {
+          scopeObjectCount: 1,
+          focusedRecordCount: 1,
+          allExplicitTargetsRepresented: true,
+          geometry: "partial",
+          omittedUnsupportedCount: 0,
+        },
+        pixels: {
+          delivery: "host_capture_required",
+          nativeImageResultSupported: false,
+          clip: expect.objectContaining({
+            coordinateSpace: "viewport-css-pixels",
+            width: expect.any(Number),
+            height: expect.any(Number),
+          }),
+          validationSelector: expect.stringMatching(/canvas-inspection-token/),
+          expiresAt: expect.any(Number),
+          visualInspectionStatus: "not_performed",
+        },
       },
     });
-    expect(
-      polygonInspection.semanticEvidence.objects.find((object) => object.objectId === polygonId),
-    ).toMatchObject({
+    const focusedPolygon = polygonInspection.sceneContext.focused.find(
+      (object) => object.objectId === polygonId,
+    );
+    expect(focusedPolygon).toMatchObject({
       objectId: polygonId,
       revision: 1,
       kind: "path",
+      semanticName: "Inspection acceptance polygon",
+      semanticRole: "illustration-region",
       inRequestedScope: true,
-      semantic: { kind: "path", segmentCount: 3, closed: true },
+      semantic: {
+        kind: "path",
+        start: { x: 0, y: 0 },
+        segmentCount: 3,
+        sample: [
+          { kind: "line", to: { x: 0.8, y: 0 } },
+          { kind: "line", to: { x: 1, y: 0.8 } },
+          { kind: "line", to: { x: 0.2, y: 1 } },
+        ],
+        sampleTruncated: false,
+        closed: true,
+        fill: "yellow",
+        stroke: "violet",
+        strokeWidth: 6,
+        opacity: 0.85,
+      },
     });
-    expect(polygonInspection.semanticEvidence.coverage).toMatchObject({
-      geometry: "partial",
-      omittedUnsupportedCount: 0,
-    });
-    expect(polygonInspection.semanticEvidence.coverage.unsupported).toEqual(
+    expect(polygonInspection.sceneContext.coverage.unsupported).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ objectId: polygonId, analysis: "vector_path_geometry" }),
       ]),
     );
+    expect(polygonInspection.sceneContext.pixels.clip).toEqual(
+      polygonInspection.screenshotClip,
+    );
     expect(polygonInspection.screenshotClip.width).toBeGreaterThan(0);
     expect(polygonInspection.screenshotClip.height).toBeGreaterThan(0);
-    expect(polygonInspection.semanticEvidence.intersections.totalCount).toBeGreaterThanOrEqual(0);
-    expect(polygonInspection.semanticEvidence.occlusions.totalCount).toBeGreaterThanOrEqual(0);
+    expect(polygonInspection.sceneContext.boundsOverlaps.totalCount).toBeGreaterThanOrEqual(0);
+    expect(polygonInspection.sceneContext.coverage.resultByteLength).toBeGreaterThan(0);
+    expect(polygonInspection.sceneContext.coverage.resultByteLength).toBeLessThanOrEqual(
+      polygonInspection.sceneContext.coverage.resultByteLimit,
+    );
+    expect(polygonInspection.resultSerialization.byteLength).toBeLessThanOrEqual(
+      polygonInspection.resultSerialization.byteLimit,
+    );
 
     const overlapTransaction = successData(
       await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+        responseDetail: "detailed",
         operations: [
           {
             op: "create_shape",
@@ -1428,6 +1694,7 @@ test.describe("WebMCP browser acceptance", () => {
 
     const layout = successData(
       await callWebMcpTool<LayoutData>(page, "layout_objects", {
+        responseDetail: "detailed",
         layout: "flow",
         direction: "right",
         density: "comfortable",
@@ -1906,13 +2173,23 @@ test.describe("WebMCP browser acceptance", () => {
         ),
       );
       expect(spectatorCapabilities).toMatchObject({
-        schemaVersion: 1,
+        schemaVersion: 2,
+        bundle: "core",
         role: "spectator",
         authority: {
           currentPageToolRegistryIsAuthoritative: true,
+          serverAuthorizationAndValidationRemainAuthoritative: true,
+          bundlesAreGuidanceNotPermissions: true,
           roleCanMutateCanvas: false,
+          exactRevisionsGuardExistingEntityEdits: true,
         },
-        inspection: { preferredTool: "inspect_canvas_scope" },
+        data: {
+          visualInspection: {
+            preferredTool: "inspect_canvas_scope",
+            visualInspectionRequiresPixelCapture: true,
+            framingOrGeometryAloneIsVisualInspection: false,
+          },
+        },
       });
 
       successData(await callWebMcpTool<ReadRoomData>(spectatorPage, "read_room_state", {}));
@@ -2030,6 +2307,7 @@ test.describe("WebMCP browser acceptance", () => {
 
     const created = successData(
       await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+        responseDetail: "detailed",
         operations: [
           {
             op: "create_node",

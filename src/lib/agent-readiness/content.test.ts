@@ -220,7 +220,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.8.0");
+    expect(AGENT_DOC_VERSION).toBe("1.9.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -335,6 +335,101 @@ describe("agent-readable content", () => {
     expect(guide).toContain("3, 4.5, and 6 units");
     expect(reference).toContain("## Canvas authoring contract");
     expect(skill).toContain("do not guess units");
+  });
+
+  it("loads a compact core before one relevant task-scoped guidance bundle", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      homepage: makeHomepageMarkdown(),
+      guide: makeAgentGuideMarkdown(),
+      reference: makeWebMcpMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits the default core call`).toContain(
+        "`get_canvas_capabilities` with `{}`",
+      );
+      for (const bundle of [
+        "authoring",
+        "architecture",
+        "illustration",
+        "inspection",
+      ]) {
+        expect(body, `${name} omits ${bundle}`).toContain(bundle);
+      }
+      expect(body, `${name} treats bundle guidance as authority`).toMatch(
+        /bundles? (?:are|guide)[^\n]*(?:not|never grant) permissions/i,
+      );
+    }
+
+    expect(makeAgentGuideMarkdown()).toContain(
+      '`{ "bundle": "architecture" }`',
+    );
+  });
+
+  it("documents semantic identity, compact responses, and scene-context v2 inspection", () => {
+    const guide = makeAgentGuideMarkdown();
+    const reference = makeWebMcpMarkdown();
+    const skill = makeSkillMarkdown();
+    const documents = {
+      llms: makeLlmsTxt(),
+      homepage: makeHomepageMarkdown(),
+      guide,
+      reference,
+      agents: makeAgentsMarkdown(),
+      skill,
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits semanticName`).toContain("`semanticName`");
+      expect(body, `${name} omits semanticRole`).toContain("`semanticRole`");
+      expect(body, `${name} omits recommended inspection`).toContain(
+        "`recommendedInspection`",
+      );
+      expect(body, `${name} omits bounded loop termination`).toContain(
+        "bounded stagnation",
+      );
+      expect(body, `${name} lets validation replace creative judgment`).toMatch(
+        /creative (?:authority|judgment)/i,
+      );
+    }
+
+    for (const body of [guide, reference]) {
+      for (const phrase of [
+        "`responseDetail: concise`",
+        "`responseDetail: detailed`",
+        "`detail: summary`",
+        "`sceneContext`",
+        "`schemaVersion: 2`",
+        "`overview`",
+        "`working_set`",
+        "`focus`",
+        "`visualContract`",
+        "`findingKeys`",
+        "`previousFindingKeys`",
+        "`boundsOverlaps`",
+      ]) {
+        expect(body).toContain(phrase);
+      }
+      expect(body).toMatch(/(?:request|opt into) `full` only/i);
+      expect(body).toMatch(/overlap[^\n]*(?:not proof|never proof)/i);
+    }
+
+    for (const phrase of [
+      "`findingComparison.basis`",
+      "`caller_supplied_unverified`",
+      "`observedFindingKeysNotSupplied`",
+      "`callerSuppliedFindingKeysObservedAgain`",
+      "`callerSuppliedSameScopeKeysNotObserved`",
+      "`currentFindingCoverageComplete`",
+      "`sceneContext.pixels.delivery: host_capture_required`",
+      "`nativeImageResultSupported: false`",
+      "`visualInspectionStatus: not_performed`",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
   });
 
   it("requires intent-led geometry interpretation and actual pixel inspection as separate steps", () => {

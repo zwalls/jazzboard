@@ -153,15 +153,25 @@ describe("AgentDraftLayer", () => {
     expect(element).toHaveAttribute("transform", "rotate(30 100 75)");
   });
 
-  it("renders connectors before other draft art without canonical IDs or interaction semantics", () => {
+  it("renders draft artwork in authoritative z-order without canonical IDs or interaction semantics", () => {
+    const background = { ...shape("draft-zone"), zIndex: 1 };
+    const foreground = { ...shape(), zIndex: 4 };
     const { container } = render(
-      <AgentDraftLayer authoritativeObjects={{}} drafts={[draft()]} roomId="room-1" viewport={viewport} />,
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft({ previewObjects: [foreground, connector(), background] })]}
+        roomId="room-1"
+        viewport={viewport}
+      />,
     );
 
+    const backgroundElement = container.querySelector('[data-agent-draft-object-id="draft-zone"]');
     const connectorElement = container.querySelector('[data-agent-draft-object-id="draft-connector"]');
     const shapeElement = container.querySelector('[data-agent-draft-object-id="draft-shape"]');
+    expect(backgroundElement).not.toBeNull();
     expect(connectorElement).not.toBeNull();
     expect(shapeElement).not.toBeNull();
+    expect(backgroundElement!.compareDocumentPosition(connectorElement!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(connectorElement!.compareDocumentPosition(shapeElement!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(container.querySelector('[data-object-id="draft-shape"]')).toBeNull();
     expect(container.querySelector('#draft-shape')).toBeNull();

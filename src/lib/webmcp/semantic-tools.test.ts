@@ -289,6 +289,8 @@ describe("role-scoped semantic tool registration", () => {
     const tools = createJazzboardSemanticWebMcpTools(fixture().binding);
 
     expect(schemaFor(tools, "query_objects").required ?? []).not.toContain("limit");
+    expect(schemaFor(tools, "query_objects").properties?.detail).toEqual({ enum: ["summary", "full"] });
+    expect(schemaFor(tools, "read_neighborhood").properties?.detail).toEqual({ enum: ["summary", "full"] });
     expect(schemaFor(tools, "find_diagrams").required ?? []).not.toContain("limit");
     expect(schemaFor(tools, "analyze_diagram_layout").required).toEqual([
       "diagramId",
@@ -302,6 +304,8 @@ describe("role-scoped semantic tool registration", () => {
       diagramId: ["expectedDiagramRevision"],
       expectedDiagramRevision: ["diagramId"],
     });
+    expect(schemaFor(tools, "layout_objects").properties?.responseDetail)
+      .toEqual({ enum: ["concise", "detailed"] });
 
     const createDiagramRequired = schemaFor(tools, "create_diagram").required ?? [];
     expect(createDiagramRequired).toEqual(["title"]);
@@ -310,7 +314,16 @@ describe("role-scoped semantic tool registration", () => {
     }
 
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
+    expect(transactionSchema.properties?.responseDetail).toEqual({ enum: ["concise", "detailed"] });
     expect(transactionSchema.properties?.operations?.items?.properties?.routing).toEqual({ type: "object" });
+    expect(transactionSchema.properties?.operations?.items?.properties?.semanticName).toMatchObject({
+      type: "string",
+      maxLength: 160,
+    });
+    expect(transactionSchema.properties?.operations?.items?.properties?.semanticRole).toMatchObject({
+      type: "string",
+      maxLength: 128,
+    });
     const connectionRequired = operationSchema(transactionSchema, "connect").required ?? [];
     expect(connectionRequired).toEqual(["op"]);
     for (const field of ["direction", "label", "color"]) expect(connectionRequired).not.toContain(field);
@@ -345,6 +358,8 @@ describe("role-scoped semantic tool registration", () => {
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
     const patchSchema = transactionSchema.properties?.operations?.items?.properties?.patch;
     const acceptedPatch = {
+      semanticName: null,
+      semanticRole: null,
       x: 1,
       y: 2,
       width: 300,
@@ -681,6 +696,100 @@ describe("progressive draft delivery", () => {
     expect(state.acceptedDrafts).toHaveLength(1);
   });
 
+  it("defaults draft results to compact preview records while detailed preserves the legacy snapshot", async () => {
+    const previewObject = {
+      ...node("node_preview", "Preview API", "service", 40),
+      semanticName: "Preview API service",
+      semanticRole: "architecture.service",
+      authority: "draft" as const,
+    };
+    const previewDiagram = {
+      ...diagram(),
+      id: "diagram_preview",
+      title: "Preview architecture",
+      memberObjectIds: [previewObject.id],
+      connectorIds: [],
+      authority: "draft" as const,
+    };
+    const draft = agentDraft({
+      id: "draft_preview",
+      revision: 4,
+      temporaryReferences: { apiNode: previewObject.id, architecture: previewDiagram.id },
+      previewObjects: [previewObject],
+      previewDiagrams: [previewDiagram],
+    });
+    const request = vi.fn(async () => ({ ok: true, draft })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture().binding, {
+      request,
+      createId: (prefix) => prefix === "draft" ? "draft_generated" : `${prefix}_generated`,
+    });
+    const operations = [{
+      op: "create_node",
+      tempRef: "apiNode",
+      label: "Preview API",
+      nodeType: "service",
+    }];
+
+    const concise = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations,
+      delivery: { mode: "draft" },
+    });
+    expect(concise).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "drafted",
+        draftId: "draft_preview",
+        draftRevision: 4,
+        baselineRoomRevision: 7,
+        draftStatus: "active",
+        temporaryReferenceCount: 2,
+        previewObjectCount: 1,
+        previewDiagramCount: 1,
+        previewObjects: [{
+          id: "node_preview",
+          revision: 1,
+          kind: "shape",
+          semanticName: "Preview API service",
+          semanticRole: "architecture.service",
+          bounds: { x: 40, y: 100, width: 200, height: 100 },
+          authority: "draft",
+        }],
+        previewDiagrams: [{
+          id: "diagram_preview",
+          revision: 1,
+          title: "Preview architecture",
+          memberObjectCount: 1,
+          connectorCount: 0,
+          authority: "draft",
+        }],
+        visualInspectionStatus: "not_performed",
+      },
+    });
+    const conciseData = (concise as { ok: true; data: Record<string, unknown> }).data;
+    expect(conciseData).not.toHaveProperty("draft");
+    expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("label");
+    expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("createdAt");
+
+    const detailed = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations,
+      delivery: { mode: "draft" },
+      responseDetail: "detailed",
+    });
+    expect(detailed).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "drafted",
+        draft: {
+          id: "draft_preview",
+          previewObjects: [{ id: "node_preview", label: "Preview API", createdAt: NOW }],
+          previewDiagrams: [{ id: "diagram_preview", memberObjectIds: ["node_preview"] }],
+        },
+        previewObjects: [{ id: "node_preview", label: "Preview API", createdAt: NOW }],
+        previewDiagrams: [{ id: "diagram_preview", memberObjectIds: ["node_preview"] }],
+      },
+    });
+  });
+
   it("keeps tempRef IDs stable when a cumulative draft omits and later reintroduces a candidate", async () => {
     const state = fixture();
     const prefixCounts = new Map<string, number>();
@@ -868,13 +977,96 @@ describe("bounded semantic reads", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      data: { totalMatched: 1, objects: [{ id: "api", nodeType: "service" }] },
+      data: {
+        totalMatched: 1,
+        objects: [{
+          id: "api",
+          revision: 1,
+          nodeType: "service",
+          bounds: { x: 0, y: 100, width: 200, height: 100 },
+          label: "Checkout API",
+        }],
+        diagrams: [{ id: "architecture", revision: 1, memberObjectCount: 2, connectorCount: 1 }],
+      },
     });
+    const summaryData = (result as { ok: true; data: { objects: Array<Record<string, unknown>> } }).data;
+    expect(summaryData.objects[0]).not.toHaveProperty("createdAt");
+    expect(summaryData.objects[0]).not.toHaveProperty("nodeMetadata");
+
+    const full = await execute(tool(tools, "query_objects"), {
+      text: "checkout",
+      nodeTypes: ["service"],
+      diagramId: "architecture",
+      detail: "full",
+    });
+    expect(full).toMatchObject({
+      ok: true,
+      data: { objects: [{ id: "api", createdAt: NOW, nodeType: "service" }] },
+    });
+    expect((full as { ok: true; data: Record<string, unknown> }).data).not.toHaveProperty("diagrams");
     expect(request).toHaveBeenCalledWith("/api/rooms/room%2Fa%20b", {
       method: "GET",
       signal: expect.any(AbortSignal),
     });
     expect(local.getRoom().participants.alice).toMatchObject({ agentActive: false, agent: { activity: null } });
+  });
+
+  it("filters and searches object identity while describing named architecture relationships", async () => {
+    const state = room();
+    state.objects.api.semanticName = "Netflix API gateway";
+    state.objects.api.semanticRole = "architecture.edge_service";
+    state.objects.db.semanticName = "Netflix playback metadata store";
+    state.objects.db.semanticRole = "architecture.database";
+    state.objects["api-db"].semanticName = "Playback metadata lookup";
+    state.objects["api-db"].semanticRole = "architecture.request_flow";
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+
+    const filtered = await execute(tool(tools, "query_objects"), {
+      semanticName: "api gateway",
+      semanticRole: "edge_service",
+    });
+    expect(filtered).toMatchObject({
+      ok: true,
+      data: {
+        totalMatched: 1,
+        objects: [{ id: "api", semanticName: "Netflix API gateway", semanticRole: "architecture.edge_service" }],
+      },
+    });
+
+    const searched = await execute(tool(tools, "query_objects"), { text: "request_flow" });
+    expect(searched).toMatchObject({
+      ok: true,
+      data: {
+        totalMatched: 1,
+        objects: [{
+          id: "api-db",
+          start: { objectId: "api" },
+          end: { objectId: "db" },
+          route: { points: expect.any(Array), bounds: expect.any(Object) },
+        }],
+      },
+    });
+
+    const described = await execute(tool(tools, "describe_diagram"), { diagramId: "architecture" });
+    expect(described).toMatchObject({
+      ok: true,
+      data: {
+        members: expect.arrayContaining([
+          expect.objectContaining({
+            id: "api",
+            semanticName: "Netflix API gateway",
+            semanticRole: "architecture.edge_service",
+            label: "Checkout API",
+          }),
+        ]),
+        relationships: [expect.objectContaining({
+          connectorId: "api-db",
+          semanticName: "Playback metadata lookup",
+          semanticRole: "architecture.request_flow",
+        })],
+      },
+    });
   });
 
   it("returns a connector-bounded outgoing neighborhood and its diagram metadata", async () => {
@@ -895,10 +1087,247 @@ describe("bounded semantic reads", () => {
           expect.objectContaining({ id: "api" }),
           expect.objectContaining({ id: "db" }),
         ]),
-        connectors: [{ id: "api-db", start: { objectId: "api" }, end: { objectId: "db" } }],
-        diagrams: [{ id: "architecture", revision: 1 }],
+        connectors: [{
+          id: "api-db",
+          start: { objectId: "api" },
+          end: { objectId: "db" },
+          routing: { mode: "straight", kind: "straight" },
+          route: { points: expect.any(Array), bounds: expect.any(Object) },
+        }],
+        diagrams: [{ id: "architecture", revision: 1, memberObjectCount: 2, connectorCount: 1 }],
       },
     });
+    const summaryData = (result as {
+      ok: true;
+      data: { objects: Array<Record<string, unknown>>; diagrams: Array<Record<string, unknown>> };
+    }).data;
+    expect(summaryData.objects[0]).not.toHaveProperty("createdAt");
+    expect(summaryData.diagrams[0]).not.toHaveProperty("memberObjectIds");
+
+    const full = await execute(tool(tools, "read_neighborhood"), {
+      objectIds: ["api"],
+      direction: "outgoing",
+      depth: 1,
+      detail: "full",
+    });
+    expect(full).toMatchObject({
+      ok: true,
+      data: {
+        objects: expect.arrayContaining([expect.objectContaining({ id: "api", createdAt: NOW })]),
+        diagrams: [{ id: "architecture", memberObjectIds: ["api", "db"], connectorIds: ["api-db"] }],
+      },
+    });
+  });
+
+  it("bounds deterministic Diagram summaries for one object with hundreds of Diagram memberships", async () => {
+    const diagramIds = Array.from({ length: 300 }, (_, index) =>
+      `diagram-${String(index).padStart(3, "0")}`);
+    const state = room();
+    state.objects = {
+      api: {
+        ...state.objects.api,
+        diagramIds: [...diagramIds].reverse(),
+      },
+    };
+    state.diagrams = Object.fromEntries(diagramIds.map((diagramId, index) => [
+      diagramId,
+      {
+        ...diagram(),
+        id: diagramId,
+        title: `Diagram ${index}`,
+        revision: index + 1,
+        memberObjectIds: ["api"],
+        connectorIds: [],
+      },
+    ]));
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+    const expectedCoverage = {
+      totalDiagramCount: 300,
+      returnedDiagramCount: 32,
+      limit: 32,
+      truncated: true,
+      omittedDiagramCount: 268,
+      omittedDiagramIds: diagramIds.slice(32, 96),
+      omittedDiagramIdsTruncated: true,
+    };
+
+    const querySummary = await execute(tool(tools, "query_objects"), {
+      text: "checkout",
+      limit: 1,
+    });
+    expect(querySummary).toMatchObject({
+      ok: true,
+      data: {
+        totalMatched: 1,
+        truncated: false,
+        objects: [{
+          id: "api",
+          diagramIds: diagramIds.slice(0, 16),
+          diagramMembershipCoverage: {
+            totalDiagramCount: 300,
+            returnedDiagramCount: 16,
+            limit: 16,
+            truncated: true,
+            omittedDiagramCount: 284,
+            omittedDiagramIds: diagramIds.slice(16, 32),
+            omittedDiagramIdsTruncated: true,
+          },
+        }],
+        diagrams: diagramIds.slice(0, 32).map((id) => ({ id })),
+        diagramSummaryCoverage: expectedCoverage,
+      },
+    });
+    const queryFull = await execute(tool(tools, "query_objects"), {
+      text: "checkout",
+      limit: 1,
+      detail: "full",
+    });
+    expect(queryFull).toMatchObject({
+      ok: true,
+      data: {
+        objects: [{ id: "api", diagramIds: [...diagramIds].reverse() }],
+      },
+    });
+    expect((queryFull as { ok: true; data: Record<string, unknown> }).data)
+      .not.toHaveProperty("diagramSummaryCoverage");
+
+    const neighborhoodSummary = await execute(tool(tools, "read_neighborhood"), {
+      objectIds: ["api"],
+      maxObjects: 1,
+    });
+    expect(neighborhoodSummary).toMatchObject({
+      ok: true,
+      data: {
+        objects: [{
+          id: "api",
+          diagramIds: diagramIds.slice(0, 16),
+          diagramMembershipCoverage: {
+            totalDiagramCount: 300,
+            returnedDiagramCount: 16,
+            limit: 16,
+            truncated: true,
+            omittedDiagramCount: 284,
+            omittedDiagramIds: diagramIds.slice(16, 32),
+            omittedDiagramIdsTruncated: true,
+          },
+        }],
+        diagrams: diagramIds.slice(0, 32).map((id) => ({ id })),
+        diagramSummaryCoverage: expectedCoverage,
+      },
+    });
+    const neighborhoodFull = await execute(tool(tools, "read_neighborhood"), {
+      objectIds: ["api"],
+      maxObjects: 1,
+      detail: "full",
+    });
+    const neighborhoodFullData = (neighborhoodFull as {
+      ok: true;
+      data: { diagrams: Diagram[] };
+    }).data;
+    expect(neighborhoodFullData.diagrams).toHaveLength(300);
+    expect(neighborhoodFullData.diagrams[0]).toMatchObject({ id: "diagram-299", memberObjectIds: ["api"] });
+    expect(neighborhoodFullData).not.toHaveProperty("diagramSummaryCoverage");
+  });
+
+  it("bounds repeated membership indexes across 200 objects in 500 Diagrams", async () => {
+    const objectIds = Array.from({ length: 200 }, (_, index) =>
+      `object-${String(index).padStart(3, "0")}`);
+    const diagramIds = Array.from({ length: 500 }, (_, index) =>
+      `diagram-${String(index).padStart(3, "0")}`);
+    const state = room([]);
+    state.objects = Object.fromEntries(objectIds.map((objectId, index) => [
+      objectId,
+      {
+        ...node(objectId, `Shared node ${index}`, "component", index * 240),
+        zIndex: index,
+        diagramIds: [...diagramIds].reverse(),
+      },
+    ]));
+    state.diagrams = Object.fromEntries(diagramIds.map((diagramId, index) => [
+      diagramId,
+      {
+        ...diagram(),
+        id: diagramId,
+        title: `Shared Diagram ${index}`,
+        revision: index + 1,
+        memberObjectIds: objectIds,
+        connectorIds: [],
+      },
+    ]));
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+
+    const querySummary = await execute(tool(tools, "query_objects"), {
+      text: "shared node",
+      limit: 200,
+    });
+    const querySummaryData = (querySummary as {
+      ok: true;
+      data: { objects: Array<Record<string, unknown>> };
+    }).data;
+    expect(querySummaryData.objects).toHaveLength(200);
+    expect(querySummaryData.objects[0]).toMatchObject({
+      diagramIds: diagramIds.slice(0, 16),
+      diagramMembershipCoverage: {
+        totalDiagramCount: 500,
+        returnedDiagramCount: 16,
+        limit: 16,
+        truncated: true,
+        omittedDiagramCount: 484,
+        omittedDiagramIds: diagramIds.slice(16, 32),
+        omittedDiagramIdsTruncated: true,
+      },
+    });
+    expect(querySummaryData.objects[199]).toMatchObject({
+      diagramIds: diagramIds.slice(0, 16),
+      diagramMembershipCoverage: {
+        totalDiagramCount: 500,
+        omittedDiagramCount: 484,
+        omittedDiagramIds: diagramIds.slice(16, 32),
+        omittedDiagramIdsTruncated: true,
+      },
+    });
+
+    const neighborhoodSummary = await execute(tool(tools, "read_neighborhood"), {
+      objectIds: [objectIds[0]],
+      includeDiagramPeers: true,
+      maxObjects: 300,
+    });
+    const neighborhoodSummaryData = (neighborhoodSummary as {
+      ok: true;
+      data: { objects: Array<Record<string, unknown>> };
+    }).data;
+    expect(neighborhoodSummaryData.objects).toHaveLength(200);
+    expect(neighborhoodSummaryData.objects[0]).toMatchObject({
+      diagramIds: diagramIds.slice(0, 16),
+      diagramMembershipCoverage: {
+        totalDiagramCount: 500,
+        omittedDiagramCount: 484,
+        omittedDiagramIds: diagramIds.slice(16, 32),
+        omittedDiagramIdsTruncated: true,
+      },
+    });
+
+    const queryFull = await execute(tool(tools, "query_objects"), {
+      text: "shared node",
+      limit: 200,
+      detail: "full",
+    });
+    const queryFullData = (queryFull as {
+      ok: true;
+      data: { objects: CanvasObject[] };
+    }).data;
+    expect(queryFullData.objects).toHaveLength(200);
+    expect(queryFullData.objects[0].diagramIds).toEqual([...diagramIds].reverse());
+    expect(queryFullData.objects[0]).not.toHaveProperty("diagramMembershipCoverage");
+
+    const querySummaryBytes = new TextEncoder().encode(JSON.stringify(querySummary)).byteLength;
+    const neighborhoodSummaryBytes = new TextEncoder().encode(JSON.stringify(neighborhoodSummary)).byteLength;
+    const queryFullBytes = new TextEncoder().encode(JSON.stringify(queryFull)).byteLength;
+    expect(querySummaryBytes).toBeLessThan(500_000);
+    expect(neighborhoodSummaryBytes).toBeLessThan(500_000);
+    expect(querySummaryBytes * 3).toBeLessThan(queryFullBytes);
   });
 
   it("finds authoritative lifecycle nodes by status and owner without reading the whole room", async () => {
@@ -920,6 +1349,7 @@ describe("bounded semantic reads", () => {
       nodeTypes: ["decision"],
       nodeStatuses: ["accepted"],
       nodeOwner: "platform",
+      detail: "full",
     });
 
     expect(result).toMatchObject({
@@ -1128,6 +1558,294 @@ describe("bounded semantic reads", () => {
 });
 
 describe("transactional semantic mutations", () => {
+  it("defaults applied results to certain compact receipts while detailed preserves legacy objects", async () => {
+    const baseline = room([]);
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(baseline, "alice", "agent", body.transaction, NOW + 10);
+      return {
+        ok: true,
+        outcome: "applied",
+        ...result,
+        activity: null,
+        proposal: null,
+      };
+    }) as unknown as WebMcpRequest;
+    const counts = new Map<string, number>();
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId(prefix) {
+        const count = (counts.get(prefix) ?? 0) + 1;
+        counts.set(prefix, count);
+        return `${prefix}_${count}`;
+      },
+    });
+    const operations = [
+      {
+        op: "create_node",
+        tempRef: "api",
+        semanticName: "Checkout API",
+        semanticRole: "architecture.service",
+        label: "Checkout API",
+        nodeType: "service",
+        x: 0,
+        y: 0,
+      },
+      {
+        op: "create_node",
+        tempRef: "db",
+        semanticName: "Orders database",
+        semanticRole: "architecture.database",
+        label: "Orders DB",
+        nodeType: "component",
+        x: 500,
+        y: 0,
+      },
+      {
+        op: "connect",
+        tempRef: "writes",
+        semanticName: "Writes orders",
+        semanticRole: "architecture.request_flow",
+        start: { tempRef: "api" },
+        end: { tempRef: "db" },
+        label: "writes",
+      },
+      {
+        op: "create_diagram",
+        tempRef: "architecture",
+        title: "Checkout architecture",
+      },
+    ];
+
+    const concise = await execute(tool(tools, "apply_canvas_transaction"), { operations });
+    expect(concise).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        roomRevision: 8,
+        temporaryReferences: {
+          api: "node_1",
+          db: "node_2",
+          writes: "connector_1",
+          architecture: "diagram_1",
+        },
+        changedObjectIds: ["node_1", "node_2", "connector_1"],
+        deletedObjectIds: [],
+        changedDiagramIds: ["diagram_1"],
+        deletedDiagramIds: [],
+        objects: expect.arrayContaining([
+          expect.objectContaining({
+            id: "node_1",
+            revision: 1,
+            kind: "shape",
+            semanticName: "Checkout API",
+            semanticRole: "architecture.service",
+            bounds: { x: 0, y: 0, width: 280, height: 152 },
+          }),
+          expect.objectContaining({
+            id: "connector_1",
+            kind: "connector",
+            startObjectId: "node_1",
+            endObjectId: "node_2",
+          }),
+        ]),
+        diagrams: [{
+          id: "diagram_1",
+          revision: 1,
+          title: "Checkout architecture",
+          bounds: expect.any(Object),
+          memberObjectCount: 2,
+          connectorCount: 1,
+        }],
+        validation: {
+          totalChangedDiagramCount: 1,
+          analyzedDiagramCount: 1,
+          diagrams: [{ diagramId: "diagram_1", diagramRevision: 1 }],
+        },
+        visualInspectionStatus: "not_performed",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "diagram", diagramId: "diagram_1", expectedRevision: 1 },
+            padding: 24,
+            representation: "working_set",
+          },
+        },
+        activity: null,
+        proposal: null,
+      },
+    });
+    const conciseData = (concise as { ok: true; data: Record<string, unknown> }).data;
+    expect(conciseData).not.toHaveProperty("positions");
+    expect(conciseData).not.toHaveProperty("visualQuality");
+    expect(conciseData).not.toHaveProperty("verification");
+    expect((conciseData.objects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("label");
+    expect((conciseData.objects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("createdAt");
+    expect((conciseData.diagrams as Array<Record<string, unknown>>)[0]).not.toHaveProperty("memberObjectIds");
+
+    const detailed = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations,
+      responseDetail: "detailed",
+    });
+    expect(detailed).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        roomRevision: 8,
+        temporaryReferences: {
+          api: "node_3",
+          db: "node_4",
+          writes: "connector_2",
+          architecture: "diagram_2",
+        },
+        objects: expect.arrayContaining([
+          expect.objectContaining({ id: "node_3", label: "Checkout API", createdAt: NOW + 10 }),
+        ]),
+        diagrams: [{
+          id: "diagram_2",
+          memberObjectIds: ["node_3", "node_4"],
+          connectorIds: ["connector_2"],
+        }],
+        visualQuality: [{ diagramId: "diagram_2", diagramRevision: 1 }],
+        verification: { visualInspectionStatus: "not_performed" },
+      },
+    });
+    const detailedData = (detailed as { ok: true; data: Record<string, unknown> }).data;
+    expect(detailedData).not.toHaveProperty("recommendedInspection");
+    expect(detailedData).not.toHaveProperty("validation");
+  });
+
+  it("keeps a 200-operation concise receipt bounded and materially smaller than detailed", async () => {
+    const baseline = room([]);
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(baseline, "alice", "agent", body.transaction, NOW + 20);
+      return {
+        ok: true,
+        outcome: "applied",
+        ...result,
+        activity: null,
+        proposal: null,
+      };
+    }) as unknown as WebMcpRequest;
+    let nextId = 0;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId: (prefix) => `${prefix}_${++nextId}`,
+    });
+    const operations = Array.from({ length: 200 }, (_, index) => ({
+      op: "create_text",
+      tempRef: `note_${String(index).padStart(3, "0")}`,
+      content: `Record ${index}: ${"x".repeat(2_048)}`,
+    }));
+
+    const concise = await execute(tool(tools, "apply_canvas_transaction"), { operations });
+    const detailed = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations,
+      responseDetail: "detailed",
+    });
+    expect(concise).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        changedObjectIds: expect.arrayContaining(["text_1", "text_200"]),
+        objects: expect.arrayContaining([
+          expect.objectContaining({ id: "text_1", revision: 1, kind: "text", bounds: expect.any(Object) }),
+        ]),
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "objects", targets: expect.any(Array) },
+            representation: "overview",
+          },
+        },
+      },
+    });
+    const conciseData = (concise as {
+      ok: true;
+      data: {
+        objects: Array<Record<string, unknown>>;
+        recommendedInspection: { input: { scope: { targets: unknown[] } } };
+      };
+    }).data;
+    const detailedData = (detailed as {
+      ok: true;
+      data: { objects: Array<Record<string, unknown>> };
+    }).data;
+    expect(conciseData.objects).toHaveLength(200);
+    expect(conciseData.objects[0]).not.toHaveProperty("content");
+    expect(conciseData.objects[0]).not.toHaveProperty("createdBy");
+    expect(conciseData.recommendedInspection.input.scope.targets).toHaveLength(200);
+    expect(detailedData.objects).toHaveLength(200);
+    expect(detailedData.objects[0]).toHaveProperty("content", operations[0].content);
+
+    const conciseBytes = new TextEncoder().encode(JSON.stringify(concise)).byteLength;
+    const detailedBytes = new TextEncoder().encode(JSON.stringify(detailed)).byteLength;
+    expect(conciseBytes).toBeLessThan(100_000);
+    expect(conciseBytes * 2).toBeLessThan(detailedBytes);
+  });
+
+  it("recommends an overview for an exact Diagram scope above the working-set ceiling", async () => {
+    const memberObjectIds = Array.from({ length: 121 }, (_, index) =>
+      `node-${String(index).padStart(3, "0")}`);
+    const state = room([]);
+    state.roomRevision = 8;
+    state.objects = Object.fromEntries(memberObjectIds.map((objectId, index) => [
+      objectId,
+      {
+        ...node(objectId, `Node ${index}`, "component", index * 240),
+        diagramIds: ["large-diagram"],
+      },
+    ]));
+    state.diagrams = {
+      "large-diagram": {
+        ...diagram(),
+        id: "large-diagram",
+        revision: 9,
+        title: "Large Diagram",
+        memberObjectIds,
+        connectorIds: [],
+        bounds: { x: 0, y: 100, width: 121 * 240, height: 100 },
+      },
+    };
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: ["large-diagram"],
+      membershipObjectIds: memberObjectIds,
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, {
+      request,
+      createId: (prefix) => `${prefix}_1`,
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{ op: "create_text", tempRef: "note", content: "Ignored by mock" }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "diagram", diagramId: "large-diagram", expectedRevision: 9 },
+            padding: 24,
+            representation: "overview",
+          },
+        },
+      },
+    });
+  });
+
   it("bounds automatic quality reports and names every Diagram requiring explicit analysis", async () => {
     const state = room();
     const diagramIds = Array.from({ length: 80 }, (_, index) =>
@@ -1153,6 +1871,7 @@ describe("transactional semantic mutations", () => {
 
     const result = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "create_text", tempRef: "note", content: "Bounded quality" }],
+      responseDetail: "detailed",
     });
 
     expect(result).toMatchObject({
@@ -1210,6 +1929,7 @@ describe("transactional semantic mutations", () => {
       });
       return execute(tool(tools, "apply_canvas_transaction"), {
         operations: [{ op: "create_text", tempRef: "note", content: "Coverage check" }],
+        responseDetail: "detailed",
       });
     };
 
@@ -1331,6 +2051,7 @@ describe("transactional semantic mutations", () => {
     });
 
     const created = await execute(tool(tools, "apply_canvas_transaction"), {
+      responseDetail: "detailed",
       operations: [
         { op: "create_node", tempRef: "api", label: "Checkout API", nodeType: "service", x: 0, y: 0 },
         { op: "create_node", tempRef: "db", label: "Orders DB", nodeType: "component", x: 500, y: 0 },
@@ -1371,10 +2092,15 @@ describe("transactional semantic mutations", () => {
         },
       },
     });
-    expect(authoritative.objects.node_1).toMatchObject({ nodeType: "service", diagramIds: ["checkout-architecture"] });
+    expect(authoritative.objects.node_1).toMatchObject({
+      semanticName: "api",
+      nodeType: "service",
+      diagramIds: ["checkout-architecture"],
+    });
     expect(authoritative.objects.node_1).toMatchObject({ x: 0, y: 0 });
     expect(authoritative.objects.node_2).toMatchObject({ x: 500, y: 0 });
     expect(authoritative.objects.connector_1).toMatchObject({
+      semanticName: "writes",
       start: { objectId: "node_1" },
       end: { objectId: "node_2" },
       diagramIds: ["checkout-architecture"],
@@ -1398,6 +2124,116 @@ describe("transactional semantic mutations", () => {
 
     expect(leakedAlias).toMatchObject({ ok: false, error: { code: "UNRESOLVED_TEMP_REF" } });
     expect((request as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(callsBefore);
+  });
+
+  it("assigns explicit or tempRef-derived identity to every transaction-created canvas object", async () => {
+    const state = room();
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: [],
+      membershipObjectIds: [],
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const counts = new Map<string, number>();
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, {
+      request,
+      createId(prefix) {
+        const next = (counts.get(prefix) ?? 0) + 1;
+        counts.set(prefix, next);
+        return `${prefix}_${next}`;
+      },
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      responseDetail: "detailed",
+      operations: [
+        {
+          op: "create_drawing",
+          tempRef: "mona_hair_contour",
+          semanticRole: "portrait.hair.contour",
+          points: [{ x: 0, y: 0 }, { x: 20, y: 30 }],
+        },
+        {
+          op: "create_path",
+          tempRef: "mona_left_eye",
+          semanticName: "Mona Lisa left eye",
+          semanticRole: "portrait.eye.contour",
+          start: { x: 10, y: 10 },
+          segments: [{ kind: "line", to: { x: 30, y: 10 } }],
+        },
+        {
+          op: "create_polygon",
+          tempRef: "mona_face_plane",
+          points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 20, y: 30 }],
+        },
+        {
+          op: "create_shape",
+          tempRef: "netflix_cdn_region",
+          semanticRole: "architecture.region",
+          label: "CDN region",
+        },
+        {
+          op: "create_text",
+          tempRef: "netflix_caption",
+          content: "Netflix streaming architecture",
+        },
+        {
+          op: "create_node",
+          tempRef: "netflix_api_gateway",
+          semanticName: "Netflix API gateway",
+          semanticRole: "architecture.edge_service",
+          label: "API gateway",
+          nodeType: "service",
+        },
+        {
+          op: "connect",
+          tempRef: "netflix_request_flow",
+          semanticRole: "architecture.request_flow",
+          start: { tempRef: "netflix_api_gateway" },
+          end: { objectId: "api" },
+        },
+        {
+          op: "update",
+          objectId: "api",
+          expectedRevision: 1,
+          patch: { semanticName: null, semanticRole: null },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const body = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
+    ));
+    const commands = body.transaction.commands as Array<{
+      type: string;
+      object?: { id: string; semanticName?: string; semanticRole?: string };
+      objectId?: string;
+      patch?: Record<string, unknown>;
+    }>;
+    const created = Object.fromEntries(
+      commands.flatMap((command) => command.type === "create" && command.object
+        ? [[command.object.id, command.object]]
+        : []),
+    );
+    expect(created).toMatchObject({
+      draw_1: { semanticName: "mona hair contour", semanticRole: "portrait.hair.contour" },
+      path_1: { semanticName: "Mona Lisa left eye", semanticRole: "portrait.eye.contour" },
+      path_2: { semanticName: "mona face plane" },
+      shape_1: { semanticName: "netflix cdn region", semanticRole: "architecture.region" },
+      text_1: { semanticName: "netflix caption" },
+      node_1: { semanticName: "Netflix API gateway", semanticRole: "architecture.edge_service" },
+      connector_1: { semanticName: "netflix request flow", semanticRole: "architecture.request_flow" },
+    });
+    expect(commands).toContainEqual(expect.objectContaining({
+      type: "update",
+      objectId: "api",
+      patch: { semanticName: null, semanticRole: null },
+    }));
   });
 
   it("authors precise bound connector ports without detaching semantic endpoints", async () => {
@@ -1585,6 +2421,7 @@ describe("transactional semantic mutations", () => {
     });
 
     const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      responseDetail: "detailed",
       operations: [
         { op: "create_node", tempRef: "client", label: "Client", nodeType: "component" },
         { op: "create_node", tempRef: "api", label: "API", nodeType: "service" },
@@ -1813,7 +2650,7 @@ describe("transactional semantic mutations", () => {
         layout: Parameters<typeof applyLayoutCommand>[3];
       };
       const result = applyLayoutCommand(state, "alice", "agent", body.layout, NOW + 200);
-      return { ok: true, ...result };
+      return { ok: true, outcome: "applied", ...result, activity: null, proposal: null };
     }) as unknown as WebMcpRequest;
     const tools = createJazzboardSemanticWebMcpTools(local.binding, { request });
 
@@ -1827,12 +2664,56 @@ describe("transactional semantic mutations", () => {
       expectedDiagramRevision: 1,
     });
 
-    expect(result).toMatchObject({ ok: true, data: { changedDiagramIds: ["architecture"] } });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        roomRevision: 8,
+        changedDiagramIds: ["architecture"],
+        objects: expect.arrayContaining([
+          expect.objectContaining({ id: "api", revision: 2, kind: "shape", bounds: expect.any(Object) }),
+        ]),
+        diagrams: [{ id: "architecture", revision: 2, memberObjectCount: 2, connectorCount: 1 }],
+        visualInspectionStatus: "not_performed",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "diagram", diagramId: "architecture", expectedRevision: 2 },
+          },
+        },
+      },
+    });
+    const conciseData = (result as { ok: true; data: Record<string, unknown> }).data;
+    expect(conciseData).not.toHaveProperty("positions");
+    expect((conciseData.objects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("label");
+
+    const detailed = await execute(tool(tools, "layout_objects"), {
+      layout: "flow",
+      targets: [
+        { objectId: "api", expectedRevision: 1 },
+        { objectId: "db", expectedRevision: 1 },
+      ],
+      diagramId: "architecture",
+      expectedDiagramRevision: 1,
+      responseDetail: "detailed",
+    });
+    expect(detailed).toMatchObject({
+      ok: true,
+      data: {
+        positions: [
+          { objectId: "api", x: expect.any(Number), y: expect.any(Number) },
+          { objectId: "db", x: expect.any(Number), y: expect.any(Number) },
+        ],
+        objects: expect.arrayContaining([expect.objectContaining({ id: "api", label: "Checkout API" })]),
+        diagrams: [{ id: "architecture", memberObjectIds: ["api", "db"] }],
+        visualQuality: [{ diagramId: "architecture" }],
+      },
+    });
     expect(request).toHaveBeenCalledWith(
       "/api/rooms/room%2Fa%20b/agent/semantic",
       expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
     );
-    expect(local.accepted).toHaveLength(1);
+    expect(local.accepted).toHaveLength(2);
     expect(local.getRoom().objects["api-db"].revision).toBe(2);
     expect(local.getRoom().diagrams?.architecture.revision).toBe(2);
   });

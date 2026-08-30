@@ -8,7 +8,7 @@ import type {
 import { CanvasPreviewError } from "./preview-contract";
 
 const LIVE_CANVAS_CLIP_TTL_MS = 60_000;
-const CLEAN_INSPECTION_CLIP_TTL_MS = 15_000;
+const CLEAN_INSPECTION_CLIP_TTL_MS = 60_000;
 const LIVE_CANVAS_FRAME_INSET = 72;
 
 type ActiveInspectionLease = {

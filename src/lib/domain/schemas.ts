@@ -197,8 +197,13 @@ export const connectorRoutingSchema = z
     }
   });
 
+export const semanticNameSchema = z.string().trim().min(1).max(160);
+export const semanticRoleSchema = z.string().trim().min(1).max(128);
+
 const baseObjectSchema = z.object({
   id: z.string().min(1).max(128),
+  semanticName: semanticNameSchema.nullable().optional(),
+  semanticRole: semanticRoleSchema.nullable().optional(),
   x: z.number().finite(),
   y: z.number().finite(),
   width: z.number().finite().positive().max(100_000),
@@ -282,6 +287,8 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
 
 const patchSchema = z
   .object({
+    semanticName: semanticNameSchema.nullable().optional(),
+    semanticRole: semanticRoleSchema.nullable().optional(),
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
     width: z.number().finite().positive().max(100_000).optional(),

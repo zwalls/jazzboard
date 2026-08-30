@@ -725,20 +725,13 @@ export function renderSemanticSceneSvg(
   const encoder = new TextEncoder();
   const renderedObjects: string[] = [];
   let renderedObjectBytes = 0;
+  // Every visual part of an object obeys the same authoritative zIndex. In
+  // particular, connector labels and arrowheads must not jump into a global
+  // foreground layer after an agent draft commits.
   const paintQueue: Array<Readonly<{
     item: SemanticSceneObject;
-    layer: "object" | "connector-shaft" | "connector-overlay";
-  }>> = [
-    ...selected
-      .filter(({ object }) => object.kind === "connector")
-      .map((item) => ({ item, layer: "connector-shaft" as const })),
-    ...selected
-      .filter(({ object }) => object.kind !== "connector")
-      .map((item) => ({ item, layer: "object" as const })),
-    ...selected
-      .filter(({ object }) => object.kind === "connector")
-      .map((item) => ({ item, layer: "connector-overlay" as const })),
-  ];
+    layer: "object";
+  }>> = selected.map((item) => ({ item, layer: "object" as const }));
   for (const { item: { object }, layer } of paintQueue) {
     const hasImage = Object.prototype.hasOwnProperty.call(normalized.images, object.id);
     const renderedObject = renderObject(

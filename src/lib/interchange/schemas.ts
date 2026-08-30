@@ -33,6 +33,8 @@ const attribution = z
 
 const portableBase = {
   id,
+  semanticName: z.string().trim().min(1).max(160).nullable().optional(),
+  semanticRole: z.string().trim().min(1).max(128).nullable().optional(),
   x: finite,
   y: finite,
   width: dimension,
@@ -383,6 +385,8 @@ export const jazzboardSemanticArtifactV1Schema = z
 
 const templateBase = {
   id,
+  semanticName: z.string().trim().min(1).max(160).nullable().optional(),
+  semanticRole: z.string().trim().min(1).max(128).nullable().optional(),
   x: finite,
   y: finite,
   width: dimension,

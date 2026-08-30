@@ -376,6 +376,48 @@ describe("canvas commands", () => {
     expect(result.room.participants.alice.agent.lastSeenAt).toBe(now);
   });
 
+  it("revises and clears semantic identity through the normal lease and revision checks", () => {
+    const source = roomWith(textObject("mona-left-eye", {
+      semanticName: "Mona Lisa left eye",
+      semanticRole: "portrait.eye.contour",
+    }));
+    const acquired = acquireObjectLease(
+      source,
+      "alice",
+      "agent",
+      "mona-left-eye",
+      1,
+      "edit",
+      START + 10,
+    );
+
+    const result = applyCanvasCommand(
+      acquired.room,
+      "alice",
+      "agent",
+      {
+        type: "update",
+        objectId: "mona-left-eye",
+        expectedRevision: 1,
+        leaseId: acquired.lease.leaseId,
+        operation: "edit",
+        patch: { semanticName: null, semanticRole: null },
+      },
+      START + 20,
+    );
+
+    expect(result.room.objects["mona-left-eye"]).toMatchObject({
+      semanticName: null,
+      semanticRole: null,
+      revision: 2,
+    });
+    expect(source.objects["mona-left-eye"]).toMatchObject({
+      semanticName: "Mona Lisa left eye",
+      semanticRole: "portrait.eye.contour",
+      revision: 1,
+    });
+  });
+
   it("rejects fields that do not belong to the stored semantic object kind", () => {
     const source = roomWith(textObject("note"));
     const error = domainError(() =>

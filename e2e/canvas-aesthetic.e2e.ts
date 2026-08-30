@@ -290,15 +290,14 @@ test("keeps the first-party canvas on Jazzboard's hand-drawn visual contract", a
   await expectShapePalette(canvas, QUESTION_ID, { fill: "#f7dfe0", stroke: "#d9484a" });
 
   const connector = object(canvas, CONNECTOR_ID);
-  const connectorOverlay = canvas.locator(`[data-connector-overlay-id="${CONNECTOR_ID}"]`);
   const connectorPath = connector.locator(".semantic-canvas-object__connector-path");
   await expect(connectorPath).toHaveAttribute("stroke", "#d56d30");
   await expect(connectorPath).toHaveAttribute("stroke-width", "3.5");
-  const connectorLabel = connectorOverlay.locator(".semantic-canvas-object__connector-label-text");
+  const connectorLabel = connector.locator(".semantic-canvas-object__connector-label-text");
   await expect(connectorLabel).toHaveAttribute("font-family", FONT_FAMILY);
   await expect(connectorLabel).toHaveAttribute("font-size", "20");
   await expect(connectorLabel).toHaveAttribute("fill", "#d56d30");
-  const connectorMask = connectorOverlay.locator(".semantic-canvas-object__connector-label rect");
+  const connectorMask = connector.locator(".semantic-canvas-object__connector-label rect");
   await expect(connectorMask).toHaveAttribute("fill", "#ffffff");
   await expect(connectorMask).toHaveAttribute("stroke", "none");
   expect(await connectorMask.evaluate((element) => getComputedStyle(element).stroke)).toBe("none");

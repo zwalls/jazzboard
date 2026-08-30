@@ -100,6 +100,8 @@ function attribution(actor: ActorRef): PortableAttribution {
 function portableBase(object: CanvasObject) {
   return {
     id: object.id,
+    ...(object.semanticName !== undefined ? { semanticName: object.semanticName } : {}),
+    ...(object.semanticRole !== undefined ? { semanticRole: object.semanticRole } : {}),
     x: object.x,
     y: object.y,
     width: object.width,

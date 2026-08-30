@@ -5,7 +5,11 @@ import { z } from "zod";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import type { CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
-import type { CanvasPreviewRenderOptions, CanvasPreviewSource } from "./canvas-preview";
+import type {
+  CanvasInspectionRequest,
+  CanvasPreviewRenderOptions,
+  CanvasPreviewSource,
+} from "./canvas-preview";
 import {
   CANVAS_PREVIEW_DEFAULTS,
   CANVAS_PREVIEW_LIMITS,
@@ -52,12 +56,54 @@ const diagramScopeSchema = z
   })
   .strict();
 
+function uniqueBoundedIds(max: number, label: string) {
+  return z.array(idSchema).max(max).superRefine((values, context) => {
+    const seen = new Set<string>();
+    values.forEach((value, index) => {
+      if (seen.has(value)) {
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: `${label} must be unique.`,
+        });
+      }
+      seen.add(value);
+    });
+  });
+}
+
+const representationSchema = z.enum(["overview", "working_set", "focus"]).default("working_set");
+const visualContractSchema = z
+  .object({
+    intent: z.string().trim().min(1).max(CANVAS_PREVIEW_LIMITS.maxContractIntentLength),
+    criteria: z
+      .array(z.string().trim().min(1).max(CANVAS_PREVIEW_LIMITS.maxContractCriterionLength))
+      .max(CANVAS_PREVIEW_LIMITS.maxContractCriteria)
+      .default([]),
+    preserveObjectIds: uniqueBoundedIds(
+      CANVAS_PREVIEW_LIMITS.maxContractPreserveObjectIds,
+      "Visual-contract preserveObjectIds",
+    ).optional(),
+  })
+  .strict();
+
 const scopeInputShape = {
   scope: z.discriminatedUnion("kind", [objectScopeSchema, diagramScopeSchema]),
   padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
 };
 
-const inspectionInputSchema = z.object(scopeInputShape).strict();
+const inspectionInputSchema = z
+  .object({
+    ...scopeInputShape,
+    representation: representationSchema,
+    focusObjectIds: uniqueBoundedIds(CANVAS_PREVIEW_LIMITS.maxFocusedRecords, "focusObjectIds").optional(),
+    visualContract: visualContractSchema.optional(),
+    previousFindingKeys: uniqueBoundedIds(
+      CANVAS_PREVIEW_LIMITS.maxFindingKeys,
+      "previousFindingKeys",
+    ).optional(),
+  })
+  .strict();
 
 const previewInputSchema = z
   .object({
@@ -240,6 +286,92 @@ function resolveDiagramScope(
   };
 }
 
+function inspectionRequest(
+  input: z.output<typeof inspectionInputSchema>,
+  resolved: { objects: CanvasObject[] },
+): CanvasInspectionRequest {
+  const scopeIds = new Set(resolved.objects.map((object) => object.id));
+  const requestedFocusIds = input.focusObjectIds ?? [];
+  const missingFocusObjectIds = requestedFocusIds.filter((objectId) => !scopeIds.has(objectId));
+  if (missingFocusObjectIds.length) {
+    throw new CanvasPreviewError(
+      "PREVIEW_FOCUS_OUTSIDE_SCOPE",
+      "Every focusObjectId must belong to the exact object or Diagram scope.",
+      { objectIds: missingFocusObjectIds },
+    );
+  }
+  const missingPreserveObjectIds = (input.visualContract?.preserveObjectIds ?? [])
+    .filter((objectId) => !scopeIds.has(objectId));
+  if (missingPreserveObjectIds.length) {
+    throw new CanvasPreviewError(
+      "PREVIEW_CONTRACT_OUTSIDE_SCOPE",
+      "Every visual-contract preserveObjectId must belong to the exact inspection scope.",
+      { objectIds: missingPreserveObjectIds },
+    );
+  }
+  let focusObjectIds = requestedFocusIds;
+  if (input.representation === "focus" && !focusObjectIds.length) {
+    if (resolved.objects.length > CANVAS_PREVIEW_LIMITS.maxFocusedRecords) {
+      throw new CanvasPreviewError(
+        "PREVIEW_FOCUS_REQUIRED",
+        "This scope is too large to infer a focus safely; provide up to 16 focusObjectIds or inspect overview/working_set.",
+        { scopeObjectCount: resolved.objects.length, maxFocusedRecords: CANVAS_PREVIEW_LIMITS.maxFocusedRecords },
+      );
+    }
+    focusObjectIds = resolved.objects.map((object) => object.id);
+  }
+  return {
+    representation: input.representation,
+    focusObjectIds,
+    visualContract: input.visualContract
+      ? {
+          intent: input.visualContract.intent,
+          criteria: input.visualContract.criteria,
+          preserveObjectIds: input.visualContract.preserveObjectIds ?? [],
+        }
+      : null,
+    previousFindingKeys: input.previousFindingKeys ?? [],
+  };
+}
+
+const scopeInputJsonSchema = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "objects" },
+        targets: {
+          type: "array",
+          minItems: 1,
+          maxItems: CANVAS_PREVIEW_LIMITS.maxTargets,
+          uniqueItems: true,
+          items: {
+            type: "object",
+            properties: {
+              objectId: { type: "string", minLength: 1, maxLength: 128 },
+              expectedRevision: { type: "integer", minimum: 1 },
+            },
+            required: ["objectId", "expectedRevision"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["kind", "targets"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "diagram" },
+        diagramId: { type: "string", minLength: 1, maxLength: 128 },
+        expectedRevision: { type: "integer", minimum: 1 },
+      },
+      required: ["kind", "diagramId", "expectedRevision"],
+      additionalProperties: false,
+    },
+  ],
+};
+
 export function createJazzboardPreviewWebMcpTools(
   binding: JazzboardWebMcpBinding,
   dependencies: JazzboardWebMcpDependencies = {},
@@ -258,51 +390,60 @@ export function createJazzboardPreviewWebMcpTools(
         ? "Inspect exact canvas evidence"
         : "Inspect an exact Jazzboard canvas region",
       description: toolName === "inspect_canvas_scope"
-        ? "Return exact-revision semantic, geometry, quality/coverage evidence and a clean live screenshotClip. Pixels remain uninspected until the valid clip is examined."
-        : "Validate and locally frame up to 1,000 exact object or Diagram targets on the live canvas; unavailable during Follow or Spotlight, and framing is not visual QA.",
+        ? "Return bounded exact evidence and a live inspection clip; prior finding keys are unverified caller comparison input."
+        : "Frame an exact live canvas inspection scope.",
       inputSchema: {
         type: "object",
         properties: {
-          scope: {
-            ...(toolName === "inspect_canvas_scope" ? {
+          scope: scopeInputJsonSchema,
+          padding: { type: "number", minimum: 0, maximum: CANVAS_PREVIEW_LIMITS.maxPadding },
+          ...(toolName === "inspect_canvas_scope" ? {
+            representation: {
+              enum: ["overview", "working_set", "focus"],
+              default: "working_set",
+              description: "overview, working_set, or focusObjectIds.",
+            },
+            focusObjectIds: {
+              type: "array",
+              maxItems: CANVAS_PREVIEW_LIMITS.maxFocusedRecords,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 128 },
+            },
+            visualContract: {
               type: "object",
-              description: "Exactly {\"kind\":\"objects\",\"targets\":[{\"objectId\":\"id\",\"expectedRevision\":1}]} or {\"kind\":\"diagram\",\"diagramId\":\"id\",\"expectedRevision\":1}.",
-            } : { oneOf: [
-              {
-                type: "object",
-                properties: {
-                  kind: { const: "objects" },
-                  targets: {
-                    type: "array",
-                    minItems: 1,
-                    maxItems: CANVAS_PREVIEW_LIMITS.maxTargets,
-                    items: {
-                      type: "object",
-                      properties: {
-                        objectId: { type: "string", minLength: 1, maxLength: 128 },
-                        expectedRevision: { type: "integer", minimum: 1 },
-                      },
-                      required: ["objectId", "expectedRevision"],
-                      additionalProperties: false,
-                    },
+              properties: {
+                intent: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: CANVAS_PREVIEW_LIMITS.maxContractIntentLength,
+                },
+                criteria: {
+                  type: "array",
+                  maxItems: CANVAS_PREVIEW_LIMITS.maxContractCriteria,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: CANVAS_PREVIEW_LIMITS.maxContractCriterionLength,
                   },
                 },
-                required: ["kind", "targets"],
-                additionalProperties: false,
-              },
-              {
-                type: "object",
-                properties: {
-                  kind: { const: "diagram" },
-                  diagramId: { type: "string", minLength: 1, maxLength: 128 },
-                  expectedRevision: { type: "integer", minimum: 1 },
+                preserveObjectIds: {
+                  type: "array",
+                  maxItems: CANVAS_PREVIEW_LIMITS.maxContractPreserveObjectIds,
+                  uniqueItems: true,
+                  items: { type: "string", minLength: 1, maxLength: 128 },
                 },
-                required: ["kind", "diagramId", "expectedRevision"],
-                additionalProperties: false,
               },
-            ] }),
-          },
-          padding: { type: "number", minimum: 0, maximum: CANVAS_PREVIEW_LIMITS.maxPadding },
+              required: ["intent"],
+              additionalProperties: false,
+            },
+            previousFindingKeys: {
+              type: "array",
+              maxItems: CANVAS_PREVIEW_LIMITS.maxFindingKeys,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 128 },
+              description: "Caller-supplied, unverified keys from a prior result; comparison never proves resolution.",
+            },
+          } : {}),
           ...(toolName === "render_canvas_preview"
             ? {
                 maxWidth: {
@@ -362,8 +503,14 @@ export function createJazzboardPreviewWebMcpTools(
             {
               roomId: binding.roomId,
               authoritativeRoomRevision: response.room.roomRevision,
+              ...(toolName === "inspect_canvas_scope"
+                ? { authoritativeRoomCreatedAt: response.room.createdAt }
+                : {}),
               ...resolved,
               options: renderOptions(input),
+              ...(toolName === "inspect_canvas_scope"
+                ? { inspection: inspectionRequest(input as z.output<typeof inspectionInputSchema>, resolved) }
+                : {}),
             },
             signal,
           );

@@ -185,6 +185,72 @@ function artifact(
 
 function inspectionArtifact(): CanvasInspectionArtifact {
   const preview = artifact().metadata;
+  const inspectionEvidence = {
+    schemaVersion: 2,
+    rendererId: "jazzboard-semantic-v1",
+    representation: "working_set",
+    scope: {
+      identity: "scope:v2:fixture",
+      kind: "objects",
+      diagramId: null,
+      focusObjectIds: [],
+      identityBasis: "created_at_incarnations",
+    },
+    visualContract: null,
+    revisions: {
+      roomRevision: 12,
+      diagramRevision: null,
+      explicitObjectRevisions: [{ objectId: "object-a", revision: 3 }],
+      explicitObjectRevisionCoverage: {
+        totalCount: 1,
+        returnedCount: 1,
+        omittedCount: 0,
+        limit: 64,
+        truncated: false,
+        fullSetDigest: "fnv1a32:fixture",
+      },
+    },
+    coverage: {
+      scopeObjectCount: 1,
+      visualContributorCount: 1,
+      compactRecordCount: 0,
+      focusedRecordCount: 0,
+      omittedCompactRecordCount: 1,
+      allExplicitTargetsRepresented: true,
+      resultByteLength: 1,
+      resultByteLimit: 88_000,
+      findings: "complete",
+      geometry: "complete",
+      unsupported: [],
+      omittedUnsupportedCount: 0,
+    },
+    overview: {
+      bounds: preview.renderedBounds,
+      objectCount: 1,
+      kinds: { text: 0, shape: 1, connector: 0, image: 0, draw: 0, path: 0 },
+      spatialClusters: [],
+    },
+    workingSet: [],
+    focused: [],
+    routes: [],
+    relationships: [],
+    boundsOverlaps: { totalCount: 0, truncated: false, items: [] },
+    textFindings: [],
+    contrastFindings: [],
+    findingKeys: [],
+    findingKeysTruncated: false,
+    findingComparison: {
+      basis: "caller_supplied_unverified",
+      suppliedKeyCount: 0,
+      sameScopeSuppliedKeyCount: 0,
+      ignoredDifferentScopeSuppliedKeyCount: 0,
+      currentFindingCoverageComplete: true,
+      observedFindingKeysNotSupplied: [],
+      callerSuppliedFindingKeysObservedAgain: [],
+      callerSuppliedSameScopeKeysNotObserved: [],
+      interpretation: "not_observed_does_not_prove_resolved",
+    },
+  } as NonNullable<CanvasInspectionArtifact["metadata"]["inspectionEvidence"]>;
   return {
     metadata: {
       renderedBounds: preview.renderedBounds,
@@ -192,7 +258,7 @@ function inspectionArtifact(): CanvasInspectionArtifact {
       source: preview.source,
       warnings: preview.warnings,
       visualQuality: preview.visualQuality,
-      inspectionEvidence: preview.inspectionEvidence,
+      inspectionEvidence,
     },
   };
 }
@@ -210,6 +276,11 @@ function fixture(options: {
     previewId: "preview-1",
     clip: { coordinateSpace: "viewport-css-pixels" as const, x: 12, y: 24, width: 320, height: 180 },
     expiresAt: 70_000,
+    validation: {
+      token: "preview-1",
+      activeSelector: '[data-canvas-inspection-token="preview-1"]',
+      status: "valid_until_invalidated" as const,
+    },
   }));
   const context: JazzboardWebMcpContext = {
     getRoom: () => accepted,
@@ -488,11 +559,29 @@ describe("render_canvas_preview WebMCP tool", () => {
     });
     const inputSchema = inspect.inputSchema as { properties: Record<string, unknown> };
 
-    expect(Object.keys(inputSchema.properties)).toEqual(["scope", "padding"]);
-    const registeredScope = inputSchema.properties.scope as { type: string; description: string };
-    expect(registeredScope.type).toBe("object");
-    expect(registeredScope.description).toMatch(/objects.*targets.*expectedRevision.*diagram.*diagramId.*expectedRevision/);
-    expect(registeredScope.description.length).toBeLessThanOrEqual(150);
+    expect(Object.keys(inputSchema.properties)).toEqual([
+      "scope",
+      "padding",
+      "representation",
+      "focusObjectIds",
+      "visualContract",
+      "previousFindingKeys",
+    ]);
+    const registeredScope = inputSchema.properties.scope as {
+      oneOf: Array<{ properties: Record<string, unknown>; additionalProperties: boolean }>;
+    };
+    expect(registeredScope.oneOf).toHaveLength(2);
+    expect(registeredScope.oneOf[0]).toMatchObject({
+      properties: { kind: { const: "objects" }, targets: { type: "array", minItems: 1, maxItems: 1_000 } },
+      additionalProperties: false,
+    });
+    expect(registeredScope.oneOf[1]).toMatchObject({
+      properties: { kind: { const: "diagram" }, diagramId: { type: "string" }, expectedRevision: { minimum: 1 } },
+      additionalProperties: false,
+    });
+    expect(inputSchema.properties.previousFindingKeys).toMatchObject({
+      description: expect.stringMatching(/caller-supplied, unverified.*never proves resolution/i),
+    });
     const renderState = fixture();
     const render = createJazzboardPreviewWebMcpTools(renderState.binding, {
       canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
@@ -510,6 +599,12 @@ describe("render_canvas_preview WebMCP tool", () => {
       error: { code: "INVALID_TOOL_INPUT" },
     });
     expect(state.inspectCanvasScope).not.toHaveBeenCalled();
+
+    const oversizedFocus = await execute(inspect, {
+      scope: { kind: "objects", targets: [{ objectId: "object-a", expectedRevision: 3 }] },
+      focusObjectIds: Array.from({ length: 17 }, (_, index) => `focus-${index}`),
+    });
+    expect(oversizedFocus).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
   });
 
   it("resolves exact authoritative object revisions and returns the painted screenshot handoff", async () => {
@@ -581,6 +676,14 @@ describe("render_canvas_preview WebMCP tool", () => {
 
     const result = await execute(inspect, {
       scope: { kind: "objects", targets: [{ objectId: "object-a", expectedRevision: 3 }] },
+      representation: "focus",
+      focusObjectIds: ["object-a"],
+      visualContract: {
+        intent: "Keep the portrait expression recognizable.",
+        criteria: ["Eyes and mouth remain legible"],
+        preserveObjectIds: ["object-a"],
+      },
+      previousFindingKeys: ["text:text_likely_clipped:deadbeef"],
     }) as JazzboardToolResult<Record<string, unknown>>;
 
     expect(inspect.annotations).toEqual({ readOnlyHint: true, untrustedContentHint: true });
@@ -592,13 +695,53 @@ describe("render_canvas_preview WebMCP tool", () => {
       data: {
         presentation: "live_canvas",
         visualInspectionStatus: "not_performed",
+        sceneContext: {
+          schemaVersion: 2,
+          pixels: {
+            delivery: "host_capture_required",
+            nativeImageResultSupported: false,
+            clip: { coordinateSpace: "viewport-css-pixels", x: 12, y: 24, width: 320, height: 180 },
+            validationSelector: '[data-canvas-inspection-token="preview-1"]',
+            expiresAt: 70_000,
+            visualInspectionStatus: "not_performed",
+          },
+        },
       },
     });
+    expect(state.inspectCanvasScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inspection: {
+          representation: "focus",
+          focusObjectIds: ["object-a"],
+          visualContract: {
+            intent: "Keep the portrait expression recognizable.",
+            criteria: ["Eyes and mouth remain legible"],
+            preserveObjectIds: ["object-a"],
+          },
+          previousFindingKeys: ["text:text_likely_clipped:deadbeef"],
+        },
+      }),
+      expect.any(AbortSignal),
+    );
     if (!result.ok) throw new Error("inspection unexpectedly failed");
+    const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+    expect(result.data).toMatchObject({
+      resultSerialization: {
+        byteLength: serializedResultByteLength,
+        byteLimit: 96_000,
+      },
+    });
+    expect(serializedResultByteLength).toBeLessThanOrEqual(96_000);
     expect(result.data).not.toHaveProperty("width");
     expect(result.data).not.toHaveProperty("height");
     expect(result.data).not.toHaveProperty("byteLength");
     expect(result.data).not.toHaveProperty("mimeType");
+    expect(result.data).not.toHaveProperty("inspectionEvidence");
+    expect(result.data).not.toHaveProperty("sourceRevisions");
+    expect(result.data).not.toHaveProperty("targets");
+    expect(result.data).not.toHaveProperty("visualQuality");
+    expect(result.data).not.toHaveProperty("warnings");
+    expect(result.data).not.toHaveProperty("pageBounds");
   });
 
   it("expands an exact Diagram revision to only its declared members and connectors", async () => {

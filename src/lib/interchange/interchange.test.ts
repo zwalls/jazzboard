@@ -52,6 +52,8 @@ function roomFixture(): RoomState {
       node_a: {
         id: "node_a",
         kind: "shape",
+        semanticName: "Authorization gateway",
+        semanticRole: "architecture.edge_service",
         x: 10,
         y: 20,
         width: 100,
@@ -104,6 +106,8 @@ function roomFixture(): RoomState {
       connector_ab: {
         id: "connector_ab",
         kind: "connector",
+        semanticName: "Authorization request flow",
+        semanticRole: "architecture.request_flow",
         x: 110,
         y: 79,
         width: 290,
@@ -263,6 +267,8 @@ describe("Jazzboard portable interchange", () => {
     });
     expect(first.objects.find((object) => object.id === "node_a")).toMatchObject({
       kind: "shape",
+      semanticName: "Authorization gateway",
+      semanticRole: "architecture.edge_service",
       nodeMetadata: {
         kind: "decision",
         status: "accepted",
@@ -411,6 +417,54 @@ describe("Jazzboard portable interchange", () => {
         },
       },
     });
+  });
+
+  it("preserves semantic identity through artifacts and template instantiation without requiring it on legacy files", () => {
+    const artifact = projectJazzboardArtifact(roomFixture(), {
+      kind: "diagram",
+      diagramId: "diagram_flow",
+    });
+    expect(artifact.objects.find((object) => object.id === "node_a")).toMatchObject({
+      semanticName: "Authorization gateway",
+      semanticRole: "architecture.edge_service",
+    });
+    expect(artifact.objects.find((object) => object.id === "connector_ab")).toMatchObject({
+      semanticName: "Authorization request flow",
+      semanticRole: "architecture.request_flow",
+    });
+
+    const template = createJazzboardTemplate(artifact);
+    const planned = planTemplateInstantiation(template, {
+      origin: { x: 1_000, y: 2_000 },
+      createId: (kind, sourceId) => `semantic_${kind}_${sourceId}`,
+    });
+    expect(planned.transaction.commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "create",
+        object: expect.objectContaining({
+          id: "semantic_shape_node_a",
+          semanticName: "Authorization gateway",
+          semanticRole: "architecture.edge_service",
+        }),
+      }),
+      expect.objectContaining({
+        type: "create",
+        object: expect.objectContaining({
+          id: "semantic_connector_connector_ab",
+          semanticName: "Authorization request flow",
+          semanticRole: "architecture.request_flow",
+        }),
+      }),
+    ]));
+
+    const legacyArtifact = structuredClone(artifact) as unknown as {
+      objects: Array<{ semanticName?: string | null; semanticRole?: string | null }>;
+    };
+    for (const object of legacyArtifact.objects) {
+      delete object.semanticName;
+      delete object.semanticRole;
+    }
+    expect(() => parseJazzboardArtifactV1(legacyArtifact)).not.toThrow();
   });
 
   it("canonicalizes pre-routing v1 artifacts and templates to legacy straight connectors", () => {

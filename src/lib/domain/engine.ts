@@ -207,7 +207,17 @@ function validateImageReference(room: RoomState, object: CanvasObject): void {
   object.url = canonicalRoomAssetProxyPath(reference);
 }
 
-const COMMON_PATCH_FIELDS = new Set(["x", "y", "width", "height", "rotation", "zIndex", "groupId"]);
+const COMMON_PATCH_FIELDS = new Set([
+  "semanticName",
+  "semanticRole",
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "zIndex",
+  "groupId",
+]);
 const KIND_PATCH_FIELDS: Record<CanvasObject["kind"], ReadonlySet<string>> = {
   text: new Set(["content", "color", "size", "align"]),
   shape: new Set(["shape", "nodeType", "nodeMetadata", "label", "fill", "stroke"]),

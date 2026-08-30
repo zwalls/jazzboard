@@ -89,6 +89,10 @@ export type NodeMetadataInput =
 export type CanvasObjectBase = {
   id: string;
   kind: ObjectKind;
+  /** Stable, human-readable identity for this exact canvas part. */
+  semanticName?: string | null;
+  /** Agent-readable classification for this exact canvas part. */
+  semanticRole?: string | null;
   x: number;
   y: number;
   width: number;

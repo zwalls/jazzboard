@@ -340,6 +340,7 @@ describe("dense AI-native diagram WebMCP workflow", () => {
 
     const diagramBeforeLayout = authoritative.diagrams[DIAGRAM_ID];
     const layoutResult = await execute(semanticTools, "layout_objects", {
+      responseDetail: "detailed",
       layout: "hierarchy",
       direction: "right",
       density: "comfortable",

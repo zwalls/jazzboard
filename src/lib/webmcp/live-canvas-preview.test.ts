@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { CanvasObject, RoomState } from "@/lib/domain/types";
 
-import type { CanvasPreviewArtifact } from "./canvas-preview";
+import type { CanvasInspectionArtifact, CanvasPreviewArtifact } from "./canvas-preview";
 import { disposeLiveCanvasPreviews, presentLiveCanvasPreview } from "./live-canvas-preview";
 
 const CREATED_AT = 10_000;
@@ -79,6 +79,19 @@ function artifact(): CanvasPreviewArtifact {
       },
       warnings: [],
       visualQuality: null,
+    },
+  };
+}
+
+function inspectionArtifact(): CanvasInspectionArtifact {
+  const preview = artifact().metadata;
+  return {
+    metadata: {
+      renderedBounds: preview.renderedBounds,
+      padding: preview.padding,
+      source: preview.source,
+      warnings: preview.warnings,
+      visualQuality: preview.visualQuality,
     },
   };
 }
@@ -202,6 +215,22 @@ describe("presentLiveCanvasPreview", () => {
       },
     });
     expect(document.querySelector('[role="dialog"][aria-label="Canvas preview"]')).toBeNull();
+  });
+
+  it("keeps metadata-only inspection capture valid for sixty seconds", async () => {
+    const canvas = runtime();
+    const element = canvasElement();
+    const presentation = presentLiveCanvasPreview(
+      host(canvas, element, { now: () => 10_000 }),
+      inspectionArtifact(),
+      new AbortController().signal,
+    );
+    await paintTwice();
+
+    await expect(presentation).resolves.toMatchObject({
+      expiresAt: 70_000,
+      validation: { status: "valid_until_invalidated" },
+    });
   });
 
   it("rejects rather than returning a clip that omits part of the requested scope", async () => {

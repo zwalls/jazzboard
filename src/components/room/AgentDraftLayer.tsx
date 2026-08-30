@@ -578,34 +578,13 @@ export function AgentDraftLayer({
           <g transform={cameraTransform} pointerEvents="none">
             {renderProjections.map(({ draft, objects, connectorRoutes, fingerprints }) => (
               <g
-                key={`${draft.id}:connectors`}
+                key={`${draft.id}:artwork`}
                 className={styles.draftArtwork}
                 data-agent-draft-id={draft.id}
                 data-agent-draft-status={draft.status}
                 style={{ "--agent-draft-color": draft.author.color } as CSSProperties}
               >
-                {objects.filter(({ object }) => object.kind === "connector").map((item) => (
-                  <DraftObjectArtwork
-                    draftId={draft.id}
-                    fingerprint={fingerprints.get(item.object.id)!}
-                    initiallyComplete={draft.status === "awaiting_review"}
-                    key={item.object.id}
-                    item={item}
-                    revealRegistry={revealRegistry}
-                    route={connectorRoutes[item.object.id]}
-                  />
-                ))}
-              </g>
-            ))}
-            {renderProjections.map(({ draft, objects, connectorRoutes, fingerprints }) => (
-              <g
-                key={`${draft.id}:objects`}
-                className={styles.draftArtwork}
-                data-agent-draft-id={draft.id}
-                data-agent-draft-status={draft.status}
-                style={{ "--agent-draft-color": draft.author.color } as CSSProperties}
-              >
-                {objects.filter(({ object }) => object.kind !== "connector").map((item) => (
+                {objects.map((item) => (
                   <DraftObjectArtwork
                     draftId={draft.id}
                     fingerprint={fingerprints.get(item.object.id)!}

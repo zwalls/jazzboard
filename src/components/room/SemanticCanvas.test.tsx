@@ -417,8 +417,32 @@ describe("SemanticCanvas", () => {
     expect(document.querySelector('[data-focus-ring="true"]')).toBeNull();
   });
 
-  it("paints connector shafts below nodes and connector adornments above them", () => {
+  it("paints every connector part at its authoritative zIndex", () => {
     const layeredRoom = structuredClone(room);
+    layeredRoom.objects["zone"] = {
+      id: "zone",
+      kind: "shape",
+      x: 60,
+      y: 60,
+      width: 500,
+      height: 180,
+      rotation: 0,
+      zIndex: 0,
+      revision: 1,
+      groupId: null,
+      diagramIds: [],
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      shape: "rectangle",
+      nodeType: null,
+      label: "Runtime lane",
+      fill: "light-blue",
+      stroke: "blue",
+    };
+    layeredRoom.objects["node-a"]!.zIndex = 20;
+    layeredRoom.objects["node-b"]!.zIndex = 30;
     layeredRoom.objects["edge-a-b"] = {
       id: "edge-a-b",
       kind: "connector",
@@ -427,9 +451,7 @@ describe("SemanticCanvas", () => {
       width: 40,
       height: 1,
       rotation: 0,
-      // Layering is intentional even when a connector has the highest
-      // semantic z-index.
-      zIndex: 999,
+      zIndex: 10,
       revision: 1,
       groupId: null,
       diagramIds: [],
@@ -465,28 +487,23 @@ describe("SemanticCanvas", () => {
       />,
     );
 
-    const shaft = document.querySelector<SVGGElement>('[data-object-id="edge-a-b"]')!;
+    const zone = document.querySelector<SVGGElement>('[data-object-id="zone"]')!;
+    const connector = document.querySelector<SVGGElement>('[data-object-id="edge-a-b"]')!;
     const node = document.querySelector<SVGGElement>('[data-object-id="node-a"]')!;
-    const overlay = document.querySelector<SVGGElement>(
-      '[data-connector-overlay-id="edge-a-b"]',
-    )!;
     expect(document.querySelectorAll('[data-object-id="edge-a-b"]')).toHaveLength(1);
-    expect(shaft.querySelector(".semantic-canvas-object__connector-path")).not.toBeNull();
-    expect(shaft.querySelector(".semantic-canvas-object__arrowhead")).toBeNull();
-    expect(overlay.querySelector(".semantic-canvas-object__connector-path")).toBeNull();
-    expect(overlay.querySelector(".semantic-canvas-object__arrowhead")).not.toBeNull();
-    expect(overlay.querySelector(".semantic-canvas-object__connector-label")).not.toBeNull();
-    expect(overlay).toHaveAttribute("data-connector-overlay-focused", "false");
-    expect(shaft.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(node.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(connector.querySelector(".semantic-canvas-object__connector-path")).not.toBeNull();
+    expect(connector.querySelector(".semantic-canvas-object__arrowhead")).not.toBeNull();
+    expect(connector.querySelector(".semantic-canvas-object__connector-label")).not.toBeNull();
+    expect(zone.compareDocumentPosition(connector) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(connector.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
-    fireEvent.pointerDown(overlay.querySelector(".semantic-canvas-object__connector-label")!, {
+    fireEvent.pointerDown(connector.querySelector(".semantic-canvas-object__connector-label")!, {
       button: 0,
       pointerId: 7,
       clientX: 300,
       clientY: 140,
     });
-    expect(shaft).toHaveAttribute("data-selected", "true");
+    expect(connector).toHaveAttribute("data-selected", "true");
   });
 
   it("reuses the semantic scene for presence-only room envelopes and invalidates it for document edits", async () => {

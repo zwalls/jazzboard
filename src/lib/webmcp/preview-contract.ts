@@ -18,6 +18,22 @@ export const CANVAS_PREVIEW_LIMITS = {
   maxBytes: 8_000_000,
   maxPixelRatio: 2,
   projectionTimeoutMs: 2_500,
+  maxWorkingSetRecords: 120,
+  maxFocusedRecords: 16,
+  maxFocusContextRecords: 8,
+  maxCompactDiagramIds: 16,
+  maxExplicitRevisionRecords: 64,
+  maxSpatialClusters: 16,
+  // The scene context is only one member of the WebMCP result. Keep explicit
+  // headroom for the bounded framing/protocol envelope and then enforce the
+  // complete serialized result separately.
+  maxSceneContextBytes: 88_000,
+  maxInspectionResultBytes: 96_000,
+  maxFindingKeys: 128,
+  maxContractIntentLength: 1_000,
+  maxContractCriteria: 16,
+  maxContractCriterionLength: 500,
+  maxContractPreserveObjectIds: 64,
 } as const;
 
 export class CanvasPreviewError extends Error {

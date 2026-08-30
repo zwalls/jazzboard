@@ -44,14 +44,34 @@ export type CanvasPreviewRenderOptions = {
   maxBytes: number;
 };
 
+export type CanvasInspectionRepresentation = "overview" | "working_set" | "focus";
+
+export type CanvasVisualContract = {
+  intent: string;
+  criteria: string[];
+  preserveObjectIds: string[];
+};
+
+export type CanvasInspectionRequest = {
+  representation: CanvasInspectionRepresentation;
+  focusObjectIds: string[];
+  visualContract: CanvasVisualContract | null;
+  /** Unverified comparison input supplied by the caller, never server history. */
+  previousFindingKeys: string[];
+};
+
 /** An exact, authoritative scope resolved by the tool before UI rendering begins. */
 export type CanvasPreviewRenderRequest = {
   roomId: string;
   authoritativeRoomRevision: number;
+  /** Optional for legacy render callers; inspections always supply this incarnation fence. */
+  authoritativeRoomCreatedAt?: number;
   source: CanvasPreviewSource;
   objects: CanvasObject[];
   diagram: Diagram | null;
   options: CanvasPreviewRenderOptions;
+  /** Present only for inspect_canvas_scope; legacy render keeps its existing input surface. */
+  inspection?: CanvasInspectionRequest;
 };
 
 export type CanvasPreviewMetadata = {
@@ -146,21 +166,102 @@ export type CanvasObjectSemanticEvidence =
       fillRule: "nonzero" | "evenodd";
     };
 
+export type CanvasCompactObjectRecord = {
+  objectId: string;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  kind: CanvasObject["kind"];
+  bounds: { x: number; y: number; width: number; height: number };
+  rotation: number;
+  zIndex: number;
+  groupId: string | null;
+  /** A lexicographically sorted, bounded prefix of the exact membership set. */
+  diagramIds: string[];
+  diagramMembershipCoverage: {
+    totalDiagramCount: number;
+    returnedDiagramCount: number;
+    omittedDiagramCount: number;
+    limit: number;
+    truncated: boolean;
+    fullSetDigest: string;
+  };
+  semanticName: string | null;
+  semanticRole: string | null;
+  inRequestedScope: boolean;
+  text: BoundedCanvasTextEvidence | null;
+  nodeType: Extract<CanvasObject, { kind: "shape" }>["nodeType"] | null;
+  relationship: {
+    startObjectId: string | null;
+    endObjectId: string | null;
+    direction: "none" | "end" | "both";
+  } | null;
+  detailDigest: string;
+};
+
+export type CanvasFocusedObjectRecord = CanvasCompactObjectRecord & {
+  createdBy: { participantId: string; kind: "human" | "agent" };
+  lastEditedBy: { participantId: string; kind: "human" | "agent" };
+  semantic: CanvasObjectSemanticEvidence;
+};
+
 export type CanvasInspectionEvidence = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   rendererId: string;
-  objects: Array<{
-    objectId: string;
-    revision: number;
-    createdAt: number;
-    kind: CanvasObject["kind"];
+  representation: CanvasInspectionRepresentation;
+  scope: {
+    identity: string;
+    kind: CanvasPreviewSource["kind"];
+    diagramId: string | null;
+    focusObjectIds: string[];
+    identityBasis: "created_at_incarnations";
+  };
+  visualContract: CanvasVisualContract | null;
+  revisions: {
+    roomRevision: number;
+    diagramRevision: number | null;
+    explicitObjectRevisions: Array<{ objectId: string; revision: number }>;
+    explicitObjectRevisionCoverage: {
+      totalCount: number;
+      returnedCount: number;
+      omittedCount: number;
+      limit: number;
+      truncated: boolean;
+      fullSetDigest: string;
+    };
+  };
+  coverage: {
+    scopeObjectCount: number;
+    visualContributorCount: number;
+    compactRecordCount: number;
+    focusedRecordCount: number;
+    omittedCompactRecordCount: number;
+    allExplicitTargetsRepresented: boolean;
+    resultByteLength: number;
+    resultByteLimit: number;
+    findings: "complete" | "partial";
+    geometry: "complete" | "partial";
+    unsupported: Array<{
+      objectId?: string;
+      analysis: "freehand_swept_path" | "vector_path_geometry" | "rotated_exact_intersection" | "image_internal_pixels" | "context_dependent_contrast" | "diagram_geometry_deferred_in_overview";
+      reason: string;
+    }>;
+    omittedUnsupportedCount: number;
+  };
+  overview: {
     bounds: { x: number; y: number; width: number; height: number };
-    zIndex: number;
-    groupId: string | null;
-    diagramIds: string[];
-    inRequestedScope: boolean;
-    semantic: CanvasObjectSemanticEvidence;
-  }>;
+    objectCount: number;
+    kinds: Record<CanvasObject["kind"], number>;
+    spatialClusters: Array<{
+      clusterId: string;
+      bounds: { x: number; y: number; width: number; height: number };
+      objectCount: number;
+      kinds: Partial<Record<CanvasObject["kind"], number>>;
+      representativeObjectIds: string[];
+    }>;
+  };
+  workingSet: CanvasCompactObjectRecord[];
+  focused: CanvasFocusedObjectRecord[];
   routes: Array<{
     connectorId: string;
     revision: number;
@@ -178,26 +279,20 @@ export type CanvasInspectionEvidence = {
     direction: string;
     label: BoundedCanvasTextEvidence;
   }>;
-  intersections: {
+  boundsOverlaps: {
     totalCount: number;
     truncated: boolean;
     items: Array<{
+      factKey: string;
+      method: "axis_aligned_renderer_bounds";
       objectIds: [string, string];
       bounds: { x: number; y: number; width: number; height: number };
       area: number;
-    }>;
-  };
-  occlusions: {
-    totalCount: number;
-    truncated: boolean;
-    items: Array<{
-      lowerObjectId: string;
-      upperObjectId: string;
-      overlapArea: number;
-      estimatedLowerCoverage: number;
+      interpretation: "bounds_overlap_only_not_proof_of_painted_intersection_or_occlusion";
     }>;
   };
   textFindings: Array<{
+    findingKey: string;
     objectId: string;
     code: "TEXT_EMPTY" | "TEXT_LIKELY_CLIPPED";
     status: "observed" | "likely";
@@ -211,15 +306,32 @@ export type CanvasInspectionEvidence = {
     context: "text_vs_canvas" | "stroke_vs_canvas" | "stroke_vs_fill";
     caveat: string;
   }>;
-  coverage: {
-    geometry: "complete" | "partial";
-    unsupported: Array<{
-      objectId?: string;
-      analysis: "freehand_swept_path" | "vector_path_geometry" | "rotated_exact_intersection" | "image_internal_pixels" | "context_dependent_contrast";
-      reason: string;
-    }>;
-    omittedUnsupportedCount: number;
+  findingKeys: string[];
+  findingKeysTruncated: boolean;
+  findingComparison: {
+    basis: "caller_supplied_unverified";
+    suppliedKeyCount: number;
+    sameScopeSuppliedKeyCount: number;
+    ignoredDifferentScopeSuppliedKeyCount: number;
+    currentFindingCoverageComplete: boolean;
+    observedFindingKeysNotSupplied: string[];
+    callerSuppliedFindingKeysObservedAgain: string[];
+    callerSuppliedSameScopeKeysNotObserved: string[];
+    interpretation: "not_observed_does_not_prove_resolved";
   };
+};
+
+export type CanvasInspectionPixels = {
+  delivery: "host_capture_required";
+  nativeImageResultSupported: false;
+  clip: CanvasPreviewPresentation["clip"];
+  validationSelector: string | null;
+  expiresAt: number;
+  visualInspectionStatus: "not_performed";
+};
+
+export type CanvasSceneContext = CanvasInspectionEvidence & {
+  pixels: CanvasInspectionPixels;
 };
 
 export type CanvasPreviewArtifact = {
@@ -312,6 +424,20 @@ function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRender
       actualRoomId: room.id,
     });
   }
+  if (
+    request.authoritativeRoomCreatedAt !== undefined
+    && room.createdAt !== request.authoritativeRoomCreatedAt
+  ) {
+    throw new CanvasPreviewError(
+      "PREVIEW_ROOM_CHANGED",
+      "The Jazzboard room was deleted and recreated before its inspection could be prepared.",
+      {
+        roomId: room.id,
+        expectedCreatedAt: request.authoritativeRoomCreatedAt,
+        actualCreatedAt: room.createdAt,
+      },
+    );
+  }
 
   if (request.source.kind === "room" && room.roomRevision > request.source.expectedRevision) {
     throw new CanvasPreviewError(
@@ -330,6 +456,13 @@ function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRender
       throw new CanvasPreviewError(
         "DIAGRAM_NOT_FOUND",
         `Diagram ${request.source.diagramId} was removed before its preview could be rendered.`,
+        { diagramId: request.source.diagramId },
+      );
+    }
+    if (request.diagram && diagram.createdAt !== request.diagram.createdAt) {
+      throw new CanvasPreviewError(
+        "PREVIEW_SCOPE_CHANGED",
+        `Diagram ${request.source.diagramId} was replaced before its preview could be rendered.`,
         { diagramId: request.source.diagramId },
       );
     }
@@ -375,10 +508,18 @@ function isAuthoritativeScopeProjected(
   request: CanvasPreviewRenderRequest,
 ): boolean {
   if (room.id !== request.roomId) return false;
+  if (
+    request.authoritativeRoomCreatedAt !== undefined
+    && room.createdAt !== request.authoritativeRoomCreatedAt
+  ) return false;
   if (request.source.kind === "room" && room.roomRevision !== request.source.expectedRevision) return false;
   if (request.source.kind === "diagram") {
     const currentDiagram = room.diagrams[request.source.diagramId];
-    if (!currentDiagram || currentDiagram.revision !== request.source.expectedRevision) return false;
+    if (
+      !currentDiagram
+      || currentDiagram.revision !== request.source.expectedRevision
+      || (request.diagram !== null && currentDiagram.createdAt !== request.diagram.createdAt)
+    ) return false;
   }
   return request.objects.every((expected) => {
     const current = room.objects[expected.id];
@@ -476,11 +617,11 @@ function stableDigest(value: unknown): string {
   return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-function boundedText(value: string): BoundedCanvasTextEvidence {
+function boundedText(value: string, limit = MAX_INSPECTION_TEXT_LENGTH): BoundedCanvasTextEvidence {
   return {
-    value: value.slice(0, MAX_INSPECTION_TEXT_LENGTH),
+    value: value.slice(0, limit),
     originalLength: value.length,
-    truncated: value.length > MAX_INSPECTION_TEXT_LENGTH,
+    truncated: value.length > limit,
     digest: stableDigest(value),
   };
 }
@@ -616,60 +757,386 @@ function contrastRatio(foreground: string, background: string): number | null {
   return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
 }
 
+function compactRecord(
+  object: CanvasObject,
+  bounds: { x: number; y: number; width: number; height: number },
+  requestedIds: ReadonlySet<string>,
+): CanvasCompactObjectRecord {
+  const text = objectText(object);
+  const fullDiagramIds = [...new Set(object.diagramIds)].sort();
+  const diagramIds = fullDiagramIds.slice(0, CANVAS_PREVIEW_LIMITS.maxCompactDiagramIds);
+  return {
+    objectId: object.id,
+    revision: object.revision,
+    createdAt: object.createdAt,
+    updatedAt: object.updatedAt,
+    kind: object.kind,
+    bounds,
+    rotation: object.rotation,
+    zIndex: object.zIndex,
+    groupId: object.groupId,
+    diagramIds,
+    diagramMembershipCoverage: {
+      totalDiagramCount: fullDiagramIds.length,
+      returnedDiagramCount: diagramIds.length,
+      omittedDiagramCount: fullDiagramIds.length - diagramIds.length,
+      limit: CANVAS_PREVIEW_LIMITS.maxCompactDiagramIds,
+      truncated: diagramIds.length < fullDiagramIds.length,
+      fullSetDigest: stableDigest(fullDiagramIds),
+    },
+    semanticName: object.semanticName ?? null,
+    semanticRole: object.semanticRole ?? null,
+    inRequestedScope: requestedIds.has(object.id),
+    text: text === null ? null : boundedText(text, 96),
+    nodeType: object.kind === "shape" ? object.nodeType : null,
+    relationship: object.kind === "connector" ? {
+      startObjectId: object.start.objectId,
+      endObjectId: object.end.objectId,
+      direction: object.direction,
+    } : null,
+    detailDigest: stableDigest(semanticEvidence(object)),
+  };
+}
+
+function unionBounds(
+  bounds: readonly { x: number; y: number; width: number; height: number }[],
+): { x: number; y: number; width: number; height: number } | null {
+  if (!bounds.length) return null;
+  const x = Math.min(...bounds.map((item) => item.x));
+  const y = Math.min(...bounds.map((item) => item.y));
+  const maxX = Math.max(...bounds.map((item) => item.x + item.width));
+  const maxY = Math.max(...bounds.map((item) => item.y + item.height));
+  return { x, y, width: maxX - x, height: maxY - y };
+}
+
+function kindCounts(objects: readonly CanvasObject[]): Record<CanvasObject["kind"], number> {
+  const counts: Record<CanvasObject["kind"], number> = {
+    text: 0,
+    shape: 0,
+    connector: 0,
+    image: 0,
+    draw: 0,
+    path: 0,
+  };
+  for (const object of objects) counts[object.kind] += 1;
+  return counts;
+}
+
+function spatialClusters(
+  objects: readonly CanvasObject[],
+  scopeBounds: { x: number; y: number; width: number; height: number },
+  boundsByObjectId: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
+): CanvasInspectionEvidence["overview"]["spatialClusters"] {
+  const side = Math.max(1, Math.floor(Math.sqrt(CANVAS_PREVIEW_LIMITS.maxSpatialClusters)));
+  const clusters = new Map<string, {
+    row: number;
+    column: number;
+    bounds: Array<{ x: number; y: number; width: number; height: number }>;
+    objects: CanvasObject[];
+  }>();
+  for (const object of [...objects].sort((left, right) => left.id.localeCompare(right.id))) {
+    const bounds = boundsByObjectId.get(object.id);
+    if (!bounds) continue;
+    const normalizedX = scopeBounds.width > 0
+      ? (bounds.x + bounds.width / 2 - scopeBounds.x) / scopeBounds.width
+      : 0;
+    const normalizedY = scopeBounds.height > 0
+      ? (bounds.y + bounds.height / 2 - scopeBounds.y) / scopeBounds.height
+      : 0;
+    const column = Math.max(0, Math.min(side - 1, Math.floor(normalizedX * side)));
+    const row = Math.max(0, Math.min(side - 1, Math.floor(normalizedY * side)));
+    const key = `${row}:${column}`;
+    const cluster = clusters.get(key) ?? { row, column, bounds: [], objects: [] };
+    cluster.bounds.push(bounds);
+    cluster.objects.push(object);
+    clusters.set(key, cluster);
+  }
+  return [...clusters.values()]
+    .sort((left, right) => left.row - right.row || left.column - right.column)
+    .slice(0, CANVAS_PREVIEW_LIMITS.maxSpatialClusters)
+    .map((cluster) => ({
+      clusterId: `grid-${cluster.row}-${cluster.column}`,
+      bounds: unionBounds(cluster.bounds) ?? scopeBounds,
+      objectCount: cluster.objects.length,
+      kinds: Object.fromEntries(
+        Object.entries(kindCounts(cluster.objects)).filter(([, count]) => count > 0),
+      ) as Partial<Record<CanvasObject["kind"], number>>,
+      representativeObjectIds: cluster.objects.slice(0, 4).map((object) => object.id),
+    }));
+}
+
+function focusWorkingSetObjects(
+  candidates: readonly CanvasObject[],
+  focusObjectIds: readonly string[],
+  boundsByObjectId: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
+): CanvasObject[] {
+  const byId = new Map(candidates.map((object) => [object.id, object]));
+  const focusIds = new Set(focusObjectIds);
+  const focusObjects = focusObjectIds.flatMap((objectId) => byId.get(objectId) ?? []);
+  const contextIds = new Set<string>();
+  const addContext = (objectId: string | null) => {
+    if (objectId && !focusIds.has(objectId) && byId.has(objectId)) contextIds.add(objectId);
+  };
+
+  for (const object of [...candidates].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (object.kind !== "connector") continue;
+    if (
+      !focusIds.has(object.id)
+      && !focusIds.has(object.start.objectId ?? "")
+      && !focusIds.has(object.end.objectId ?? "")
+    ) continue;
+    addContext(object.id);
+    addContext(object.start.objectId);
+    addContext(object.end.objectId);
+  }
+
+  const focusGroupIds = new Set(
+    focusObjects.flatMap((object) => object.groupId ? [object.groupId] : []),
+  );
+  if (focusGroupIds.size) {
+    for (const object of candidates) {
+      if (object.groupId && focusGroupIds.has(object.groupId)) addContext(object.id);
+    }
+  }
+
+  const focusBounds = unionBounds(
+    focusObjects.flatMap((object) => boundsByObjectId.get(object.id) ?? []),
+  );
+  const distanceFromFocus = (object: CanvasObject): number => {
+    const bounds = boundsByObjectId.get(object.id);
+    if (!bounds || !focusBounds) return Number.POSITIVE_INFINITY;
+    const x = bounds.x + bounds.width / 2 - (focusBounds.x + focusBounds.width / 2);
+    const y = bounds.y + bounds.height / 2 - (focusBounds.y + focusBounds.height / 2);
+    return x * x + y * y;
+  };
+  const orderedContext = [...candidates]
+    .filter((object) => !focusIds.has(object.id))
+    .sort((left, right) => {
+      const leftRelated = contextIds.has(left.id) ? 0 : 1;
+      const rightRelated = contextIds.has(right.id) ? 0 : 1;
+      return leftRelated - rightRelated
+        || distanceFromFocus(left) - distanceFromFocus(right)
+        || left.zIndex - right.zIndex
+        || left.id.localeCompare(right.id);
+    })
+    .slice(0, CANVAS_PREVIEW_LIMITS.maxFocusContextRecords);
+  return [...focusObjects, ...orderedContext];
+}
+
+function diagramFindingKeys(
+  report: DiagramVisualQualityReport | null,
+  relevantObjectIds: ReadonlySet<string> | null,
+): string[] {
+  if (!report) return [];
+  return report.findings.flatMap((finding) => {
+    const identities = [...finding.objectIds, ...finding.connectorIds].sort();
+    if (relevantObjectIds && !identities.some((objectId) => relevantObjectIds.has(objectId))) return [];
+    return [`diagram:${finding.code.toLowerCase()}:${stableDigest(identities).slice("fnv1a32:".length)}`];
+  });
+}
+
+function sceneContextByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function stabilizeSceneContextByteLength<
+  Packet extends { coverage: { resultByteLength: number } },
+>(packet: Packet): number {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const byteLength = sceneContextByteLength(packet);
+    if (packet.coverage.resultByteLength === byteLength) return byteLength;
+    packet.coverage.resultByteLength = byteLength;
+  }
+  return sceneContextByteLength(packet);
+}
+
+function assertSceneContextByteBudget(
+  packet: Pick<CanvasInspectionEvidence, "coverage" | "representation">,
+): void {
+  if (packet.coverage.resultByteLength <= CANVAS_PREVIEW_LIMITS.maxSceneContextBytes) return;
+  throw new CanvasPreviewError(
+    "PREVIEW_SCENE_CONTEXT_TOO_LARGE",
+    "The bounded scene-context packet exceeds its byte budget; use overview or inspect a smaller focus scope.",
+    {
+      byteLength: packet.coverage.resultByteLength,
+      maxBytes: CANVAS_PREVIEW_LIMITS.maxSceneContextBytes,
+      representation: packet.representation,
+    },
+  );
+}
+
+export function finalizeCanvasSceneContext(
+  evidence: CanvasInspectionEvidence,
+  pixels: CanvasInspectionPixels,
+): CanvasSceneContext {
+  const packet: CanvasSceneContext = {
+    ...evidence,
+    coverage: { ...evidence.coverage, resultByteLength: 0 },
+    pixels,
+  };
+  stabilizeSceneContextByteLength(packet);
+  assertSceneContextByteBudget(packet);
+  return packet;
+}
+
 function buildInspectionEvidence(
   canvas: CanvasRuntime,
   room: RoomState,
-  requestedIds: ReadonlySet<string>,
+  request: CanvasPreviewRenderRequest,
+  scopeBounds: { x: number; y: number; width: number; height: number },
   contributors: readonly CanvasObject[],
+  boundsByObjectId: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
+  visualQuality: DiagramVisualQualityReport | null,
 ): CanvasInspectionEvidence {
-  const objects = contributors
+  const isLegacyPreview = request.inspection === undefined;
+  const inspection = request.inspection ?? {
+    representation: "working_set" as const,
+    focusObjectIds: [],
+    visualContract: null,
+    previousFindingKeys: [],
+  };
+  const requestedIds = new Set(request.objects.map((object) => object.id));
+  const focusIds = new Set(inspection.focusObjectIds);
+  const candidateObjects = new Map(contributors.map((object) => [object.id, object]));
+  if (
+    inspection.representation === "focus"
+    || (request.source.kind === "objects" && inspection.representation !== "overview")
+  ) {
+    for (const object of request.objects) candidateObjects.set(object.id, object);
+  }
+  const candidateObjectList = [...candidateObjects.values()]
+    .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id));
+  const compactCandidateObjects = candidateObjectList
+    .filter((object) => boundsByObjectId.has(object.id));
+  if (
+    !isLegacyPreview
+    && inspection.representation === "working_set"
+    && compactCandidateObjects.length > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
+  ) {
+    throw new CanvasPreviewError(
+      "PREVIEW_WORKING_SET_TOO_LARGE",
+      "The exact scope has too many compact working-set records; use overview or inspect a smaller exact/focus scope.",
+      {
+        recordCount: compactCandidateObjects.length,
+        maxWorkingSetRecords: CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords,
+      },
+    );
+  }
+  const workingSetObjects = inspection.representation === "overview"
+    ? []
+    : inspection.representation === "focus"
+      ? focusWorkingSetObjects(candidateObjectList, inspection.focusObjectIds, boundsByObjectId)
+      : isLegacyPreview
+        ? candidateObjectList.slice(0, CANVAS_PREVIEW_LIMITS.maxFocusedRecords)
+        : candidateObjectList;
+  const workingSet = workingSetObjects
     .flatMap((object) => {
-      const bounds = canvas.getObjectBounds(object.id);
-      return bounds ? [{
-        objectId: object.id,
-        revision: object.revision,
-        createdAt: object.createdAt,
-        kind: object.kind,
-        bounds,
-        zIndex: object.zIndex,
-        groupId: object.groupId,
-        diagramIds: [...object.diagramIds],
-        inRequestedScope: requestedIds.has(object.id),
-        semantic: semanticEvidence(object),
-      }] : [];
+      const bounds = boundsByObjectId.get(object.id);
+      return bounds ? [compactRecord(object, bounds, requestedIds)] : [];
     })
     .sort((left, right) => left.zIndex - right.zIndex || left.objectId.localeCompare(right.objectId));
-  const objectById = new Map(contributors.map((object) => [object.id, object]));
-  const intersections: CanvasInspectionEvidence["intersections"]["items"] = [];
-  const occlusions: CanvasInspectionEvidence["occlusions"]["items"] = [];
-  let intersectionCount = 0;
-  for (let leftIndex = 0; leftIndex < objects.length; leftIndex += 1) {
-    const left = objects[leftIndex];
-    for (let rightIndex = leftIndex + 1; rightIndex < objects.length; rightIndex += 1) {
-      const right = objects[rightIndex];
-      if (
-        left.kind === "draw" || right.kind === "draw" ||
-        left.kind === "path" || right.kind === "path"
-      ) continue;
+  const allExplicitTargetsRepresented = request.source.kind !== "objects"
+    || inspection.representation === "overview"
+    || request.objects.every((object) => workingSet.some((record) => record.objectId === object.id));
+  if (!isLegacyPreview && inspection.representation === "working_set" && !allExplicitTargetsRepresented) {
+    throw new CanvasPreviewError(
+      "PREVIEW_EXPLICIT_TARGET_UNREPRESENTED",
+      "Every explicit object target must be represented; inspect overview or request a smaller exact object scope.",
+      { objectIds: request.objects.map((object) => object.id) },
+    );
+  }
+  const objectById = new Map([...request.objects, ...contributors].map((object) => [object.id, object]));
+  const focused = inspection.focusObjectIds.flatMap((objectId): CanvasFocusedObjectRecord[] => {
+    const object = objectById.get(objectId);
+    if (!object) return [];
+    const bounds = boundsByObjectId.get(object.id);
+    if (!bounds) return [];
+    const compact = compactRecord(object, bounds, requestedIds);
+    return [{
+      ...compact,
+      createdBy: { participantId: object.createdBy.participantId, kind: object.createdBy.kind },
+      lastEditedBy: { participantId: object.lastEditedBy.participantId, kind: object.lastEditedBy.kind },
+      semantic: semanticEvidence(object),
+    }];
+  });
+  if (focused.length !== focusIds.size) {
+    throw new CanvasPreviewError(
+      "PREVIEW_FOCUS_UNAVAILABLE",
+      "One or more exact focus objects could not be represented; inspect a smaller current scope.",
+      { focusObjectIds: inspection.focusObjectIds },
+    );
+  }
+
+  const contributorIds = new Set(contributors.map((object) => object.id));
+  const analysisObjects = inspection.representation === "focus" || isLegacyPreview
+    ? workingSetObjects.filter((object) => contributorIds.has(object.id))
+    : contributors;
+  const analysisObjectIds = new Set(analysisObjects.map((object) => object.id));
+  const sourceIdentity = request.source.kind === "diagram"
+    ? {
+        kind: request.source.kind,
+        diagramId: request.source.diagramId,
+        createdAt: request.diagram?.createdAt ?? room.diagrams[request.source.diagramId]?.createdAt ?? null,
+      }
+    : request.source.kind === "objects"
+      ? {
+          kind: request.source.kind,
+          objects: request.objects
+            .map((object) => ({ objectId: object.id, createdAt: object.createdAt }))
+            .sort((left, right) => left.objectId.localeCompare(right.objectId)),
+        }
+      : { kind: request.source.kind };
+  const scopeObjectIncarnations = request.objects
+    .map((object) => ({ objectId: object.id, createdAt: object.createdAt }))
+    .sort((left, right) => left.objectId.localeCompare(right.objectId));
+  const analysisObjectIncarnations = analysisObjects
+    .map((object) => ({ objectId: object.id, createdAt: object.createdAt }))
+    .sort((left, right) => left.objectId.localeCompare(right.objectId));
+  const scopeIdentity = `scope:v2:${stableDigest({
+    room: { roomId: room.id, createdAt: room.createdAt },
+    source: sourceIdentity,
+    scopeObjectIncarnations,
+    representation: inspection.representation,
+    focusObjectIds: [...focusIds].sort(),
+    evidenceObjectIncarnations: analysisObjectIncarnations,
+  }).slice("fnv1a32:".length)}`;
+
+  const overlapRecords = analysisObjects
+    .flatMap((object) => {
+      const bounds = boundsByObjectId.get(object.id);
+      return bounds ? [{ objectId: object.id, bounds }] : [];
+    })
+    .sort((left, right) => left.objectId.localeCompare(right.objectId));
+  const boundsOverlapItems: CanvasInspectionEvidence["boundsOverlaps"]["items"] = [];
+  let boundsOverlapCount = 0;
+  for (let leftIndex = 0; leftIndex < overlapRecords.length; leftIndex += 1) {
+    const left = overlapRecords[leftIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < overlapRecords.length; rightIndex += 1) {
+      const right = overlapRecords[rightIndex];
       const overlap = intersects(left.bounds, right.bounds);
       if (!overlap) continue;
-      intersectionCount += 1;
-      const area = overlap.width * overlap.height;
-      if (intersections.length < MAX_INSPECTION_RELATIONS) {
-        intersections.push({ objectIds: [left.objectId, right.objectId], bounds: overlap, area });
-        occlusions.push({
-          lowerObjectId: left.objectId,
-          upperObjectId: right.objectId,
-          overlapArea: area,
-          estimatedLowerCoverage: Math.min(1, area / Math.max(left.bounds.width * left.bounds.height, 1)),
+      boundsOverlapCount += 1;
+      if (boundsOverlapItems.length < MAX_INSPECTION_RELATIONS) {
+        const objectIds: [string, string] = [left.objectId, right.objectId];
+        boundsOverlapItems.push({
+          factKey: `bounds_overlap:${stableDigest(objectIds).slice("fnv1a32:".length)}`,
+          method: "axis_aligned_renderer_bounds",
+          objectIds,
+          bounds: overlap,
+          area: overlap.width * overlap.height,
+          interpretation: "bounds_overlap_only_not_proof_of_painted_intersection_or_occlusion",
         });
       }
     }
   }
-  const routes = contributors.flatMap((object) => {
-    if (object.kind !== "connector") return [];
+
+  const routeObjects = inspection.representation === "overview"
+    ? []
+    : workingSetObjects.filter((object) => object.kind === "connector");
+  const routes = routeObjects.slice(0, CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords).map((object) => {
+    if (object.kind !== "connector") throw new Error("connector narrowed above");
     const route = materializeConnectorRoute(object, room);
-    return [{
+    return {
       connectorId: object.id,
       revision: object.revision,
       startObjectId: object.start.objectId,
@@ -678,26 +1145,44 @@ function buildInspectionEvidence(
       points: route.points,
       labelBounds: route.labelBounds,
       bounds: route.bounds,
-    }];
+    };
   });
-  const textFindings = contributors.flatMap((object): CanvasInspectionEvidence["textFindings"] => {
+  const allTextFindings = analysisObjects.flatMap((object): CanvasInspectionEvidence["textFindings"] => {
     const text = objectText(object);
     if (text === null) return [];
-    if (!text.trim()) return [{
-      objectId: object.id,
-      code: "TEXT_EMPTY",
-      status: "observed",
-      summary: "This semantic text field is empty and may not communicate intent in the captured pixels.",
-    }];
-    const approximateCapacity = Math.max(8, Math.floor(object.width / 11)) * Math.max(1, Math.floor(object.height / 26));
-    return text.length > approximateCapacity * 1.5 ? [{
+    if (!text.trim()) {
+      // Blank visible text is a valid visual choice for decorative shapes and
+      // unlabeled connectors. Semantic identity still makes those parts
+      // retrievable; presenting them as correction findings would steer an
+      // authoring agent toward adding accidental canvas labels. Text objects,
+      // images (alt text), and classified diagram nodes do carry an expected
+      // textual contract, so an empty value remains useful evidence there.
+      const expectsVisibleText = object.kind === "text"
+        || object.kind === "image"
+        || (object.kind === "shape" && object.nodeType !== null);
+      if (!expectsVisibleText) return [];
+      const findingKey = `${scopeIdentity}:text:text_empty:${stableDigest(object.id).slice("fnv1a32:".length)}`;
+      return [{
+        findingKey,
+        objectId: object.id,
+        code: "TEXT_EMPTY",
+        status: "observed",
+        summary: "This semantic text field is empty; inspect pixels and intent before treating it as a defect.",
+      }];
+    }
+    const approximateCapacity = Math.max(8, Math.floor(object.width / 11))
+      * Math.max(1, Math.floor(object.height / 26));
+    if (text.length <= approximateCapacity * 1.5) return [];
+    const findingKey = `${scopeIdentity}:text:text_likely_clipped:${stableDigest(object.id).slice("fnv1a32:".length)}`;
+    return [{
+      findingKey,
       objectId: object.id,
       code: "TEXT_LIKELY_CLIPPED",
       status: "likely",
-      summary: "Text length substantially exceeds the deterministic bounds-based capacity estimate; inspect the pixels for clipping.",
-    }] : [];
+      summary: "Text exceeds a bounds-based capacity estimate; pixel inspection is required before correction.",
+    }];
   });
-  const contrastFindings = contributors.flatMap((object): CanvasInspectionEvidence["contrastFindings"] => {
+  const contrastFindings = analysisObjects.flatMap((object): CanvasInspectionEvidence["contrastFindings"] => {
     if (hasContextDependentContrast(object)) return [];
     let foreground: string;
     let background: string;
@@ -707,12 +1192,12 @@ function buildInspectionEvidence(
       foreground = semanticStrokeColor(object.stroke, "blue");
       background = semanticFillColor(object.fill, "blue", false);
       context = "stroke_vs_fill";
-      caveat = "Measures declared stroke against declared opaque fill; it does not infer aesthetic intent or inspect neighboring pixels.";
+      caveat = "Declared opaque stroke versus fill only; no aesthetic threshold or neighboring pixels are inferred.";
     } else if (object.kind === "text" || object.kind === "connector" || object.kind === "draw") {
       foreground = semanticStrokeColor(object.color, "black");
       background = "#ffffff";
       context = object.kind === "text" ? "text_vs_canvas" : "stroke_vs_canvas";
-      caveat = "Measures declared color against the nominal white canvas; overlap can change the contributing background and no threshold judgment is applied.";
+      caveat = "Declared color versus nominal white canvas only; overlap can change the actual background.";
     } else return [];
     const ratio = contrastRatio(foreground, background);
     return ratio === null ? [] : [{
@@ -723,40 +1208,122 @@ function buildInspectionEvidence(
       context,
       caveat,
     }];
-  });
-  const unsupported = contributors.flatMap((object) => {
+  }).slice(0, MAX_INSPECTION_RELATIONS);
+  const unsupported: CanvasInspectionEvidence["coverage"]["unsupported"] = [
+    ...(request.diagram && inspection.representation === "overview" && !visualQuality
+      ? [{
+          analysis: "diagram_geometry_deferred_in_overview" as const,
+          reason: "Overview intentionally omits full Diagram geometry; use working_set or focus for deterministic Diagram quality evidence.",
+        }]
+      : []),
+    ...analysisObjects.flatMap((object) => {
     const items: CanvasInspectionEvidence["coverage"]["unsupported"] = [];
     if (object.kind === "draw") items.push({
       objectId: object.id,
       analysis: "freehand_swept_path",
-      reason: "Bounds and pixels are exact, but swept-stroke intersections and occlusion percentages are not analyzed deterministically.",
+      reason: "Only renderer bounds are deterministic; swept-stroke intersections and visual content require pixels.",
     });
     if (object.kind === "path") items.push({
       objectId: object.id,
       analysis: "vector_path_geometry",
-      reason: "Path style, bounds, segment count, digest, and a bounded segment sample are exact; curve intersections and filled-path occlusion require pixel inspection.",
+      reason: "Path metadata is exact, but curve intersections and filled-path overlap require pixel inspection.",
     });
     if (hasContextDependentContrast(object)) items.push({
       objectId: object.id,
       analysis: "context_dependent_contrast",
-      reason: "Transparent or partially transparent content depends on the actual contributing background; no fabricated contrast ratio is reported.",
+      reason: "Transparency makes contrast depend on actual contributing pixels.",
     });
     if (object.rotation !== 0) items.push({
       objectId: object.id,
       analysis: "rotated_exact_intersection",
-      reason: "Intersection and occlusion evidence uses renderer bounds for rotated objects rather than exact polygon clipping.",
+      reason: "Bounds-overlap facts use axis-aligned renderer bounds, not rotated polygon clipping.",
     });
     if (object.kind === "image") items.push({
       objectId: object.id,
       analysis: "image_internal_pixels",
-      reason: "Image bounds are exact, but internal image contrast and visual content require pixel inspection.",
+      reason: "Image bounds are exact; internal content and contrast require pixel inspection.",
     });
-    return items;
-  });
-  return {
-    schemaVersion: 1,
+      return items;
+    }),
+  ];
+  const allFindingKeys = [...new Set([
+    ...allTextFindings.map((finding) => finding.findingKey),
+    ...diagramFindingKeys(
+      visualQuality,
+      inspection.representation === "focus" ? analysisObjectIds : null,
+    ).map((findingKey) => `${scopeIdentity}:${findingKey}`),
+  ])].sort();
+  const findingKeys = allFindingKeys.slice(0, CANVAS_PREVIEW_LIMITS.maxFindingKeys);
+  const allVisualContributorsAnalyzed = contributors.every((object) => analysisObjectIds.has(object.id));
+  const currentFindingSetFullyEnumerated = allVisualContributorsAnalyzed
+    && allFindingKeys.length <= findingKeys.length
+    && (!request.diagram || visualQuality !== null)
+    && !(visualQuality?.metrics.findingsTruncated ?? false);
+  const geometryCoverageComplete = unsupported.length === 0
+    && (!request.diagram || visualQuality?.geometryCoverage.status === "complete");
+  const findingCoverageComplete = currentFindingSetFullyEnumerated && geometryCoverageComplete;
+  const currentFindingCoverageComplete = findingCoverageComplete;
+  const current = new Set(findingKeys);
+  const sameScopeCallerSupplied = new Set(
+    inspection.previousFindingKeys.filter((findingKey) => findingKey.startsWith(`${scopeIdentity}:`)),
+  );
+  const sameScopeCallerSuppliedSorted = [...sameScopeCallerSupplied].sort();
+  const allExplicitObjectRevisions = request.source.kind === "objects"
+    ? request.objects
+        .map((object) => ({ objectId: object.id, revision: object.revision }))
+        .sort((left, right) => left.objectId.localeCompare(right.objectId))
+    : [];
+  const explicitObjectRevisions = allExplicitObjectRevisions.slice(
+    0,
+    CANVAS_PREVIEW_LIMITS.maxExplicitRevisionRecords,
+  );
+  const packet: CanvasInspectionEvidence = {
+    schemaVersion: 2,
     rendererId: canvas.rendererId,
-    objects,
+    representation: inspection.representation,
+    scope: {
+      identity: scopeIdentity,
+      kind: request.source.kind,
+      diagramId: request.source.kind === "diagram" ? request.source.diagramId : null,
+      focusObjectIds: [...focusIds].sort(),
+      identityBasis: "created_at_incarnations",
+    },
+    visualContract: inspection.visualContract,
+    revisions: {
+      roomRevision: room.roomRevision,
+      diagramRevision: request.source.kind === "diagram" ? request.source.expectedRevision : null,
+      explicitObjectRevisions,
+      explicitObjectRevisionCoverage: {
+        totalCount: allExplicitObjectRevisions.length,
+        returnedCount: explicitObjectRevisions.length,
+        omittedCount: allExplicitObjectRevisions.length - explicitObjectRevisions.length,
+        limit: CANVAS_PREVIEW_LIMITS.maxExplicitRevisionRecords,
+        truncated: explicitObjectRevisions.length < allExplicitObjectRevisions.length,
+        fullSetDigest: stableDigest(allExplicitObjectRevisions),
+      },
+    },
+    coverage: {
+      scopeObjectCount: request.objects.length,
+      visualContributorCount: contributors.length,
+      compactRecordCount: workingSet.length,
+      focusedRecordCount: focused.length,
+      omittedCompactRecordCount: Math.max(0, compactCandidateObjects.length - workingSet.length),
+      allExplicitTargetsRepresented,
+      resultByteLength: 0,
+      resultByteLimit: CANVAS_PREVIEW_LIMITS.maxSceneContextBytes,
+      findings: findingCoverageComplete ? "complete" : "partial",
+      geometry: geometryCoverageComplete ? "complete" : "partial",
+      unsupported: unsupported.slice(0, MAX_UNSUPPORTED_DISCLOSURES),
+      omittedUnsupportedCount: Math.max(0, unsupported.length - MAX_UNSUPPORTED_DISCLOSURES),
+    },
+    overview: {
+      bounds: scopeBounds,
+      objectCount: request.objects.length,
+      kinds: kindCounts(request.objects),
+      spatialClusters: spatialClusters(request.objects, scopeBounds, boundsByObjectId),
+    },
+    workingSet,
+    focused,
     routes,
     relationships: routes.map((route) => {
       const connector = objectById.get(route.connectorId);
@@ -765,42 +1332,60 @@ function buildInspectionEvidence(
         startObjectId: route.startObjectId,
         endObjectId: route.endObjectId,
         direction: connector?.kind === "connector" ? connector.direction : "none",
-        label: boundedText(connector?.kind === "connector" ? connector.label : ""),
+        label: boundedText(connector?.kind === "connector" ? connector.label : "", 96),
       };
     }),
-    intersections: {
-      totalCount: intersectionCount,
-      truncated: intersectionCount > intersections.length,
-      items: intersections,
+    boundsOverlaps: {
+      totalCount: boundsOverlapCount,
+      truncated: boundsOverlapCount > boundsOverlapItems.length,
+      items: boundsOverlapItems,
     },
-    occlusions: {
-      totalCount: intersectionCount,
-      truncated: intersectionCount > occlusions.length,
-      items: occlusions,
-    },
-    textFindings,
+    textFindings: allTextFindings.slice(0, MAX_INSPECTION_RELATIONS),
     contrastFindings,
-    coverage: {
-      geometry: unsupported.length ? "partial" : "complete",
-      unsupported: unsupported.slice(0, MAX_UNSUPPORTED_DISCLOSURES),
-      omittedUnsupportedCount: Math.max(0, unsupported.length - MAX_UNSUPPORTED_DISCLOSURES),
+    findingKeys,
+    findingKeysTruncated: allFindingKeys.length > findingKeys.length,
+    findingComparison: {
+      basis: "caller_supplied_unverified",
+      suppliedKeyCount: inspection.previousFindingKeys.length,
+      sameScopeSuppliedKeyCount: sameScopeCallerSupplied.size,
+      ignoredDifferentScopeSuppliedKeyCount:
+        inspection.previousFindingKeys.length - sameScopeCallerSupplied.size,
+      currentFindingCoverageComplete,
+      observedFindingKeysNotSupplied: findingKeys.filter((key) => !sameScopeCallerSupplied.has(key)),
+      callerSuppliedFindingKeysObservedAgain: findingKeys.filter((key) => sameScopeCallerSupplied.has(key)),
+      callerSuppliedSameScopeKeysNotObserved: currentFindingCoverageComplete
+        ? sameScopeCallerSuppliedSorted.filter((key) => !current.has(key))
+        : [],
+      interpretation: "not_observed_does_not_prove_resolved",
     },
   };
+  stabilizeSceneContextByteLength(packet);
+  assertSceneContextByteBudget(packet);
+  return packet;
 }
 
 function inspectionMetadata(
   canvas: CanvasRuntime,
   room: RoomState,
   request: CanvasPreviewRenderRequest,
+  scopeBounds: { x: number; y: number; width: number; height: number },
   renderedBounds: { x: number; y: number; width: number; height: number },
 ): CanvasInspectionMetadata {
-  const requestedIds = request.objects.map((object) => object.id);
-  const requestedIdSet = new Set(requestedIds);
+  const boundsByObjectId = new Map<
+    string,
+    { x: number; y: number; width: number; height: number }
+  >();
   const contributors = canvas.getDocumentObjectIds().flatMap((objectId) => {
     const object = room.objects[objectId];
     const objectBounds = canvas.getObjectBounds(objectId);
+    if (objectBounds) boundsByObjectId.set(objectId, objectBounds);
     return object && objectBounds && intersects(objectBounds, renderedBounds) ? [object] : [];
   });
+  for (const object of request.objects) {
+    if (boundsByObjectId.has(object.id)) continue;
+    const objectBounds = canvas.getObjectBounds(object.id);
+    if (objectBounds) boundsByObjectId.set(object.id, objectBounds);
+  }
   if (contributors.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
     throw new CanvasPreviewError(
       "PREVIEW_VISUAL_CONTEXT_TOO_LARGE",
@@ -808,12 +1393,15 @@ function inspectionMetadata(
       { contributorCount: contributors.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
     );
   }
+  const visualQuality = request.diagram && request.inspection?.representation !== "overview"
+    ? analyzeDiagramVisualQuality(room, request.diagram.id)
+    : null;
   return {
     renderedBounds,
     padding: request.options.padding,
     source: {
       ...request.source,
-      roomRevision: request.authoritativeRoomRevision,
+      roomRevision: room.roomRevision,
       objectRevisions: request.objects.map((object) => ({
         objectId: object.id,
         revision: object.revision,
@@ -834,10 +1422,16 @@ function inspectionMetadata(
       })),
     },
     warnings: [],
-    visualQuality: request.diagram
-      ? analyzeDiagramVisualQuality(room, request.diagram.id)
-      : null,
-    inspectionEvidence: buildInspectionEvidence(canvas, room, requestedIdSet, contributors),
+    visualQuality,
+    inspectionEvidence: buildInspectionEvidence(
+      canvas,
+      room,
+      request,
+      scopeBounds,
+      contributors,
+      boundsByObjectId,
+      visualQuality,
+    ),
   };
 }
 
@@ -858,11 +1452,25 @@ export async function prepareCanvasInspection(
     );
   }
   const { canvas, room } = await waitForAuthoritativeProjection(runtime, request, signal);
-  const bounds = canvas.getVisibleBounds(request.objects.map((object) => object.id));
-  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+  const scopeBounds = canvas.getVisibleBounds(request.objects.map((object) => object.id));
+  if (!scopeBounds || scopeBounds.width <= 0 || scopeBounds.height <= 0) {
     throw new CanvasPreviewError(
       "PREVIEW_BOUNDS_UNAVAILABLE",
       "Jazzboard could not determine renderable bounds for the requested objects.",
+    );
+  }
+  const frameObjectIds = request.inspection?.representation === "focus"
+    && request.inspection.focusObjectIds.length
+    ? request.inspection.focusObjectIds
+    : request.objects.map((object) => object.id);
+  const bounds = frameObjectIds.length === request.objects.length
+    ? scopeBounds
+    : canvas.getVisibleBounds(frameObjectIds);
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    throw new CanvasPreviewError(
+      "PREVIEW_FOCUS_UNAVAILABLE",
+      "Jazzboard could not determine renderable bounds for the requested focus objects.",
+      { focusObjectIds: frameObjectIds },
     );
   }
   const renderedBounds = {
@@ -871,7 +1479,7 @@ export async function prepareCanvasInspection(
     width: bounds.width + request.options.padding * 2,
     height: bounds.height + request.options.padding * 2,
   };
-  const metadata = inspectionMetadata(canvas, room, request, renderedBounds);
+  const metadata = inspectionMetadata(canvas, room, request, scopeBounds, renderedBounds);
   assertStillProjected(runtime, request, canvas);
   return { metadata };
 }
@@ -957,7 +1565,7 @@ export async function renderCanvasPreview(
     width: paddedWidth,
     height: paddedHeight,
   };
-  const inspection = inspectionMetadata(canvas, room, request, renderedBounds);
+  const inspection = inspectionMetadata(canvas, room, request, bounds, renderedBounds);
 
   return {
     blob: result.blob,

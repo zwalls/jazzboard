@@ -78,9 +78,9 @@ export type SemanticCanvasObjectProps = {
   onFocus?: (objectId: string) => void;
   onBlur?: (objectId: string) => void;
   /**
-   * The semantic canvas paints connector shafts below ordinary objects and
-   * their arrowheads/labels in a separate foreground overlay. Standalone
-   * callers keep the complete connector by default.
+   * The semantic canvas paints connector shafts in authoritative z-order and
+   * their arrowheads/labels in a separate foreground overlay. Standalone callers
+   * keep the complete connector by default.
    */
   connectorLayer?: "all" | "shaft";
 };

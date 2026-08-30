@@ -26,12 +26,13 @@ type DraftSnapshot = {
 
 type DraftedResult = {
   outcome: "drafted";
-  draft: DraftSnapshot;
   draftId: string;
   draftRevision: number;
   baselineRoomRevision: number;
   temporaryReferences: Record<string, string>;
 };
+
+type DetailedDraftedResult = DraftedResult & { draft: DraftSnapshot };
 
 type ReadDraftResult = { draft: DraftSnapshot; serverTime: number };
 type ReadDraftsResult = { drafts: DraftSnapshot[]; serverTime: number };
@@ -548,9 +549,10 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(initial.diagrams).toEqual([]);
     const baselineRoomRevision = initial.room.roomRevision;
 
-    const first = await callTool<DraftedResult>(page, "apply_canvas_transaction", {
+    const first = await callTool<DetailedDraftedResult>(page, "apply_canvas_transaction", {
       operations: cumulativeOperations("core"),
       delivery: { mode: "draft" },
+      responseDetail: "detailed",
       intent: "Progressively build Jazzboard's multi-branch agent-native collaboration architecture before one atomic commit.",
       summary: "Stage clients, commands, and presence",
     });

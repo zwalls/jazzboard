@@ -189,10 +189,34 @@ describe("Jazzboard semantic WebMCP surface", () => {
     const fixture = contextFixture();
     const tools = createJazzboardWebMcpTools(binding(fixture.context));
     const drawProperties = (toolByName(tools, "draw_connection").inputSchema as unknown as {
-      properties?: Record<string, { description?: string }>;
+      properties?: Record<string, { description?: string; maxLength?: number }>;
     }).properties;
     expect(drawProperties?.routing?.description).toMatch(/auto\|straight\|curved\|elbow/);
     expect(drawProperties?.start?.description).toMatch(/objectId.*port/);
+    for (const name of [
+      "create_text",
+      "create_shape",
+      "create_node",
+      "add_image",
+      "create_drawing",
+      "create_path",
+      "create_polygon",
+      "draw_connection",
+    ]) {
+      const properties = (toolByName(tools, name).inputSchema as {
+        properties?: Record<string, unknown>;
+      }).properties;
+      expect(properties?.semanticName, name).toMatchObject({
+        type: "string",
+        minLength: 1,
+        maxLength: 160,
+      });
+      expect(properties?.semanticRole, name).toMatchObject({
+        type: "string",
+        minLength: 1,
+        maxLength: 128,
+      });
+    }
     const updateProperties = (toolByName(tools, "update_object").inputSchema as unknown as {
       properties?: { patch?: { properties?: Record<string, { description?: string }> } };
     }).properties?.patch?.properties;
@@ -201,6 +225,22 @@ describe("Jazzboard semantic WebMCP surface", () => {
       "delegates routing",
     );
     expect(updateProperties?.end?.description).toMatch(/attachment metadata is optional/);
+    expect(updateProperties?.semanticName?.description).toMatch(/revise or clear/i);
+    expect(updateProperties?.semanticRole?.description).toMatch(/revise or clear/i);
+
+    const validatesUpdate = new Ajv({ allErrors: true, logger: false }).compile(
+      toolByName(tools, "update_object").inputSchema as object,
+    );
+    expect(validatesUpdate({
+      objectId: "path-a",
+      expectedRevision: 2,
+      patch: { fill: "none", color: "red", semanticName: null },
+    })).toBe(true);
+    expect(validatesUpdate({
+      objectId: "path-a",
+      expectedRevision: 2,
+      patch: { fill: "chartreuse" },
+    })).toBe(false);
   });
 });
 
@@ -757,6 +797,62 @@ describe("semantic mutation handlers", () => {
     });
     expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 1)).toMatchObject({
       command: { object: { kind: "path", closed: true, segments: [{ kind: "line" }, { kind: "line" }] } },
+    });
+  });
+
+  it("persists named vector-art and architecture identities and can clear them by revision", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), {
+      request,
+      createId: (prefix) => `${prefix}_semantic`,
+    });
+
+    await execute(toolByName(tools, "create_path"), {
+      semanticName: "Mona Lisa left eye",
+      semanticRole: "portrait.eye.contour",
+      start: { x: 10, y: 10 },
+      segments: [{ kind: "line", to: { x: 30, y: 10 } }],
+    });
+    await execute(toolByName(tools, "create_node"), {
+      semanticName: "Netflix API gateway",
+      semanticRole: "architecture.edge_service",
+      label: "API gateway",
+      nodeType: "service",
+    });
+    await execute(toolByName(tools, "update_object"), {
+      objectId: "service-a",
+      expectedRevision: 3,
+      patch: { semanticName: null, semanticRole: null },
+    });
+
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 0)).toMatchObject({
+      command: {
+        type: "create",
+        object: {
+          id: "path_semantic",
+          semanticName: "Mona Lisa left eye",
+          semanticRole: "portrait.eye.contour",
+        },
+      },
+    });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 1)).toMatchObject({
+      command: {
+        type: "create",
+        object: {
+          id: "node_semantic",
+          semanticName: "Netflix API gateway",
+          semanticRole: "architecture.edge_service",
+        },
+      },
+    });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 2)).toMatchObject({
+      command: {
+        type: "update",
+        objectId: "service-a",
+        expectedRevision: 3,
+        patch: { semanticName: null, semanticRole: null },
+      },
     });
   });
 

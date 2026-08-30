@@ -155,6 +155,56 @@ describe("semantic object schemas", () => {
     });
   });
 
+  it("keeps semantic identity optional for legacy objects and bounded for named vector parts", () => {
+    const legacy = createCanvasObjectSchema.parse({
+      ...baseObject,
+      kind: "text",
+      content: "Legacy note",
+    });
+    expect(legacy).not.toHaveProperty("semanticName");
+    expect(legacy).not.toHaveProperty("semanticRole");
+
+    const namedPart = createCanvasObjectSchema.parse({
+      ...baseObject,
+      id: "mona-left-eye",
+      kind: "path",
+      semanticName: "  Mona Lisa left eye  ",
+      semanticRole: "  portrait.eye.contour  ",
+      start: { x: 0, y: 0.5 },
+      segments: [{ kind: "line", to: { x: 1, y: 0.5 } }],
+    });
+    expect(namedPart).toMatchObject({
+      semanticName: "Mona Lisa left eye",
+      semanticRole: "portrait.eye.contour",
+    });
+
+    expect(canvasCommandSchema.parse({
+      type: "update",
+      objectId: "mona-left-eye",
+      expectedRevision: 1,
+      operation: "edit",
+      patch: { semanticName: null, semanticRole: null },
+    })).toMatchObject({ patch: { semanticName: null, semanticRole: null } });
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "text",
+      content: "Too long",
+      semanticName: "n".repeat(161),
+    }).success).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "text",
+      content: "Too long",
+      semanticRole: "r".repeat(129),
+    }).success).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "text",
+      content: "Empty identity",
+      semanticName: "   ",
+    }).success).toBe(false);
+  });
+
   it("rejects non-finite geometry, non-positive dimensions, and underspecified drawings", () => {
     expect(
       createCanvasObjectSchema.safeParse({ ...baseObject, kind: "text", content: "x", x: Number.NaN }).success,
