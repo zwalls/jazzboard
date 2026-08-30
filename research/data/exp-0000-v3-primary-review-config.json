@@ -1,0 +1,21 @@
+{
+  "attemptDirectory": "research/results/runs/smoke-exp0000-checkout-solmax-v3",
+  "expectedAttemptBundleSha256": "4d688dbfa7f7b1dc6e17511a44a9596c49fc069cb1d417547f00741a0adc98ae",
+  "expectedArtifactRoot": "7a33f2e367bc0c70cfbace8db24fcc6c395313f8553231f85cfaaaa38a9745b5",
+  "expectedAuthorEvidenceRoot": "51e0cd6a857773d7cd78b0ca1b9b9a27e78d5a52ee13fc3fbdd41834b5b130e1",
+  "taskId": "dev-architecture-create-checkout",
+  "expectedRubricSha256": "sha256:6fbd874f70c42f8119a3ae71234b40a987720514347dfa8aa1075a3754832cce",
+  "reviewerId": "rvw-7f4c2d91",
+  "reviewerRole": "primary",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "high",
+  "inputTokenBudget": 60000,
+  "outputTokenBudget": 8000,
+  "pricing": {
+    "currency": "USD",
+    "inputUsdPerMillionTokens": 4,
+    "cachedInputUsdPerMillionTokens": 0.4,
+    "outputUsdPerMillionTokens": 20,
+    "source": "openai-gpt-5.6-sol-2026-08-30"
+  }
+}

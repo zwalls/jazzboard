@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import developmentManifest from "../../../research/benchmarks/development-v1.json";
 import developmentRubrics from "../../../research/benchmarks/development-evaluator-rubrics-v1.json";
 import developmentFixtureSpecs from "../../../research/benchmarks/development-fixture-specs-v1.json";
+import diagnosticReviewConfig from "../../../research/data/exp-0000-v3-primary-review-config.json";
 import smokeConfig from "../../../research/data/exp-0000-run-config-v1.json";
 import supplementalSmokeConfig from "../../../research/data/exp-0000-run-config-v2.json";
 import diagnosticSmokeConfig from "../../../research/data/exp-0000-run-config-v3.json";
@@ -184,5 +185,41 @@ describe("EXP-0000 frozen smoke configuration", () => {
       "sha256:69d4f769bbd0be98c9a5ab144d35913533e5db86ad214df61c56d9411dee121b",
       "sha256:e32b76c48f4e651fa5dcc69a514756807b1846a3883df2ea21297e91ce871cb7",
     ]) expect(amendmentTwo).toContain(digest);
+  });
+
+  it("freezes the post-seal v3 blinded review before evaluator delivery", () => {
+    const fileDigest = (file: string) => `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
+    const supplement = readFileSync("research/protocols/exp-0000-evaluator-supplement-1.md", "utf8");
+
+    expect(diagnosticReviewConfig).toStrictEqual({
+      attemptDirectory: "research/results/runs/smoke-exp0000-checkout-solmax-v3",
+      expectedAttemptBundleSha256: "4d688dbfa7f7b1dc6e17511a44a9596c49fc069cb1d417547f00741a0adc98ae",
+      expectedArtifactRoot: "7a33f2e367bc0c70cfbace8db24fcc6c395313f8553231f85cfaaaa38a9745b5",
+      expectedAuthorEvidenceRoot: "51e0cd6a857773d7cd78b0ca1b9b9a27e78d5a52ee13fc3fbdd41834b5b130e1",
+      taskId: "dev-architecture-create-checkout",
+      expectedRubricSha256: "sha256:6fbd874f70c42f8119a3ae71234b40a987720514347dfa8aa1075a3754832cce",
+      reviewerId: "rvw-7f4c2d91",
+      reviewerRole: "primary",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      inputTokenBudget: 60_000,
+      outputTokenBudget: 8_000,
+      pricing: {
+        currency: "USD",
+        inputUsdPerMillionTokens: 4,
+        cachedInputUsdPerMillionTokens: 0.4,
+        outputUsdPerMillionTokens: 20,
+        source: "openai-gpt-5.6-sol-2026-08-30",
+      },
+    });
+    expect(fileDigest("research/data/exp-0000-v3-primary-review-config.json"))
+      .toBe("sha256:4f004adeaccdd52c0e4f7595a5401e0b00f5e388bbf2b7b70c21ffdc3de31805");
+    expect(hashCanonicalJson(diagnosticReviewConfig))
+      .toBe("sha256:4d4aa23df44837b2a86ef189aecc1e868a1e38c55ee2fffdb2e901a3f93f1806");
+    for (const digest of [
+      "sha256:4f004adeaccdd52c0e4f7595a5401e0b00f5e388bbf2b7b70c21ffdc3de31805",
+      "sha256:4d4aa23df44837b2a86ef189aecc1e868a1e38c55ee2fffdb2e901a3f93f1806",
+      "sha256:1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6",
+    ]) expect(supplement).toContain(digest);
   });
 });
