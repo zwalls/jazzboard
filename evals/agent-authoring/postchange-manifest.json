@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-30T17:42:18Z",
+  "implementationCommit": "248d29799abef2cc5f2da2a127deccabc4861607",
+  "branch": "feature/agent-perception-authoring-v2",
+  "claim": "Fresh agents can discover Jazzboard's browser-exposed WebMCP surface, author complex architecture and freeform illustration in coherent stages, inspect semantic state and rendered pixels, and make targeted corrections without a prepared canvas plan.",
+  "provenanceBoundary": {
+    "freshAgentPerScenario": true,
+    "agentInput": "High-level creative brief plus the exact authorized Jazzboard room entry point only.",
+    "browserExposedWebMcpToolsOnlyForCanvasMutation": true,
+    "repositoryAccessByAuthoringAgents": false,
+    "preparedCanvasPlanOrCoordinates": false,
+    "operationFixtureOrReplayHarness": false,
+    "directRoomMutationApi": false,
+    "pageEvaluateMutation": false,
+    "uiAutomationForCanvasEdits": false,
+    "passiveSpectatorCapture": true,
+    "spectatorMutationToolCount": 0,
+    "excludedEvidence": "All earlier locally prepared Netflix or Mona Lisa operation plans and fixture replays are classified only as deterministic transport/renderer checks and are excluded from the closed-loop authoring claim."
+  },
+  "netflixArchitecture": {
+    "scenarioId": "netflix-live-closed-loop-webmcp-authoring-v1",
+    "roomReference": {
+      "roomIdRedacted": true,
+      "roomIdSha256": "aaca1d9fcfdd32d638f2d0d88d91938784df20ac469ea4df52cd8854b943f687",
+      "roomCodeRedacted": true,
+      "roomCodeSha256": "75f609591be54529e484e1e641e21b002da7c07786a034f812d894dd89bc5949"
+    },
+    "orderedToolCategories": [
+      "registry and capability discovery",
+      "authoritative room read",
+      "staged transactional authoring",
+      "semantic and live-pixel inspection",
+      "revision-checked targeted correction",
+      "reinspection and Diagram finalization"
+    ],
+    "authoringStages": 4,
+    "inspectionRounds": 3,
+    "correctionRounds": 2,
+    "finalState": {
+      "roomRevision": 10,
+      "diagramRevision": 7,
+      "canvasObjectCount": 85,
+      "diagramMemberCount": 45,
+      "connectorCount": 40,
+      "classifiedArchitectureNodeCount": 34,
+      "semanticFinalMarker": "live-eval-final-reviewed"
+    },
+    "rawSpectatorCaptures": [
+      {
+        "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v2-live/netflix-live-authoring/netflix-live-authoring.raw.webm",
+        "bytes": 9131846,
+        "sha256": "c7fcb7115172d2c5735742bd6f2d98b1d5de8d292a5007d0d09a32436bfafe7d"
+      },
+      {
+        "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v2-live-part2/netflix-live-authoring/netflix-live-authoring.raw.webm",
+        "bytes": 16370654,
+        "sha256": "706c6393e19820fc0bce8bda6944bc6c20176386638641860be93c17343b066b"
+      }
+    ],
+    "finalStill": {
+      "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v2-live-part2/netflix-live-authoring/netflix-live-after-zorder.png",
+      "bytes": 53098,
+      "sha256": "bf3c42be0ce3386b093c3d65351118bfe3da536808f551bad89be2888cf58fde"
+    },
+    "finalVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence/Jazzboard-Netflix-Architecture-Genuine-WebMCP-20260830.mp4",
+      "codec": "H.264 High Profile",
+      "pixelFormat": "yuv420p",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 33.266667,
+      "bytes": 1531028,
+      "sha256": "f8c6bd89b9419abf998d134336b0bf42716855d86536d22187e327e411a9bf38"
+    }
+  },
+  "monaLisa": {
+    "scenarioId": "mona-lisa-live-closed-loop-webmcp-authoring-v1",
+    "roomReference": {
+      "roomIdRedacted": true,
+      "roomIdSha256": "516d5021c6e47fed03c1d021819ef19fae373e6a0451f3381a785de41739a98c",
+      "roomCodeRedacted": true,
+      "roomCodeSha256": "1de107067626c17359da9ff57a077e713b043e3c0948285a6980b24bfc2f0379"
+    },
+    "orderedToolCategories": [
+      "registry and capability discovery",
+      "authoritative room read",
+      "staged native-vector authoring",
+      "semantic and live-pixel inspection",
+      "revision-checked targeted correction",
+      "reinspection and Diagram finalization"
+    ],
+    "authoringStages": 3,
+    "pixelInspectionRounds": 5,
+    "correctionRounds": 1,
+    "finalState": {
+      "roomRevision": 7,
+      "diagramRevision": 5,
+      "canvasObjectCount": 62,
+      "shapeCount": 18,
+      "pathCount": 32,
+      "drawingCount": 9,
+      "textCount": 1,
+      "connectorCount": 2,
+      "imageCount": 0,
+      "semanticFinalMarker": "live-eval-mona-final-reviewed"
+    },
+    "rawSpectatorCapture": {
+      "ignoredPath": "artifacts/agent-context-v3/runs/20260830-v2-live-mona/mona-live-authoring/mona-live-authoring.raw.webm",
+      "bytes": 13714682,
+      "sha256": "250b96db57ce4d3d118ebc7aaf26501b6c2268069976355fb499218346db8680"
+    },
+    "baselineStill": {
+      "ignoredPath": "artifacts/mona-lisa-proof/Mona-Lisa-Final.png",
+      "width": 1280,
+      "height": 720,
+      "bytes": 42739,
+      "sha256": "635d62479644be16557243f9e7f35f39a5d288017567d08ce78226b2244a570b"
+    },
+    "finalStill": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence/mona-lisa-live-after-clean.png",
+      "width": 1280,
+      "height": 720,
+      "bytes": 37600,
+      "sha256": "112af80d50e8663d42a5957ff1740ad66e3aa01bed75710e0ea38885aa3b2473"
+    },
+    "beforeAfterMontage": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence/mona-lisa-before-after-live.png",
+      "bytes": 208958,
+      "sha256": "6386f3919135c3ad749504d90e2a58b55bee661761e5b476ec6168e341d74064"
+    },
+    "finalVideo": {
+      "ignoredPath": "artifacts/agent-context-v3/final-evidence/Jazzboard-Mona-Lisa-Genuine-WebMCP-20260830.mp4",
+      "codec": "H.264 High Profile",
+      "pixelFormat": "yuv420p",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 25.633333,
+      "bytes": 1186707,
+      "sha256": "bb349d029e98ae48cae5c2bfb06b6d94cd88ab4524b493e82b6320398d6917d2"
+    },
+    "blindVisualScore": {
+      "before": 6.34,
+      "after": 8.5,
+      "lift": 2.16,
+      "dimensions": {
+        "recognizability": { "before": 6.5, "after": 9.0 },
+        "composition": { "before": 7.2, "after": 8.3 },
+        "completeness": { "before": 5.0, "after": 9.4 },
+        "geometry": { "before": 6.2, "after": 7.6 },
+        "finish": { "before": 6.8, "after": 8.2 }
+      }
+    }
+  },
+  "validation": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "unitAndIntegration": "144 files passed, 1 skipped; 1416 tests passed, 12 skipped",
+    "productionBuild": "passed",
+    "playwright": "58 of 58 passed in 5.1 minutes",
+    "independentFinalAudit": "No P1 or P2 findings; 261 focused tests passed",
+    "gitDiffCheck": "passed"
+  },
+  "emailDelivery": {
+    "recipient": "zysnwlls@gmail.com",
+    "subject": "Jazzboard closed-loop WebMCP evidence — Netflix + Mona Lisa — 2026-08-30",
+    "gmailMessageId": "1a053c3d662482b7",
+    "verifiedAttachmentNamesAndBytes": [
+      {
+        "filename": "Jazzboard-Netflix-Architecture-Genuine-WebMCP-20260830.mp4",
+        "bytes": 1531028
+      },
+      {
+        "filename": "Jazzboard-Mona-Lisa-Genuine-WebMCP-20260830.mp4",
+        "bytes": 1186707
+      },
+      {
+        "filename": "mona-lisa-before-after-live.png",
+        "bytes": 208958
+      }
+    ]
+  }
+}
