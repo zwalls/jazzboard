@@ -1,0 +1,7 @@
+# Large or reproducible research outputs stay outside Git. Commit manifests,
+# hashes, annotations, protocols, scripts, and aggregate reports instead.
+/data/raw/
+/data/derived/
+/results/runs/
+/artifacts/
+/tmp/
