@@ -114,6 +114,30 @@ function draw(id: string, overrides: Partial<CanvasObject> = {}): CanvasObject {
   } as CanvasObject;
 }
 
+function path(id: string, overrides: Partial<CanvasObject> = {}): CanvasObject {
+  return {
+    ...BASE,
+    id,
+    kind: "path",
+    width: 100,
+    height: 100,
+    start: { x: 0, y: 0 },
+    segments: [
+      { kind: "line", to: { x: 1, y: 0 } },
+      { kind: "line", to: { x: 0, y: 1 } },
+    ],
+    closed: false,
+    fill: "blue",
+    stroke: "none",
+    strokeWidth: 0,
+    opacity: 1,
+    lineCap: "round",
+    lineJoin: "round",
+    fillRule: "nonzero",
+    ...overrides,
+  } as CanvasObject;
+}
+
 function connector(
   id: string,
   kind: "straight" | "curved" | "elbow",
@@ -212,6 +236,13 @@ describe("semantic selection hit testing", () => {
     expect(hitTestSemanticScene(scene, { x: 50, y: 6 }, { zoom: 2, tolerancePx: 6 }))
       .toBeNull();
     expect(selectionScreenPixelsToPageUnits(8, 2)).toBe(4);
+  });
+
+  it("hits an open path's visible implicit SVG fill", () => {
+    const scene = buildSemanticScene(room([path("open-fill")]));
+
+    expect(hitTestSemanticScene(scene, { x: 20, y: 20 }, { zoom: 1, tolerancePx: 0 })?.objectId)
+      .toBe("open-fill");
   });
 
   it("hits resolved straight, curved, and elbow connector geometry but not empty route bounds", () => {
@@ -343,6 +374,13 @@ describe("semantic marquee geometry", () => {
       .toEqual(["curve"]);
     expect(querySemanticSceneBounds(scene, { x: elbowPoint.x - 1, y: elbowPoint.y - 1, width: 2, height: 2 }, { groupMode: "object" }))
       .toEqual(["elbow"]);
+  });
+
+  it("marquee-selects an open path through its visible implicit SVG fill", () => {
+    const scene = buildSemanticScene(room([path("open-fill")]));
+
+    expect(querySemanticSceneBounds(scene, { x: 20, y: 20, width: 5, height: 5 }))
+      .toEqual(["open-fill"]);
   });
 
   it("expands marquee group matches and preserves stable z-index/ID ordering", () => {

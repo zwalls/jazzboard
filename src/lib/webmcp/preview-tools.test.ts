@@ -8,6 +8,7 @@ import { InRoomCanvasPreviewTransport } from "./in-room-preview-transport";
 import { createJazzboardPreviewWebMcpTools } from "./preview-tools";
 import type {
   CanvasPreviewArtifact,
+  CanvasInspectionArtifact,
   CanvasPreviewRenderRequest,
   CanvasPreviewTransportAdapter,
 } from "./canvas-preview";
@@ -182,9 +183,29 @@ function artifact(
   };
 }
 
-function fixture(options: { role?: "participant" | "spectator"; withPresenter?: boolean } = {}) {
+function inspectionArtifact(): CanvasInspectionArtifact {
+  const preview = artifact().metadata;
+  return {
+    metadata: {
+      renderedBounds: preview.renderedBounds,
+      padding: preview.padding,
+      source: preview.source,
+      warnings: preview.warnings,
+      visualQuality: preview.visualQuality,
+      inspectionEvidence: preview.inspectionEvidence,
+    },
+  };
+}
+
+function fixture(options: {
+  role?: "participant" | "spectator";
+  withPresenter?: boolean;
+  withRenderer?: boolean;
+  withInspector?: boolean;
+} = {}) {
   let accepted: RoomState | null = null;
   const renderCanvasPreview = vi.fn(async () => artifact());
+  const inspectCanvasScope = vi.fn(async () => inspectionArtifact());
   const presentCanvasPreview = vi.fn(async () => ({
     previewId: "preview-1",
     clip: { coordinateSpace: "viewport-css-pixels" as const, x: 12, y: 24, width: 320, height: 180 },
@@ -195,7 +216,8 @@ function fixture(options: { role?: "participant" | "spectator"; withPresenter?: 
     getSelection: () => [],
     getViewport: () => null,
     getFollowTarget: () => null,
-    renderCanvasPreview,
+    ...(options.withRenderer === false ? {} : { renderCanvasPreview }),
+    ...(options.withInspector === false ? {} : { inspectCanvasScope }),
     ...(options.withPresenter === false ? {} : { presentCanvasPreview }),
     acceptRoom: (next) => {
       accepted = next;
@@ -210,7 +232,7 @@ function fixture(options: { role?: "participant" | "spectator"; withPresenter?: 
     role: options.role ?? "participant",
     context,
   };
-  return { binding, renderCanvasPreview, presentCanvasPreview, accepted: () => accepted };
+  return { binding, renderCanvasPreview, inspectCanvasScope, presentCanvasPreview, accepted: () => accepted };
 }
 
 function requestMock(authoritative = room()) {
@@ -238,11 +260,16 @@ describe("render_canvas_preview WebMCP tool", () => {
         unsupportedDrawObjectIds: [],
         omittedUnsupportedDrawObjectIdCount: 0,
         unsupportedDrawObjectIdsTruncated: false,
+        unsupportedPathObjectCount: 0,
+        unsupportedPathObjectIds: [],
+        omittedUnsupportedPathObjectIdCount: 0,
+        unsupportedPathObjectIdsTruncated: false,
       },
       findings: [],
       metrics: {
         memberObjectCount: 1,
         unsupportedDrawMemberCount: 0,
+        unsupportedPathMemberCount: 0,
         connectorCount: 0,
         findingCount: 0,
         returnedFindingCount: 0,
@@ -281,7 +308,7 @@ describe("render_canvas_preview WebMCP tool", () => {
     });
   });
 
-  it("does not promote a partial freehand geometry report to a quality pass", async () => {
+  it("does not promote partial freehand or vector-path geometry to a quality pass", async () => {
     const transport = new InRoomCanvasPreviewTransport();
     const visualQuality: NonNullable<CanvasPreviewArtifact["metadata"]["visualQuality"]> = {
       schemaVersion: 1,
@@ -297,11 +324,16 @@ describe("render_canvas_preview WebMCP tool", () => {
         unsupportedDrawObjectIds: ["draw-1"],
         omittedUnsupportedDrawObjectIdCount: 0,
         unsupportedDrawObjectIdsTruncated: false,
+        unsupportedPathObjectCount: 0,
+        unsupportedPathObjectIds: [],
+        omittedUnsupportedPathObjectIdCount: 0,
+        unsupportedPathObjectIdsTruncated: false,
       },
       findings: [],
       metrics: {
         memberObjectCount: 2,
         unsupportedDrawMemberCount: 1,
+        unsupportedPathMemberCount: 0,
         connectorCount: 0,
         findingCount: 0,
         returnedFindingCount: 0,
@@ -335,7 +367,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         geometryQualityStatus: "unknown",
         geometryCoverageStatus: "partial",
         visualInspectionStatus: "not_performed",
-        nextStep: expect.stringMatching(/freehand drawing strokes require pixel inspection/i),
+        nextStep: expect.stringMatching(/freehand strokes require pixel inspection/i),
       },
     });
 
@@ -360,29 +392,124 @@ describe("render_canvas_preview WebMCP tool", () => {
         nextStep: expect.stringMatching(/known failure[^]*fix every finding/i),
       },
     });
+
+    const pathOnlyResult = await transport.emit(
+      artifact({
+        ...visualQuality,
+        geometryCoverage: {
+          ...visualQuality.geometryCoverage,
+          unsupportedDrawObjectCount: 0,
+          unsupportedDrawObjectIds: [],
+          unsupportedPathObjectCount: 1,
+          unsupportedPathObjectIds: ["path-1"],
+        },
+        metrics: {
+          ...visualQuality.metrics,
+          unsupportedDrawMemberCount: 0,
+          unsupportedPathMemberCount: 1,
+        },
+      }),
+      async () => ({
+        previewId: "preview-partial-path",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 90_000,
+      }),
+      new AbortController().signal,
+    );
+    expect(pathOnlyResult).toMatchObject({
+      data: {
+        geometryQualityStatus: "unknown",
+        geometryCoverageStatus: "partial",
+        nextStep: expect.stringMatching(/vector paths require pixel inspection/i),
+      },
+    });
   });
 
-  it("registers only for a participant with both render and presentation transports", () => {
+  it("registers inspection for both roles and keeps legacy preview participant-only", () => {
     const ready = fixture();
     const transport = new InRoomCanvasPreviewTransport();
     expect(
       createJazzboardPreviewWebMcpTools(ready.binding, { request: requestMock(), canvasPreviewTransport: transport }).map(
         (tool) => tool.name,
       ),
-    ).toEqual(["render_canvas_preview"]);
+    ).toEqual(["render_canvas_preview", "inspect_canvas_scope"]);
     expect(
       createJazzboardPreviewWebMcpTools(ready.binding, {
         request: requestMock(),
         canvasPreviewTransport: transport,
       })[0].annotations,
     ).toEqual({ untrustedContentHint: true });
-    expect(createJazzboardPreviewWebMcpTools(fixture({ role: "spectator" }).binding, { canvasPreviewTransport: transport })).toEqual([]);
+    expect(
+      createJazzboardPreviewWebMcpTools(
+        fixture({ role: "spectator" }).binding,
+        { canvasPreviewTransport: transport },
+      ).map((tool) => tool.name),
+    ).toEqual(["inspect_canvas_scope"]);
+    expect(
+      createJazzboardPreviewWebMcpTools(
+        fixture({ role: "spectator" }).binding,
+        { canvasPreviewTransport: transport },
+      )[0].annotations,
+    ).toEqual({ readOnlyHint: true, untrustedContentHint: true });
+    expect(
+      createJazzboardPreviewWebMcpTools(
+        ready.binding,
+        { canvasPreviewTransport: transport },
+      ).find((tool) => tool.name === "inspect_canvas_scope")?.annotations,
+    ).toEqual({ readOnlyHint: true, untrustedContentHint: true });
     expect(createJazzboardPreviewWebMcpTools(ready.binding, {})).toEqual([]);
     expect(
       createJazzboardPreviewWebMcpTools(fixture({ withPresenter: false }).binding, {
         canvasPreviewTransport: transport,
       }),
     ).toEqual([]);
+  });
+
+  it("keeps inspection available when PNG rendering is unavailable", () => {
+    const transport = new InRoomCanvasPreviewTransport();
+    const participant = fixture({ withRenderer: false });
+    const spectator = fixture({ role: "spectator", withRenderer: false });
+
+    expect(
+      createJazzboardPreviewWebMcpTools(participant.binding, { canvasPreviewTransport: transport })
+        .map((tool) => tool.name),
+    ).toEqual(["inspect_canvas_scope"]);
+    expect(
+      createJazzboardPreviewWebMcpTools(spectator.binding, { canvasPreviewTransport: transport })
+        .map((tool) => tool.name),
+    ).toEqual(["inspect_canvas_scope"]);
+  });
+
+  it("advertises and validates only scope and padding for live inspection", async () => {
+    const state = fixture({ withRenderer: false });
+    const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
+      request: requestMock(room()),
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+    const inputSchema = inspect.inputSchema as { properties: Record<string, unknown> };
+
+    expect(Object.keys(inputSchema.properties)).toEqual(["scope", "padding"]);
+    const registeredScope = inputSchema.properties.scope as { type: string; description: string };
+    expect(registeredScope.type).toBe("object");
+    expect(registeredScope.description).toMatch(/objects.*targets.*expectedRevision.*diagram.*diagramId.*expectedRevision/);
+    expect(registeredScope.description.length).toBeLessThanOrEqual(150);
+    const renderState = fixture();
+    const render = createJazzboardPreviewWebMcpTools(renderState.binding, {
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    }).find((tool) => tool.name === "render_canvas_preview")!;
+    expect(Object.keys((render.inputSchema as { properties: Record<string, unknown> }).properties))
+      .toEqual(["scope", "padding", "maxWidth", "maxHeight", "pixelRatio", "maxBytes"]);
+    const result = await execute(inspect, {
+      scope: { kind: "objects", targets: [{ objectId: "object-a", expectedRevision: 3 }] },
+      maxWidth: 1024,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      tool: "inspect_canvas_scope",
+      error: { code: "INVALID_TOOL_INPUT" },
+    });
+    expect(state.inspectCanvasScope).not.toHaveBeenCalled();
   });
 
   it("resolves exact authoritative object revisions and returns the painted screenshot handoff", async () => {
@@ -431,6 +558,10 @@ describe("render_canvas_preview WebMCP tool", () => {
           width: 320,
           height: 180,
         },
+        pixelCaptureProtocol: {
+          capture: "full_viewport_while_validation_selector_is_active",
+          crop: "crop_the_captured_pixels_to_screenshotClip_in_viewport_css_pixels",
+        },
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
         geometryQualityStatus: "unknown",
@@ -438,6 +569,36 @@ describe("render_canvas_preview WebMCP tool", () => {
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");
+  });
+
+  it("returns metadata-only unified inspection evidence without describing a discarded PNG", async () => {
+    const state = fixture();
+    const tools = createJazzboardPreviewWebMcpTools(state.binding, {
+      request: requestMock(room()),
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+    const inspect = tools.find((candidate) => candidate.name === "inspect_canvas_scope")!;
+
+    const result = await execute(inspect, {
+      scope: { kind: "objects", targets: [{ objectId: "object-a", expectedRevision: 3 }] },
+    }) as JazzboardToolResult<Record<string, unknown>>;
+
+    expect(inspect.annotations).toEqual({ readOnlyHint: true, untrustedContentHint: true });
+    expect(state.inspectCanvasScope).toHaveBeenCalledOnce();
+    expect(state.renderCanvasPreview).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      tool: "inspect_canvas_scope",
+      data: {
+        presentation: "live_canvas",
+        visualInspectionStatus: "not_performed",
+      },
+    });
+    if (!result.ok) throw new Error("inspection unexpectedly failed");
+    expect(result.data).not.toHaveProperty("width");
+    expect(result.data).not.toHaveProperty("height");
+    expect(result.data).not.toHaveProperty("byteLength");
+    expect(result.data).not.toHaveProperty("mimeType");
   });
 
   it("expands an exact Diagram revision to only its declared members and connectors", async () => {

@@ -2,19 +2,48 @@ import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { CanvasBounds, RoomState, Viewport } from "@/lib/domain/types";
 
 import type {
-  CanvasPreviewArtifact,
+  CanvasPresentationArtifact,
   CanvasPreviewPresentation,
 } from "./canvas-preview";
 import { CanvasPreviewError } from "./preview-contract";
 
 const LIVE_CANVAS_CLIP_TTL_MS = 60_000;
+const CLEAN_INSPECTION_CLIP_TTL_MS = 15_000;
 const LIVE_CANVAS_FRAME_INSET = 72;
+
+type ActiveInspectionLease = {
+  canvasElement: HTMLElement;
+  previewId: string;
+  cleanup(): void;
+};
+
+const leasesByCanvas = new WeakMap<HTMLElement, ActiveInspectionLease>();
+const activeLeases = new Set<ActiveInspectionLease>();
+
+type InspectionGeometry = {
+  canvas: Pick<DOMRect, "left" | "top" | "right" | "bottom" | "width" | "height">;
+  innerWidth: number;
+  innerHeight: number;
+  scrollX: number;
+  scrollY: number;
+  visualViewport: null | {
+    width: number;
+    height: number;
+    offsetLeft: number;
+    offsetTop: number;
+    pageLeft: number;
+    pageTop: number;
+    scale: number;
+  };
+};
 
 export type LiveCanvasPreviewHost = {
   getCanvasRuntime(): CanvasRuntime | null;
   getCanvasElement(): HTMLElement | null;
   getRoom(): RoomState | null;
   isCameraFollowActive(): boolean;
+  /** Locally suppress all non-authoritative canvas and room chrome. */
+  setCleanInspection?(previewId: string | null): void;
   now?: () => number;
 };
 
@@ -55,10 +84,63 @@ function restoreViewport(runtime: CanvasRuntime, viewport: Viewport): void {
   );
 }
 
+function inspectionGeometry(canvasElement: HTMLElement): InspectionGeometry {
+  const rect = canvasElement.getBoundingClientRect();
+  const visualViewport = window.visualViewport;
+  return {
+    canvas: {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    },
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    visualViewport: visualViewport ? {
+      width: visualViewport.width,
+      height: visualViewport.height,
+      offsetLeft: visualViewport.offsetLeft,
+      offsetTop: visualViewport.offsetTop,
+      pageLeft: visualViewport.pageLeft,
+      pageTop: visualViewport.pageTop,
+      scale: visualViewport.scale,
+    } : null,
+  };
+}
+
+function inspectionGeometryChanged(
+  initial: InspectionGeometry,
+  current: InspectionGeometry,
+): boolean {
+  const tolerance = 0.5;
+  const changed = (left: number, right: number) => Math.abs(left - right) > tolerance;
+  if (
+    changed(initial.innerWidth, current.innerWidth)
+    || changed(initial.innerHeight, current.innerHeight)
+    || changed(initial.scrollX, current.scrollX)
+    || changed(initial.scrollY, current.scrollY)
+    || Object.keys(initial.canvas).some((key) => changed(
+      initial.canvas[key as keyof InspectionGeometry["canvas"]],
+      current.canvas[key as keyof InspectionGeometry["canvas"]],
+    ))
+  ) return true;
+  if (!initial.visualViewport || !current.visualViewport) {
+    return initial.visualViewport !== current.visualViewport;
+  }
+  return Object.keys(initial.visualViewport).some((key) => changed(
+    initial.visualViewport![key as keyof NonNullable<InspectionGeometry["visualViewport"]>],
+    current.visualViewport![key as keyof NonNullable<InspectionGeometry["visualViewport"]>],
+  ));
+}
+
 function assertLiveScopeIsExact(
   host: LiveCanvasPreviewHost,
   runtime: CanvasRuntime,
-  artifact: CanvasPreviewArtifact,
+  artifact: CanvasPresentationArtifact,
 ): void {
   const room = host.getRoom();
   if (!room) {
@@ -84,10 +166,15 @@ function assertLiveScopeIsExact(
     }
   }
 
-  const incarnationById = new Map(
-    source.objectIncarnations?.map((item) => [item.objectId, item]) ?? [],
-  );
-  for (const expected of source.objectRevisions) {
+  const expectedObjects = new Map([
+    ...source.objectRevisions,
+    ...(source.visualContributorRevisions ?? []),
+  ].map((item) => [item.objectId, item]));
+  const incarnationById = new Map([
+    ...(source.objectIncarnations ?? []),
+    ...(source.visualContributorIncarnations ?? []),
+  ].map((item) => [item.objectId, item]));
+  for (const expected of expectedObjects.values()) {
     const current = room.objects[expected.objectId];
     const incarnation = incarnationById.get(expected.objectId);
     if (
@@ -103,6 +190,105 @@ function assertLiveScopeIsExact(
       );
     }
   }
+}
+
+function installInspectionLease(input: {
+  canvasElement: HTMLElement;
+  host: LiveCanvasPreviewHost;
+  previewId: string;
+  previousViewport: Viewport;
+  runtime: CanvasRuntime;
+  ttlMs: number;
+}): ActiveInspectionLease {
+  leasesByCanvas.get(input.canvasElement)?.cleanup();
+  const inspectionRoot = input.canvasElement.closest<HTMLElement>("[data-jazzboard-room]");
+  const initialGeometry = inspectionGeometry(input.canvasElement);
+  let active = true;
+  const cleanupCallbacks: Array<() => void> = [];
+  const lease: ActiveInspectionLease = {
+    canvasElement: input.canvasElement,
+    previewId: input.previewId,
+    cleanup() {
+      if (!active) return;
+      active = false;
+      for (const cleanup of cleanupCallbacks.splice(0)) cleanup();
+      if (input.canvasElement.dataset.canvasInspectionToken === input.previewId) {
+        delete input.canvasElement.dataset.canvasInspectionToken;
+      }
+      if (inspectionRoot?.dataset.cleanCanvasInspectionToken === input.previewId) {
+        delete inspectionRoot.dataset.cleanCanvasInspectionToken;
+      }
+      input.host.setCleanInspection?.(null);
+      if (
+        input.host.getCanvasRuntime() === input.runtime &&
+        input.host.getCanvasElement() === input.canvasElement
+      ) restoreViewport(input.runtime, input.previousViewport);
+      if (leasesByCanvas.get(input.canvasElement) === lease) {
+        leasesByCanvas.delete(input.canvasElement);
+      }
+      activeLeases.delete(lease);
+    },
+  };
+  const timeout = window.setTimeout(() => lease.cleanup(), input.ttlMs);
+  cleanupCallbacks.push(() => window.clearTimeout(timeout));
+  cleanupCallbacks.push(input.runtime.onDocumentChange(() => lease.cleanup()));
+  const invalidate = () => lease.cleanup();
+  let firstGeometryFrame: number | null = null;
+  let secondGeometryFrame: number | null = null;
+  const cancelGeometryCheck = () => {
+    if (firstGeometryFrame !== null) window.cancelAnimationFrame(firstGeometryFrame);
+    if (secondGeometryFrame !== null) window.cancelAnimationFrame(secondGeometryFrame);
+    firstGeometryFrame = null;
+    secondGeometryFrame = null;
+  };
+  cleanupCallbacks.push(cancelGeometryCheck);
+  const invalidateIfGeometryChanged = () => {
+    // Page.captureScreenshot({captureBeyondViewport:true}) can temporarily
+    // perturb layout/visual-viewport metrics while taking a clipped image.
+    // Check after two settled paints so that browser-internal geometry is
+    // restored, while persistent user/layout changes still invalidate.
+    cancelGeometryCheck();
+    firstGeometryFrame = window.requestAnimationFrame(() => {
+      firstGeometryFrame = null;
+      secondGeometryFrame = window.requestAnimationFrame(() => {
+        secondGeometryFrame = null;
+        if (inspectionGeometryChanged(initialGeometry, inspectionGeometry(input.canvasElement))) {
+          lease.cleanup();
+        }
+      });
+    });
+  };
+  for (const eventName of ["pointerdown", "wheel", "keydown"] as const) {
+    window.addEventListener(eventName, invalidate, { capture: true, once: true });
+    cleanupCallbacks.push(() => window.removeEventListener(eventName, invalidate, { capture: true }));
+  }
+  for (const eventName of ["resize", "scroll"] as const) {
+    window.addEventListener(eventName, invalidateIfGeometryChanged, { capture: true });
+    cleanupCallbacks.push(() => window.removeEventListener(eventName, invalidateIfGeometryChanged, { capture: true }));
+  }
+  const visualViewport = window.visualViewport;
+  if (visualViewport) {
+    visualViewport.addEventListener("resize", invalidateIfGeometryChanged);
+    visualViewport.addEventListener("scroll", invalidateIfGeometryChanged);
+    cleanupCallbacks.push(() => {
+      visualViewport.removeEventListener("resize", invalidateIfGeometryChanged);
+      visualViewport.removeEventListener("scroll", invalidateIfGeometryChanged);
+    });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => invalidateIfGeometryChanged());
+    observer.observe(input.canvasElement);
+    cleanupCallbacks.push(() => observer.disconnect());
+  }
+  if (inspectionRoot) inspectionRoot.dataset.cleanCanvasInspectionToken = input.previewId;
+  leasesByCanvas.set(input.canvasElement, lease);
+  activeLeases.add(lease);
+  return lease;
+}
+
+/** Clears every short-lived clean presentation owned by this browser tab. */
+export function disposeLiveCanvasPreviews(): void {
+  for (const lease of [...activeLeases]) lease.cleanup();
 }
 
 function finitePositive(value: number): boolean {
@@ -179,7 +365,7 @@ function liveCanvasClip(
  */
 export async function presentLiveCanvasPreview(
   host: LiveCanvasPreviewHost,
-  artifact: CanvasPreviewArtifact,
+  artifact: CanvasPresentationArtifact,
   signal: AbortSignal,
 ): Promise<CanvasPreviewPresentation> {
   if (signal.aborted) throw abortError();
@@ -215,7 +401,15 @@ export async function presentLiveCanvasPreview(
     ),
   );
   const previousViewport = runtime.getViewport();
+  const previewId = createPreviewId();
+  const inspectionRoot = canvasElement.closest<HTMLElement>("[data-jazzboard-room]");
+  let cleanInspectionApplied = false;
   try {
+    leasesByCanvas.get(canvasElement)?.cleanup();
+    canvasElement.dataset.canvasInspectionToken = previewId;
+    if (inspectionRoot) inspectionRoot.dataset.cleanCanvasInspectionToken = previewId;
+    host.setCleanInspection?.(previewId);
+    cleanInspectionApplied = true;
     runtime.zoomToBounds(renderedBounds, {
       inset,
       durationMs: 0,
@@ -242,12 +436,27 @@ export async function presentLiveCanvasPreview(
     assertLiveScopeIsExact(host, runtime, artifact);
 
     const now = host.now ?? Date.now;
+    const clip = liveCanvasClip(runtime, canvasElement, renderedBounds);
+    const ttlMs = "blob" in artifact ? LIVE_CANVAS_CLIP_TTL_MS : CLEAN_INSPECTION_CLIP_TTL_MS;
+    installInspectionLease({ canvasElement, host, previewId, previousViewport, runtime, ttlMs });
     return {
-      previewId: createPreviewId(),
-      clip: liveCanvasClip(runtime, canvasElement, renderedBounds),
-      expiresAt: now() + LIVE_CANVAS_CLIP_TTL_MS,
+      previewId,
+      clip,
+      expiresAt: now() + ttlMs,
+      validation: {
+        token: previewId,
+        activeSelector: `[data-canvas-inspection-token="${previewId}"]`,
+        status: "valid_until_invalidated",
+      },
     };
   } catch (error) {
+    if (cleanInspectionApplied && canvasElement.dataset.canvasInspectionToken === previewId) {
+      delete canvasElement.dataset.canvasInspectionToken;
+      host.setCleanInspection?.(null);
+    }
+    if (inspectionRoot?.dataset.cleanCanvasInspectionToken === previewId) {
+      delete inspectionRoot.dataset.cleanCanvasInspectionToken;
+    }
     if (host.getCanvasRuntime() === runtime && host.getCanvasElement() === canvasElement) {
       restoreViewport(runtime, previousViewport);
     }

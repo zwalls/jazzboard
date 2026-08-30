@@ -13,6 +13,7 @@ import type {
   ConnectorObject,
   Diagram,
   DrawObject,
+  PathObject,
   Point,
   RoomState,
   ShapeObject,
@@ -569,6 +570,42 @@ describe("diagram visual quality analysis", () => {
     expect(report.geometryCoverage.unsupportedDrawObjectIds[0]).toBe("stroke-000");
     expect(report.metrics.unsupportedDrawMemberCount).toBe(drawings.length);
     expect(report.summary).not.toMatch(/visual quality passed/i);
+  });
+
+  it("bounds unsupported path identities while keeping exact partial-coverage metrics", () => {
+    const paths: PathObject[] = Array.from({ length: 120 }, (_, index) => ({
+      ...base(`path-${index.toString().padStart(3, "0")}`),
+      kind: "path",
+      x: index * 20,
+      y: 0,
+      width: 10,
+      height: 10,
+      start: { x: 0, y: 0 },
+      segments: [{ kind: "line", to: { x: 1, y: 1 } }],
+      closed: false,
+      fill: "none",
+      stroke: "black",
+      strokeWidth: 2,
+      opacity: 1,
+      lineCap: "round",
+      lineJoin: "round",
+      fillRule: "nonzero",
+    }));
+    const report = analyzeDiagramVisualQuality(room(paths), "quality-diagram");
+
+    expect(report.geometryCoverage).toMatchObject({
+      status: "partial",
+      analyzedMemberObjectCount: 0,
+      unsupportedPathObjectCount: paths.length,
+      omittedUnsupportedPathObjectIdCount:
+        paths.length - DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
+      unsupportedPathObjectIdsTruncated: true,
+    });
+    expect(report.geometryCoverage.unsupportedPathObjectIds).toHaveLength(
+      DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
+    );
+    expect(report.geometryCoverage.unsupportedPathObjectIds[0]).toBe("path-000");
+    expect(report.metrics.unsupportedPathMemberCount).toBe(paths.length);
   });
 
   it("tests connector intrusion against a rotated member interior, not its AABB", () => {

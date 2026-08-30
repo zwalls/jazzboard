@@ -16,6 +16,17 @@
   width: 100%;
 }
 
+/* A local inspection lease preserves state while removing every sibling UI layer from pixels. */
+.roomPage[data-clean-inspection="true"] > :not(.canvasShell) {
+  visibility: hidden !important;
+}
+
+/* The presenter applies this synchronously before React commits clean mode. */
+.roomPage[data-clean-canvas-inspection-token] > :not(.canvasShell),
+.roomPage[data-clean-canvas-inspection-token] [data-canvas-inspection-presence] {
+  visibility: hidden !important;
+}
+
 .canvasShell {
   height: 100%;
   inset: 0;

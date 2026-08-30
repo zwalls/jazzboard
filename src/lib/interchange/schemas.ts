@@ -240,6 +240,7 @@ const warning = z
       "EXTERNAL_CONNECTOR_ENDPOINT_OMITTED",
       "MERMAID_OBJECT_OMITTED",
       "MERMAID_CONNECTOR_OMITTED",
+      "VECTOR_PATH_UNSUPPORTED_V1",
     ]),
     message: z.string().min(1).max(2_000),
     objectId: id.nullable(),

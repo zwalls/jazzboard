@@ -16,6 +16,7 @@ import {
   type ResolvedConnectorRoute,
 } from "./connector-routing";
 import { MAX_ROOM_REVIEW_PROPOSALS } from "./review";
+import { vectorPathBounds } from "./vector-path";
 import type {
   ActorKind,
   ActorRef,
@@ -164,7 +165,7 @@ function touchCoordination(room: RoomState): void {
 }
 
 function updateObject(object: CanvasObject, patch: Record<string, unknown>, actor: ActorRef, now: number): CanvasObject {
-  return {
+  const updated = {
     ...object,
     ...patch,
     id: object.id,
@@ -175,6 +176,17 @@ function updateObject(object: CanvasObject, patch: Record<string, unknown>, acto
     updatedAt: now,
     lastEditedBy: actor,
   } as CanvasObject;
+  if (updated.kind === "path") {
+    const noFill = updated.fill.trim().toLowerCase() === "none";
+    const noStroke = updated.stroke.trim().toLowerCase() === "none";
+    if (noFill && noStroke) {
+      throw new DomainError("INVALID_OPERATION", "A path requires a visible fill or stroke.", { objectId: updated.id });
+    }
+    if (!noStroke && updated.strokeWidth <= 0) {
+      throw new DomainError("INVALID_OPERATION", "A visible path stroke requires positive strokeWidth.", { objectId: updated.id });
+    }
+  }
+  return updated;
 }
 
 function validateImageReference(room: RoomState, object: CanvasObject): void {
@@ -202,6 +214,7 @@ const KIND_PATCH_FIELDS: Record<CanvasObject["kind"], ReadonlySet<string>> = {
   connector: new Set(["start", "end", "routing", "direction", "label", "color"]),
   image: new Set(["url", "assetId", "alt", "mimeType", "sourceUrl", "locked"]),
   draw: new Set(["points", "color", "size"]),
+  path: new Set(["start", "segments", "closed", "fill", "stroke", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule"]),
 };
 
 function isLifecycleNodeType(nodeType: DiagramNodeType | null): nodeType is "decision" | "open_question" {
@@ -343,6 +356,7 @@ function boundsFor(
         height: object.height,
       };
     }
+    if (object.kind === "path") return vectorPathBounds(object);
     return {
       x: object.x,
       y: object.y,
@@ -614,6 +628,17 @@ function applyObjectCommandMutable(
             patch.routing as Parameters<typeof normalizeConnectorRouting>[0],
           ),
         };
+      }
+      if (object.kind === "connector") {
+        for (const terminal of ["start", "end"] as const) {
+          if (!(terminal in patch)) continue;
+          const endpoint = patch[terminal] as { x: number; y: number; objectId?: string | null };
+          patch = { ...patch, [terminal]: { objectId: null, ...endpoint } };
+        }
+      }
+      if (object.kind === "path" && "start" in patch) {
+        const start = patch.start as { x: number; y: number };
+        patch = { ...patch, start: { x: start.x, y: start.y } };
       }
       const updated = updateObject(object, patch, actor, now);
       validateConnectorReferences(room, updated);

@@ -134,6 +134,25 @@ describe("semantic object schemas", () => {
         ],
       }),
     ).toMatchObject({ color: "black", size: "m" });
+
+    expect(
+      createCanvasObjectSchema.parse({
+        ...baseObject,
+        id: "path",
+        kind: "path",
+        start: { x: 0, y: 0.5 },
+        segments: [{ kind: "cubic", control1: { x: 0.2, y: 0 }, control2: { x: 0.8, y: 1 }, to: { x: 1, y: 0.5 } }],
+      }),
+    ).toMatchObject({
+      closed: false,
+      fill: "none",
+      stroke: "black",
+      strokeWidth: 3.5,
+      opacity: 1,
+      lineCap: "round",
+      lineJoin: "round",
+      fillRule: "nonzero",
+    });
   });
 
   it("rejects non-finite geometry, non-positive dimensions, and underspecified drawings", () => {
@@ -150,6 +169,51 @@ describe("semantic object schemas", () => {
         points: [{ x: 0, y: 0 }],
       }).success,
     ).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "path",
+      start: { x: -0.1, y: 0 },
+      segments: [{ kind: "line", to: { x: 1, y: 1 } }],
+    }).success).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "path",
+      start: { x: 0, y: 0 },
+      segments: [{ kind: "line", to: { x: 1, y: 1 } }],
+      fill: "none",
+      stroke: "none",
+    }).success).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "shape",
+      fill: "chartreuse",
+    }).success).toBe(false);
+    expect(createCanvasObjectSchema.safeParse({
+      ...baseObject,
+      kind: "shape",
+      fill: " BLUE ",
+    }).success).toBe(false);
+  });
+
+  it("keeps normalized path starts exact while preserving connector endpoint defaults", () => {
+    const pathCommand = canvasCommandSchema.parse({
+      type: "update",
+      objectId: "path",
+      expectedRevision: 1,
+      operation: "edit",
+      patch: { start: { x: 0.2, y: 0.4 } },
+    });
+    expect(pathCommand).toMatchObject({ patch: { start: { x: 0.2, y: 0.4 } } });
+    expect((pathCommand as { patch: { start: Record<string, unknown> } }).patch.start).not.toHaveProperty("objectId");
+
+    const connectorCommand = canvasCommandSchema.parse({
+      type: "update",
+      objectId: "connector",
+      expectedRevision: 1,
+      operation: "connect",
+      patch: { start: { x: 20, y: 40 } },
+    });
+    expect(connectorCommand).toMatchObject({ patch: { start: { x: 20, y: 40, objectId: null } } });
   });
 
   it("requires valid image URLs", () => {

@@ -45,6 +45,7 @@ import { useRoomActivity } from "@/hooks/use-room-activity";
 import {
   InRoomCanvasPreviewTransport,
   JazzboardWebMcpRegistrar,
+  prepareCanvasInspection,
   presentLiveCanvasPreview,
   renderCanvasPreview,
 } from "@/lib/webmcp";
@@ -153,6 +154,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [diagramAnnouncement, setDiagramAnnouncement] = useState("");
   const [selection, setSelection] = useState<string[]>([]);
   const [canvasRuntime, setCanvasRuntime] = useState<CanvasRuntime | null>(null);
+  const [cleanInspectionId, setCleanInspectionId] = useState<string | null>(null);
   const [persistentChromeHost, setPersistentChromeHost] = useState<HTMLDivElement | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -243,6 +245,29 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       getSelection: () => selectionRef.current,
       getViewport: () => canvasRuntimeRef.current?.getViewport() ?? null,
       getFollowTarget: () => followTargetRef.current,
+      inspectCanvasScope: (request, signal) =>
+        prepareCanvasInspection(
+          { getCanvasRuntime: () => canvasRuntimeRef.current, getRoom: () => roomStateRef.current },
+          request,
+          signal,
+        ),
+      presentCanvasPreview: (artifact, signal) => presentLiveCanvasPreview(
+        {
+          getCanvasRuntime: () => canvasRuntimeRef.current,
+          getCanvasElement: () => canvasRef.current?.getCanvasElement() ?? null,
+          getRoom: () => roomStateRef.current,
+          isCameraFollowActive: () => Boolean(
+            followTargetRef.current
+            || (
+              participantId
+              && roomStateRef.current?.spotlight?.followingParticipantIds.includes(participantId)
+            )
+          ),
+          setCleanInspection: setCleanInspectionId,
+        },
+        artifact,
+        signal,
+      ),
       ...(canRenderPng ? {
         renderCanvasPreview: (request, signal) =>
           renderCanvasPreview(
@@ -250,22 +275,6 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
             request,
             signal,
           ),
-        presentCanvasPreview: (artifact, signal) => presentLiveCanvasPreview(
-          {
-            getCanvasRuntime: () => canvasRuntimeRef.current,
-            getCanvasElement: () => canvasRef.current?.getCanvasElement() ?? null,
-            getRoom: () => roomStateRef.current,
-            isCameraFollowActive: () => Boolean(
-              followTargetRef.current
-              || (
-                participantId
-                && roomStateRef.current?.spotlight?.followingParticipantIds.includes(participantId)
-              )
-            ),
-          },
-          artifact,
-          signal,
-        ),
         saveCanvasPng: async (artifact, filename, signal) => {
           if (signal.aborted) throw new DOMException("The PNG export was cancelled.", "AbortError");
           downloadBlobFile(artifact.blob, filename);
@@ -614,6 +623,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     <main
       className={`${styles.roomPage} ${effectiveFollowTarget ? styles.following : ""}`}
       data-jazzboard-room
+      data-clean-inspection={cleanInspectionId ? "true" : undefined}
       style={{ "--follow-color": followedParticipant?.color ?? "#5B5CE2" } as React.CSSProperties}
     >
       <div className={styles.viewportChromeLayer} data-testid="room-viewport-chrome">
@@ -886,6 +896,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         ref={canvasRef}
         boardMenuActions={boardMenuActions}
         persistentChromeHost={persistentChromeHost}
+        cleanInspectionId={cleanInspectionId}
         room={room}
         agentDrafts={controller.agentDrafts}
         initialAgentDraftIds={controller.initialAgentDraftIds}

@@ -18,7 +18,8 @@ export type JazzboardArtifactWarningCode =
   | "DIAGRAM_PARTIAL"
   | "EXTERNAL_CONNECTOR_ENDPOINT_OMITTED"
   | "MERMAID_OBJECT_OMITTED"
-  | "MERMAID_CONNECTOR_OMITTED";
+  | "MERMAID_CONNECTOR_OMITTED"
+  | "VECTOR_PATH_UNSUPPORTED_V1";
 
 export type JazzboardArtifactWarning = {
   code: JazzboardArtifactWarningCode;

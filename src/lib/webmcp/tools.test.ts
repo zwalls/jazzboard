@@ -185,36 +185,22 @@ describe("Jazzboard semantic WebMCP surface", () => {
     expect(tools.every((tool) => tool.annotations?.untrustedContentHint)).toBe(true);
   });
 
-  it("advertises the same strict routing contract for create and update", () => {
+  it("advertises concise create/update endpoint and routing guidance", () => {
     const fixture = contextFixture();
     const tools = createJazzboardWebMcpTools(binding(fixture.context));
-    const drawSchema = toolByName(tools, "draw_connection").inputSchema as unknown as {
-      $defs?: Record<string, unknown>;
-    };
-    const updateSchema = toolByName(tools, "update_object").inputSchema as unknown as {
-      $defs?: Record<string, unknown>;
-    };
-
-    expect(drawSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
-    expect(updateSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
+    const drawProperties = (toolByName(tools, "draw_connection").inputSchema as unknown as {
+      properties?: Record<string, { description?: string }>;
+    }).properties;
+    expect(drawProperties?.routing?.description).toMatch(/auto\|straight\|curved\|elbow/);
+    expect(drawProperties?.start?.description).toMatch(/objectId.*port/);
+    const updateProperties = (toolByName(tools, "update_object").inputSchema as unknown as {
+      properties?: { patch?: { properties?: Record<string, { description?: string }> } };
+    }).properties?.patch?.properties;
+    expect(updateProperties?.routing?.description).toMatch(/auto\/straight\/curved\/elbow/);
     expect(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA.properties.mode.description).toContain(
       "delegates routing",
     );
-    expect(drawSchema.$defs?.port).toMatchObject({
-      required: ["side"],
-      properties: {
-        side: { enum: ["top", "right", "bottom", "left"] },
-        position: { minimum: 0, maximum: 1, default: 0.5 },
-      },
-    });
-    expect(updateSchema.$defs?.connectorEndpoint).toMatchObject({
-      properties: {
-        normalizedAnchor: expect.any(Object),
-        isPrecise: expect.any(Object),
-        isExact: expect.any(Object),
-        snap: expect.any(Object),
-      },
-    });
+    expect(updateProperties?.end?.description).toMatch(/attachment metadata is optional/);
   });
 });
 
@@ -511,7 +497,7 @@ describe("semantic mutation handlers", () => {
     });
   });
 
-  it("keeps create_node lifecycle metadata acceptance identical in JSON Schema and runtime", async () => {
+  it("keeps create_node lifecycle discovery compact and runtime validation exact", async () => {
     const fixture = contextFixture();
     const request = successfulRequest();
     const tools = createJazzboardWebMcpTools(binding(fixture.context), {
@@ -522,6 +508,8 @@ describe("semantic mutation handlers", () => {
     const validatesAdvertisedSchema = new Ajv({ allErrors: true, logger: false }).compile(
       createNode.inputSchema as object,
     );
+    expect((createNode.inputSchema as { properties?: { nodeMetadata?: { description?: string } } })
+      .properties?.nodeMetadata?.description).toMatch(/kind matches nodeType/);
     const acceptedInputs = [
       {
         label: "Pending decision",
@@ -560,7 +548,7 @@ describe("semantic mutation handlers", () => {
       await expect(execute(createNode, input)).resolves.toMatchObject({ ok: true });
     }
     for (const input of rejectedInputs) {
-      expect(validatesAdvertisedSchema(input)).toBe(false);
+      expect(validatesAdvertisedSchema(input)).toBe(true);
       await expect(execute(createNode, input)).resolves.toMatchObject({
         ok: false,
         error: { code: "INVALID_TOOL_INPUT" },
@@ -712,6 +700,80 @@ describe("semantic mutation handlers", () => {
     });
 
     expect(result).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("creates native Bezier paths and polygons from safe numeric world geometry", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), {
+      request,
+      createId: () => "path_fixed",
+    });
+
+    await execute(toolByName(tools, "create_path"), {
+      start: { x: 100, y: 200 },
+      segments: [{
+        kind: "cubic",
+        control1: { x: 120, y: 160 },
+        control2: { x: 180, y: 260 },
+        to: { x: 200, y: 220 },
+      }],
+      closed: true,
+      fill: "#abc",
+      stroke: "red",
+      strokeWidth: 7,
+      opacity: 0.6,
+      lineCap: "square",
+      lineJoin: "bevel",
+      fillRule: "evenodd",
+    });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toMatchObject({
+      command: {
+        object: {
+          id: "path_fixed",
+          kind: "path",
+          x: 100,
+          y: 160,
+          width: 100,
+          height: 100,
+          start: { x: 0, y: 0.4 },
+          segments: [{
+            kind: "cubic",
+            control1: { x: 0.2, y: 0 },
+            control2: { x: 0.8, y: 1 },
+            to: { x: 1, y: 0.6 },
+          }],
+          fill: "#abc",
+          strokeWidth: 7,
+          opacity: 0.6,
+        },
+      },
+    });
+
+    await execute(toolByName(tools, "create_polygon"), {
+      points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 20, y: 30 }],
+      fill: "blue",
+    });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 1)).toMatchObject({
+      command: { object: { kind: "path", closed: true, segments: [{ kind: "line" }, { kind: "line" }] } },
+    });
+  });
+
+  it("rejects unsupported authoring colors and invisible path styles before mutation", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
+    for (const input of [
+      { start: { x: 0, y: 0 }, segments: [{ kind: "line", to: { x: 10, y: 10 } }], stroke: "chartreuse" },
+      { start: { x: 0, y: 0 }, segments: [{ kind: "line", to: { x: 10, y: 10 } }], fill: "none", stroke: "none" },
+      { start: { x: 0, y: 0 }, segments: [{ kind: "line", to: { x: 10, y: 10 } }], stroke: "red", strokeWidth: 0 },
+    ]) {
+      await expect(execute(toolByName(tools, "create_path"), input)).resolves.toMatchObject({
+        ok: false,
+        error: { code: "INVALID_TOOL_INPUT" },
+      });
+    }
     expect(request).not.toHaveBeenCalled();
   });
 

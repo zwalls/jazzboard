@@ -6,6 +6,7 @@ import type { FollowTarget, RoomRole, RoomState, Viewport } from "@/lib/domain/t
 
 import type {
   CanvasPreviewArtifact,
+  CanvasInspectionArtifact,
   CanvasPreviewPresenter,
   CanvasPreviewRenderRequest,
   CanvasPreviewTransportAdapter,
@@ -21,6 +22,10 @@ export interface JazzboardWebMcpContext {
     request: CanvasPreviewRenderRequest,
     signal: AbortSignal,
   ): Promise<CanvasPreviewArtifact>;
+  inspectCanvasScope?(
+    request: CanvasPreviewRenderRequest,
+    signal: AbortSignal,
+  ): Promise<CanvasInspectionArtifact>;
   presentCanvasPreview?: CanvasPreviewPresenter;
   saveCanvasPng?(
     artifact: CanvasPreviewArtifact,

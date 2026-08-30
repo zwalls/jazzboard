@@ -117,7 +117,11 @@ export function CanvasPresenceOverlay({
   };
 
   return (
-    <div className={styles.presenceOverlay}>
+    <div
+      className={styles.presenceOverlay}
+      data-canvas-inspection-presence
+      data-testid="canvas-presence-overlay"
+    >
       {Object.values(room.participants).flatMap((participant) => {
         const items: React.ReactNode[] = [];
         if (

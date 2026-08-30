@@ -87,7 +87,7 @@ export function semanticShapeLabelMaxLines(height: number): number {
   );
 }
 
-const HEX_COLOR_PATTERN = /^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i;
+const HEX_COLOR_PATTERN = /^(?:#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8})$/i;
 
 function normalizedColor(value: string): string {
   return value.trim().toLowerCase();
@@ -105,8 +105,9 @@ function resolvedFallback(value: string, mode: SemanticColorMode): string {
 }
 
 /** Resolve named ink to its saturated stroke/text value; preserve explicit hex. */
-export function semanticStrokeColor(value: string, fallback = "black"): string {
+export function semanticStrokeColor(value: string, fallback = "black", allowNone = false): string {
   const normalized = normalizedColor(value);
+  if (allowNone && normalized === "none") return "none";
   return paletteColor(normalized, "solid") ??
     (HEX_COLOR_PATTERN.test(normalized) ? normalized : resolvedFallback(fallback, "solid"));
 }

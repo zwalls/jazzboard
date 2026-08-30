@@ -13,7 +13,6 @@ import {
   JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
   JAZZBOARD_SEMANTIC_TOOL_NAMES,
 } from "./semantic-tools";
-import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type { JazzboardToolResult, JazzboardWebMcpBinding, JazzboardWebMcpContext, WebMcpRequest } from "./types";
 
 const NOW = 5_000_000;
@@ -214,6 +213,7 @@ function tool(tools: WebMCP.ModelContextTool[], name: string) {
 
 type JsonSchema = {
   type?: string;
+  description?: string;
   const?: unknown;
   enum?: unknown[];
   $ref?: string;
@@ -256,7 +256,10 @@ function operationSchema(schema: JsonSchema, op: string): JsonSchema {
   const conditional = items?.allOf?.find(
     (variant) => variant.if?.properties?.op?.const === op,
   );
-  if (!conditional) throw new Error(`Missing JSON Schema operation ${op}`);
+  if (!conditional) {
+    if (items?.properties?.op?.enum?.includes(op)) return items;
+    throw new Error(`Missing JSON Schema operation ${op}`);
+  }
   return {
     ...items,
     required: [...(items?.required ?? []), ...(conditional.then?.required ?? [])],
@@ -307,49 +310,22 @@ describe("role-scoped semantic tool registration", () => {
     }
 
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
-    expect(transactionSchema.$defs?.routing).toEqual(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA);
+    expect(transactionSchema.properties?.operations?.items?.properties?.routing).toEqual({ type: "object" });
     const connectionRequired = operationSchema(transactionSchema, "connect").required ?? [];
-    expect(connectionRequired).toEqual(expect.arrayContaining(["op", "tempRef", "start", "end"]));
+    expect(connectionRequired).toEqual(["op"]);
     for (const field of ["direction", "label", "color"]) expect(connectionRequired).not.toContain(field);
-    expect(operationSchema(transactionSchema, "connect").allOf).toContainEqual({
-      properties: { label: { maxLength: 2_000 } },
-    });
-    expect(transactionSchema.$defs?.endpoint?.oneOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          required: ["objectId"],
-          properties: expect.objectContaining({ port: { $ref: "#/$defs/port" } }),
-        }),
-        expect.objectContaining({
-          required: ["tempRef"],
-          properties: expect.objectContaining({ port: { $ref: "#/$defs/port" } }),
-        }),
-      ]),
-    );
-    expect(transactionSchema.$defs?.port).toMatchObject({
-      required: ["side"],
-      properties: {
-        side: { enum: ["top", "right", "bottom", "left"] },
-        position: { minimum: 0, maximum: 1, default: 0.5 },
-      },
-    });
+    expect(transactionSchema.properties?.operations?.items?.properties?.start?.description)
+      .toMatch(/objectId\|tempRef/);
     const createNodeSchema = operationSchema(transactionSchema, "create_node");
-    expect(createNodeSchema.required).toEqual(
-      expect.arrayContaining(["op", "tempRef", "label", "nodeType"]),
-    );
-    expect(createNodeSchema.allOf).toContainEqual({ properties: { label: { minLength: 1 } } });
-    expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toEqual({
-      $ref: "#/$defs/nodeMetadata",
-    });
+    expect(createNodeSchema.required).toEqual(["op"]);
+    expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toEqual({ type: "object" });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
-    expect(batchDiagramRequired).toEqual(expect.arrayContaining(["op", "tempRef", "title"]));
+    expect(batchDiagramRequired).toEqual(["op"]);
     expect(batchDiagramRequired).not.toContain("diagramId");
-    expect(operationSchema(transactionSchema, "edit_diagram").required).toEqual(
-      expect.arrayContaining(["op", "diagramId", "expectedRevision"]),
-    );
+    expect(operationSchema(transactionSchema, "edit_diagram").required).toEqual(["op"]);
 
     const autoLayoutRequired = operationSchema(transactionSchema, "auto_layout").required ?? [];
-    expect(autoLayoutRequired).toEqual(expect.arrayContaining(["op", "layout", "targets"]));
+    expect(autoLayoutRequired).toEqual(["op"]);
     expect(autoLayoutRequired).not.toContain("density");
   });
 
@@ -367,7 +343,7 @@ describe("role-scoped semantic tool registration", () => {
     })) as unknown as WebMcpRequest;
     const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
-    const patchSchema = transactionSchema.$defs?.patch;
+    const patchSchema = transactionSchema.properties?.operations?.items?.properties?.patch;
     const acceptedPatch = {
       x: 1,
       y: 2,
@@ -397,47 +373,21 @@ describe("role-scoped semantic tool registration", () => {
       direction: "both",
       alt: "Accessible description",
       locked: true,
+      segments: [{ kind: "line", to: { x: 1, y: 1 } }],
+      closed: true,
+      strokeWidth: 4,
+      opacity: 0.8,
+      lineCap: "round",
+      lineJoin: "bevel",
+      fillRule: "evenodd",
     };
 
     expect(patchSchema).toMatchObject({
       type: "object",
-      additionalProperties: false,
-      minProperties: 1,
+      description: expect.stringMatching(/normalized object-local 0\.\.1/),
     });
-    expect(Object.keys(patchSchema?.properties ?? {})).toEqual(Object.keys(acceptedPatch));
-    expect(patchSchema?.properties?.width).toMatchObject({
-      type: "number",
-      exclusiveMinimum: 0,
-      maximum: 100_000,
-    });
-    expect(patchSchema?.properties?.content).toMatchObject({ type: "string", maxLength: 20_000 });
-    expect(patchSchema?.properties?.start).toEqual({ $ref: "#/$defs/connectorEndpoint" });
-    expect(patchSchema?.properties?.routing).toEqual({ $ref: "#/$defs/routing" });
-    expect(patchSchema?.properties?.nodeMetadata?.anyOf).toEqual([
-      { $ref: "#/$defs/nodeMetadata" },
-      { type: "null" },
-    ]);
-    const metadataSchema = transactionSchema.$defs?.nodeMetadata;
-    expect(metadataSchema).toMatchObject({
-      type: "object",
-      additionalProperties: false,
-      required: ["kind"],
-      properties: {
-        kind: { enum: ["decision", "open_question"] },
-        status: {
-          enum: expect.arrayContaining([
-            "proposed",
-            "accepted",
-            "rejected",
-            "superseded",
-            "open",
-            "answered",
-            "deferred",
-            "closed",
-          ]),
-        },
-      },
-    });
+    expect(transactionSchema.properties?.operations?.items?.properties?.segments?.description)
+      .toMatch(/quadratic.*control.*cubic.*control1\/control2/);
 
     const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
@@ -625,7 +575,11 @@ describe("progressive draft delivery", () => {
       content: "Draft note",
     }];
 
-    expect(schema.properties?.delivery).toEqual({ $ref: "#/$defs/delivery" });
+    expect(schema.properties?.delivery).toMatchObject({
+      type: "object",
+      required: ["mode"],
+      oneOf: expect.any(Array),
+    });
     expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
     expect(validates({
       operations,
@@ -1523,6 +1477,93 @@ describe("transactional semantic mutations", () => {
         snap: "edge-point",
       },
     });
+  });
+
+  it("batches drawings and native paths while inferring omitted Diagram membership", async () => {
+    const local = fixture(room([]));
+    let authoritative = local.getRoom();
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(authoritative, "alice", "agent", body.transaction, NOW + 105);
+      authoritative = result.room;
+      return { ok: true, outcome: "applied", ...result };
+    }) as unknown as WebMcpRequest;
+    const counts = new Map<string, number>();
+    const tools = createJazzboardSemanticWebMcpTools(local.binding, {
+      request,
+      createId(prefix) {
+        const count = (counts.get(prefix) ?? 0) + 1;
+        counts.set(prefix, count);
+        return `${prefix}_${count}`;
+      },
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_drawing", tempRef: "shadow", points: [{ x: 10, y: 20 }, { x: 40, y: 50 }] },
+        {
+          op: "create_path",
+          tempRef: "curve",
+          start: { x: 100, y: 100 },
+          segments: [{ kind: "quadratic", control: { x: 150, y: 50 }, to: { x: 200, y: 100 } }],
+          stroke: "#12345678",
+          strokeWidth: 5,
+        },
+        {
+          op: "create_polygon",
+          tempRef: "face",
+          points: [{ x: 110, y: 120 }, { x: 190, y: 120 }, { x: 150, y: 200 }],
+          fill: "light-red",
+          stroke: "none",
+        },
+        { op: "create_diagram", tempRef: "portrait", title: "Portrait" },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { outcome: "applied" } });
+    expect(request).toHaveBeenCalledOnce();
+    expect(authoritative.diagrams.diagram_1).toMatchObject({
+      memberObjectIds: ["draw_1", "path_1", "path_2"],
+      connectorIds: [],
+    });
+    expect(authoritative.objects.draw_1).toMatchObject({ x: 10, y: 20, width: 30, height: 30, diagramIds: ["diagram_1"] });
+    expect(authoritative.objects.path_1).toMatchObject({ kind: "path", start: { x: 0, y: 1 }, diagramIds: ["diagram_1"] });
+  });
+
+  it("preserves explicit empty Diagram membership and rejects ambiguous multi-Diagram inference", async () => {
+    const state = room([]);
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: [],
+      membershipObjectIds: [],
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+
+    await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_drawing", tempRef: "mark", points: [{ x: 0, y: 0 }, { x: 10, y: 10 }] },
+        { op: "create_diagram", tempRef: "empty", title: "Empty", members: [], connectors: [] },
+      ],
+    });
+    const explicitBody = JSON.parse(String((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body));
+    expect(explicitBody.transaction.diagramCommands[0].diagram).toMatchObject({ memberObjectIds: [], connectorIds: [] });
+
+    const ambiguous = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_text", tempRef: "note", content: "Shared?" },
+        { op: "create_diagram", tempRef: "one", title: "One" },
+        { op: "create_diagram", tempRef: "two", title: "Two" },
+      ],
+    });
+    expect(ambiguous).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("resolves temporary object and Diagram refs into one atomic comfortable auto-layout", async () => {

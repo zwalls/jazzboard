@@ -14,6 +14,7 @@ const LANDING_WEBMCP_TOOL_NAMES = [
 ] as const;
 
 const SHARED_ROOM_READ_TOOL_NAMES = [
+  "get_canvas_capabilities",
   "read_room_state",
   "read_selection",
   "read_collaboration_state",
@@ -29,6 +30,7 @@ const SHARED_ROOM_READ_TOOL_NAMES = [
   "list_agent_edit_proposals",
   "read_agent_edit_proposal",
   "read_canvas_drafts",
+  "inspect_canvas_scope",
 ] as const;
 
 const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
@@ -36,8 +38,9 @@ const PARTICIPANT_ONLY_READ_TOOL_NAMES = [
   "list_agent_messages",
 ] as const;
 
-// Rendering does not mutate shared room state, but it intentionally paints a
-// temporary local surface, so it is neither a strict read nor a room mutation.
+// Legacy rendering does not mutate shared room state, but it intentionally
+// paints a temporary local surface and remains participant-only. The unified
+// inspect_canvas_scope entry point is shared and explicitly read-only.
 const PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES = ["render_canvas_preview"] as const;
 const AUTHORIZED_LOCAL_DOWNLOAD_TOOL_NAMES = ["export_canvas_png"] as const;
 
@@ -47,6 +50,8 @@ const ROOM_MUTATION_TOOL_NAMES = [
   "create_node",
   "add_image",
   "create_drawing",
+  "create_path",
+  "create_polygon",
   "draw_connection",
   "update_object",
   "move_objects",
@@ -203,6 +208,64 @@ type CanvasPreviewData = {
     objects: Array<{ objectId: string; revision: number }>;
   };
   targets: Array<{ objectId: string; revision: number }>;
+};
+
+type CanvasInspectionData = {
+  previewId: string;
+  presentation: "live_canvas";
+  visualInspectionStatus: "not_performed";
+  geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
+  screenshotClip: CanvasPreviewData["screenshotClip"];
+  sourceRevisions: {
+    roomRevision: number;
+    diagramRevision: number | null;
+    objects: Array<{ objectId: string; revision: number }>;
+    visualContributors: Array<{ objectId: string; revision: number }>;
+  };
+  targets: Array<{ objectId: string; revision: number }>;
+  semanticEvidence: {
+    schemaVersion: 1;
+    objects: Array<{
+      objectId: string;
+      revision: number;
+      kind: string;
+      inRequestedScope: boolean;
+      semantic: { kind: string; segmentCount?: number; closed?: boolean };
+    }>;
+    intersections: { totalCount: number; truncated: boolean };
+    occlusions: { totalCount: number; truncated: boolean };
+    coverage: {
+      geometry: "complete" | "partial";
+      unsupported: Array<{ objectId?: string; analysis: string }>;
+      omittedUnsupportedCount: number;
+    };
+  };
+};
+
+type CanvasCapabilitiesData = {
+  schemaVersion: 1;
+  role: "participant" | "spectator";
+  authority: {
+    currentPageToolRegistryIsAuthoritative: true;
+    roleCanMutateCanvas: boolean;
+  };
+  coordinateSystem: {
+    unit: "canvas-unit";
+    xDirection: "right";
+    yDirection: "down";
+    rotation: { unit: "radian"; positiveDirectionOnScreen: "clockwise" };
+    authoredPointSpaces: {
+      createDrawingPathAndPolygonInput: "absolute-canvas";
+      persistedAndPatchDrawingPoints: "object-local-canvas-units";
+      persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1";
+    };
+  };
+  paintOrder: { field: "zIndex"; higherValue: "front" };
+  primitives: {
+    path: { supported: true; segments: ["line", "quadratic", "cubic"] };
+    polygon: { supported: true; representation: "closed-path" };
+  };
+  inspection: { preferredTool: "inspect_canvas_scope" };
 };
 
 type ReadDiagramData = {
@@ -783,13 +846,13 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
-  test("covers private landing actions, 50 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 54 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(50);
-    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(16);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(54);
+    expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(18);
 
     await installWebMcpShim(page);
     await page.goto("/");
@@ -847,6 +910,10 @@ test.describe("WebMCP browser acceptance", () => {
       participantMetadata.find((tool) => tool.name === "render_canvas_preview")?.annotations
         ?.readOnlyHint,
     ).not.toBe(true);
+    expect(participantMetadata.find((tool) => tool.name === "inspect_canvas_scope")).toMatchObject({
+      name: "inspect_canvas_scope",
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+    });
     expect(
       participantMetadata.find((tool) => tool.name === "export_canvas_png"),
     ).toMatchObject({
@@ -857,6 +924,35 @@ test.describe("WebMCP browser acceptance", () => {
       participantMetadata.find((tool) => tool.name === "export_canvas_png")?.annotations
         ?.readOnlyHint,
     ).not.toBe(true);
+
+    const capabilities = successData(
+      await callWebMcpTool<CanvasCapabilitiesData>(page, "get_canvas_capabilities", {}),
+    );
+    expect(capabilities).toMatchObject({
+      schemaVersion: 1,
+      role: "participant",
+      authority: {
+        currentPageToolRegistryIsAuthoritative: true,
+        roleCanMutateCanvas: true,
+      },
+      coordinateSystem: {
+        unit: "canvas-unit",
+        xDirection: "right",
+        yDirection: "down",
+        rotation: { unit: "radian", positiveDirectionOnScreen: "clockwise" },
+        authoredPointSpaces: {
+          createDrawingPathAndPolygonInput: "absolute-canvas",
+          persistedAndPatchDrawingPoints: "object-local-canvas-units",
+          persistedAndPatchPathAndPolygonPoints: "normalized-object-local-0-to-1",
+        },
+      },
+      paintOrder: { field: "zIndex", higherValue: "front" },
+      primitives: {
+        path: { supported: true, segments: ["line", "quadratic", "cubic"] },
+        polygon: { supported: true, representation: "closed-path" },
+      },
+      inspection: { preferredTool: "inspect_canvas_scope" },
+    });
 
     const hostBefore = successData(await callWebMcpTool<ReadRoomData>(page, "read_room_state", {}));
     const hostMembershipBefore = hostBefore.participants.find(
@@ -1139,6 +1235,72 @@ test.describe("WebMCP browser acceptance", () => {
       changedObjectIds: [expect.any(String)],
       objects: [{ kind: "draw", revision: 1 }],
     });
+
+    const polygon = successData(
+      await callWebMcpTool<CreateObjectData>(page, "create_polygon", {
+        points: [
+          { x: 440, y: 700 },
+          { x: 600, y: 700 },
+          { x: 640, y: 820 },
+          { x: 480, y: 850 },
+        ],
+        fill: "yellow",
+        stroke: "violet",
+        strokeWidth: 6,
+        opacity: 0.85,
+      }),
+    );
+    expect(polygon).toMatchObject({
+      changedObjectIds: [expect.any(String)],
+      objects: [{ kind: "path", revision: 1 }],
+    });
+    const polygonId = polygon.changedObjectIds[0];
+    const polygonInspection = successData(
+      await callWebMcpTool<CanvasInspectionData>(page, "inspect_canvas_scope", {
+        scope: {
+          kind: "objects",
+          targets: [{ objectId: polygonId, expectedRevision: 1 }],
+        },
+      }),
+    );
+    expect(polygonInspection).toMatchObject({
+      previewId: expect.stringMatching(/^preview_/),
+      presentation: "live_canvas",
+      visualInspectionStatus: "not_performed",
+      geometryQualityStatus: "unknown",
+      sourceRevisions: {
+        objects: [{ objectId: polygonId, revision: 1 }],
+        visualContributors: expect.arrayContaining([{ objectId: polygonId, revision: 1 }]),
+      },
+      targets: [{ objectId: polygonId, revision: 1 }],
+      semanticEvidence: {
+        schemaVersion: 1,
+        intersections: { totalCount: expect.any(Number), truncated: false },
+        occlusions: { totalCount: expect.any(Number), truncated: false },
+      },
+    });
+    expect(
+      polygonInspection.semanticEvidence.objects.find((object) => object.objectId === polygonId),
+    ).toMatchObject({
+      objectId: polygonId,
+      revision: 1,
+      kind: "path",
+      inRequestedScope: true,
+      semantic: { kind: "path", segmentCount: 3, closed: true },
+    });
+    expect(polygonInspection.semanticEvidence.coverage).toMatchObject({
+      geometry: "partial",
+      omittedUnsupportedCount: 0,
+    });
+    expect(polygonInspection.semanticEvidence.coverage.unsupported).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ objectId: polygonId, analysis: "vector_path_geometry" }),
+      ]),
+    );
+    expect(polygonInspection.screenshotClip.width).toBeGreaterThan(0);
+    expect(polygonInspection.screenshotClip.height).toBeGreaterThan(0);
+    expect(polygonInspection.semanticEvidence.intersections.totalCount).toBeGreaterThanOrEqual(0);
+    expect(polygonInspection.semanticEvidence.occlusions.totalCount).toBeGreaterThanOrEqual(0);
 
     const overlapTransaction = successData(
       await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
@@ -1725,12 +1887,33 @@ test.describe("WebMCP browser acceptance", () => {
       for (const toolName of SHARED_ROOM_READ_TOOL_NAMES) {
         expect(spectatorMetadata.find((tool) => tool.name === toolName)?.annotations?.readOnlyHint).toBe(true);
       }
+      expect(spectatorMetadata.find((tool) => tool.name === "inspect_canvas_scope")).toMatchObject({
+        name: "inspect_canvas_scope",
+        annotations: { readOnlyHint: true, untrustedContentHint: true },
+      });
       expect(spectatorMetadata.find((tool) => tool.name === "export_canvas_png")?.annotations).toEqual({
         untrustedContentHint: true,
       });
 
       const spectatorRoom = await getRoom(spectatorContext.request, created.room.id);
       expect(spectatorRoom.room.participants[spectatorRoom.participantId].agentActive).toBe(false);
+
+      const spectatorCapabilities = successData(
+        await callWebMcpTool<CanvasCapabilitiesData>(
+          spectatorPage,
+          "get_canvas_capabilities",
+          {},
+        ),
+      );
+      expect(spectatorCapabilities).toMatchObject({
+        schemaVersion: 1,
+        role: "spectator",
+        authority: {
+          currentPageToolRegistryIsAuthoritative: true,
+          roleCanMutateCanvas: false,
+        },
+        inspection: { preferredTool: "inspect_canvas_scope" },
+      });
 
       successData(await callWebMcpTool<ReadRoomData>(spectatorPage, "read_room_state", {}));
       successData(await callWebMcpTool<Record<string, unknown>>(spectatorPage, "read_selection", {}));

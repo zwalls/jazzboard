@@ -33,7 +33,7 @@ const regionSchema = z
 const queryInputSchema = z
   .object({
     text: z.string().trim().min(1).max(500).optional(),
-    kinds: z.array(z.enum(["text", "shape", "connector", "image", "draw"])).max(5).optional(),
+    kinds: z.array(z.enum(["text", "shape", "connector", "image", "draw", "path"])).max(6).optional(),
     nodeTypes: z
       .array(z.enum(["service", "component", "requirement", "decision", "open_question"]))
       .max(5)
@@ -62,7 +62,7 @@ const QUERY_INPUT_JSON_SCHEMA = {
     },
     kinds: {
       type: "array",
-      items: { enum: ["text", "shape", "connector", "image", "draw"] },
+      items: { enum: ["text", "shape", "connector", "image", "draw", "path"] },
       maxItems: 5,
     },
     nodeTypes: {

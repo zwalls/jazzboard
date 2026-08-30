@@ -20,7 +20,19 @@ import {
   analyzeDiagramVisualQuality,
   type DiagramVisualQualityReport,
 } from "@/lib/domain/diagram-visual-quality";
-import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
+import {
+  connectorRoutingInputSchema,
+  nodeMetadataInputSchema,
+  SEMANTIC_COLOR_NAMES,
+  semanticColorSchema,
+  semanticPaintSchema,
+} from "@/lib/domain/schemas";
+import {
+  normalizeWorldDrawing,
+  normalizeWorldVectorPath,
+  polygonWorldVectorPath,
+  VECTOR_PATH_LIMITS,
+} from "@/lib/domain/vector-path";
 import type {
   AgentEditProposalSummary,
   CanvasCommand,
@@ -36,7 +48,6 @@ import type {
   Viewport,
 } from "@/lib/domain/types";
 
-import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type {
   JazzboardToolFailure,
   JazzboardToolResult,
@@ -50,15 +61,43 @@ const tempRef = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
 const finite = z.number().finite();
 const dimension = finite.positive().max(100_000);
 const point = z.object({ x: finite, y: finite }).strict();
+const boundedDrawingPoint = z.object({
+  x: finite.min(-1_000_000).max(1_000_000),
+  y: finite.min(-1_000_000).max(1_000_000),
+}).strict();
+const vectorPathSegment = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("line"), to: boundedDrawingPoint }).strict(),
+  z.object({ kind: z.literal("quadratic"), control: boundedDrawingPoint, to: boundedDrawingPoint }).strict(),
+  z.object({
+    kind: z.literal("cubic"),
+    control1: boundedDrawingPoint,
+    control2: boundedDrawingPoint,
+    to: boundedDrawingPoint,
+  }).strict(),
+]);
 const normalizedAnchor = z
   .object({ x: finite.min(0).max(1), y: finite.min(0).max(1) })
   .strict();
+const normalizedPathPoint = z.object({
+  x: finite.min(0).max(1),
+  y: finite.min(0).max(1),
+}).strict();
+const normalizedVectorPathSegment = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("line"), to: normalizedPathPoint }).strict(),
+  z.object({ kind: z.literal("quadratic"), control: normalizedPathPoint, to: normalizedPathPoint }).strict(),
+  z.object({
+    kind: z.literal("cubic"),
+    control1: normalizedPathPoint,
+    control2: normalizedPathPoint,
+    to: normalizedPathPoint,
+  }).strict(),
+]);
 const nodeType = z.enum(["service", "component", "requirement", "decision", "open_question"]);
 const nodeStatus = z.enum(["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"]);
 const REVIEW_MODE_RESULT_NOTE =
   " Review outcome `proposed` is not applied.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
-const objectKind = z.enum(["text", "shape", "connector", "image", "draw"]);
+const objectKind = z.enum(["text", "shape", "connector", "image", "draw", "path"]);
 
 const placement = {
   x: finite.optional(),
@@ -123,21 +162,28 @@ const objectPatch = z
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     groupId: id.nullable().optional(),
     content: z.string().max(20_000).optional(),
-    color: z.string().min(1).max(32).optional(),
+    color: semanticColorSchema.optional(),
     size: z.enum(["s", "m", "l", "xl"]).optional(),
     align: z.enum(["start", "middle", "end"]).optional(),
     shape: z.enum(["rectangle", "ellipse", "diamond"]).optional(),
     nodeType: nodeType.nullable().optional(),
     nodeMetadata: nodeMetadataInputSchema.nullable().optional(),
     label: z.string().max(10_000).optional(),
-    fill: z.string().min(1).max(32).optional(),
-    stroke: z.string().min(1).max(32).optional(),
-    start: connectorEndpointPatch.strict().optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
+    start: z.union([connectorEndpointPatch.strict(), normalizedPathPoint]).optional(),
     end: connectorEndpointPatch.strict().optional(),
     routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
     alt: z.string().max(2_000).optional(),
     locked: z.boolean().optional(),
+    segments: z.array(normalizedVectorPathSegment).min(1).max(2_000).optional(),
+    closed: z.boolean().optional(),
+    strokeWidth: finite.min(0).max(256).optional(),
+    opacity: finite.min(0).max(1).optional(),
+    lineCap: z.enum(["butt", "round", "square"]).optional(),
+    lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+    fillRule: z.enum(["nonzero", "evenodd"]).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "At least one semantic field must be updated.");
@@ -159,8 +205,8 @@ const createShapeOperation = z
     tempRef,
     label: z.string().max(10_000).default(""),
     shape: z.enum(["rectangle", "ellipse", "diamond"]).default("rectangle"),
-    fill: z.string().min(1).max(32).default("blue"),
-    stroke: z.string().min(1).max(32).default("blue"),
+    fill: semanticPaintSchema.default("blue"),
+    stroke: semanticPaintSchema.default("blue"),
     ...placement,
   })
   .strict();
@@ -170,12 +216,66 @@ const createTextOperation = z
     op: z.literal("create_text"),
     tempRef,
     content: z.string().min(1).max(20_000),
-    color: z.string().min(1).max(32).default("black"),
+    color: semanticColorSchema.default("black"),
     size: z.enum(["s", "m", "l", "xl"]).default("m"),
     align: z.enum(["start", "middle", "end"]).default("start"),
     ...placement,
   })
   .strict();
+
+const createDrawingOperation = z
+  .object({
+    op: z.literal("create_drawing"),
+    tempRef,
+    points: z.array(boundedDrawingPoint).min(2).max(2_000),
+    color: semanticColorSchema.default("black"),
+    size: z.enum(["s", "m", "l"]).default("m"),
+    rotation: finite.default(0),
+    zIndex: z.number().int().min(0).max(1_000_000).optional(),
+    groupId: id.nullable().default(null),
+  })
+  .strict();
+
+const pathStyle = {
+  fill: semanticPaintSchema.default("none"),
+  stroke: semanticPaintSchema.default("black"),
+  strokeWidth: finite.min(0).max(VECTOR_PATH_LIMITS.maxStrokeWidth).default(3.5),
+  opacity: finite.min(0).max(1).default(1),
+  lineCap: z.enum(["butt", "round", "square"]).default("round"),
+  lineJoin: z.enum(["miter", "round", "bevel"]).default("round"),
+  fillRule: z.enum(["nonzero", "evenodd"]).default("nonzero"),
+  rotation: finite.default(0),
+  zIndex: z.number().int().min(0).max(1_000_000).optional(),
+  groupId: id.nullable().default(null),
+};
+
+function visiblePathStyle(
+  value: { fill: string; stroke: string; strokeWidth: number },
+  context: z.RefinementCtx,
+) {
+  if (value.fill.trim().toLowerCase() === "none" && value.stroke.trim().toLowerCase() === "none") {
+    context.addIssue({ code: "custom", path: ["stroke"], message: "A path requires a visible fill or stroke." });
+  }
+  if (value.stroke.trim().toLowerCase() !== "none" && value.strokeWidth <= 0) {
+    context.addIssue({ code: "custom", path: ["strokeWidth"], message: "A visible path stroke requires positive strokeWidth." });
+  }
+}
+
+const createPathOperation = z.object({
+  op: z.literal("create_path"),
+  tempRef,
+  start: boundedDrawingPoint,
+  segments: z.array(vectorPathSegment).min(1).max(VECTOR_PATH_LIMITS.maxSegments),
+  closed: z.boolean().default(false),
+  ...pathStyle,
+}).strict().superRefine(visiblePathStyle);
+
+const createPolygonOperation = z.object({
+  op: z.literal("create_polygon"),
+  tempRef,
+  points: z.array(boundedDrawingPoint).min(3).max(VECTOR_PATH_LIMITS.maxSegments + 1),
+  ...pathStyle,
+}).strict().superRefine(visiblePathStyle);
 
 const connectOperation = z
   .object({
@@ -185,7 +285,7 @@ const connectOperation = z
     end: endpointReference,
     direction: z.enum(["none", "end", "both"]).default("end"),
     label: z.string().max(2_000).default(""),
-    color: z.string().min(1).max(32).default("black"),
+    color: semanticColorSchema.default("black"),
     routing: connectorRoutingInputSchema.default({ mode: "auto" }),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
   })
@@ -212,8 +312,8 @@ const createDiagramOperation = z
     diagramType: diagramType.default("architecture"),
     category: z.string().trim().min(1).max(128).nullable().default(null),
     tags: z.array(z.string().trim().min(1).max(64)).max(32).default([]),
-    members: z.array(objectReference).max(500).default([]),
-    connectors: z.array(objectReference).max(500).default([]),
+    members: z.array(objectReference).max(500).optional(),
+    connectors: z.array(objectReference).max(500).optional(),
   })
   .strict();
 
@@ -253,6 +353,9 @@ const transactionOperation = z.discriminatedUnion("op", [
   createNodeOperation,
   createShapeOperation,
   createTextOperation,
+  createDrawingOperation,
+  createPathOperation,
+  createPolygonOperation,
   connectOperation,
   updateOperation,
   createDiagramOperation,
@@ -309,6 +412,19 @@ const transactionInput = z
         });
       }
     });
+    const createdDiagrams = input.operations.filter(
+      (operation): operation is z.output<typeof createDiagramOperation> => operation.op === "create_diagram",
+    );
+    if (
+      createdDiagrams.length > 1 &&
+      createdDiagrams.some((operation) => operation.members === undefined || operation.connectors === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["operations"],
+        message: "Transactions creating multiple Diagrams must provide explicit members and connectors for each Diagram.",
+      });
+    }
     const layouts = input.operations.flatMap((operation) => operation.op === "auto_layout" ? [operation] : []);
     if (layouts.length > 1) {
       context.addIssue({ code: "custom", path: ["operations"], message: "A transaction can contain at most one auto-layout operation." });
@@ -363,45 +479,25 @@ const transactionInput = z
     });
   });
 
-const TRANSACTION_PATCH_INPUT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  minProperties: 1,
-  properties: {
-    x: { type: "number" },
-    y: { type: "number" },
-    width: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-    height: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-    rotation: { type: "number" },
-    zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
-    groupId: { anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }] },
-    content: { type: "string", maxLength: 20_000 },
-    color: { type: "string", minLength: 1, maxLength: 32 },
-    size: { enum: ["s", "m", "l", "xl"] },
-    align: { enum: ["start", "middle", "end"] },
-    shape: { enum: ["rectangle", "ellipse", "diamond"] },
-    nodeType: { anyOf: [{ $ref: "#/$defs/nodeType" }, { type: "null" }] },
-    nodeMetadata: { anyOf: [{ $ref: "#/$defs/nodeMetadata" }, { type: "null" }] },
-    label: { type: "string", maxLength: 10_000 },
-    fill: { type: "string", minLength: 1, maxLength: 32 },
-    stroke: { type: "string", minLength: 1, maxLength: 32 },
-    start: { $ref: "#/$defs/connectorEndpoint" },
-    end: { $ref: "#/$defs/connectorEndpoint" },
-    routing: { $ref: "#/$defs/routing" },
-    direction: { enum: ["none", "end", "both"] },
-    alt: { type: "string", maxLength: 2_000 },
-    locked: { type: "boolean" },
-  },
+const SEMANTIC_COLOR_JSON_SCHEMA = {
+  type: "string",
+  pattern: `^(?:${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
+  description: "Named Jazzboard color or #RGB/#RRGGBB/#RRGGBBAA.",
 } as const;
-
-// Zod remains the authoritative execution validator. This equivalent WebMCP
-// descriptor uses shared definitions plus conditional required fields instead
-// of repeating the full placement and reference schema in every operation.
-// Keeping the browser-facing representation compact matters because native
-// hosts budget the aggregate descriptors for every tool on the page.
+const SEMANTIC_PAINT_JSON_SCHEMA = {
+  type: "string",
+  pattern: `^(?:none|${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
+  description: "Color format above, or none for no paint.",
+} as const;
+const WORLD_PATH_SEGMENT_JSON_SCHEMA = {
+  type: "object",
+  description: "World coords: line={kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}.",
+} as const;
+// Zod is the authoritative op-specific validator. The registered schema keeps
+// the complete field vocabulary and the coordinate/reference rules visible,
+// without duplicating every discriminated-union branch in the browser budget.
 const TRANSACTION_TOOL_INPUT_SCHEMA = {
   type: "object",
-  additionalProperties: false,
   required: ["operations"],
   properties: {
     operations: {
@@ -410,265 +506,92 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       maxItems: 200,
       items: {
         type: "object",
-        additionalProperties: false,
         required: ["op"],
         properties: {
-          op: {
-          },
-          tempRef: { $ref: "#/$defs/tempRef" },
-          objectId: { $ref: "#/$defs/id" },
-          expectedRevision: { type: "integer", minimum: 1 },
-          leaseId: { $ref: "#/$defs/id" },
+          op: { enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update", "create_diagram", "edit_diagram", "auto_layout"] },
+          tempRef: { type: "string", description: "Request-local alias; reusable by later ops and cumulative draft replacements." },
+          objectId: { type: "string" },
+          expectedRevision: { type: "integer" },
+          leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
-          patch: { $ref: "#/$defs/patch" },
-          label: { type: "string", maxLength: 10_000 },
-          content: { type: "string", minLength: 1, maxLength: 20_000 },
-          nodeType: { $ref: "#/$defs/nodeType" },
-          nodeMetadata: { $ref: "#/$defs/nodeMetadata" },
+          patch: { type: "object", description: "Object patch. Path start/segments use normalized object-local 0..1 coordinates; draw points use local canvas units." },
+          label: { type: "string" },
+          content: { type: "string" },
+          nodeType: { enum: ["service", "component", "requirement", "decision", "open_question"] },
+          nodeMetadata: { type: "object" },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
-          fill: { type: "string", minLength: 1, maxLength: 32 },
-          stroke: { type: "string", minLength: 1, maxLength: 32 },
-          color: { type: "string", minLength: 1, maxLength: 32 },
+          fill: { $ref: "#/$defs/paint" },
+          stroke: { $ref: "#/$defs/paint" },
+          color: { $ref: "#/$defs/color" },
           size: { enum: ["s", "m", "l", "xl"] },
           align: { enum: ["start", "middle", "end"] },
-          start: { $ref: "#/$defs/endpoint" },
-          end: { $ref: "#/$defs/endpoint" },
-          routing: { $ref: "#/$defs/routing" },
+          points: {
+            type: "array",
+            description: "World {x,y} points for drawing/polygon create; normalized/local storage is derived.",
+            items: { type: "object" },
+          },
+          segments: {
+            type: "array",
+            description: "World numeric segments; line={kind,to}, quadratic adds control, cubic adds control1/control2; points are {x,y}.",
+            items: WORLD_PATH_SEGMENT_JSON_SCHEMA,
+          },
+          closed: { type: "boolean" },
+          strokeWidth: { type: "number", description: "Canvas units." },
+          opacity: { type: "number", description: "0..1." },
+          lineCap: { enum: ["butt", "round", "square"] },
+          lineJoin: { enum: ["miter", "round", "bevel"] },
+          fillRule: { enum: ["nonzero", "evenodd"] },
+          start: { type: "object", description: "World {x,y}, or connector {objectId|tempRef,port?}." },
+          end: { type: "object", description: "Connector world point or object/temp reference." },
+          routing: { type: "object" },
           direction: { enum: ["none", "end", "both"] },
-          diagramId: { $ref: "#/$defs/id" },
-          title: { type: "string", minLength: 1, maxLength: 160 },
-          description: { type: "string", maxLength: 10_000 },
+          diagramId: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
           diagramType: {
             enum: ["architecture", "flow", "hierarchy", "system_context", "process", "custom"],
           },
-          category: {
-            anyOf: [
-              { type: "string", minLength: 1, maxLength: 128 },
-              { type: "null" },
-            ],
-          },
-          tags: {
-            type: "array",
-            maxItems: 32,
-            items: { type: "string", minLength: 1, maxLength: 64 },
-          },
-          members: { type: "array", maxItems: 500, items: { $ref: "#/$defs/objectRef" } },
-          connectors: { type: "array", maxItems: 500, items: { $ref: "#/$defs/objectRef" } },
-          x: { type: "number" },
-          y: { type: "number" },
-          width: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-          height: { type: "number", exclusiveMinimum: 0, maximum: 100_000 },
-          rotation: { type: "number" },
-          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
-          groupId: {
-            anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }],
-          },
+          category: { type: ["string", "null"] },
+          tags: { type: "array", items: { type: "string" } },
+          members: { type: "array", items: { type: "object" }, description: "Exact {objectId}|{tempRef} members; omit to infer created non-connectors. [] stays empty." },
+          connectors: { type: "array", items: { type: "object" }, description: "Exact {objectId}|{tempRef} connectors; omit to infer created connectors. [] stays empty." },
+          x: { type: "number", description: "Canvas-unit x of the unrotated top-left." },
+          y: { type: "number", description: "Canvas-unit y of the unrotated top-left." },
+          width: { type: "number", description: "Unrotated canvas-unit width." },
+          height: { type: "number", description: "Unrotated canvas-unit height." },
+          rotation: { type: "number", description: "Clockwise radians; object/path center pivot, drawing local-origin pivot." },
+          zIndex: { type: "integer", description: "Higher paints in front." },
+          groupId: { type: ["string", "null"] },
           layout: { enum: ["flow", "grid", "hierarchy"] },
           layoutDirection: { enum: ["right", "down"] },
           density: { enum: ["comfortable", "compact"] },
-          targets: { type: "array", minItems: 1, maxItems: 199, items: { $ref: "#/$defs/tempRef" } },
-          diagramTempRef: { $ref: "#/$defs/tempRef" },
-          origin: { $ref: "#/$defs/point" },
-          columns: { type: "integer", minimum: 1, maximum: 50 },
+          targets: { type: "array", items: { type: "string" } },
+          diagramTempRef: { type: "string" },
+          origin: { type: "object", description: "Canvas-world {x,y}." },
+          columns: { type: "integer" },
         },
-        oneOf: [
-          {
-            properties: { op: { const: "create_node" } },
-            required: ["tempRef", "label", "nodeType"],
-            allOf: [{ properties: { label: { minLength: 1 } } }],
-          },
-          {
-            properties: { op: { const: "create_shape" } },
-            required: ["tempRef"],
-          },
-          {
-            properties: { op: { const: "create_text" } },
-            required: ["tempRef", "content"],
-          },
-          {
-            properties: { op: { const: "connect" } },
-            required: ["tempRef", "start", "end"],
-            allOf: [{ properties: { label: { maxLength: 2_000 } } }],
-          },
-          {
-            properties: { op: { const: "update" } },
-            required: ["objectId", "expectedRevision", "patch"],
-          },
-          {
-            properties: { op: { const: "create_diagram" } },
-            required: ["tempRef", "title"],
-          },
-          {
-            properties: { op: { const: "edit_diagram" } },
-            required: ["diagramId", "expectedRevision"],
-          },
-          {
-            properties: { op: { const: "auto_layout" } },
-            required: ["layout", "targets"],
-          },
-        ],
       },
     },
-    intent: { type: "string", minLength: 1, maxLength: 1_000 },
-    summary: { type: "string", minLength: 1, maxLength: 500 },
-    delivery: { $ref: "#/$defs/delivery" },
-  },
-  $defs: {
-    id: { type: "string", minLength: 1, maxLength: 128 },
-    tempRef: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+    intent: { type: "string" },
+    summary: { type: "string" },
     delivery: {
       type: "object",
       additionalProperties: false,
       required: ["mode"],
       properties: {
         mode: { const: "draft" },
-        draftId: { type: "string", pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
-        expectedDraftRevision: { type: "integer", minimum: 1 },
+        draftId: { type: "string" },
+        expectedDraftRevision: { type: "integer" },
       },
       oneOf: [
         { required: ["draftId", "expectedDraftRevision"] },
-        {
-          not: {
-            anyOf: [
-              { required: ["draftId"] },
-              { required: ["expectedDraftRevision"] },
-            ],
-          },
-        },
+        { not: { anyOf: [{ required: ["draftId"] }, { required: ["expectedDraftRevision"] }] } },
       ],
     },
-    point: {
-      type: "object",
-      additionalProperties: false,
-      required: ["x", "y"],
-      properties: { x: { type: "number" }, y: { type: "number" } },
-    },
-    objectRef: {
-      oneOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["objectId"],
-          properties: { objectId: { $ref: "#/$defs/id" } },
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["tempRef"],
-          properties: { tempRef: { $ref: "#/$defs/tempRef" } },
-        },
-      ],
-    },
-    endpoint: {
-      oneOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["objectId"],
-          properties: {
-            objectId: { $ref: "#/$defs/id" },
-            port: { $ref: "#/$defs/port" },
-          },
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["tempRef"],
-          properties: {
-            tempRef: { $ref: "#/$defs/tempRef" },
-            port: { $ref: "#/$defs/port" },
-          },
-        },
-        { $ref: "#/$defs/point" },
-      ],
-    },
-    port: {
-      type: "object",
-      additionalProperties: false,
-      required: ["side"],
-      properties: {
-        side: { enum: ["top", "right", "bottom", "left"] },
-        position: {
-          type: "number",
-          minimum: 0,
-          maximum: 1,
-          default: 0.5,
-        },
-        exact: {
-          type: "boolean",
-          default: false,
-        },
-      },
-    },
-    routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
-    nodeType: {
-      enum: ["service", "component", "requirement", "decision", "open_question"],
-    },
-    nodeMetadata: {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind"],
-      properties: {
-        kind: { enum: ["decision", "open_question"] },
-        status: {
-          enum: [
-            "proposed",
-            "accepted",
-            "rejected",
-            "superseded",
-            "open",
-            "answered",
-            "deferred",
-            "closed",
-          ],
-        },
-        owner: {
-          anyOf: [
-            { type: "string", minLength: 1, maxLength: 160 },
-            { type: "null" },
-          ],
-        },
-        resolution: {
-          anyOf: [
-            { type: "string", minLength: 1, maxLength: 10_000 },
-            { type: "null" },
-          ],
-        },
-      },
-    },
-    connectorEndpoint: {
-      type: "object",
-      additionalProperties: false,
-      required: ["objectId", "x", "y"],
-      properties: {
-        objectId: { anyOf: [{ $ref: "#/$defs/id" }, { type: "null" }] },
-        x: { type: "number" },
-        y: { type: "number" },
-        normalizedAnchor: {
-          anyOf: [
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["x", "y"],
-              properties: {
-                x: { type: "number", minimum: 0, maximum: 1 },
-                y: { type: "number", minimum: 0, maximum: 1 },
-              },
-            },
-            { type: "null" },
-          ],
-        },
-        isPrecise: { anyOf: [{ type: "boolean" }, { type: "null" }] },
-        isExact: { anyOf: [{ type: "boolean" }, { type: "null" }] },
-        snap: {
-          anyOf: [
-            { enum: ["center", "edge-point", "edge", "none"] },
-            { type: "null" },
-          ],
-        },
-      },
-    },
-    patch: TRANSACTION_PATCH_INPUT_SCHEMA,
+  },
+  $defs: {
+    color: SEMANTIC_COLOR_JSON_SCHEMA,
+    paint: SEMANTIC_PAINT_JSON_SCHEMA,
   },
 } as const;
 
@@ -785,7 +708,7 @@ const QUERY_TOOL_INPUT_SCHEMA = {
   additionalProperties: false,
   properties: {
     text: { type: "string" },
-    kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw"] } },
+    kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw", "path"] } },
     nodeTypes: { type: "array", items: { enum: ["service", "component", "requirement", "decision", "open_question"] } },
     nodeStatuses: { type: "array", items: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] } },
     nodeOwner: { type: "string" },
@@ -1693,6 +1616,9 @@ export function createJazzboardSemanticWebMcpTools(
             create_node: "node",
             create_shape: "shape",
             create_text: "text",
+            create_drawing: "draw",
+            create_path: "path",
+            create_polygon: "path",
             connect: "connector",
             create_diagram: "diagram",
           }[operation.op];
@@ -1773,6 +1699,46 @@ export function createJazzboardSemanticWebMcpTools(
             continue;
           }
           const objectId = refs.get(operation.tempRef)!;
+          if (operation.op === "create_drawing") {
+            const drawing = normalizeWorldDrawing(operation.points);
+            const object: CreateCanvasObject = {
+              id: objectId,
+              kind: "draw",
+              ...drawing,
+              rotation: operation.rotation,
+              zIndex: operation.zIndex ?? zIndex++,
+              groupId: operation.groupId,
+              color: operation.color,
+              size: operation.size,
+            };
+            commands.push({ type: "create", object });
+            geometry.set(objectId, { id: objectId, kind: "draw", ...drawing, rotation: object.rotation });
+            continue;
+          }
+          if (operation.op === "create_path" || operation.op === "create_polygon") {
+            const path = operation.op === "create_path"
+              ? normalizeWorldVectorPath(operation.start, operation.segments)
+              : polygonWorldVectorPath(operation.points);
+            const object: CreateCanvasObject = {
+              id: objectId,
+              kind: "path",
+              ...path,
+              closed: operation.op === "create_path" ? operation.closed : true,
+              rotation: operation.rotation,
+              zIndex: operation.zIndex ?? zIndex++,
+              groupId: operation.groupId,
+              fill: operation.fill,
+              stroke: operation.stroke,
+              strokeWidth: operation.strokeWidth,
+              opacity: operation.opacity,
+              lineCap: operation.lineCap,
+              lineJoin: operation.lineJoin,
+              fillRule: operation.fillRule,
+            };
+            commands.push({ type: "create", object });
+            geometry.set(objectId, { id: objectId, kind: "path", x: path.x, y: path.y, width: path.width, height: path.height, rotation: object.rotation });
+            continue;
+          }
           const defaults = operation.op === "create_text" ? { width: 320, height: 96 } : { width: 280, height: 152 };
           const position = batchPosition(operation, automaticOrigins[createIndex]!, defaults);
           const common = {
@@ -1917,6 +1883,16 @@ export function createJazzboardSemanticWebMcpTools(
         }
         for (const operation of deferredDiagrams) {
           if (operation.op === "create_diagram") {
+            const inferredMembers = commands.flatMap((command) =>
+              command.type === "create" && command.object.kind !== "connector"
+                ? [{ objectId: command.object.id }]
+                : [],
+            );
+            const inferredConnectors = commands.flatMap((command) =>
+              command.type === "create" && command.object.kind === "connector"
+                ? [{ objectId: command.object.id }]
+                : [],
+            );
             diagramCommands.push({
               type: "diagram.create",
               diagram: {
@@ -1926,8 +1902,8 @@ export function createJazzboardSemanticWebMcpTools(
                 diagramType: operation.diagramType,
                 category: operation.category,
                 tags: operation.tags,
-                memberObjectIds: operation.members.map(idFor),
-                connectorIds: operation.connectors.map(idFor),
+                memberObjectIds: (operation.members ?? inferredMembers).map(idFor),
+                connectorIds: (operation.connectors ?? inferredConnectors).map(idFor),
               },
             });
           } else {

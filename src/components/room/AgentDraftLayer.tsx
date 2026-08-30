@@ -43,6 +43,7 @@ import {
 } from "@/lib/canvas/semantic-text-layout";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
+import { vectorPathSvgData } from "@/lib/domain/vector-path";
 import type {
   CanvasBounds,
   CanvasObject,
@@ -407,6 +408,23 @@ function DraftOtherObject({ object }: { object: Exclude<CanvasObject, TextObject
       </g>
     );
   }
+  if (object.kind === "path") {
+    return (
+      <path
+        d={vectorPathSvgData(object, finite)}
+        transform={rotationTransform(object)}
+        fill={semanticFillColor(object.fill, "black", true)}
+        stroke={semanticStrokeColor(object.stroke, "black", true)}
+        strokeWidth={object.strokeWidth}
+        opacity={object.opacity}
+        strokeLinecap={object.lineCap}
+        strokeLinejoin={object.lineJoin}
+        fillRule={object.fillRule}
+        data-agent-draft-reveal-part="trace"
+        pathLength={1}
+      />
+    );
+  }
   const label = object.alt.trim() || "Image preview";
   const lines = layoutSemanticText(label, Math.max(8, Math.floor(object.width / 9)), 3).lines;
   return (
@@ -483,7 +501,7 @@ function DraftObjectArtwork({
       {object.kind === "text" ? <DraftText object={object} /> : null}
       {object.kind === "shape" ? <DraftShape object={object} /> : null}
       {object.kind === "connector" ? <DraftConnector object={object} route={route} /> : null}
-      {object.kind === "image" || object.kind === "draw" ? <DraftOtherObject object={object} /> : null}
+      {object.kind === "image" || object.kind === "draw" || object.kind === "path" ? <DraftOtherObject object={object} /> : null}
     </g>
   );
 }

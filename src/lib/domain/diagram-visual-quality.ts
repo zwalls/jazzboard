@@ -96,6 +96,7 @@ export type DiagramVisualQualityFinding = {
 export type DiagramVisualQualityMetrics = {
   memberObjectCount: number;
   unsupportedDrawMemberCount: number;
+  unsupportedPathMemberCount: number;
   connectorCount: number;
   findingCount: number;
   returnedFindingCount: number;
@@ -122,6 +123,10 @@ export type DiagramVisualQualityGeometryCoverage = {
   unsupportedDrawObjectIds: string[];
   omittedUnsupportedDrawObjectIdCount: number;
   unsupportedDrawObjectIdsTruncated: boolean;
+  unsupportedPathObjectCount: number;
+  unsupportedPathObjectIds: string[];
+  omittedUnsupportedPathObjectIdCount: number;
+  unsupportedPathObjectIdsTruncated: boolean;
 };
 
 export type DiagramVisualQualityReport = {
@@ -194,7 +199,7 @@ function objectPolygon(object: CanvasObject, inset = 0): Point[] {
   // and intrusion findings over visibly empty space. Stroke/path proximity is
   // intentionally left to pixel inspection until the analyzer models swept
   // stroke geometry explicitly.
-  if (object.kind === "draw") return [];
+  if (object.kind === "draw" || object.kind === "path") return [];
   if (object.width <= inset * 2 || object.height <= inset * 2) return [];
   const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
   let polygon: Point[];
@@ -667,15 +672,17 @@ function reportSummary(
   warningCount: number,
   omittedFindingCount: number,
   unsupportedDrawObjectCount: number,
+  unsupportedPathObjectCount: number,
 ): string {
   const truncation = omittedFindingCount
     ? ` ${omittedFindingCount} additional finding${omittedFindingCount === 1 ? " was" : "s were"} summarized in metrics; fix the returned representatives and rerun.`
     : "";
-  const coverage = unsupportedDrawObjectCount
-    ? ` Deterministic geometry coverage is partial: ${unsupportedDrawObjectCount} freehand drawing${unsupportedDrawObjectCount === 1 ? " is" : "s are"} excluded from filled-member and stroke-path relationship checks. Report status applies only to supported geometry; inspect the exact preview pixels for those strokes.`
+  const unsupportedCount = unsupportedDrawObjectCount + unsupportedPathObjectCount;
+  const coverage = unsupportedCount
+    ? ` Deterministic geometry coverage is partial: ${unsupportedCount} freehand drawing or native vector path member${unsupportedCount === 1 ? " is" : "s are"} excluded from relationship checks. Report status applies only to supported geometry; inspect the exact preview pixels for those objects.`
     : "";
   if (status === "pass") {
-    return unsupportedDrawObjectCount
+    return unsupportedCount
       ? `Supported deterministic geometry has no findings.${coverage}`
       : "Conventional diagram geometry has no deterministic findings; composition intent and pixels still require agent judgment.";
   }
@@ -706,6 +713,10 @@ export function analyzeDiagramVisualQuality(
   const unsupportedDrawObjectIds = members
     .filter((object) => object.kind === "draw")
     .map((object) => object.id);
+  const unsupportedPathObjectIds = members
+    .filter((object) => object.kind === "path")
+    .map((object) => object.id);
+  const unsupportedObjectIds = [...unsupportedDrawObjectIds, ...unsupportedPathObjectIds].sort();
   const returnedUnsupportedDrawObjectIds = unsupportedDrawObjectIds.slice(
     0,
     DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
@@ -1013,21 +1024,34 @@ export function analyzeDiagramVisualQuality(
       warningCount,
       omittedFindingCount,
       unsupportedDrawObjectIds.length,
+      unsupportedPathObjectIds.length,
     ),
     geometryCoverage: {
-      status: unsupportedDrawObjectIds.length ? "partial" : "complete",
-      analyzedMemberObjectCount: members.length - unsupportedDrawObjectIds.length,
+      status: unsupportedObjectIds.length ? "partial" : "complete",
+      analyzedMemberObjectCount: members.length - unsupportedObjectIds.length,
       unsupportedDrawObjectCount: unsupportedDrawObjectIds.length,
       unsupportedDrawObjectIds: returnedUnsupportedDrawObjectIds,
       omittedUnsupportedDrawObjectIdCount:
         unsupportedDrawObjectIds.length - returnedUnsupportedDrawObjectIds.length,
       unsupportedDrawObjectIdsTruncated:
         returnedUnsupportedDrawObjectIds.length < unsupportedDrawObjectIds.length,
+      unsupportedPathObjectCount: unsupportedPathObjectIds.length,
+      unsupportedPathObjectIds: unsupportedPathObjectIds.slice(
+        0,
+        DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
+      ),
+      omittedUnsupportedPathObjectIdCount: Math.max(
+        0,
+        unsupportedPathObjectIds.length - DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
+      ),
+      unsupportedPathObjectIdsTruncated:
+        unsupportedPathObjectIds.length > DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedUnsupportedDrawObjectIds,
     },
     findings: returnedFindings,
     metrics: {
       memberObjectCount: members.length,
       unsupportedDrawMemberCount: unsupportedDrawObjectIds.length,
+      unsupportedPathMemberCount: unsupportedPathObjectIds.length,
       connectorCount: connectors.length,
       findingCount: findings.findingCount,
       returnedFindingCount: returnedFindings.length,

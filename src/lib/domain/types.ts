@@ -56,7 +56,7 @@ export type RoomPresenceDelta = {
   presence: PresenceTarget;
 };
 
-export type ObjectKind = "text" | "shape" | "connector" | "image" | "draw";
+export type ObjectKind = "text" | "shape" | "connector" | "image" | "draw" | "path";
 export type DiagramNodeType = "service" | "component" | "requirement" | "decision" | "open_question";
 export type DiagramType = "architecture" | "flow" | "hierarchy" | "system_context" | "process" | "custom";
 export type LeaseOperation = "move" | "resize" | "edit" | "connect" | "delete" | "annotate";
@@ -192,12 +192,55 @@ export type DrawObject = CanvasObjectBase & {
   size: "s" | "m" | "l";
 };
 
+export type VectorPathLineSegment = {
+  kind: "line";
+  to: Point;
+};
+
+export type VectorPathQuadraticSegment = {
+  kind: "quadratic";
+  control: Point;
+  to: Point;
+};
+
+export type VectorPathCubicSegment = {
+  kind: "cubic";
+  control1: Point;
+  control2: Point;
+  to: Point;
+};
+
+export type VectorPathSegment =
+  | VectorPathLineSegment
+  | VectorPathQuadraticSegment
+  | VectorPathCubicSegment;
+
+/**
+ * A safe, renderer-neutral vector path. Coordinates are normalized to the
+ * object's unrotated local box; callers author world coordinates through the
+ * WebMCP path tools and never provide raw SVG path data.
+ */
+export type PathObject = CanvasObjectBase & {
+  kind: "path";
+  start: Point;
+  segments: VectorPathSegment[];
+  closed: boolean;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  opacity: number;
+  lineCap: "butt" | "round" | "square";
+  lineJoin: "miter" | "round" | "bevel";
+  fillRule: "nonzero" | "evenodd";
+};
+
 export type CanvasObject =
   | TextObject
   | ShapeObject
   | ConnectorObject
   | ImageObject
-  | DrawObject;
+  | DrawObject
+  | PathObject;
 
 export type ObjectLease = {
   leaseId: string;

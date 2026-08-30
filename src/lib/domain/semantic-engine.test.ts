@@ -13,6 +13,7 @@ import {
   resolveConnectorRoutes,
 } from "./connector-routing";
 import { connectorLabelBounds } from "./layout";
+import { vectorPathBounds } from "./vector-path";
 import type {
   ActorRef,
   CanvasObject,
@@ -973,6 +974,166 @@ describe("atomic semantic transactions", () => {
 
     expect(error).toMatchObject({ code: "INVALID_OPERATION", details: { id: "payments" } });
     expect(source).toEqual(before);
+  });
+
+  it("updates normalized path geometry exactly and rejects invalid combined path styles", () => {
+    const created = applySemanticTransaction(
+      room([]),
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "create",
+          object: {
+            id: "portrait-path",
+            kind: "path",
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 80,
+            rotation: 0,
+            zIndex: 0,
+            groupId: null,
+            start: { x: 0, y: 0.5 },
+            segments: [{ kind: "line", to: { x: 1, y: 0.5 } }],
+            closed: false,
+            fill: "none",
+            stroke: "black",
+            strokeWidth: 4,
+            opacity: 1,
+            lineCap: "round",
+            lineJoin: "round",
+            fillRule: "nonzero",
+          },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 226,
+    );
+    const updated = applySemanticTransaction(
+      created.room,
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "update",
+          objectId: "portrait-path",
+          expectedRevision: 1,
+          operation: "edit",
+          patch: { start: { x: 0.2, y: 0.3 } },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 227,
+    );
+    expect(updated.room.objects["portrait-path"]).toMatchObject({
+      revision: 2,
+      start: { x: 0.2, y: 0.3 },
+    });
+    expect((updated.room.objects["portrait-path"] as Record<string, unknown>).start).not.toHaveProperty("objectId");
+
+    const before = structuredClone(updated.room);
+    const error = captureDomainError(() => applySemanticTransaction(
+      updated.room,
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "update",
+          objectId: "portrait-path",
+          expectedRevision: 2,
+          operation: "edit",
+          patch: { stroke: "none" },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 228,
+    ));
+    expect(error).toMatchObject({ code: "INVALID_OPERATION" });
+    expect(updated.room).toEqual(before);
+  });
+
+  it("restores connector endpoint defaults contextually for normalized-range coordinates", () => {
+    const source = room([
+      node("api", 0, 0),
+      node("worker", 400, 0),
+      connector("edge", "api", "worker"),
+    ]);
+    const result = applySemanticTransaction(
+      source,
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "update",
+          objectId: "edge",
+          expectedRevision: 1,
+          operation: "connect",
+          patch: { start: { x: 0.2, y: 0.4 } },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 229,
+    );
+    expect(result.room.objects.edge).toMatchObject({
+      start: { x: 0.2, y: 0.4, objectId: null },
+    });
+  });
+
+  it("includes rotated path stroke geometry in authoritative Diagram bounds and revisions", () => {
+    const source = room([]);
+    const created = applySemanticTransaction(source, "alice", "agent", {
+      commands: [{
+        type: "create",
+        object: {
+          id: "path-member",
+          kind: "path",
+          x: 100,
+          y: 200,
+          width: 80,
+          height: 40,
+          rotation: Math.PI / 4,
+          zIndex: 0,
+          groupId: null,
+          start: { x: 0, y: 0 },
+          segments: [{ kind: "line", to: { x: 1, y: 1 } }],
+          closed: false,
+          fill: "none",
+          stroke: "black",
+          strokeWidth: 10,
+          opacity: 1,
+          lineCap: "round",
+          lineJoin: "round",
+          fillRule: "nonzero",
+        },
+      }],
+      diagramCommands: [{
+        type: "diagram.create",
+        diagram: {
+          id: "path-diagram",
+          title: "Path",
+          description: "",
+          diagramType: "custom",
+          category: null,
+          tags: [],
+          memberObjectIds: ["path-member"],
+          connectorIds: [],
+        },
+      }],
+    }, NOW + 230);
+    const object = created.room.objects["path-member"];
+    if (object.kind !== "path") throw new Error("Expected path fixture.");
+    expect(created.room.diagrams["path-diagram"]).toMatchObject({
+      revision: 1,
+      bounds: vectorPathBounds(object),
+    });
+
+    const updated = applySemanticTransaction(created.room, "alice", "agent", {
+      commands: [{ type: "update", objectId: object.id, expectedRevision: 1, operation: "edit", patch: { strokeWidth: 20 } }],
+      diagramCommands: [],
+    }, NOW + 231);
+    expect(updated.room.diagrams["path-diagram"].revision).toBe(2);
+    expect(updated.room.diagrams["path-diagram"].bounds.width).toBeGreaterThan(created.room.diagrams["path-diagram"].bounds.width);
   });
 });
 

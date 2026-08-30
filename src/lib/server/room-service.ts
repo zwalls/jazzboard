@@ -229,7 +229,7 @@ export async function runCanvasCommand(input: {
           create:
             input.command.type === "create" && input.command.object.kind === "text"
               ? "typing"
-              : input.command.type === "create" && input.command.object.kind === "draw"
+              : input.command.type === "create" && (input.command.object.kind === "draw" || input.command.object.kind === "path")
                 ? "drawing"
                 : input.command.type === "create" && input.command.object.kind === "connector"
                   ? "connecting"
@@ -252,8 +252,8 @@ export async function runCanvasCommand(input: {
               ? "Typing canvas text"
               : input.command.type === "create" && input.command.object.kind === "connector"
                 ? "Drawing a connection"
-                : input.command.type === "create" && input.command.object.kind === "draw"
-                  ? "Drawing an annotation"
+                : input.command.type === "create" && (input.command.object.kind === "draw" || input.command.object.kind === "path")
+                  ? input.command.object.kind === "path" ? "Drawing a vector path" : "Drawing an annotation"
                   : input.command.type === "create" && input.command.object.kind === "image"
                     ? "Placing an image"
                     : "Building a canvas object",

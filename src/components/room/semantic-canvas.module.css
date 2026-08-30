@@ -9,6 +9,18 @@
   width: 100%;
 }
 
+.shell[data-clean-inspection="true"] {
+  pointer-events: none;
+}
+
+.shell[data-clean-inspection="true"]:focus-visible {
+  outline: none;
+}
+
+.shell[data-clean-inspection="true"] :global([data-focus-ring="true"]) {
+  opacity: 0;
+}
+
 .shell:focus-visible {
   outline: 3px solid rgba(49, 130, 237, 0.42);
   outline-offset: -3px;

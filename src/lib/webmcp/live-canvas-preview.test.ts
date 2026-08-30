@@ -4,7 +4,7 @@ import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { CanvasObject, RoomState } from "@/lib/domain/types";
 
 import type { CanvasPreviewArtifact } from "./canvas-preview";
-import { presentLiveCanvasPreview } from "./live-canvas-preview";
+import { disposeLiveCanvasPreviews, presentLiveCanvasPreview } from "./live-canvas-preview";
 
 const CREATED_AT = 10_000;
 
@@ -131,6 +131,7 @@ function host(
     getRoom?: () => RoomState | null;
     isCameraFollowActive?: () => boolean;
     now?: () => number;
+    setCleanInspection?: (previewId: string | null) => void;
   } = {},
 ) {
   return {
@@ -138,6 +139,7 @@ function host(
     getCanvasElement: () => element,
     getRoom: options.getRoom ?? (() => room()),
     isCameraFollowActive: options.isCameraFollowActive ?? (() => false),
+    ...(options.setCleanInspection ? { setCleanInspection: options.setCleanInspection } : {}),
     ...(options.now ? { now: options.now } : {}),
   };
 }
@@ -156,6 +158,8 @@ describe("presentLiveCanvasPreview", () => {
   });
 
   afterEach(() => {
+    disposeLiveCanvasPreviews();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -166,7 +170,7 @@ describe("presentLiveCanvasPreview", () => {
     await Promise.resolve();
   }
 
-  it("frames the exact scope on the existing canvas and returns its viewport clip", async () => {
+  it("combines a non-zero canvas client offset with viewport-local scope coordinates", async () => {
     const canvas = runtime();
     const element = canvasElement();
     const presentation = presentLiveCanvasPreview(
@@ -191,6 +195,11 @@ describe("presentLiveCanvasPreview", () => {
         height: 360,
       },
       expiresAt: 70_000,
+      validation: {
+        token: "preview_11111111-2222-4333-8444-555555555555",
+        activeSelector: '[data-canvas-inspection-token="preview_11111111-2222-4333-8444-555555555555"]',
+        status: "valid_until_invalidated",
+      },
     });
     expect(document.querySelector('[role="dialog"][aria-label="Canvas preview"]')).toBeNull();
   });
@@ -262,5 +271,80 @@ describe("presentLiveCanvasPreview", () => {
       new AbortController().signal,
     )).rejects.toMatchObject({ code: "PREVIEW_CAMERA_FOLLOW_ACTIVE" });
     expect(canvas.zoomToBounds).not.toHaveBeenCalled();
+  });
+
+  it("holds a clean token until invalidation, then restores camera and UI", async () => {
+    const canvas = runtime();
+    const element = canvasElement();
+    const setCleanInspection = vi.fn();
+    const presentation = presentLiveCanvasPreview(
+      host(canvas, element, { setCleanInspection }),
+      artifact(),
+      new AbortController().signal,
+    );
+    await paintTwice();
+    const result = await presentation;
+
+    expect(setCleanInspection).toHaveBeenCalledWith(result.previewId);
+    expect(element.dataset.canvasInspectionToken).toBe(result.previewId);
+    window.dispatchEvent(new Event("pointerdown"));
+    expect(setCleanInspection).toHaveBeenLastCalledWith(null);
+    expect(element.dataset.canvasInspectionToken).toBeUndefined();
+    expect(canvas.zoomToBounds).toHaveBeenLastCalledWith(
+      { x: 0, y: 0, width: 800, height: 600 },
+      { targetZoom: 1, durationMs: 0, force: true, publishPresence: false },
+    );
+  });
+
+  it("ignores screenshot-like transient geometry changes but invalidates settled changes", async () => {
+    const canvas = runtime();
+    const element = canvasElement();
+    const roomElement = document.createElement("main");
+    roomElement.dataset.jazzboardRoom = "";
+    roomElement.append(element);
+    document.body.append(roomElement);
+    const setCleanInspection = vi.fn();
+    const innerWidth = vi.spyOn(window, "innerWidth", "get").mockReturnValue(1_000);
+    const visualViewport = Object.assign(new EventTarget(), {
+      width: 1_000,
+      height: 700,
+      offsetLeft: 0,
+      offsetTop: 0,
+      pageLeft: 0,
+      pageTop: 0,
+      scale: 1,
+    });
+    vi.stubGlobal("visualViewport", visualViewport);
+    const presentation = presentLiveCanvasPreview(
+      host(canvas, element, { setCleanInspection }),
+      artifact(),
+      new AbortController().signal,
+    );
+    await paintTwice();
+    const result = await presentation;
+
+    expect(roomElement.dataset.cleanCanvasInspectionToken).toBe(result.previewId);
+    visualViewport.width = 999;
+    visualViewport.dispatchEvent(new Event("resize"));
+    // captureBeyondViewport restores the original metrics before the browser
+    // is able to paint the screenshot response.
+    visualViewport.width = 1_000;
+    await paintTwice();
+    expect(element.dataset.canvasInspectionToken).toBe(result.previewId);
+    expect(roomElement.dataset.cleanCanvasInspectionToken).toBe(result.previewId);
+    expect(setCleanInspection).not.toHaveBeenCalledWith(null);
+    expect(canvas.zoomToBounds).toHaveBeenCalledTimes(1);
+
+    innerWidth.mockReturnValue(999);
+    window.dispatchEvent(new Event("resize"));
+    await paintTwice();
+    expect(element.dataset.canvasInspectionToken).toBeUndefined();
+    expect(roomElement.dataset.cleanCanvasInspectionToken).toBeUndefined();
+    expect(setCleanInspection).toHaveBeenLastCalledWith(null);
+    expect(canvas.zoomToBounds).toHaveBeenLastCalledWith(
+      { x: 0, y: 0, width: 800, height: 600 },
+      { targetZoom: 1, durationMs: 0, force: true, publishPresence: false },
+    );
+    roomElement.remove();
   });
 });

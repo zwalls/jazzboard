@@ -3,6 +3,7 @@ import type {
   CanvasObject,
   Point,
 } from "@/lib/domain/types";
+import { flattenVectorPath } from "@/lib/domain/vector-path";
 
 import type {
   SemanticScene,
@@ -548,6 +549,13 @@ function objectHitDistance(
   if (object.kind === "draw") {
     return Math.max(0, polylineDistance(point, drawWorldPoints(object)) - DRAW_STROKE_WIDTH[object.size] / 2);
   }
+  if (object.kind === "path") {
+    const points = flattenVectorPath(object);
+    if (object.fill.trim().toLowerCase() !== "none") {
+      return polygonDistance(point, points);
+    }
+    return Math.max(0, polylineDistance(point, points) - object.strokeWidth / 2);
+  }
   if (object.kind === "shape" && object.shape === "ellipse") {
     return ellipseDistance(object, point);
   }
@@ -646,7 +654,7 @@ function objectIntersectsMarquee(
       const route = scene.connectorRoutes[object.id];
       return Boolean(route && boundsContain(marquee, route.bounds));
     }
-    if (object.kind === "draw") return boundsContain(marquee, item.bounds);
+    if (object.kind === "draw" || object.kind === "path") return boundsContain(marquee, item.bounds);
     const polygon = object.kind === "shape" && object.shape === "diamond"
       ? diamondCorners(object)
       : rectangleCorners(object);
@@ -661,6 +669,15 @@ function objectIntersectsMarquee(
     const strokeBounds = expandBounds(marquee, DRAW_STROKE_WIDTH[object.size] / 2);
     const points = drawWorldPoints(object);
     if (points.length === 1) return pointInBounds(points[0], strokeBounds);
+    return points.some((point, index) =>
+      index > 0 && segmentIntersectsBounds(points[index - 1], point, strokeBounds));
+  }
+  if (object.kind === "path") {
+    const points = flattenVectorPath(object);
+    if (object.fill.trim().toLowerCase() !== "none" && polygonIntersectsBounds(points, marquee)) {
+      return true;
+    }
+    const strokeBounds = expandBounds(marquee, object.stroke === "none" ? 0 : object.strokeWidth / 2);
     return points.some((point, index) =>
       index > 0 && segmentIntersectsBounds(points[index - 1], point, strokeBounds));
   }

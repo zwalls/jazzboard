@@ -52,10 +52,16 @@ const diagramScopeSchema = z
   })
   .strict();
 
+const scopeInputShape = {
+  scope: z.discriminatedUnion("kind", [objectScopeSchema, diagramScopeSchema]),
+  padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
+};
+
+const inspectionInputSchema = z.object(scopeInputShape).strict();
+
 const previewInputSchema = z
   .object({
-    scope: z.discriminatedUnion("kind", [objectScopeSchema, diagramScopeSchema]),
-    padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
+    ...scopeInputShape,
     maxWidth: z
       .number()
       .int()
@@ -80,20 +86,26 @@ const previewInputSchema = z
 
 type AuthorizedRoomResponse = { ok: true; room: RoomState };
 
-export { JAZZBOARD_PREVIEW_TOOL_NAMES } from "./preview-contract";
+export {
+  JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
+  JAZZBOARD_PREVIEW_TOOL_NAMES,
+} from "./preview-contract";
 
 function authorizedRoomRoute(roomId: string): string {
   return `/api/rooms/${encodeURIComponent(roomId)}`;
 }
 
-function failure(error: unknown): JazzboardToolFailure {
+function failure(
+  error: unknown,
+  tool: "render_canvas_preview" | "inspect_canvas_scope",
+): JazzboardToolFailure {
   if (error instanceof JazzboardApiError) {
-    return { ok: false, tool: "render_canvas_preview", error: error.failure };
+    return { ok: false, tool, error: error.failure };
   }
   if (error instanceof z.ZodError) {
     return {
       ok: false,
-      tool: "render_canvas_preview",
+      tool,
       error: {
         code: "INVALID_TOOL_INPUT",
         message: "The preview input must identify one exact object or diagram revision scope.",
@@ -106,20 +118,20 @@ function failure(error: unknown): JazzboardToolFailure {
   if (error instanceof CanvasPreviewError) {
     return {
       ok: false,
-      tool: "render_canvas_preview",
+      tool,
       error: { code: error.code, message: error.message, details: error.details },
     };
   }
   if (error instanceof DOMException && error.name === "AbortError") {
     return {
       ok: false,
-      tool: "render_canvas_preview",
+      tool,
       error: { code: "TOOL_ABORTED", message: "The WebMCP tool call was cancelled." },
     };
   }
   return {
     ok: false,
-    tool: "render_canvas_preview",
+    tool,
     error: {
       code: "TOOL_EXECUTION_FAILED",
       message: error instanceof Error ? error.message : "Jazzboard could not render this canvas preview.",
@@ -127,13 +139,23 @@ function failure(error: unknown): JazzboardToolFailure {
   };
 }
 
-function renderOptions(input: z.output<typeof previewInputSchema>): CanvasPreviewRenderOptions {
+function renderOptions(
+  input: z.output<typeof previewInputSchema> | z.output<typeof inspectionInputSchema>,
+): CanvasPreviewRenderOptions {
   return {
     padding: input.padding ?? CANVAS_PREVIEW_DEFAULTS.padding,
-    maxWidth: input.maxWidth ?? CANVAS_PREVIEW_DEFAULTS.maxWidth,
-    maxHeight: input.maxHeight ?? CANVAS_PREVIEW_DEFAULTS.maxHeight,
-    pixelRatio: input.pixelRatio ?? CANVAS_PREVIEW_DEFAULTS.pixelRatio,
-    maxBytes: input.maxBytes ?? CANVAS_PREVIEW_DEFAULTS.maxBytes,
+    maxWidth: "maxWidth" in input
+      ? input.maxWidth ?? CANVAS_PREVIEW_DEFAULTS.maxWidth
+      : CANVAS_PREVIEW_DEFAULTS.maxWidth,
+    maxHeight: "maxHeight" in input
+      ? input.maxHeight ?? CANVAS_PREVIEW_DEFAULTS.maxHeight
+      : CANVAS_PREVIEW_DEFAULTS.maxHeight,
+    pixelRatio: "pixelRatio" in input
+      ? input.pixelRatio ?? CANVAS_PREVIEW_DEFAULTS.pixelRatio
+      : CANVAS_PREVIEW_DEFAULTS.pixelRatio,
+    maxBytes: "maxBytes" in input
+      ? input.maxBytes ?? CANVAS_PREVIEW_DEFAULTS.maxBytes
+      : CANVAS_PREVIEW_DEFAULTS.maxBytes,
   };
 }
 
@@ -224,21 +246,28 @@ export function createJazzboardPreviewWebMcpTools(
 ): WebMCP.ModelContextTool[] {
   const transport = dependencies.canvasPreviewTransport;
   const render = binding.context.renderCanvasPreview;
+  const inspect = binding.context.inspectCanvasScope;
   const present = binding.context.presentCanvasPreview;
-  if (binding.role !== "participant" || !transport || !render || !present) return [];
+  if (!transport || !present || (!inspect && !render)) return [];
   const request = dependencies.request ?? (apiRequest as WebMcpRequest);
-
-  return [
-    {
-      name: "render_canvas_preview",
-      title: "Inspect an exact Jazzboard canvas region",
-      description:
-        "Validate and locally frame up to 1,000 exact object or Diagram targets on the live canvas; unavailable during Follow or Spotlight, and framing is not visual QA.",
+  const createTool = (
+    toolName: "render_canvas_preview" | "inspect_canvas_scope",
+  ): WebMCP.ModelContextTool => ({
+      name: toolName,
+      title: toolName === "inspect_canvas_scope"
+        ? "Inspect exact canvas evidence"
+        : "Inspect an exact Jazzboard canvas region",
+      description: toolName === "inspect_canvas_scope"
+        ? "Return exact-revision semantic, geometry, quality/coverage evidence and a clean live screenshotClip. Pixels remain uninspected until the valid clip is examined."
+        : "Validate and locally frame up to 1,000 exact object or Diagram targets on the live canvas; unavailable during Follow or Spotlight, and framing is not visual QA.",
       inputSchema: {
         type: "object",
         properties: {
           scope: {
-            oneOf: [
+            ...(toolName === "inspect_canvas_scope" ? {
+              type: "object",
+              description: "Exactly {\"kind\":\"objects\",\"targets\":[{\"objectId\":\"id\",\"expectedRevision\":1}]} or {\"kind\":\"diagram\",\"diagramId\":\"id\",\"expectedRevision\":1}.",
+            } : { oneOf: [
               {
                 type: "object",
                 properties: {
@@ -271,36 +300,46 @@ export function createJazzboardPreviewWebMcpTools(
                 required: ["kind", "diagramId", "expectedRevision"],
                 additionalProperties: false,
               },
-            ],
+            ] }),
           },
           padding: { type: "number", minimum: 0, maximum: CANVAS_PREVIEW_LIMITS.maxPadding },
-          maxWidth: {
-            type: "integer",
-            minimum: CANVAS_PREVIEW_LIMITS.minDimension,
-            maximum: CANVAS_PREVIEW_LIMITS.maxDimension,
-          },
-          maxHeight: {
-            type: "integer",
-            minimum: CANVAS_PREVIEW_LIMITS.minDimension,
-            maximum: CANVAS_PREVIEW_LIMITS.maxDimension,
-          },
-          pixelRatio: { type: "number", minimum: 1, maximum: CANVAS_PREVIEW_LIMITS.maxPixelRatio },
-          maxBytes: {
-            type: "integer",
-            minimum: CANVAS_PREVIEW_LIMITS.minBytes,
-            maximum: CANVAS_PREVIEW_LIMITS.maxBytes,
-          },
+          ...(toolName === "render_canvas_preview"
+            ? {
+                maxWidth: {
+                  type: "integer",
+                  minimum: CANVAS_PREVIEW_LIMITS.minDimension,
+                  maximum: CANVAS_PREVIEW_LIMITS.maxDimension,
+                },
+                maxHeight: {
+                  type: "integer",
+                  minimum: CANVAS_PREVIEW_LIMITS.minDimension,
+                  maximum: CANVAS_PREVIEW_LIMITS.maxDimension,
+                },
+                pixelRatio: {
+                  type: "number",
+                  minimum: 1,
+                  maximum: CANVAS_PREVIEW_LIMITS.maxPixelRatio,
+                },
+                maxBytes: {
+                  type: "integer",
+                  minimum: CANVAS_PREVIEW_LIMITS.minBytes,
+                  maximum: CANVAS_PREVIEW_LIMITS.maxBytes,
+                },
+              }
+            : {}),
         },
         required: ["scope"],
         additionalProperties: false,
       },
-      // This does not mutate shared room state, but it intentionally moves the
-      // local camera to frame the requested scope, so WebMCP's strict "only
-      // reads data" readOnlyHint would be misleading.
-      annotations: { untrustedContentHint: true },
+      // Local camera/UI presentation is temporary and never mutates shared state.
+      annotations: toolName === "inspect_canvas_scope"
+        ? { readOnlyHint: true, untrustedContentHint: true }
+        : { untrustedContentHint: true },
       async execute(rawInput, options) {
         try {
-          const input = previewInputSchema.parse(rawInput);
+          const input = toolName === "inspect_canvas_scope"
+            ? inspectionInputSchema.parse(rawInput)
+            : previewInputSchema.parse(rawInput);
           const signal = options?.signal ?? new AbortController().signal;
           const response = await request<AuthorizedRoomResponse>(authorizedRoomRoute(binding.roomId), {
             method: "GET",
@@ -311,7 +350,14 @@ export function createJazzboardPreviewWebMcpTools(
               ? resolveObjectScope(response.room, input.scope)
               : resolveDiagramScope(response.room, input.scope);
           binding.context.acceptRoom(response.room);
-          const artifact = await render.call(
+          const prepare = toolName === "inspect_canvas_scope" ? inspect : render;
+          if (!prepare) {
+            throw new CanvasPreviewError(
+              "PREVIEW_RENDERER_UNAVAILABLE",
+              "The active canvas renderer cannot prepare this inspection surface.",
+            );
+          }
+          const artifact = await prepare.call(
             binding.context,
             {
               roomId: binding.roomId,
@@ -321,11 +367,20 @@ export function createJazzboardPreviewWebMcpTools(
             },
             signal,
           );
-          return await transport.emit(artifact, present.bind(binding.context), signal);
+          return await transport.emit(
+            artifact,
+            present.bind(binding.context),
+            signal,
+            toolName,
+          );
         } catch (error) {
-          return failure(error);
+          return failure(error, toolName);
         }
       },
-    },
+    });
+  if (binding.role === "spectator") return inspect ? [createTool("inspect_canvas_scope")] : [];
+  return [
+    ...(render ? [createTool("render_canvas_preview")] : []),
+    ...(inspect ? [createTool("inspect_canvas_scope")] : []),
   ];
 }

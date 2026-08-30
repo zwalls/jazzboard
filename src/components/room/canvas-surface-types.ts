@@ -24,6 +24,8 @@ type LeaseBatchResult = { leases: ObjectLease[]; room: RoomState };
 export type CanvasSurfaceProps = {
   boardMenuActions: BoardMenuActions;
   persistentChromeHost?: HTMLElement | null;
+  /** Short-lived local-only clean evidence presentation. */
+  cleanInspectionId?: string | null;
   room: RoomState;
   /** Ephemeral, presentation-only agent previews; never part of RoomState. */
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];

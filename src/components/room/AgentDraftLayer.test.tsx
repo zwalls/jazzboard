@@ -74,6 +74,37 @@ function connector(id = "draft-connector"): AgentDraftCanvasObject {
   };
 }
 
+function path(id = "draft-path"): AgentDraftCanvasObject {
+  return {
+    authority: "draft",
+    id,
+    kind: "path",
+    x: 20,
+    y: 30,
+    width: 160,
+    height: 90,
+    rotation: Math.PI / 6,
+    zIndex: 4,
+    revision: 1,
+    groupId: null,
+    diagramIds: [],
+    createdAt: 1,
+    updatedAt: 1,
+    createdBy: author,
+    lastEditedBy: author,
+    start: { x: 0, y: 0.5 },
+    segments: [{ kind: "quadratic", control: { x: 0.5, y: 0 }, to: { x: 1, y: 0.5 } }],
+    closed: false,
+    fill: "none",
+    stroke: "red",
+    strokeWidth: 5,
+    opacity: 0.7,
+    lineCap: "square",
+    lineJoin: "bevel",
+    fillRule: "evenodd",
+  };
+}
+
 function draft(input: Partial<AgentCanvasDraftSnapshot> = {}): AgentCanvasDraftSnapshot {
   const now = Date.now();
   return {
@@ -104,6 +135,24 @@ afterEach(() => {
 });
 
 describe("AgentDraftLayer", () => {
+  it("renders native paths in draft previews with their geometry and style", () => {
+    const { container } = render(
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft({ previewObjects: [path()] })]}
+        roomId="room-1"
+        viewport={viewport}
+      />,
+    );
+
+    const element = container.querySelector('[data-agent-draft-object-id="draft-path"] path');
+    expect(element).toHaveAttribute("d", "M 20 75 Q 100 30 180 75");
+    expect(element).toHaveAttribute("stroke", "#d9484a");
+    expect(element).toHaveAttribute("stroke-width", "5");
+    expect(element).toHaveAttribute("opacity", "0.7");
+    expect(element).toHaveAttribute("transform", "rotate(30 100 75)");
+  });
+
   it("renders connectors before other draft art without canonical IDs or interaction semantics", () => {
     const { container } = render(
       <AgentDraftLayer authoritativeObjects={{}} drafts={[draft()]} roomId="room-1" viewport={viewport} />,

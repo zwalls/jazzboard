@@ -6,6 +6,7 @@ import type {
   DrawObject,
   Point,
 } from "@/lib/domain/types";
+import { flattenVectorPath } from "@/lib/domain/vector-path";
 
 import { projectAgentDraft } from "./agent-draft-projection";
 import { CANVAS_ZOOM_LIMITS } from "./camera";
@@ -280,8 +281,10 @@ export function agentDraftObjectFingerprint(
       ? [object.content, object.color, object.size, object.align]
       : object.kind === "connector"
         ? [object.start, object.end, object.routing, object.direction, object.label, object.color]
-        : object.kind === "image"
+      : object.kind === "image"
           ? [object.assetId, object.url, object.alt, object.locked]
+          : object.kind === "path"
+            ? [object.start, object.segments, object.closed, object.fill, object.stroke, object.strokeWidth, object.opacity, object.lineCap, object.lineJoin, object.fillRule]
           : [
               object.points.length,
               object.revision,
@@ -323,6 +326,9 @@ function targetForObject(
     phase = "trace";
   } else if (object.kind === "draw") {
     primaryPoints = downsample(object.points).map((point) => drawWorldPoint(object, point));
+    phase = "trace";
+  } else if (object.kind === "path") {
+    primaryPoints = downsample(flattenVectorPath(object));
     phase = "trace";
   } else if (object.kind === "shape") {
     primaryPoints = shapeOutline(object);

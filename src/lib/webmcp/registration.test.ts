@@ -34,6 +34,9 @@ function context(): JazzboardWebMcpContext {
     renderCanvasPreview: async () => {
       throw new Error("not executed by registration tests");
     },
+    inspectCanvasScope: async () => {
+      throw new Error("not executed by registration tests");
+    },
     presentCanvasPreview: async () => {
       throw new Error("not executed by registration tests");
     },
@@ -91,6 +94,10 @@ describe("JazzboardWebMcpRegistrar", () => {
     });
     expect(modelContext.registerTool).toHaveBeenCalledTimes(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES.length);
     expect([...modelContext.tools.keys()]).toEqual(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES);
+    expect(modelContext.tools.get("get_canvas_capabilities")?.annotations).toEqual({
+      readOnlyHint: true,
+    });
+    expect(modelContext.tools.has("inspect_canvas_scope")).toBe(true);
     for (const retiredToolName of [
       "create_readonly_snapshot",
       "list_readonly_snapshots",
@@ -171,6 +178,10 @@ describe("JazzboardWebMcpRegistrar", () => {
       registeredToolNames: [...JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES],
     });
     expect([...modelContext.tools.keys()]).toEqual(JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES);
+    expect(modelContext.tools.get("get_canvas_capabilities")?.annotations).toEqual({
+      readOnlyHint: true,
+    });
+    expect(modelContext.tools.has("inspect_canvas_scope")).toBe(true);
     expect(
       [...modelContext.tools.values()]
         .filter((tool) => tool.name !== "export_canvas_png")

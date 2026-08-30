@@ -10,6 +10,20 @@ export const diagramTypeSchema = z.enum(["architecture", "flow", "hierarchy", "s
 export const decisionStatusSchema = z.enum(["proposed", "accepted", "rejected", "superseded"]);
 export const openQuestionStatusSchema = z.enum(["open", "answered", "deferred", "closed"]);
 
+export const SEMANTIC_COLOR_NAMES = [
+  "black", "grey", "light-violet", "violet", "blue", "light-blue", "yellow",
+  "orange", "green", "light-green", "light-red", "red", "white",
+] as const;
+const semanticHexColor = /^(?:#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8})$/i;
+export const semanticColorSchema = z.string().max(32).refine(
+  (value) => (SEMANTIC_COLOR_NAMES as readonly string[]).includes(value) || semanticHexColor.test(value),
+  "Use a supported semantic color name or #RGB, #RRGGBB, or #RRGGBBAA.",
+);
+export const semanticPaintSchema = z.string().max(32).refine(
+  (value) => value === "none" || semanticColorSchema.safeParse(value).success,
+  "Use none, a supported semantic color name, or #RGB, #RRGGBB, or #RRGGBBAA.",
+);
+
 const nodeOwnerSchema = z.string().trim().min(1).max(160).nullable().default(null);
 const nodeResolutionSchema = z.string().trim().min(1).max(10_000).nullable().default(null);
 
@@ -106,6 +120,21 @@ export const objectLeaseActionSchema = z.discriminatedUnion("action", [
 
 const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
 
+const normalizedPathPointSchema = z.object({
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+}).strict();
+const vectorPathSegmentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("line"), to: normalizedPathPointSchema }).strict(),
+  z.object({ kind: z.literal("quadratic"), control: normalizedPathPointSchema, to: normalizedPathPointSchema }).strict(),
+  z.object({
+    kind: z.literal("cubic"),
+    control1: normalizedPathPointSchema,
+    control2: normalizedPathPointSchema,
+    to: normalizedPathPointSchema,
+  }).strict(),
+]);
+
 const normalizedConnectorAnchorSchema = pointSchema.superRefine((anchor, context) => {
   if (anchor.x < 0 || anchor.x > 1) {
     context.addIssue({ code: "custom", path: ["x"], message: "Connector anchor x must be between 0 and 1." });
@@ -183,7 +212,7 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   baseObjectSchema.extend({
     kind: z.literal("text"),
     content: z.string().max(20_000),
-    color: z.string().min(1).max(32).default("black"),
+    color: semanticColorSchema.default("black"),
     size: z.enum(["s", "m", "l", "xl"]).default("m"),
     align: z.enum(["start", "middle", "end"]).default("start"),
   }),
@@ -193,8 +222,8 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
     nodeType: diagramNodeTypeSchema.nullable().default(null),
     nodeMetadata: nodeMetadataInputSchema.nullable().optional(),
     label: z.string().max(10_000).default(""),
-    fill: z.string().min(1).max(32).default("blue"),
-    stroke: z.string().min(1).max(32).default("blue"),
+    fill: semanticPaintSchema.default("blue"),
+    stroke: semanticPaintSchema.default("blue"),
   }),
   baseObjectSchema.extend({
     kind: z.literal("connector"),
@@ -203,7 +232,7 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
     routing: connectorRoutingSchema.optional(),
     direction: z.enum(["none", "end", "both"]).default("end"),
     label: z.string().max(2_000).default(""),
-    color: z.string().min(1).max(32).default("black"),
+    color: semanticColorSchema.default("black"),
   }),
   baseObjectSchema.extend({
     kind: z.literal("image"),
@@ -217,8 +246,28 @@ export const createCanvasObjectSchema = z.discriminatedUnion("kind", [
   baseObjectSchema.extend({
     kind: z.literal("draw"),
     points: z.array(pointSchema).min(2).max(20_000),
-    color: z.string().min(1).max(32).default("black"),
+    color: semanticColorSchema.default("black"),
     size: z.enum(["s", "m", "l"]).default("m"),
+  }),
+  baseObjectSchema.extend({
+    kind: z.literal("path"),
+    start: normalizedPathPointSchema,
+    segments: z.array(vectorPathSegmentSchema).min(1).max(2_000),
+    closed: z.boolean().default(false),
+    fill: semanticPaintSchema.default("none"),
+    stroke: semanticPaintSchema.default("black"),
+    strokeWidth: z.number().finite().min(0).max(256).default(3.5),
+    opacity: z.number().finite().min(0).max(1).default(1),
+    lineCap: z.enum(["butt", "round", "square"]).default("round"),
+    lineJoin: z.enum(["miter", "round", "bevel"]).default("round"),
+    fillRule: z.enum(["nonzero", "evenodd"]).default("nonzero"),
+  }).superRefine((path, context) => {
+    if (path.fill.trim().toLowerCase() === "none" && path.stroke.trim().toLowerCase() === "none") {
+      context.addIssue({ code: "custom", path: ["stroke"], message: "A path requires a visible fill or stroke." });
+    }
+    if (path.stroke.trim().toLowerCase() !== "none" && path.strokeWidth <= 0) {
+      context.addIssue({ code: "custom", path: ["strokeWidth"], message: "A visible path stroke requires positive strokeWidth." });
+    }
   }),
 ]).superRefine((object, context) => {
   if (object.kind !== "shape") return;
@@ -241,16 +290,16 @@ const patchSchema = z
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     groupId: z.string().min(1).max(128).nullable().optional(),
     content: z.string().max(20_000).optional(),
-    color: z.string().min(1).max(32).optional(),
+    color: semanticColorSchema.optional(),
     size: z.enum(["s", "m", "l", "xl"]).optional(),
     align: z.enum(["start", "middle", "end"]).optional(),
     shape: z.enum(["rectangle", "ellipse", "diamond"]).optional(),
     nodeType: diagramNodeTypeSchema.nullable().optional(),
     nodeMetadata: nodeMetadataInputSchema.nullable().optional(),
     label: z.string().max(10_000).optional(),
-    fill: z.string().min(1).max(32).optional(),
-    stroke: z.string().min(1).max(32).optional(),
-    start: connectorEndpointSchema.optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
+    start: z.union([normalizedPathPointSchema, connectorEndpointSchema]).optional(),
     end: connectorEndpointSchema.optional(),
     routing: connectorRoutingSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
@@ -261,6 +310,13 @@ const patchSchema = z
     sourceUrl: z.string().url().max(8_192).nullable().optional(),
     locked: z.boolean().optional(),
     points: z.array(pointSchema).min(2).max(20_000).optional(),
+    segments: z.array(vectorPathSegmentSchema).min(1).max(2_000).optional(),
+    closed: z.boolean().optional(),
+    strokeWidth: z.number().finite().min(0).max(256).optional(),
+    opacity: z.number().finite().min(0).max(1).optional(),
+    lineCap: z.enum(["butt", "round", "square"]).optional(),
+    lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+    fillRule: z.enum(["nonzero", "evenodd"]).optional(),
   })
   .strict()
   .superRefine((patch, context) => {

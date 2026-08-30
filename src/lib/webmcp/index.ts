@@ -4,6 +4,11 @@ export {
   JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
   JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
 } from "./registration";
+export {
+  createJazzboardCanvasCapabilityWebMcpTools,
+  JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
+} from "./capability-tools";
+export type { JazzboardCanvasCapabilities } from "./capability-tools";
 export { JazzboardLandingWebMcpRegistrar } from "./landing-registration";
 export {
   createJazzboardLandingWebMcpTools,
@@ -67,10 +72,12 @@ export {
   CANVAS_PREVIEW_DEFAULTS,
   CANVAS_PREVIEW_LIMITS,
   CanvasPreviewError,
+  prepareCanvasInspection,
   renderCanvasPreview,
 } from "./canvas-preview";
 export {
   createJazzboardPreviewWebMcpTools,
+  JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
   JAZZBOARD_PREVIEW_TOOL_NAMES,
 } from "./preview-tools";
 export {
@@ -93,7 +100,12 @@ export type {
   JazzboardWebMcpRegistrationStatus,
 } from "./types";
 export type {
+  BoundedCanvasTextEvidence,
   CanvasPreviewArtifact,
+  CanvasInspectionArtifact,
+  CanvasInspectionEvidence,
+  CanvasInspectionMetadata,
+  CanvasObjectSemanticEvidence,
   CanvasPreviewMetadata,
   CanvasPreviewPresentation,
   CanvasPreviewPresenter,

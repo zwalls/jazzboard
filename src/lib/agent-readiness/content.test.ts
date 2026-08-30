@@ -8,6 +8,7 @@ import {
   JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES,
 } from "@/lib/webmcp/landing-tools";
 import { JAZZBOARD_MESSAGE_TOOL_NAMES } from "@/lib/webmcp/message-tools";
+import { JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES } from "@/lib/webmcp/capability-tools";
 import {
   JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
   JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
@@ -63,6 +64,10 @@ describe("agent-readable content", () => {
     for (const name of JAZZBOARD_MESSAGE_TOOL_NAMES) {
       expect(ROOM_PARTICIPANT_TOOL_NAMES).toContain(name);
       expect(ROOM_SPECTATOR_TOOL_NAMES).not.toContain(name);
+    }
+    for (const name of JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES) {
+      expect(ROOM_PARTICIPANT_TOOL_NAMES).toContain(name);
+      expect(ROOM_SPECTATOR_TOOL_NAMES).toContain(name);
     }
 
     const reference = makeWebMcpMarkdown();
@@ -215,7 +220,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.7.0");
+    expect(AGENT_DOC_VERSION).toBe("1.8.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -286,6 +291,50 @@ describe("agent-readable content", () => {
     }
     expect(reference).toContain("not simulated animation");
     expect(skill).toContain("omitted from committed-state queries and exports");
+  });
+
+  it("defines the agent-facing canvas coordinate, style, and capability contract", () => {
+    const guide = makeAgentGuideMarkdown();
+    const reference = makeWebMcpMarkdown();
+    const skill = makeSkillMarkdown();
+    const corpus = [
+      makeLlmsTxt(),
+      makeHomepageMarkdown(),
+      guide,
+      reference,
+      makeAgentsMarkdown(),
+      skill,
+    ].join("\n");
+
+    for (const phrase of [
+      "`get_canvas_capabilities`",
+      "x increases right",
+      "y increases down",
+      "unrotated top-left",
+      "rotation is in radians",
+      "clockwise",
+      "Higher `zIndex`",
+      "#RRGGBBAA",
+      "transparent",
+      "saturated ink",
+      "pastel",
+      "absolute canvas points",
+      "object-local points",
+      "`create_drawing`",
+      "`create_path`",
+      "`create_polygon`",
+      "line/quadratic/cubic",
+      "including `[]`",
+      "`inspect_canvas_scope`",
+    ]) {
+      expect(corpus).toContain(phrase);
+    }
+
+    expect(guide).toContain("`Math.PI / 2`");
+    expect(guide).toContain("18, 24, 36, and 44 canvas units");
+    expect(guide).toContain("3, 4.5, and 6 units");
+    expect(reference).toContain("## Canvas authoring contract");
+    expect(skill).toContain("do not guess units");
   });
 
   it("requires intent-led geometry interpretation and actual pixel inspection as separate steps", () => {

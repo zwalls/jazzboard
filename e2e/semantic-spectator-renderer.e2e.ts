@@ -25,6 +25,8 @@ const SPECTATOR_TOOL_NAMES = [
   "export_canvas_artifact",
   "export_canvas_png",
   "find_diagrams",
+  "get_canvas_capabilities",
+  "inspect_canvas_scope",
   "list_activity",
   "list_agent_edit_proposals",
   "query_objects",

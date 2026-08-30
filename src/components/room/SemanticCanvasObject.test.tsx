@@ -490,4 +490,36 @@ describe("SemanticCanvasObject", () => {
     expect(line).toHaveAttribute("stroke-width", "4.5");
     expect(line).toHaveAttribute("stroke", "#d9484a");
   });
+
+  it("renders safe native vector commands and expressive path styling", () => {
+    const object: CanvasObject = {
+      ...base("path-one", "path"),
+      kind: "path",
+      start: { x: 0, y: 0.5 },
+      segments: [{
+        kind: "cubic",
+        control1: { x: 0.2, y: 0 },
+        control2: { x: 0.8, y: 1 },
+        to: { x: 1, y: 0.5 },
+      }],
+      closed: true,
+      fill: "#abc",
+      stroke: "red",
+      strokeWidth: 7,
+      opacity: 0.6,
+      lineCap: "square",
+      lineJoin: "bevel",
+      fillRule: "evenodd",
+    };
+    const { container } = inSvg(<SemanticCanvasObject object={object} />);
+    const path = container.querySelector("#path-one path")!;
+    expect(path).toHaveAttribute("d", "M 20 75 C 52 30 148 120 180 75 Z");
+    expect(path).toHaveAttribute("fill", "#abc");
+    expect(path).toHaveAttribute("stroke", "#d9484a");
+    expect(path).toHaveAttribute("stroke-width", "7");
+    expect(path).toHaveAttribute("opacity", "0.6");
+    expect(path).toHaveAttribute("stroke-linecap", "square");
+    expect(path).toHaveAttribute("stroke-linejoin", "bevel");
+    expect(path).toHaveAttribute("fill-rule", "evenodd");
+  });
 });

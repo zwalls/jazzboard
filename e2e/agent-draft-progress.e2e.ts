@@ -83,21 +83,46 @@ type ArtworkFrame = {
   objects: ArtworkObjectFrame[];
 };
 
-const NODE_REFS = ["browser", "gateway", "api", "queue", "worker", "database"] as const;
-const CONNECTOR_REFS = ["browser_gateway", "gateway_api", "api_queue", "queue_worker", "worker_database"] as const;
-const DIAGRAM_REF = "demo_architecture";
+const NODE_REFS = [
+  "clients",
+  "edge_gateway",
+  "room_api",
+  "presence",
+  "guest_identity",
+  "redis_state",
+  "blob_assets",
+  "webmcp_runtime",
+  "agent_workspace",
+  "telemetry",
+] as const;
+const CONNECTOR_REFS = [
+  "clients_gateway",
+  "gateway_room",
+  "room_presence",
+  "gateway_identity",
+  "room_redis",
+  "room_blob",
+  "webmcp_room",
+  "agent_webmcp",
+  "identity_webmcp",
+  "room_telemetry",
+  "redis_telemetry",
+] as const;
+const DIAGRAM_REF = "jazzboard_system_architecture";
 
 const CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS = 40;
-const CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR = 2;
-const CHOREOGRAPHY_POSITION_TOLERANCE_PX = 4;
-const CHOREOGRAPHY_BOUNDARY_LIMIT_PX = 40;
+const CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR = 5;
+const CHOREOGRAPHY_POSITION_TOLERANCE_PX = 16;
+const CHOREOGRAPHY_BOUNDARY_LIMIT_PX = 100;
 const SINE_EASING_PEAK_RATE = Math.PI / 2;
 
 /**
  * Upper screen-space rates for the shortest queue-compressed segments. The
  * choreography durations are calculated from screen distance, so live zoom is
- * already represented in these rates. A factor of two accounts for the bot and
- * observer running in separate rAF loops: one observation may span two writes.
+ * already represented in these rates. The sampling factor accounts for the bot
+ * and observer running in separate rAF loops plus recording backpressure on a
+ * long queue compressed to the seven-second cap. It still rejects cross-board
+ * teleports while allowing one observed frame to span several producer writes.
  */
 const CHOREOGRAPHY_PHASE_SPEED_LIMITS: Readonly<Record<string, number>> = {
   travel: 760 * (120 / CHOREOGRAPHY_MINIMUM_COMPRESSED_SEGMENT_MS) * SINE_EASING_PEAK_RATE * CHOREOGRAPHY_SAMPLER_CADENCE_FACTOR,
@@ -127,49 +152,102 @@ function node(
     nodeType,
     x,
     y,
-    width: 170,
-    height: 92,
+    width: 190,
+    height: 100,
   };
 }
+
+type ConnectorPortPlacement = {
+  side: "left" | "right" | "top" | "bottom";
+  position: number;
+};
 
 function connection(
   tempRef: typeof CONNECTOR_REFS[number],
   start: typeof NODE_REFS[number],
   end: typeof NODE_REFS[number],
   label: string,
-  sides: { start: "right" | "bottom"; end: "left" | "top" },
+  placement: {
+    start: ConnectorPortPlacement;
+    end: ConnectorPortPlacement;
+    mode: "straight" | "elbow";
+    elbowMidPoint?: number;
+    labelPosition?: number;
+  },
 ) {
   return {
     op: "connect",
     tempRef,
-    start: { tempRef: start, port: { side: sides.start, position: 0.5 } },
-    end: { tempRef: end, port: { side: sides.end, position: 0.5 } },
+    start: { tempRef: start, port: { ...placement.start, exact: true } },
+    end: { tempRef: end, port: { ...placement.end, exact: true } },
     direction: "end",
     label,
     color: "black",
-    routing: { mode: "elbow", elbowMidPoint: 0.5, labelPosition: 0.5 },
+    routing: {
+      mode: placement.mode,
+      ...(placement.mode === "elbow" ? { elbowMidPoint: placement.elbowMidPoint ?? 0.5 } : {}),
+      labelPosition: placement.labelPosition ?? 0.5,
+    },
   };
 }
 
 const NODES = [
-  node("browser", "Draft Demo · Browser", "component", 100, 150),
-  node("gateway", "Draft Demo · Gateway", "service", 350, 150),
-  node("api", "Draft Demo · Room API", "service", 600, 150),
-  node("queue", "Draft Demo · Event Queue", "component", 600, 390),
-  node("worker", "Draft Demo · Worker", "service", 840, 390),
-  node("database", "Draft Demo · Database", "component", 1_060, 390),
+  node("clients", "Web + Mobile Clients", "component", 70, 120),
+  node("edge_gateway", "Edge Session Gateway", "service", 400, 120),
+  node("room_api", "Room Command API", "service", 730, 330),
+  node("presence", "Presence Fanout", "service", 730, 120),
+  node("guest_identity", "Guest Identity", "service", 400, 330),
+  node("redis_state", "Redis Room State", "component", 1_060, 330),
+  node("blob_assets", "Vercel Blob Assets", "component", 1_060, 120),
+  node("webmcp_runtime", "WebMCP Tool Runtime", "service", 400, 540),
+  node("agent_workspace", "Agent Workspace", "component", 70, 540),
+  node("telemetry", "Telemetry + Review", "component", 730, 540),
 ] as const;
 
 const CONNECTORS = [
-  connection("browser_gateway", "browser", "gateway", "HTTPS", { start: "right", end: "left" }),
-  connection("gateway_api", "gateway", "api", "authorized request", { start: "right", end: "left" }),
-  connection("api_queue", "api", "queue", "enqueue", { start: "bottom", end: "top" }),
-  connection("queue_worker", "queue", "worker", "deliver", { start: "right", end: "left" }),
-  connection("worker_database", "worker", "database", "persist", { start: "right", end: "left" }),
+  connection("clients_gateway", "clients", "edge_gateway", "HTTPS / WS", {
+    start: { side: "right", position: 0.5 }, end: { side: "left", position: 0.5 }, mode: "straight",
+  }),
+  connection("gateway_room", "edge_gateway", "room_api", "commands", {
+    start: { side: "right", position: 0.68 }, end: { side: "left", position: 0.28 }, mode: "elbow", labelPosition: 0.35,
+  }),
+  connection("room_presence", "room_api", "presence", "realtime deltas", {
+    start: { side: "top", position: 0.65 }, end: { side: "bottom", position: 0.65 }, mode: "straight",
+  }),
+  connection("gateway_identity", "edge_gateway", "guest_identity", "authorize", {
+    start: { side: "bottom", position: 0.35 }, end: { side: "top", position: 0.35 }, mode: "straight",
+  }),
+  connection("room_redis", "room_api", "redis_state", "CAS", {
+    start: { side: "right", position: 0.72 }, end: { side: "left", position: 0.72 }, mode: "straight",
+  }),
+  connection("room_blob", "room_api", "blob_assets", "asset refs", {
+    start: { side: "right", position: 0.15 }, end: { side: "left", position: 0.75 }, mode: "elbow", labelPosition: 0.7,
+  }),
+  connection("webmcp_room", "webmcp_runtime", "room_api", "semantic", {
+    start: { side: "right", position: 0.25 }, end: { side: "left", position: 0.75 }, mode: "elbow", labelPosition: 0.7,
+  }),
+  connection("agent_webmcp", "agent_workspace", "webmcp_runtime", "tool calls", {
+    start: { side: "right", position: 0.5 }, end: { side: "left", position: 0.5 }, mode: "straight",
+  }),
+  connection("identity_webmcp", "webmcp_runtime", "guest_identity", "session claims", {
+    start: { side: "top", position: 0.35 }, end: { side: "bottom", position: 0.35 }, mode: "straight",
+  }),
+  connection("room_telemetry", "room_api", "telemetry", "activity", {
+    start: { side: "bottom", position: 0.65 }, end: { side: "top", position: 0.65 }, mode: "straight",
+  }),
+  connection("redis_telemetry", "redis_state", "telemetry", "snapshots", {
+    start: { side: "bottom", position: 0.35 }, end: { side: "right", position: 0.75 }, mode: "elbow", elbowMidPoint: 0.55, labelPosition: 0.6,
+  }),
 ] as const;
 
-function cumulativeOperations(nodeCount: 2 | 4 | 6) {
-  const connectorCount = nodeCount - 1;
+const DRAFT_STAGES = {
+  core: { nodeCount: 4, connectorCount: 3 },
+  persistence: { nodeCount: 7, connectorCount: 6 },
+  complete: { nodeCount: 10, connectorCount: 11 },
+} as const;
+
+function cumulativeOperations(stage: keyof typeof DRAFT_STAGES) {
+  const { nodeCount, connectorCount } = DRAFT_STAGES[stage];
   const nodes = NODES.slice(0, nodeCount);
   const connectors = CONNECTORS.slice(0, connectorCount);
   return [
@@ -178,11 +256,11 @@ function cumulativeOperations(nodeCount: 2 | 4 | 6) {
     {
       op: "create_diagram",
       tempRef: DIAGRAM_REF,
-      title: "Progressive agent draft architecture",
-      description: "A six-node request-to-storage flow staged visibly before one atomic commit.",
+      title: "Jazzboard agent-native collaboration architecture",
+      description: "The multi-branch client, identity, command, presence, persistence, media, WebMCP, agent, and observability architecture behind Jazzboard.",
       diagramType: "architecture",
-      category: "acceptance-test",
-      tags: ["draft", "progressive", "atomic"],
+      category: "collaborative-canvas-platform",
+      tags: ["jazzboard", "webmcp", "realtime", "agents", "multiplayer"],
       members: nodes.map(({ tempRef }) => ({ tempRef })),
       connectors: connectors.map(({ tempRef }) => ({ tempRef })),
     },
@@ -388,7 +466,11 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     throw new Error("Agent draft progress E2E requires Playwright use.baseURL.");
   }
 
-  const host = await createRoomViaApi(page.request, "Ari Agent Owner", "Progressive draft demo");
+  const host = await createRoomViaApi(
+    page.request,
+    "Architecture QA",
+    "Jazzboard System Architecture — WebMCP Regression",
+  );
   const viewerContext = await browser.newContext({
     baseURL: configuredBaseUrl,
     viewport: { width: 1_280, height: 720 },
@@ -467,18 +549,18 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     const baselineRoomRevision = initial.room.roomRevision;
 
     const first = await callTool<DraftedResult>(page, "apply_canvas_transaction", {
-      operations: cumulativeOperations(2),
+      operations: cumulativeOperations("core"),
       delivery: { mode: "draft" },
-      intent: "Progressively show a coherent request-to-storage architecture before committing it.",
-      summary: "Stage browser and gateway",
+      intent: "Progressively build Jazzboard's multi-branch agent-native collaboration architecture before one atomic commit.",
+      summary: "Stage clients, commands, and presence",
     });
     expect(first).toMatchObject({ outcome: "drafted", draftRevision: 1, baselineRoomRevision });
-    expect(first.draft.previewObjects).toHaveLength(3);
-    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 1, objectCount: 3 });
+    expect(first.draft.previewObjects).toHaveLength(7);
+    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 1, objectCount: 7 });
     const agentNameTag = viewerPage
       .getByTestId(`agent-cursor-${host.participantId}`)
       .locator('[data-agent-cursor-label="true"]');
-    await expect(agentNameTag).toHaveText("Ari Agent Owner");
+    await expect(agentNameTag).toHaveText("Architecture QA");
     const agentNameTagStyle = await agentNameTag.evaluate((element) => {
       const tagStyle = getComputedStyle(element);
       const markerStyle = getComputedStyle(element.parentElement!);
@@ -508,44 +590,44 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(agentNameTagStyle.color).not.toBe(agentNameTagStyle.markerColor);
     expect(agentNameTagStyle.boxShadow).not.toBe("none");
     const draftPillName = viewerPage.locator(`[data-agent-draft-pill="${first.draftId}"] strong`);
-    await expect(draftPillName).toHaveText("Ari Agent Owner");
+    await expect(draftPillName).toHaveText("Architecture QA");
     expect(await draftPillName.evaluate((element) => (
       getComputedStyle(element.parentElement!, "::before").content
     ))).toBe("none");
     await page.waitForTimeout(450);
 
     const second = await callTool<DraftedResult>(page, "apply_canvas_transaction", {
-      operations: cumulativeOperations(4),
+      operations: cumulativeOperations("persistence"),
       delivery: { mode: "draft", draftId: first.draftId, expectedDraftRevision: 1 },
-      intent: "Progressively show a coherent request-to-storage architecture before committing it.",
-      summary: "Add the room API and event queue",
+      intent: "Progressively build Jazzboard's multi-branch agent-native collaboration architecture before one atomic commit.",
+      summary: "Add identity, revision-safe state, and media storage",
     });
     expect(second).toMatchObject({ outcome: "drafted", draftId: first.draftId, draftRevision: 2 });
     for (const [temporaryReference, candidateId] of Object.entries(first.temporaryReferences)) {
       expect(second.temporaryReferences[temporaryReference]).toBe(candidateId);
     }
-    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 2, objectCount: 7 });
+    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 2, objectCount: 13 });
     await page.waitForTimeout(450);
 
     const third = await callTool<DraftedResult>(page, "apply_canvas_transaction", {
-      operations: cumulativeOperations(6),
+      operations: cumulativeOperations("complete"),
       delivery: { mode: "draft", draftId: first.draftId, expectedDraftRevision: 2 },
-      intent: "Progressively show a coherent request-to-storage architecture before committing it.",
-      summary: "Complete the worker and database flow",
+      intent: "Progressively build Jazzboard's multi-branch agent-native collaboration architecture before one atomic commit.",
+      summary: "Complete WebMCP, agent workspace, and observability paths",
     });
     expect(third).toMatchObject({ outcome: "drafted", draftId: first.draftId, draftRevision: 3 });
     for (const [temporaryReference, candidateId] of Object.entries(second.temporaryReferences)) {
       expect(third.temporaryReferences[temporaryReference]).toBe(candidateId);
     }
-    expect(Object.keys(third.temporaryReferences)).toHaveLength(12);
-    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 3, objectCount: 11 });
-    await expectDraftProjection(spectatorPage, { draftId: first.draftId, revision: 3, objectCount: 11 });
+    expect(Object.keys(third.temporaryReferences)).toHaveLength(22);
+    await expectDraftProjection(viewerPage, { draftId: first.draftId, revision: 3, objectCount: 21 });
+    await expectDraftProjection(spectatorPage, { draftId: first.draftId, revision: 3, objectCount: 21 });
 
     const spectatorRead = await callTool<ReadDraftResult>(spectatorPage, "read_canvas_drafts", {
       draftId: first.draftId,
     });
     expect(spectatorRead.draft).toMatchObject({ revision: 3, status: "active" });
-    expect(spectatorRead.draft.previewObjects).toHaveLength(11);
+    expect(spectatorRead.draft.previewObjects).toHaveLength(21);
 
     await expect.poll(
       () => viewerPage!.locator('[data-agent-draft-choreography="true"]').getAttribute("data-agent-draft-choreography-phase"),
@@ -559,7 +641,7 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       expect(state.objects).toEqual([]);
       expect(state.diagrams).toEqual([]);
       const query = await callTool<QueryResult>(currentPage, "query_objects", {
-        text: "Draft Demo",
+        text: "Room Command API",
         limit: 50,
       });
       expect(query).toMatchObject({ roomRevision: baselineRoomRevision, totalMatched: 0, objects: [] });
@@ -571,14 +653,22 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       await installWebMcpShim(latePage);
       await latePage.goto(`/room/${encodeURIComponent(host.room.id)}`);
       await expect(latePage.getByTestId("semantic-canvas")).toBeVisible({ timeout: 20_000 });
-      await expect(latePage.locator("[data-agent-draft-object-id]")).toHaveCount(11, { timeout: 15_000 });
-      await expect(latePage.locator('[data-agent-draft-reveal-state="complete"]')).toHaveCount(11);
+      await expect(latePage.locator("[data-agent-draft-object-id]")).toHaveCount(21, { timeout: 15_000 });
+      await expect(latePage.locator('[data-agent-draft-reveal-state="complete"]')).toHaveCount(21);
       await latePage.waitForTimeout(250);
       await expect(latePage.locator('[data-agent-draft-reveal-state="pending"]')).toHaveCount(0);
       await expect(latePage.locator('[data-agent-draft-reveal-state="active"]')).toHaveCount(0);
     } finally {
       await latePage.close();
     }
+
+    // Let the richer multi-branch graph finish its visible construction before
+    // committing, so the recording proves every draft object is actually
+    // traced instead of cutting the choreography short.
+    await expect(viewerPage.locator('[data-agent-draft-reveal-state="complete"]')).toHaveCount(21, {
+      timeout: 20_000,
+    });
+    await viewerPage.waitForTimeout(350);
 
     await startTransitionSampler(viewerPage);
     const finish = await callTool<FinishDraftResult>(page, "finish_canvas_draft", {
@@ -591,7 +681,7 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       outcome: "applied",
       draftId: first.draftId,
     });
-    await expect(viewerPage.getByTestId("semantic-canvas").locator("[data-object-id]")).toHaveCount(11, {
+    await expect(viewerPage.getByTestId("semantic-canvas").locator("[data-object-id]")).toHaveCount(21, {
       timeout: 15_000,
     });
     await expect(viewerPage.locator("[data-agent-draft-object-id]")).toHaveCount(0);
@@ -612,12 +702,20 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     expect(sampledDraftRevisions.every((revision) => revision >= 1 && revision <= 4)).toBe(true);
     const artworkObjects = artwork.flatMap((frame) => frame.objects);
     const firstVisibleArtworkFrame = artwork.find((frame) => frame.objects.length > 0);
-    expect(firstVisibleArtworkFrame?.objects).toHaveLength(3);
+    expect(firstVisibleArtworkFrame?.objects).toHaveLength(7);
     expect(
       firstVisibleArtworkFrame?.objects.every((object) => object.state !== "complete"),
       JSON.stringify(firstVisibleArtworkFrame),
     ).toBe(true);
-    const firstRevisionObjectIds = ["browser", "gateway", "browser_gateway"]
+    const firstRevisionObjectIds = [
+      "clients",
+      "edge_gateway",
+      "room_api",
+      "presence",
+      "clients_gateway",
+      "gateway_room",
+      "room_presence",
+    ]
       .map((temporaryReference) => first.temporaryReferences[temporaryReference]!);
     for (const objectId of firstRevisionObjectIds) {
       const objectFrames = artwork
@@ -678,9 +776,9 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
     }
     expect(viewerMutationRequests).toEqual([]);
     const transition = await stopTransitionSampler(viewerPage);
-    expect(transition.some((frame) => frame.authoritative === 11)).toBe(true);
-    expect(transition.filter((frame) => frame.authoritative > 0).every((frame) => frame.authoritative === 11)).toBe(true);
-    expect(transition.every((frame) => frame.draft === 11 || frame.authoritative === 11)).toBe(true);
+    expect(transition.some((frame) => frame.authoritative === 21)).toBe(true);
+    expect(transition.filter((frame) => frame.authoritative > 0).every((frame) => frame.authoritative === 21)).toBe(true);
+    expect(transition.every((frame) => frame.draft === 21 || frame.authoritative === 21)).toBe(true);
     expect(transition.every((frame) => !(frame.authoritative > 0 && frame.draft > 0))).toBe(true);
 
     const final = await authoritativeState(page);
@@ -694,20 +792,43 @@ test("progressively previews a real WebMCP draft and commits it atomically", asy
       memberObjectIds: NODE_REFS.map((temporaryReference) => third.temporaryReferences[temporaryReference]),
       connectorIds: CONNECTOR_REFS.map((temporaryReference) => third.temporaryReferences[temporaryReference]),
     });
+    const analysis = await callTool<{
+      report: {
+        status: "pass" | "warning" | "fail";
+        findings: Array<{ code: string }>;
+        metrics: {
+          memberObjectCount: number;
+          connectorCount: number;
+          findingCount: number;
+        };
+      };
+    }>(page, "analyze_diagram_layout", {
+      diagramId: final.diagrams[0]!.id,
+      expectedDiagramRevision: final.diagrams[0]!.revision,
+    });
+    expect(analysis.report).toMatchObject({
+      status: "pass",
+      findings: [],
+      metrics: {
+        memberObjectCount: NODE_REFS.length,
+        connectorCount: CONNECTOR_REFS.length,
+        findingCount: 0,
+      },
+    });
     expect(new Set(finish.changedObjectIds)).toEqual(new Set(expectedObjectIds));
     expect(finish.changedDiagramIds).toEqual([third.temporaryReferences[DIAGRAM_REF]]);
     const drafts = await callTool<ReadDraftsResult>(page, "read_canvas_drafts", {});
     expect(drafts.drafts).toEqual([]);
-    await expect(spectatorPage.getByTestId("semantic-canvas").locator("[data-object-id]")).toHaveCount(11);
+    await expect(spectatorPage.getByTestId("semantic-canvas").locator("[data-object-id]")).toHaveCount(21);
     await expect(spectatorPage.locator("[data-agent-draft-object-id]")).toHaveCount(0);
     await page.waitForTimeout(700);
   } finally {
     await spectatorContext.close();
     await viewerContext.close();
     if (viewerVideo) {
-      const output = testInfo.outputPath("agent-draft-demo.webm");
+      const output = testInfo.outputPath("jazzboard-system-architecture-webmcp.webm");
       await viewerVideo.saveAs(output);
-      await testInfo.attach("agent-draft-demo", { path: output, contentType: "video/webm" });
+      await testInfo.attach("jazzboard-system-architecture-webmcp", { path: output, contentType: "video/webm" });
     }
   }
 });

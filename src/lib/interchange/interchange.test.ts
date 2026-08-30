@@ -294,6 +294,51 @@ describe("Jazzboard portable interchange", () => {
     });
   });
 
+  it("omits native paths from v1 artifacts with explicit loss and partial-diagram warnings", () => {
+    const room = roomFixture();
+    room.objects.path_native = {
+      id: "path_native",
+      kind: "path",
+      x: 40,
+      y: 40,
+      width: 80,
+      height: 60,
+      rotation: 0,
+      zIndex: 25,
+      revision: 1,
+      groupId: null,
+      diagramIds: ["diagram_flow"],
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: AGENT,
+      lastEditedBy: AGENT,
+      start: { x: 0, y: 0 },
+      segments: [{ kind: "cubic", control1: { x: 0.2, y: 0 }, control2: { x: 0.8, y: 1 }, to: { x: 1, y: 1 } }],
+      closed: false,
+      fill: "none",
+      stroke: "violet",
+      strokeWidth: 3,
+      opacity: 1,
+      lineCap: "round",
+      lineJoin: "round",
+      fillRule: "nonzero",
+    };
+    room.diagrams.diagram_flow.memberObjectIds.push("path_native");
+
+    const artifact = projectJazzboardArtifact(room, { kind: "diagram", diagramId: "diagram_flow" });
+
+    expect(artifact.objects.map((object) => object.id)).not.toContain("path_native");
+    expect(artifact.diagrams[0]?.memberObjectIds).not.toContain("path_native");
+    expect(artifact.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "VECTOR_PATH_UNSUPPORTED_V1",
+        objectId: "path_native",
+        diagramId: "diagram_flow",
+      }),
+      expect.objectContaining({ code: "DIAGRAM_PARTIAL", diagramId: "diagram_flow" }),
+    ]));
+  });
+
   it("preserves canonical routing and exact endpoint attachment metadata through templates", () => {
     const room = roomFixture();
     const source = room.objects.connector_ab;

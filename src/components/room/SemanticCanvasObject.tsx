@@ -40,12 +40,14 @@ import {
 } from "@/lib/canvas/semantic-text-layout";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import { connectorLabelMetrics } from "@/lib/domain/layout";
+import { vectorPathSvgData } from "@/lib/domain/vector-path";
 import type {
   CanvasBounds,
   CanvasObject,
   ConnectorObject,
   DrawObject,
   ImageObject,
+  PathObject,
   Point,
   ShapeObject,
   TextObject,
@@ -67,6 +69,7 @@ export type SemanticCanvasObjectProps = {
   bounds?: CanvasBounds;
   selected?: boolean;
   focused?: boolean;
+  suppressFocusVisual?: boolean;
   className?: string;
   tabIndex?: number;
   onSelect?: (objectId: string, additive: boolean) => void;
@@ -626,6 +629,23 @@ function DrawPrimitive({ object }: { object: DrawObject }) {
   );
 }
 
+function PathPrimitive({ object }: { object: PathObject }) {
+  return (
+    <path
+      className="semantic-canvas-object__content semantic-canvas-object__path"
+      d={vectorPathSvgData(object, finiteNumber)}
+      transform={rotationTransform(object)}
+      fill={semanticFillColor(object.fill, "black", true)}
+      stroke={semanticStrokeColor(object.stroke, "black", true)}
+      strokeWidth={object.strokeWidth}
+      opacity={object.opacity}
+      strokeLinecap={object.lineCap}
+      strokeLinejoin={object.lineJoin}
+      fillRule={object.fillRule}
+    />
+  );
+}
+
 function objectLabel(object: CanvasObject): string {
   if (object.kind === "text") return `Text: ${object.content.trim() || "Empty text"}`;
   if (object.kind === "shape") {
@@ -637,7 +657,8 @@ function objectLabel(object: CanvasObject): string {
     return `Connector${object.label.trim() ? `: ${object.label.trim()}` : ""}${endpoints ? `, ${endpoints}` : ""}`;
   }
   if (object.kind === "image") return `Image: ${object.alt.trim() || "Untitled image"}`;
-  return "Freehand drawing";
+  if (object.kind === "draw") return "Freehand drawing";
+  return object.closed ? "Closed vector path" : "Open vector path";
 }
 
 function defaultBounds(object: CanvasObject, route: ResolvedConnectorRoute | null | undefined): CanvasBounds {
@@ -676,6 +697,7 @@ function SemanticCanvasObjectComponent({
   bounds,
   selected = false,
   focused = false,
+  suppressFocusVisual = false,
   className,
   tabIndex,
   onSelect,
@@ -687,7 +709,7 @@ function SemanticCanvasObjectComponent({
 }: SemanticCanvasObjectProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const [locallyFocused, setLocallyFocused] = useState(false);
-  const showFocus = focused || locallyFocused;
+  const showFocus = !suppressFocusVisual && (focused || locallyFocused);
   const label = objectLabel(object).slice(0, 1_000);
   const classes = [
     "semantic-canvas-object",
@@ -758,7 +780,8 @@ function SemanticCanvasObjectComponent({
         onError={() => setFailedImageUrl(object.url)}
       />
     );
-  } else primitive = <DrawPrimitive object={object} />;
+  } else if (object.kind === "draw") primitive = <DrawPrimitive object={object} />;
+  else primitive = <PathPrimitive object={object} />;
 
   return (
     <g
@@ -868,6 +891,7 @@ export function semanticCanvasObjectPropsEqual(
     && previous.bounds === next.bounds
     && previous.selected === next.selected
     && previous.focused === next.focused
+    && previous.suppressFocusVisual === next.suppressFocusVisual
     && previous.className === next.className
     && previous.tabIndex === next.tabIndex
     && previous.connectorLayer === next.connectorLayer

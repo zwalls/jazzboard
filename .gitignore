@@ -3,6 +3,8 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
+artifacts/
+marketing/
 tsconfig.tsbuildinfo
 .env*
 !.env.example

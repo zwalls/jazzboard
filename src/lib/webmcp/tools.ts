@@ -8,7 +8,19 @@ import {
   cardinalNormalizedAnchor,
   normalizeConnectorRouting,
 } from "@/lib/domain/connector-routing";
-import { connectorRoutingInputSchema, nodeMetadataInputSchema } from "@/lib/domain/schemas";
+import {
+  connectorRoutingInputSchema,
+  nodeMetadataInputSchema,
+  SEMANTIC_COLOR_NAMES,
+  semanticColorSchema,
+  semanticPaintSchema,
+} from "@/lib/domain/schemas";
+import {
+  normalizeWorldDrawing,
+  normalizeWorldVectorPath,
+  polygonWorldVectorPath,
+  VECTOR_PATH_LIMITS,
+} from "@/lib/domain/vector-path";
 import type {
   AgentEditProposalSummary,
   CanvasCommand,
@@ -22,7 +34,6 @@ import type {
 } from "@/lib/domain/types";
 import { applyPresenceDelta, roomStateRevision } from "@/lib/realtime/events";
 
-import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 import type {
   JazzboardToolFailure,
   JazzboardToolResult,
@@ -34,11 +45,20 @@ import type {
 const idSchema = z.string().min(1).max(128);
 const finite = z.number().finite();
 const positiveDimension = finite.positive().max(100_000);
-const colorSchema = z.string().min(1).max(32);
+const colorSchema = semanticColorSchema;
 const pointSchema = z.object({ x: finite, y: finite }).strict();
 const normalizedAnchorSchema = z
   .object({ x: finite.min(0).max(1), y: finite.min(0).max(1) })
   .strict();
+const normalizedPathPointSchema = z.object({
+  x: finite.min(0).max(1),
+  y: finite.min(0).max(1),
+}).strict();
+const normalizedVectorPathSegmentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("line"), to: normalizedPathPointSchema }).strict(),
+  z.object({ kind: z.literal("quadratic"), control: normalizedPathPointSchema, to: normalizedPathPointSchema }).strict(),
+  z.object({ kind: z.literal("cubic"), control1: normalizedPathPointSchema, control2: normalizedPathPointSchema, to: normalizedPathPointSchema }).strict(),
+]);
 const agentImageUrlSchema = z
   .string()
   .max(8_192)
@@ -60,6 +80,28 @@ const AGENT_IMAGE_URL_SCHEMA = {
     },
   ],
 } as const;
+const WORLD_POINT_JSON_SCHEMA = {
+  type: "object",
+  description: "Canvas-world {x,y} in canvas units.",
+} as const;
+const PATH_SEGMENT_JSON_SCHEMA = {
+  type: "object",
+  description: "World coords: line={kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}.",
+} as const;
+const NORMALIZED_PATH_SEGMENT_JSON_SCHEMA = {
+  type: "object",
+  description: "Normalized 0..1 coords: line={kind,to}; quadratic adds control; cubic adds control1/control2.",
+} as const;
+const COLOR_JSON_SCHEMA = {
+  type: "string",
+  pattern: `^(?:${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
+  description: "Named Jazzboard color or #RGB/#RRGGBB/#RRGGBBAA.",
+} as const;
+const PAINT_JSON_SCHEMA = {
+  type: "string",
+  pattern: `^(?:none|${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
+  description: "Color format above, or none for no paint.",
+} as const;
 const REVIEW_MODE_RESULT_NOTE =
   " Review outcome `proposed` is not applied.";
 const REVIEW_GATED_TOOL_NAMES = new Set([
@@ -68,6 +110,8 @@ const REVIEW_GATED_TOOL_NAMES = new Set([
   "create_node",
   "add_image",
   "create_drawing",
+  "create_path",
+  "create_polygon",
   "draw_connection",
   "update_object",
   "move_objects",
@@ -119,8 +163,8 @@ const createShapeInputSchema = z
     ...activityMetadataFields,
     shape: z.enum(["rectangle", "ellipse", "diamond"]).optional(),
     ...placementFields,
-    fill: colorSchema.optional(),
-    stroke: colorSchema.optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
   })
   .strict();
 
@@ -172,6 +216,59 @@ const createDrawingInputSchema = z
     groupId: idSchema.nullable().optional(),
   })
   .strict();
+
+const vectorPathSegmentInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("line"), to: drawingPointSchema }).strict(),
+  z.object({ kind: z.literal("quadratic"), control: drawingPointSchema, to: drawingPointSchema }).strict(),
+  z.object({
+    kind: z.literal("cubic"),
+    control1: drawingPointSchema,
+    control2: drawingPointSchema,
+    to: drawingPointSchema,
+  }).strict(),
+]);
+
+const vectorPathStyleInputFields = {
+  fill: semanticPaintSchema.optional(),
+  stroke: semanticPaintSchema.optional(),
+  strokeWidth: finite.min(0).max(VECTOR_PATH_LIMITS.maxStrokeWidth).optional(),
+  opacity: finite.min(0).max(1).optional(),
+  lineCap: z.enum(["butt", "round", "square"]).optional(),
+  lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+  fillRule: z.enum(["nonzero", "evenodd"]).optional(),
+  rotation: finite.optional(),
+  zIndex: z.number().int().min(0).max(1_000_000).optional(),
+  groupId: idSchema.nullable().optional(),
+};
+
+function refineVisiblePathStyle(
+  value: { fill?: string; stroke?: string; strokeWidth?: number },
+  context: z.RefinementCtx,
+) {
+  const fill = value.fill ?? "none";
+  const stroke = value.stroke ?? "black";
+  const strokeWidth = value.strokeWidth ?? 3.5;
+  if (fill.trim().toLowerCase() === "none" && stroke.trim().toLowerCase() === "none") {
+    context.addIssue({ code: "custom", path: ["stroke"], message: "A path requires a visible fill or stroke." });
+  }
+  if (stroke.trim().toLowerCase() !== "none" && strokeWidth <= 0) {
+    context.addIssue({ code: "custom", path: ["strokeWidth"], message: "A visible path stroke requires positive strokeWidth." });
+  }
+}
+
+const createPathInputSchema = z.object({
+  start: drawingPointSchema,
+  segments: z.array(vectorPathSegmentInputSchema).min(1).max(VECTOR_PATH_LIMITS.maxSegments),
+  closed: z.boolean().optional(),
+  ...activityMetadataFields,
+  ...vectorPathStyleInputFields,
+}).strict().superRefine(refineVisiblePathStyle);
+
+const createPolygonInputSchema = z.object({
+  points: z.array(drawingPointSchema).min(3).max(VECTOR_PATH_LIMITS.maxSegments + 1),
+  ...activityMetadataFields,
+  ...vectorPathStyleInputFields,
+}).strict().superRefine(refineVisiblePathStyle);
 
 const endpointPortInputSchema = z
   .object({
@@ -227,9 +324,9 @@ const objectPatchSchema = z
       .optional(),
     nodeMetadata: nodeMetadataInputSchema.nullable().optional(),
     label: z.string().max(10_000).optional(),
-    fill: colorSchema.optional(),
-    stroke: colorSchema.optional(),
-    start: connectorEndpointPatchSchema.optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
+    start: z.union([connectorEndpointPatchSchema, normalizedPathPointSchema]).optional(),
     end: connectorEndpointPatchSchema.optional(),
     routing: connectorRoutingInputSchema.optional(),
     direction: z.enum(["none", "end", "both"]).optional(),
@@ -240,6 +337,13 @@ const objectPatchSchema = z
     sourceUrl: z.string().url().max(8_192).nullable().optional(),
     locked: z.boolean().optional(),
     points: z.array(pointSchema).min(2).max(20_000).optional(),
+    segments: z.array(normalizedVectorPathSegmentSchema).min(1).max(2_000).optional(),
+    closed: z.boolean().optional(),
+    strokeWidth: finite.min(0).max(256).optional(),
+    opacity: finite.min(0).max(1).optional(),
+    lineCap: z.enum(["butt", "round", "square"]).optional(),
+    lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+    fillRule: z.enum(["nonzero", "evenodd"]).optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, "At least one semantic field must be updated.")
@@ -331,62 +435,18 @@ const DIMENSION = { type: "number", exclusiveMinimum: 0, maximum: 100_000 } as c
 const LEASE_ID = { type: "string", minLength: 1, maxLength: 128 } as const;
 
 const PLACEMENT_PROPERTIES = {
-  x: COORDINATE,
-  y: COORDINATE,
-  width: DIMENSION,
-  height: DIMENSION,
-  rotation: COORDINATE,
-  zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
+  x: { ...COORDINATE, description: "Canvas-unit x of the unrotated top-left." },
+  y: { ...COORDINATE, description: "Canvas-unit y of the unrotated top-left." },
+  width: { ...DIMENSION, description: "Unrotated width in canvas units." },
+  height: { ...DIMENSION, description: "Unrotated height in canvas units." },
+  rotation: { ...COORDINATE, description: "Clockwise radians about the object center." },
+  zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
   groupId: { anyOf: [ID, { type: "null" }] },
 } as const;
 
 const ACTIVITY_METADATA_PROPERTIES = {
   intent: { type: "string", minLength: 1, maxLength: 1_000 },
   summary: { type: "string", minLength: 1, maxLength: 500 },
-} as const;
-
-const NODE_METADATA_JSON_SCHEMA = {
-  type: "object",
-  properties: {
-    kind: {},
-    status: {},
-    owner: { anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }] },
-    resolution: {},
-  },
-  required: ["kind"],
-  additionalProperties: false,
-  oneOf: [
-    {
-      properties: {
-        kind: { const: "decision" },
-        status: { const: "proposed" },
-        resolution: { type: "null" },
-      },
-    },
-    {
-      properties: {
-        kind: { const: "decision" },
-        status: { enum: ["accepted", "rejected", "superseded"] },
-        resolution: { type: "string", minLength: 1, maxLength: 10_000 },
-      },
-      required: ["status", "resolution"],
-    },
-    {
-      properties: {
-        kind: { const: "open_question" },
-        status: { const: "open" },
-        resolution: { type: "null" },
-      },
-    },
-    {
-      properties: {
-        kind: { const: "open_question" },
-        status: { enum: ["answered", "deferred", "closed"] },
-        resolution: { type: "string", minLength: 1, maxLength: 10_000 },
-      },
-      required: ["status", "resolution"],
-    },
-  ],
 } as const;
 
 const TARGET_JSON_SCHEMA = {
@@ -625,6 +685,8 @@ export const JAZZBOARD_WEBMCP_TOOL_NAMES = [
   "create_node",
   "add_image",
   "create_drawing",
+  "create_path",
+  "create_polygon",
   "draw_connection",
   "update_object",
   "move_objects",
@@ -744,7 +806,7 @@ export function createJazzboardWebMcpTools(
           content: { type: "string", minLength: 1, maxLength: 20_000 },
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,
-          color: { type: "string", minLength: 1, maxLength: 32 },
+          color: COLOR_JSON_SCHEMA,
           size: { enum: ["s", "m", "l", "xl"] },
           align: { enum: ["start", "middle", "end"] },
         },
@@ -789,10 +851,11 @@ export function createJazzboardWebMcpTools(
           ...ACTIVITY_METADATA_PROPERTIES,
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           ...PLACEMENT_PROPERTIES,
-          fill: { type: "string", minLength: 1, maxLength: 32 },
-          stroke: { type: "string", minLength: 1, maxLength: 32 },
+          fill: { $ref: "#/$defs/paint" },
+          stroke: { $ref: "#/$defs/paint" },
         },
         additionalProperties: false,
+        $defs: { paint: PAINT_JSON_SCHEMA },
       },
       schema: createShapeInputSchema,
       annotations: { untrustedContentHint: true },
@@ -831,30 +894,15 @@ export function createJazzboardWebMcpTools(
         properties: {
           label: { type: "string", minLength: 1, maxLength: 10_000 },
           nodeType: { enum: ["component", "service", "requirement", "decision", "open_question"] },
-          nodeMetadata: NODE_METADATA_JSON_SCHEMA,
+          nodeMetadata: {
+            type: "object",
+            description: "Decision/open-question {kind,status?,owner?,resolution?}; kind matches nodeType and resolved states require resolution.",
+          },
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,
         },
         required: ["label"],
         additionalProperties: false,
-        anyOf: [
-          { not: { required: ["nodeMetadata"] } },
-          {
-            properties: {
-              nodeType: { const: "decision" },
-              nodeMetadata: { properties: { kind: { const: "decision" } } },
-            },
-            required: ["nodeType", "nodeMetadata"],
-          },
-          {
-            properties: {
-              nodeType: { const: "open_question" },
-              nodeMetadata: { properties: { kind: { const: "open_question" } } },
-            },
-            required: ["nodeType", "nodeMetadata"],
-          },
-          { not: { required: ["nodeType"] } },
-        ],
       },
       schema: createNodeInputSchema,
       annotations: { untrustedContentHint: true },
@@ -947,6 +995,7 @@ export function createJazzboardWebMcpTools(
         properties: {
           points: {
             type: "array",
+            description: "Canvas-world points; Jazzboard derives the local object bounds and stores local canvas-unit points.",
             minItems: 2,
             maxItems: 2_000,
             items: {
@@ -959,9 +1008,9 @@ export function createJazzboardWebMcpTools(
               additionalProperties: false,
             },
           },
-          color: { type: "string", minLength: 1, maxLength: 32 },
+          color: COLOR_JSON_SCHEMA,
           size: { enum: ["s", "m", "l"] },
-          rotation: COORDINATE,
+          rotation: { ...COORDINATE, description: "Clockwise radians about the drawing's derived local origin." },
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
           groupId: { anyOf: [ID, { type: "null" }] },
           ...ACTIVITY_METADATA_PROPERTIES,
@@ -973,26 +1022,141 @@ export function createJazzboardWebMcpTools(
       annotations: { untrustedContentHint: true },
       execute(input, signal) {
         const room = binding.context.getRoom();
-        const minX = Math.min(...input.points.map((point) => point.x));
-        const minY = Math.min(...input.points.map((point) => point.y));
-        const maxX = Math.max(...input.points.map((point) => point.x));
-        const maxY = Math.max(...input.points.map((point) => point.y));
+        const drawing = normalizeWorldDrawing(input.points);
         return dispatch(
           {
             type: "create",
             object: {
               id: createId("draw"),
               kind: "draw",
-              x: minX,
-              y: minY,
-              width: Math.max(maxX - minX, 1),
-              height: Math.max(maxY - minY, 1),
+              ...drawing,
               rotation: input.rotation ?? 0,
               zIndex: input.zIndex ?? nextZIndex(room),
               groupId: input.groupId ?? null,
-              points: input.points.map((point) => ({ x: point.x - minX, y: point.y - minY })),
               color: input.color ?? "black",
               size: input.size ?? "m",
+            },
+          },
+          signal,
+          activityMetadata(input),
+        );
+      },
+    }),
+    defineTool({
+      name: "create_path",
+      title: "Create a native vector path",
+      description:
+        "Create a numeric world-coordinate path. Segments: line {kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}; no SVG data.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          start: WORLD_POINT_JSON_SCHEMA,
+          segments: {
+            type: "array",
+            minItems: 1,
+            maxItems: 2_000,
+            items: PATH_SEGMENT_JSON_SCHEMA,
+          },
+          closed: { type: "boolean" },
+          fill: { $ref: "#/$defs/paint" },
+          stroke: { $ref: "#/$defs/paint" },
+          strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
+          opacity: { type: "number", minimum: 0, maximum: 1, description: "Whole-path opacity from transparent 0 to opaque 1." },
+          lineCap: { enum: ["butt", "round", "square"] },
+          lineJoin: { enum: ["miter", "round", "bevel"] },
+          fillRule: { enum: ["nonzero", "evenodd"] },
+          rotation: { ...COORDINATE, description: "Clockwise radians about the derived path-box center." },
+          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
+          groupId: { anyOf: [ID, { type: "null" }] },
+          ...ACTIVITY_METADATA_PROPERTIES,
+        },
+        required: ["start", "segments"],
+        additionalProperties: false,
+        $defs: { paint: PAINT_JSON_SCHEMA },
+      },
+      schema: createPathInputSchema,
+      annotations: { untrustedContentHint: true },
+      execute(input, signal) {
+        const room = binding.context.getRoom();
+        const path = normalizeWorldVectorPath(input.start, input.segments);
+        return dispatch(
+          {
+            type: "create",
+            object: {
+              id: createId("path"),
+              kind: "path",
+              ...path,
+              rotation: input.rotation ?? 0,
+              zIndex: input.zIndex ?? nextZIndex(room),
+              groupId: input.groupId ?? null,
+              closed: input.closed ?? false,
+              fill: input.fill ?? "none",
+              stroke: input.stroke ?? "black",
+              strokeWidth: input.strokeWidth ?? 3.5,
+              opacity: input.opacity ?? 1,
+              lineCap: input.lineCap ?? "round",
+              lineJoin: input.lineJoin ?? "round",
+              fillRule: input.fillRule ?? "nonzero",
+            },
+          },
+          signal,
+          activityMetadata(input),
+        );
+      },
+    }),
+    defineTool({
+      name: "create_polygon",
+      title: "Create a native polygon",
+      description: "Create a closed native polygon from 3–2,001 canvas-world {x,y} points.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          points: {
+            type: "array",
+            description: "Canvas-world vertices; closes automatically.",
+            minItems: 3,
+            maxItems: 2_001,
+            items: WORLD_POINT_JSON_SCHEMA,
+          },
+          fill: { $ref: "#/$defs/paint" },
+          stroke: { $ref: "#/$defs/paint" },
+          strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
+          opacity: { type: "number", minimum: 0, maximum: 1, description: "Whole-polygon opacity from transparent 0 to opaque 1." },
+          lineCap: { enum: ["butt", "round", "square"] },
+          lineJoin: { enum: ["miter", "round", "bevel"] },
+          fillRule: { enum: ["nonzero", "evenodd"] },
+          rotation: { ...COORDINATE, description: "Clockwise radians about the derived polygon-box center." },
+          zIndex: { type: "integer", minimum: 0, maximum: 1_000_000, description: "Higher values paint in front." },
+          groupId: { anyOf: [ID, { type: "null" }] },
+          ...ACTIVITY_METADATA_PROPERTIES,
+        },
+        required: ["points"],
+        additionalProperties: false,
+        $defs: { paint: PAINT_JSON_SCHEMA },
+      },
+      schema: createPolygonInputSchema,
+      annotations: { untrustedContentHint: true },
+      execute(input, signal) {
+        const room = binding.context.getRoom();
+        const path = polygonWorldVectorPath(input.points);
+        return dispatch(
+          {
+            type: "create",
+            object: {
+              id: createId("path"),
+              kind: "path",
+              ...path,
+              rotation: input.rotation ?? 0,
+              zIndex: input.zIndex ?? nextZIndex(room),
+              groupId: input.groupId ?? null,
+              closed: true,
+              fill: input.fill ?? "none",
+              stroke: input.stroke ?? "black",
+              strokeWidth: input.strokeWidth ?? 3.5,
+              opacity: input.opacity ?? 1,
+              lineCap: input.lineCap ?? "round",
+              lineJoin: input.lineJoin ?? "round",
+              fillRule: input.fillRule ?? "nonzero",
             },
           },
           signal,
@@ -1008,54 +1172,17 @@ export function createJazzboardWebMcpTools(
       inputSchema: {
         type: "object",
         properties: {
-          start: { $ref: "#/$defs/endpoint" },
-          end: { $ref: "#/$defs/endpoint" },
+          start: { type: "object", description: "World {x,y}, or {objectId,port?}; port={side,position? 0..1,exact?}." },
+          end: { type: "object", description: "World {x,y}, or {objectId,port?}; port={side,position? 0..1,exact?}." },
           direction: { enum: ["none", "end", "both"] },
           label: { type: "string", maxLength: 2_000 },
-          color: { type: "string", minLength: 1, maxLength: 32 },
-          routing: { $ref: "#/$defs/routing" },
+          color: COLOR_JSON_SCHEMA,
+          routing: { type: "object", description: "{mode:auto|straight|curved|elbow,bend?,elbowMidPoint?,labelPosition?}; curved requires bend." },
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
         required: ["start", "end"],
         additionalProperties: false,
-        $defs: {
-          endpoint: {
-            oneOf: [
-              {
-                type: "object",
-                properties: {
-                  objectId: ID,
-                  port: { $ref: "#/$defs/port" },
-                },
-                required: ["objectId"],
-                additionalProperties: false,
-              },
-              {
-                type: "object",
-                properties: { x: COORDINATE, y: COORDINATE },
-                required: ["x", "y"],
-                additionalProperties: false,
-              },
-            ],
-          },
-          port: {
-            type: "object",
-            properties: {
-              side: { enum: ["top", "right", "bottom", "left"] },
-              position: {
-                type: "number",
-                minimum: 0,
-                maximum: 1,
-                default: 0.5,
-              },
-              exact: { type: "boolean", default: false },
-            },
-            required: ["side"],
-            additionalProperties: false,
-          },
-          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
-        },
       },
       schema: drawConnectionInputSchema,
       annotations: { untrustedContentHint: true },
@@ -1107,43 +1234,46 @@ export function createJazzboardWebMcpTools(
             properties: {
               ...PLACEMENT_PROPERTIES,
               content: { type: "string", maxLength: 20_000 },
-              color: { type: "string", minLength: 1, maxLength: 32 },
+              color: { $ref: "#/$defs/color" },
               size: { enum: ["s", "m", "l", "xl"] },
               align: { enum: ["start", "middle", "end"] },
               shape: { enum: ["rectangle", "ellipse", "diamond"] },
               nodeType: {
-                anyOf: [
-                  { enum: ["component", "service", "requirement", "decision", "open_question"] },
-                  { type: "null" },
-                ],
+                enum: ["component", "service", "requirement", "decision", "open_question", null],
               },
-              nodeMetadata: {
-                anyOf: [NODE_METADATA_JSON_SCHEMA, { type: "null" }],
-              },
+              nodeMetadata: { type: ["object", "null"] },
               label: { type: "string", maxLength: 10_000 },
-              fill: { type: "string", minLength: 1, maxLength: 32 },
-              stroke: { type: "string", minLength: 1, maxLength: 32 },
-              start: { $ref: "#/$defs/connectorEndpoint" },
-              end: { $ref: "#/$defs/connectorEndpoint" },
+              fill: { $ref: "#/$defs/paint" },
+              stroke: { $ref: "#/$defs/paint" },
+              start: {
+                type: "object",
+                description: "Connector endpoint, or path start as normalized object-local {x,y} (0..1).",
+              },
+              end: { type: "object", description: "Connector {x,y,objectId}; attachment metadata is optional." },
               direction: { enum: ["none", "end", "both"] },
-              routing: { $ref: "#/$defs/routing" },
-              url: AGENT_IMAGE_URL_SCHEMA,
-              assetId: { anyOf: [{ type: "string", maxLength: 512 }, { type: "null" }] },
-              alt: { type: "string", maxLength: 2_000 },
-              mimeType: { type: "string", maxLength: 128 },
-              sourceUrl: { anyOf: [{ type: "string", format: "uri", maxLength: 8_192 }, { type: "null" }] },
+              routing: { type: "object", description: "Routing mode auto/straight/curved/elbow plus mode-specific numeric fields." },
+              url: { type: "string" },
+              assetId: { type: ["string", "null"] },
+              alt: { type: "string" },
+              mimeType: { type: "string" },
+              sourceUrl: { type: ["string", "null"] },
               locked: { type: "boolean" },
               points: {
                 type: "array",
-                minItems: 2,
-                maxItems: 20_000,
-                items: {
-                  type: "object",
-                  properties: { x: COORDINATE, y: COORDINATE },
-                  required: ["x", "y"],
-                  additionalProperties: false,
-                },
+                description: "Freehand patch points in object-local canvas units, not canvas-world coordinates.",
+                items: { type: "object" },
               },
+              segments: {
+                type: "array",
+                description: "Path patch segments using normalized object-local endpoints and controls (0..1).",
+                items: NORMALIZED_PATH_SEGMENT_JSON_SCHEMA,
+              },
+              closed: { type: "boolean" },
+              strokeWidth: { type: "number", minimum: 0, maximum: 256, description: "Stroke width in canvas units." },
+              opacity: { type: "number", minimum: 0, maximum: 1 },
+              lineCap: { enum: ["butt", "round", "square"] },
+              lineJoin: { enum: ["miter", "round", "bevel"] },
+              fillRule: { enum: ["nonzero", "evenodd"] },
             },
             additionalProperties: false,
           },
@@ -1151,41 +1281,7 @@ export function createJazzboardWebMcpTools(
         },
         required: ["objectId", "expectedRevision", "patch"],
         additionalProperties: false,
-        $defs: {
-          connectorEndpoint: {
-            type: "object",
-            properties: {
-              x: COORDINATE,
-              y: COORDINATE,
-              objectId: { anyOf: [ID, { type: "null" }] },
-              normalizedAnchor: {
-                anyOf: [
-                  {
-                    type: "object",
-                    properties: {
-                      x: { type: "number", minimum: 0, maximum: 1 },
-                      y: { type: "number", minimum: 0, maximum: 1 },
-                    },
-                    required: ["x", "y"],
-                    additionalProperties: false,
-                  },
-                  { type: "null" },
-                ],
-              },
-              isPrecise: { anyOf: [{ type: "boolean" }, { type: "null" }] },
-              isExact: { anyOf: [{ type: "boolean" }, { type: "null" }] },
-              snap: {
-                anyOf: [
-                  { enum: ["center", "edge-point", "edge", "none"] },
-                  { type: "null" },
-                ],
-              },
-            },
-            required: ["x", "y", "objectId"],
-            additionalProperties: false,
-          },
-          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
-        },
+        $defs: { color: COLOR_JSON_SCHEMA, paint: PAINT_JSON_SCHEMA },
       },
       schema: updateObjectInputSchema,
       annotations: { untrustedContentHint: true },

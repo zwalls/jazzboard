@@ -125,6 +125,7 @@ class TestResizeObserver {
 function renderCanvas(
   onRuntimeChange = vi.fn<(runtime: CanvasRuntime | null) => void>(),
   renderedSelf: Participant = self,
+  cleanInspectionId: string | null = null,
 ) {
   const onSelectionChange = vi.fn();
   const presence = vi.fn().mockResolvedValue(undefined);
@@ -132,6 +133,7 @@ function renderCanvas(
   render(
     <SemanticCanvas
       boardMenuActions={menuActions}
+      cleanInspectionId={cleanInspectionId}
       room={{ ...room, participants: { [renderedSelf.participantId]: renderedSelf } }}
       self={renderedSelf}
       followTarget={null}
@@ -376,6 +378,43 @@ describe("SemanticCanvas", () => {
       rendererId: "jazzboard-semantic-v1",
       capabilities: { renderPng: true },
     })));
+  });
+
+  it("keeps authoritative objects while suppressing transient chrome in clean inspection mode", () => {
+    renderCanvas(vi.fn(), self, "preview-clean-1");
+
+    expect(screen.getByTestId("semantic-canvas")).toHaveAttribute("data-clean-inspection", "true");
+    const object = screen.getByRole("button", { name: /service: Room API/i });
+    expect(object).toBeInTheDocument();
+    expect(object).toHaveAttribute("tabindex", "-1");
+    expect(screen.queryByRole("button", { name: "Board menu" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Canvas zoom controls")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-presence-overlay")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-semantic-selection-controls="true"]')).toBeNull();
+  });
+
+  it("removes a pre-existing object focus ring before clean pixels paint", () => {
+    const common = {
+      boardMenuActions: menuActions,
+      room,
+      self,
+      followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined),
+      transientPresence: vi.fn(() => true),
+      connection: "live" as const,
+      onSelectionChange: vi.fn(),
+      onRuntimeChange: vi.fn(),
+      onExitFollow: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...common} />);
+    const object = screen.getByRole("button", { name: /service: Room API/i });
+    fireEvent.focus(object);
+    expect(document.querySelector('[data-focus-ring="true"]')).not.toBeNull();
+
+    rendered.rerender(<SemanticCanvas {...common} cleanInspectionId="preview-focused" />);
+
+    expect(document.activeElement).not.toBe(object);
+    expect(document.querySelector('[data-focus-ring="true"]')).toBeNull();
   });
 
   it("paints connector shafts below nodes and connector adornments above them", () => {

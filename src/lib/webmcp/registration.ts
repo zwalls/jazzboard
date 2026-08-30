@@ -37,6 +37,7 @@ import {
 } from "./review-tools";
 import {
   createJazzboardPreviewWebMcpTools,
+  JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
   JAZZBOARD_PREVIEW_TOOL_NAMES,
 } from "./preview-tools";
 import {
@@ -47,6 +48,10 @@ import {
   createJazzboardPngExportWebMcpTools,
   JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
 } from "./png-export-tools";
+import {
+  createJazzboardCanvasCapabilityWebMcpTools,
+  JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
+} from "./capability-tools";
 import type {
   JazzboardWebMcpBinding,
   JazzboardWebMcpDependencies,
@@ -59,6 +64,7 @@ function documentModelContext(): WebMCP.ModelContext | undefined {
 }
 
 export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
+  ...JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
   ...JAZZBOARD_WEBMCP_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_TOOL_NAMES,
@@ -72,6 +78,7 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
 ] as const;
 
 export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
+  ...JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
   ...JAZZBOARD_WEBMCP_READ_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_READ_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
@@ -80,6 +87,7 @@ export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_INTERCHANGE_SPECTATOR_TOOL_NAMES,
   ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_READ_TOOL_NAMES,
+  ...JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
 ] as const;
 
 /** Single composition point for all role-scoped tools registered inside a room. */
@@ -88,6 +96,7 @@ export function createJazzboardRoomWebMcpTools(
   dependencies: JazzboardWebMcpDependencies = {},
 ): WebMCP.ModelContextTool[] {
   return [
+    ...createJazzboardCanvasCapabilityWebMcpTools(binding),
     ...createJazzboardWebMcpTools(binding, dependencies),
     ...createJazzboardLifecycleWebMcpTools(binding, dependencies),
     ...createJazzboardSemanticWebMcpTools(binding, dependencies),

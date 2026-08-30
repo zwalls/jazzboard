@@ -5,10 +5,12 @@ import type {
   ConnectorObject,
   DrawObject,
   ImageObject,
+  PathObject,
   Point,
   ShapeObject,
   TextObject,
 } from "@/lib/domain/types";
+import { vectorPathSvgData } from "@/lib/domain/vector-path";
 
 import {
   SEMANTIC_CANVAS_BACKGROUND,
@@ -252,6 +254,20 @@ function assertObject(item: SemanticSceneObject, scene: SemanticScene): void {
       });
     }
     object.points.forEach((point, index) => assertPoint(point, object.id, `points.${index}`));
+  }
+  if (object.kind === "path") {
+    if (!object.segments.length) {
+      fail("SCENE_OBJECT_INVALID", "Semantic vector paths require at least one segment.", { objectId: object.id });
+    }
+    assertPoint(object.start, object.id, "start");
+    object.segments.forEach((segment, index) => {
+      assertPoint(segment.to, object.id, `segments.${index}.to`);
+      if (segment.kind === "quadratic") assertPoint(segment.control, object.id, `segments.${index}.control`);
+      if (segment.kind === "cubic") {
+        assertPoint(segment.control1, object.id, `segments.${index}.control1`);
+        assertPoint(segment.control2, object.id, `segments.${index}.control2`);
+      }
+    });
   }
   if (object.kind === "connector") {
     const hasRoute = Object.prototype.hasOwnProperty.call(scene.connectorRoutes, object.id);
@@ -517,6 +533,10 @@ function renderDraw(object: DrawObject): string {
   return `<polyline points="${points}" transform="${transform}" fill="none" stroke="${semanticStrokeColor(object.color, "red")}" stroke-width="${formatNumber(SEMANTIC_DRAW_STROKE_WIDTHS[object.size])}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
+function renderPath(object: PathObject): string {
+  return `<path d="${vectorPathSvgData(object, formatNumber)}"${rotation(object)} fill="${semanticFillColor(object.fill, "black", true)}" stroke="${semanticStrokeColor(object.stroke, "black", true)}" stroke-width="${formatNumber(object.strokeWidth)}" opacity="${formatNumber(object.opacity)}" stroke-linecap="${object.lineCap}" stroke-linejoin="${object.lineJoin}" fill-rule="${object.fillRule}"/>`;
+}
+
 function base64Prefix(payload: string, maximumBytes = 16): Uint8Array | null {
   if (
     payload.length % 4 !== 0 ||
@@ -646,7 +666,8 @@ function renderObject(
     );
   }
   else if (object.kind === "image") content = renderImage(object, image, warnings);
-  else content = renderDraw(object);
+  else if (object.kind === "draw") content = renderDraw(object);
+  else content = renderPath(object);
   const identity = layer === "connector-overlay"
     ? `data-semantic-connector-overlay-id="${xml(object.id, 128)}"`
     : `data-semantic-object-id="${xml(object.id, 128)}"`;

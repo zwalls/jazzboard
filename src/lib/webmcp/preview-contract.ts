@@ -31,4 +31,8 @@ export class CanvasPreviewError extends Error {
   }
 }
 
-export const JAZZBOARD_PREVIEW_TOOL_NAMES = ["render_canvas_preview"] as const;
+export const JAZZBOARD_PREVIEW_READ_TOOL_NAMES = ["inspect_canvas_scope"] as const;
+export const JAZZBOARD_PREVIEW_TOOL_NAMES = [
+  "render_canvas_preview",
+  ...JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
+] as const;

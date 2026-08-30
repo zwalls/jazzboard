@@ -165,6 +165,7 @@ export type SemanticCanvasProps = Pick<
   CanvasSurfaceProps,
   | "boardMenuActions"
   | "persistentChromeHost"
+  | "cleanInspectionId"
   | "room"
   | "agentDrafts"
   | "initialAgentDraftIds"
@@ -462,6 +463,7 @@ function InlineRoomTitle({
 export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProps>(function SemanticCanvas({
   boardMenuActions,
   persistentChromeHost = null,
+  cleanInspectionId = null,
   room,
   agentDrafts = [],
   initialAgentDraftIds = [],
@@ -476,6 +478,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   onExitFollow,
   editing = null,
 }, ref) {
+  const cleanInspectionActive = Boolean(cleanInspectionId);
   const mobileLayout = useCanvasMobileLayout();
   const agentDraftRevealRegistry = useMemo(
     () => ({ roomId: room.id, value: new AgentDraftRevealRegistry() }),
@@ -486,6 +489,17 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     [initialAgentDraftIds],
   );
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!cleanInspectionActive) return;
+    const shell = shellRef.current;
+    const active = document.activeElement;
+    if (!shell || !(active instanceof HTMLElement || active instanceof SVGElement) || !shell.contains(active)) return;
+    const focusTarget = active as HTMLElement;
+    focusTarget.blur();
+    return () => {
+      if (focusTarget.isConnected) focusTarget.focus({ preventScroll: true });
+    };
+  }, [cleanInspectionActive]);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const editingHostRef = useRef(editing);
@@ -2968,6 +2982,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       data-testid="semantic-canvas"
       data-canvas-renderer="jazzboard-semantic-v1"
       data-canvas-editing={editingEnabled ? "enabled" : "disabled"}
+      data-clean-inspection={cleanInspectionActive ? "true" : undefined}
       data-active-tool={editingEnabled ? activeTool : undefined}
       role="region"
       aria-label={`${projectedRoom.title} semantic canvas`}
@@ -2997,9 +3012,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               bounds={bounds}
               connectorRoute={scene.connectorRoutes[object.id]}
               connectorLayer="shaft"
-              selected={selectionSet.has(object.id)}
-              focused={focusedObjectId === object.id}
-              tabIndex={effectiveTabStopObjectId === object.id ? 0 : -1}
+              selected={!cleanInspectionActive && selectionSet.has(object.id)}
+              focused={!cleanInspectionActive && focusedObjectId === object.id}
+              suppressFocusVisual={cleanInspectionActive}
+              tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
               className={styles.objectHitTarget}
               onSelect={handleObjectSelect}
               onPointerStart={controller ? handleObjectPointerStart : undefined}
@@ -3013,9 +3029,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               key={`object:${object.id}`}
               object={object}
               bounds={bounds}
-              selected={selectionSet.has(object.id)}
-              focused={focusedObjectId === object.id}
-              tabIndex={effectiveTabStopObjectId === object.id ? 0 : -1}
+              selected={!cleanInspectionActive && selectionSet.has(object.id)}
+              focused={!cleanInspectionActive && focusedObjectId === object.id}
+              suppressFocusVisual={cleanInspectionActive}
+              tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
               className={styles.objectHitTarget}
               onSelect={handleObjectSelect}
               onPointerStart={controller ? handleObjectPointerStart : undefined}
@@ -3030,12 +3047,12 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               object={object}
               bounds={bounds}
               connectorRoute={scene.connectorRoutes[object.id]}
-              focused={focusedObjectId === object.id}
+              focused={!cleanInspectionActive && focusedObjectId === object.id}
               onSelect={handleObjectSelect}
               onPointerStart={controller ? handleObjectPointerStart : undefined}
             />
           ) : null)}
-          {activeMarqueeSession ? (
+          {!cleanInspectionActive && activeMarqueeSession ? (
             <rect
               className={styles.marquee}
               data-testid="semantic-marquee"
@@ -3050,7 +3067,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         </g>
       </svg>
 
-      <AgentDraftLayer
+      {!cleanInspectionActive ? <AgentDraftLayer
         authoritativeDiagrams={projectedRoom.diagrams}
         authoritativeObjects={projectedRoom.objects}
         drafts={agentDrafts}
@@ -3058,11 +3075,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         revealRegistry={agentDraftRevealRegistry}
         roomId={projectedRoom.id}
         viewport={viewport}
-      />
+      /> : null}
 
-      {activeTextEditor ? (() => {
+      {!cleanInspectionActive && activeTextEditor ? (() => {
         const object = scene.objectsById[activeTextEditor.objectId]?.object;
-        if (!object || object.kind === "draw") return null;
+        if (!object || object.kind === "draw" || object.kind === "path") return null;
         return (
           <SemanticTextEditor
             sessionId={activeTextEditor.session.token.sessionId}
@@ -3081,22 +3098,22 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         );
       })() : null}
 
-      {!scene.objects.length ? (
+      {!cleanInspectionActive && !scene.objects.length ? (
         <div className={styles.empty} data-testid="canvas-empty-state">
           This board is empty. Participants can add the first semantic object.
         </div>
       ) : null}
 
-      <CanvasPresenceOverlay
+      {!cleanInspectionActive ? <CanvasPresenceOverlay
         agentDrafts={agentDrafts}
         initiallySettledDraftIds={initiallySettledDraftIds}
         revealRegistry={agentDraftRevealRegistry}
         runtime={runtime}
         room={projectedRoom}
         selfId={self.participantId}
-      />
+      /> : null}
 
-      {activeContextMenu ? (
+      {!cleanInspectionActive && activeContextMenu ? (
         <SemanticCanvasContextMenu
           x={activeContextMenu.x}
           y={activeContextMenu.y}
@@ -3107,7 +3124,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         />
       ) : null}
 
-      <SemanticSelectionControls
+      {!cleanInspectionActive ? <SemanticSelectionControls
         selectedObjects={selection.flatMap((objectId) => scene.objectsById[objectId] ? [scene.objectsById[objectId]!] : [])}
         viewport={viewport}
         editing={editingEnabled && (!mobileLayout || activeTool === "select")}
@@ -3128,9 +3145,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
             onEditRequest={editFromStyle}
           />
         )}
-      />
+      /> : null}
 
-      {editingEnabled ? (
+      {editingEnabled && !cleanInspectionActive ? (
         <SemanticImagePicker
           key={projectedRoom.id}
           ref={imagePickerRef}
@@ -3141,9 +3158,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
           onDismiss={() => setActiveTool("select")}
         />
       ) : null}
-      {persistentChromeHost
+      {!cleanInspectionActive && (persistentChromeHost
         ? createPortal(persistentCanvasChrome, persistentChromeHost)
-        : persistentCanvasChrome}
+        : persistentCanvasChrome)}
       <div className={styles.srOnly} aria-live="polite">
         {selection.length ? `${selection.length} canvas object${selection.length === 1 ? "" : "s"} selected.` : "Canvas selection cleared."}
       </div>

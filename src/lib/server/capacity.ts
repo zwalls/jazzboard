@@ -1,5 +1,6 @@
 import { DomainError } from "@/lib/domain/errors";
 import type { RoomActivity, RoomState } from "@/lib/domain/types";
+import { vectorPathPointCount } from "@/lib/domain/vector-path";
 
 import {
   encodedRoomPlaneBytes,
@@ -123,7 +124,11 @@ export function utf8JsonBytes(value: unknown): number {
 
 function drawingPointCount(room: RoomState): number {
   return Object.values(room.objects).reduce(
-    (total, object) => total + (object.kind === "draw" ? object.points.length : 0),
+    (total, object) => total + (object.kind === "draw"
+      ? object.points.length
+      : object.kind === "path"
+        ? vectorPathPointCount(object)
+        : 0),
     0,
   );
 }

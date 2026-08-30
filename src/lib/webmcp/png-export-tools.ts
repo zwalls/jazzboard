@@ -58,6 +58,25 @@ const pngExportInput = z
   })
   .strict();
 
+// Keep the registered descriptor compact; the Zod schema above is the
+// authoritative strict validator. The scope description preserves every
+// accepted exact-revision form without repeating the same target shape.
+const PNG_EXPORT_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["scope"],
+  properties: {
+    scope: {
+      type: "object",
+      description:
+        "Exact scope: {kind:room,expectedRevision}; {kind:diagram,diagramId,expectedRevision}; or {kind:objects,targets:[{objectId,expectedRevision}]}",
+    },
+    filename: { type: "string", minLength: 1, maxLength: 160 },
+    padding: { type: "number", minimum: 0, maximum: CANVAS_PREVIEW_LIMITS.maxPadding },
+    pixelRatio: { type: "number", minimum: 1, maximum: CANVAS_PREVIEW_LIMITS.maxPixelRatio },
+  },
+} as const;
+
 type AuthorizedRoomResponse = { ok: true; room: RoomState };
 type PngExportInput = z.output<typeof pngExportInput>;
 
@@ -240,7 +259,7 @@ export function createJazzboardPngExportWebMcpTools(
     title: "Download a faithful canvas PNG",
     description:
       "Download a local PNG of an exact board, Diagram, or object set (up to 1,000 targets); Jazzboard stores nothing.",
-    inputSchema: z.toJSONSchema(pngExportInput, { io: "input", reused: "ref" }) as WebMCP.ModelContextTool["inputSchema"],
+    inputSchema: PNG_EXPORT_INPUT_SCHEMA,
     // The download is a local browser side effect, so readOnlyHint would be
     // misleading even though shared Jazzboard state is never mutated.
     annotations: { untrustedContentHint: true },

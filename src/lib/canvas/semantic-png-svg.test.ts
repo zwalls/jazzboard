@@ -116,6 +116,26 @@ function scene(): SemanticScene {
       sourceUrl: null,
       locked: false,
     },
+    {
+      ...base("path", 8, 500, 100, 100, 80),
+      kind: "path",
+      rotation: Math.PI / 6,
+      start: { x: 0, y: 0.5 },
+      segments: [{
+        kind: "cubic",
+        control1: { x: 0.25, y: 0 },
+        control2: { x: 0.75, y: 1 },
+        to: { x: 1, y: 0.5 },
+      }],
+      closed: true,
+      fill: "light-blue",
+      stroke: "#123456",
+      strokeWidth: 6,
+      opacity: 0.5,
+      lineCap: "square",
+      lineJoin: "bevel",
+      fillRule: "evenodd",
+    },
   ];
   return buildSemanticScene({
     id: "room-1",
@@ -163,7 +183,7 @@ describe("semantic PNG SVG generation", () => {
     const current = scene();
     const result = renderSemanticSceneSvg(
       current,
-      ["image", "connector", "draw", "diamond", "ellipse", "rectangle", "text"],
+      ["path", "image", "connector", "draw", "diamond", "ellipse", "rectangle", "text"],
       {
         padding: 12,
         images: {
@@ -180,6 +200,7 @@ describe("semantic PNG SVG generation", () => {
       "connector",
       "draw",
       "image",
+      "path",
     ]);
     const shaftIndex = result.svg.indexOf(
       'data-semantic-object-id="connector" data-semantic-layer="connector-shaft"',
@@ -237,6 +258,9 @@ describe("semantic PNG SVG generation", () => {
     expect(connectorOverlay).toContain('rx="4" fill="#ffffff" stroke="none"');
     expect(objectMarkup(result.svg, "draw")).toContain(
       'stroke="#d9484a" stroke-width="4.5"',
+    );
+    expect(objectMarkup(result.svg, "path")).toContain(
+      '<path d="M 500 140 C 525 100 575 180 600 140 Z" transform="rotate(30 550 140)" fill="#deedf8" stroke="#123456" stroke-width="6" opacity="0.5" stroke-linecap="square" stroke-linejoin="bevel" fill-rule="evenodd"/>',
     );
   });
 

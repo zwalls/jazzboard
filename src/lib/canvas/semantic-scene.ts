@@ -9,6 +9,7 @@ import type {
   Point,
   RoomState,
 } from "@/lib/domain/types";
+import { vectorPathBounds } from "@/lib/domain/vector-path";
 
 import { SEMANTIC_DRAW_STROKE_WIDTHS } from "./semantic-visual-style";
 
@@ -126,6 +127,7 @@ function objectBounds(
     return route?.bounds ?? rectangularObjectBounds(object);
   }
   if (object.kind === "draw") return drawObjectBounds(object);
+  if (object.kind === "path") return vectorPathBounds(object);
   return rectangularObjectBounds(object);
 }
 

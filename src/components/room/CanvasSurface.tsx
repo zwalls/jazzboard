@@ -20,6 +20,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         ref={ref}
         boardMenuActions={props.boardMenuActions}
         persistentChromeHost={props.persistentChromeHost}
+        cleanInspectionId={props.cleanInspectionId}
         room={props.room}
         agentDrafts={props.agentDrafts}
         initialAgentDraftIds={props.initialAgentDraftIds}

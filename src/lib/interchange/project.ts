@@ -202,7 +202,7 @@ function connectorRouting(object: Extract<CanvasObject, { kind: "connector" }>) 
 }
 
 function portableObject(
-  object: CanvasObject,
+  object: Exclude<CanvasObject, { kind: "path" }>,
   includedIds: ReadonlySet<string>,
   warnings: JazzboardArtifactWarning[],
   diagramId: string | null,
@@ -370,10 +370,21 @@ export function projectJazzboardArtifact(
 ): JazzboardSemanticArtifactV1 {
   const warnings: JazzboardArtifactWarning[] = [];
   const selected = scopeObjectIds(room, scope, warnings);
-  const includedIds = new Set(selected.ids);
   const contextDiagramId = selected.diagram?.id ?? null;
-  const objects = selected.ids
-    .map((objectId) => portableObject(room.objects[objectId], includedIds, warnings, contextDiagramId))
+  const portableIds = selected.ids.filter((objectId) => {
+    const object = room.objects[objectId];
+    if (object?.kind !== "path") return true;
+    warnings.push({
+      code: "VECTOR_PATH_UNSUPPORTED_V1",
+      message: `Vector path ${object.id} was omitted because Jazzboard artifact v1 cannot represent native paths without losing geometry or style.`,
+      objectId: object.id,
+      diagramId: contextDiagramId,
+    });
+    return false;
+  });
+  const includedIds = new Set(portableIds);
+  const objects = portableIds
+    .map((objectId) => portableObject(room.objects[objectId] as Exclude<CanvasObject, { kind: "path" }>, includedIds, warnings, contextDiagramId))
     .sort(compareObjects);
   const connectorRoutes = resolveConnectorRoutes(room);
 

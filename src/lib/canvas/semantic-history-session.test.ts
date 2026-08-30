@@ -469,7 +469,7 @@ describe("SemanticHistorySessionEngine", () => {
       objectIds: ["node"],
     });
     expect(engine.getState().canRedo).toBe(true);
-    const styled = committed(restored, { fill: "pink" });
+    const styled = committed(restored, { fill: "light-red" });
     engine.acknowledgeHumanTransaction({ token: nextToken, room: room([styled], { revision: 4 }) });
     expect(engine.getState()).toMatchObject({ canRedo: false, redoDepth: 0, undoDepth: 1 });
   });
