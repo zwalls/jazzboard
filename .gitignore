@@ -4,6 +4,7 @@ coverage/
 playwright-report/
 test-results/
 artifacts/
+.research-private/
 marketing/
 tsconfig.tsbuildinfo
 .env*

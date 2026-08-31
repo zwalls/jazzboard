@@ -2473,7 +2473,21 @@ export class RedisRoomStore implements RoomStore {
     try {
       const read = await this.readOrMigratePlanes(connection, roomId);
       if (!read) return null;
-      const planes = read.persisted
+      const { document, awareness, coordination } = read.planes;
+      const documentFenceMatches =
+        coordination.roomRevision === undefined ||
+        coordination.roomRevision === document.roomRevision;
+      // The initial plane MGET is already an atomic snapshot. WATCH is only
+      // needed when a derived transition may have to be persisted with CAS.
+      const derivedStateIsCurrent =
+        documentFenceMatches &&
+        reconcileDerivedState(
+          awareness,
+          coordination,
+          document.roomRevision,
+          Date.now(),
+        ) === null;
+      const planes = read.persisted && !derivedStateIsCurrent
         ? await this.reconcileDerivedPlanes(connection, roomId, read.planes)
         : read.planes;
       return currentRoomCopy(composeRoomState(planes));

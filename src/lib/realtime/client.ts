@@ -13,8 +13,9 @@ import {
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
-const DEFAULT_MIN_RECONNECT_MS = 250;
-const DEFAULT_MAX_RECONNECT_MS = 10_000;
+const DEFAULT_MIN_RECONNECT_MS = 1_000;
+const DEFAULT_MAX_RECONNECT_MS = 30_000;
+const RECONNECT_STABILITY_MS = 60_000;
 const DEFAULT_HEARTBEAT_MS = 20_000;
 const MAX_REMEMBERED_EVENT_IDS = 1_024;
 
@@ -116,6 +117,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
   let transientSequence = 0;
   let generation = 0;
   let lastServerMessageAt = 0;
+  let connectedAt: number | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   const deliveredIds = new Set<string>();
@@ -206,7 +208,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
           rejectMismatchedRoom();
           return;
         }
-        reconnectAttempt = 0;
+        connectedAt ??= Date.now();
         setStatus("connected");
         invokeSafely(options.onReady, {
           connectionId: message.connectionId,
@@ -295,6 +297,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
     }
 
     const currentGeneration = ++generation;
+    connectedAt = null;
     setStatus(reconnectAttempt > 0 ? "reconnecting" : "connecting");
     try {
       socket = factory(url);
@@ -320,6 +323,8 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
     });
     socket.addEventListener("close", (event) => {
       if (currentGeneration !== generation) return;
+      const wasStable = connectedAt !== null && Date.now() - connectedAt >= RECONNECT_STABILITY_MS;
+      connectedAt = null;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
       socket = null;
@@ -332,6 +337,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
         setStatus("closed");
         return;
       }
+      if (wasStable) reconnectAttempt = 0;
       scheduleReconnect();
     });
   }
@@ -343,6 +349,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
     clearTimers();
     const activeSocket = socket;
     socket = null;
+    connectedAt = null;
     if (activeSocket && (activeSocket.readyState === SOCKET_OPEN || activeSocket.readyState === SOCKET_CONNECTING)) {
       activeSocket.close(1000, "Realtime client closed");
     }
@@ -355,6 +362,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
     clearTimers();
     const activeSocket = socket;
     socket = null;
+    connectedAt = null;
     activeSocket?.close(1000, "Realtime client reconnecting");
     reconnectAttempt = 0;
     openSocket();
