@@ -100,7 +100,13 @@ async function harness(
   const plan = createExp0001aAttemptProvisioningPlan();
   const attempt = kind === undefined
     ? plan.attempts[0]!
-    : plan.attempts.find((candidate) => candidate.initialState.kind === kind)!;
+    : plan.attempts.find((candidate) => (
+        candidate.initialState.kind === kind
+        && (kind !== "fixture" || (
+          candidate.initialState.kind === "fixture"
+          && candidate.initialState.fixtureId === "fixture-architecture-primary-path-v2"
+        ))
+      ))!;
   const root = await mkdtemp(path.join(os.tmpdir(), "exp0001a-provisioning-"));
   roots.push(root);
   const clock = { value: "2026-08-30T22:00:01.000Z" };
@@ -207,6 +213,10 @@ async function driveToReceipt(
     inviteRoomId?: string;
     roomId?: string;
     roomCode?: string;
+    seedVisualFinding?: Readonly<{
+      code: string;
+      target: "connector_intrusion" | "undeclared";
+    }>;
   } = {},
 ): Promise<Exp0001aRoomProvisioningReceipt> {
   const { attempt, coordinator } = h;
@@ -246,6 +256,40 @@ async function driveToReceipt(
   const records = recordsFor(attempt);
   const seededRevision = attempt.room.seed === null ? baselineRevision : baselineRevision + 1;
   if (attempt.room.seed !== null) {
+    const findingDeclaration = options.seedVisualFinding === undefined
+      ? undefined
+      : attempt.room.expectedSeedRecords.find((record) => (
+          record.recordKind === "object"
+          && (options.seedVisualFinding!.target === "connector_intrusion"
+            ? record.declaredIssueTags.includes("connector_intrusion")
+            : record.declaredIssueTags.every((tag) => tag === "none"))
+        ));
+    const findingTargetId = findingDeclaration === undefined
+      ? undefined
+      : records.temporaryReferences[findingDeclaration.tempRef];
+    if (options.seedVisualFinding !== undefined && (!findingDeclaration || !findingTargetId)) {
+      throw new Error(`Test fixture has no ${options.seedVisualFinding.target} finding target.`);
+    }
+    const findingTargetsConnector = findingDeclaration?.operation.op === "connect";
+    const visualQuality = records.diagrams.map((diagram, index) => ({
+      schemaVersion: 1,
+      diagramId: diagram.id,
+      diagramRevision: diagram.revision,
+      roomRevision: seededRevision,
+      status: options.seedVisualFinding && index === 0 ? "fail" : "pass",
+      summary: options.seedVisualFinding && index === 0 ? "Seed has a visual-quality finding." : "No findings.",
+      geometryCoverage: { status: "complete" },
+      findings: options.seedVisualFinding && index === 0
+        ? [{
+            code: options.seedVisualFinding.code,
+            status: "fail",
+            summary: "Repair the declared visual issue.",
+            objectIds: findingTargetsConnector ? [] : [findingTargetId!],
+            connectorIds: findingTargetsConnector ? [findingTargetId!] : [],
+          }]
+        : [],
+      metrics: { findingsTruncated: false },
+    }));
     await coordinator.retainSeedResult(attempt.assignmentId, {
       ok: true,
       tool: "apply_canvas_transaction",
@@ -259,7 +303,7 @@ async function driveToReceipt(
         positions: [],
         objects: records.objects,
         diagrams: records.diagrams,
-        visualQuality: [],
+        visualQuality,
         visualQualityOmittedDiagramIds: [],
         visualQualityOmittedDiagramCount: 0,
         visualQualityOmittedDiagramIdsTruncated: false,
@@ -317,6 +361,10 @@ describe("EXP-0001A frozen provisioning plan and scheduler binding", () => {
   it("retains the exact 48-attempt schedule and only the scoped private reconciliation path", () => {
     const plan = createExp0001aAttemptProvisioningPlan();
     expect(plan.attempts).toHaveLength(48);
+    expect(plan).toMatchObject({
+      manifestId: "exp-0001a-development-execution-v2",
+      benchmarkId: "jazzboard-development-v2",
+    });
     expect(plan.scheduleDigest).toBe(computeExp0001aCodexScheduleDigest(plan.assignments));
     expect(createExp0001aProvisioningScheduler(plan).frozenScheduleDigest).toBe(plan.scheduleDigest);
     expect(verifyExp0001aAttemptProvisioningPlan(plan)).toMatchObject({ ok: true });
@@ -326,6 +374,15 @@ describe("EXP-0001A frozen provisioning plan and scheduler binding", () => {
       expect(attempt.room.verifyInviteJoin).toMatchObject({ toolName: "join_room", role: "spectator" });
       expect(attempt.room.prohibitedTools).toEqual(expect.arrayContaining(["list_rooms", "room_search"]));
       expect(attempt.room.prohibitedTools).not.toContain("list_recent_rooms");
+      if (attempt.initialState.kind === "fixture") {
+        expect(attempt.room.seedReadabilityPreflight).toMatchObject({
+          fixtureId: attempt.initialState.fixtureId,
+          status: "pass",
+          rendererContract: "jazzboard-semantic-text-layout/v1",
+        });
+      } else {
+        expect(attempt.room.seedReadabilityPreflight).toBeNull();
+      }
     }
   });
 
@@ -481,6 +538,34 @@ describe("derived room receipt and exact canvas transition", () => {
     const h = await harness("fixture");
     await expect(driveToReceipt(h, { preAuthorRevisionDelta: 1 }))
       .rejects.toThrow(/SEED_TRANSITION_WAS_NOT_EXACTLY_ONE_ATOMIC_MUTATION/);
+  });
+
+  it("blocks the room receipt and author handoff when applied-seed quality reports an undeclared unreadable label", async () => {
+    const h = await harness("fixture");
+    await expect(driveToReceipt(h, {
+      seedVisualFinding: { code: "SHAPE_LABEL_LIKELY_TRUNCATED", target: "undeclared" },
+    })).rejects.toThrow(/SEED_VISUAL_QUALITY_UNDECLARED_FINDING:SHAPE_LABEL_LIKELY_TRUNCATED/);
+    const state = await h.coordinator.read();
+    expect(state.reservations[0]?.receipt).toBeNull();
+    expect(nextExp0001aProvisioningAction(state)).toMatchObject({
+      kind: "finalize_room_receipt",
+      assignmentId: h.attempt.assignmentId,
+    });
+  });
+
+  it("also blocks an undeclared non-text geometry finding", async () => {
+    const h = await harness("fixture");
+    await expect(driveToReceipt(h, {
+      seedVisualFinding: { code: "MEMBER_OBJECT_OVERLAP", target: "undeclared" },
+    })).rejects.toThrow(/SEED_VISUAL_QUALITY_UNDECLARED_FINDING:MEMBER_OBJECT_OVERLAP/);
+  });
+
+  it("allows a returned finding only when an affected seed record carries its matching declared issue tag", async () => {
+    const h = await harness("fixture");
+    const receipt = await driveToReceipt(h, {
+      seedVisualFinding: { code: "CONNECTOR_OBJECT_INTRUSION", target: "connector_intrusion" },
+    });
+    expect(verifyExp0001aRoomProvisioningReceipt(receipt, h.attempt)).toEqual(receipt);
   });
 
   it("rejects a join result whose invite resolves to another room", async () => {

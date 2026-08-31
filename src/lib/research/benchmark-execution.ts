@@ -1,10 +1,39 @@
 import { createHash } from "node:crypto";
 
+import {
+  layoutSemanticText,
+  semanticTextMaximumCharacters,
+  semanticTextMaximumLines,
+} from "../canvas/semantic-text-layout";
+import {
+  SEMANTIC_TEXT_FONT_SIZES,
+  semanticShapeLabelMaxCharacters,
+  semanticShapeLabelMaxLines,
+} from "../canvas/semantic-visual-style";
+
 import type {
   DevelopmentBenchmarkManifest,
   DevelopmentEvaluatorRubricsManifest,
   DevelopmentFixtureSpecsManifest,
 } from "./scoring";
+
+/*
+ * Keep the historical v1 digest independently addressable. EXP-0001A's
+ * prospective runner uses v2, but older evidence must remain verifiable
+ * without rewriting its hash-bound inputs.
+ */
+export const DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V1 =
+  "sha256:067802ba59f921b361442fd27d234063f7c30476b58aeb1801da1202c0a27136" as const;
+export const DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V2 =
+  "sha256:f0a12f0ff38b4dbcf1c6b32449207341634f042f75714af74b711ccbcc3a52b0" as const;
+export const DEVELOPMENT_EXECUTION_BUNDLE_DIGEST = DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V2;
+
+type DevelopmentBundleId = DevelopmentBenchmarkManifest["benchmarkId"];
+
+const DEVELOPMENT_EXECUTION_BUNDLE_DIGESTS: Readonly<Record<DevelopmentBundleId, string>> = Object.freeze({
+  "jazzboard-development-v1": DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V1,
+  "jazzboard-development-v2": DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V2,
+});
 
 /**
  * Instructions shared by every author. They describe the task protocol without
@@ -185,6 +214,26 @@ export type FixtureTransactionPlan = {
   };
 };
 
+export type FixtureSeedReadabilityFinding = Readonly<{
+  code: "SHAPE_LABEL_LIKELY_TRUNCATED" | "TEXT_CONTENT_LIKELY_TRUNCATED";
+  objectRef: string;
+  requiredLines: number;
+  maximumLines: number;
+  maximumCharactersPerLine: number;
+  intentionallyDeclared: boolean;
+}>;
+
+export type FixtureSeedReadabilityPreflight = Readonly<{
+  schemaVersion: 1;
+  fixtureId: string;
+  rendererContract: "jazzboard-semantic-text-layout/v1";
+  status: "pass";
+  checkedObjectCount: number;
+  intentionallyDeclaredFindingCount: number;
+  findings: readonly FixtureSeedReadabilityFinding[];
+  receiptDigest: string;
+}>;
+
 export type ConcurrentEventPlan = FixtureTransactionPlan & {
   observableTrigger: ConcurrentEvent["observableTrigger"];
 };
@@ -202,13 +251,6 @@ export type BenchmarkCommitments = {
 };
 
 const CANONICAL_HASH_PREFIX = "sha256:";
-// The active EXP-0001A runtime accepts only this exact, previously validated
-// public development bundle. Binding the complete three-file value here keeps
-// provider-era efficiency/cost scoring schemas outside the task-execution
-// bundle while remaining stricter than accepting a caller-selected manifest.
-export const DEVELOPMENT_EXECUTION_BUNDLE_DIGEST =
-  "sha256:067802ba59f921b361442fd27d234063f7c30476b58aeb1801da1202c0a27136" as const;
-
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value);
@@ -233,6 +275,67 @@ export function canonicalSha256(value: unknown): string {
   return `${CANONICAL_HASH_PREFIX}${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
+/**
+ * Fail closed before an author brief can be compiled when an active seed
+ * already violates Jazzboard's shared renderer-neutral text contract.
+ *
+ * A fixture may deliberately seed a defective target for the author to
+ * repair, but that target must carry a non-`none` issue tag on the exact
+ * semantic object. Any truncation on an untagged preservation object belongs
+ * to the harness—not the author—and blocks the release. This uses the same
+ * wrapping functions as the live canvas, PNG renderer, and deterministic
+ * visual-quality report.
+ */
+export function preflightFixtureSeedReadability(
+  fixture: Fixture,
+): FixtureSeedReadabilityPreflight {
+  const findings: FixtureSeedReadabilityFinding[] = [];
+  let checkedObjectCount = 0;
+  for (const operation of fixture.preBriefSetup.operations) {
+    if (operation.type !== "create_object"
+        || (operation.objectKind !== "shape" && operation.objectKind !== "text")) continue;
+    checkedObjectCount += 1;
+    const shape = operation.objectKind === "shape";
+    const fontSize = SEMANTIC_TEXT_FONT_SIZES.m;
+    const maximumCharactersPerLine = shape
+      ? semanticShapeLabelMaxCharacters(operation.bounds.width)
+      : semanticTextMaximumCharacters(operation.bounds.width, fontSize);
+    const maximumLines = shape
+      ? semanticShapeLabelMaxLines(operation.bounds.height)
+      : semanticTextMaximumLines(operation.bounds.height, fontSize);
+    const layout = layoutSemanticText(
+      operation.content,
+      maximumCharactersPerLine,
+      maximumLines,
+    );
+    if (!layout.truncated) continue;
+    findings.push({
+      code: shape ? "SHAPE_LABEL_LIKELY_TRUNCATED" : "TEXT_CONTENT_LIKELY_TRUNCATED",
+      objectRef: operation.objectRef,
+      requiredLines: layout.requiredLineCount,
+      maximumLines,
+      maximumCharactersPerLine,
+      intentionallyDeclared: operation.issueTags.includes("unreadable_label"),
+    });
+  }
+  const blockers = findings.filter((finding) => !finding.intentionallyDeclared);
+  if (blockers.length > 0) {
+    throw new Error(`FIXTURE_SEED_READABILITY_PREFLIGHT_FAILED:${fixture.fixtureId}:${blockers
+      .map((finding) => `${finding.objectRef}:${finding.code}`)
+      .join(",")}`);
+  }
+  const content = {
+    schemaVersion: 1 as const,
+    fixtureId: fixture.fixtureId,
+    rendererContract: "jazzboard-semantic-text-layout/v1" as const,
+    status: "pass" as const,
+    checkedObjectCount,
+    intentionallyDeclaredFindingCount: findings.length,
+    findings,
+  };
+  return Object.freeze({ ...content, receiptDigest: canonicalSha256(content) });
+}
+
 /** Parse all manifests and enforce the strict cross-file benchmark contract. */
 export function parseBenchmarkExecutionBundle(
   rawBenchmark: unknown,
@@ -244,7 +347,13 @@ export function parseBenchmarkExecutionBundle(
     rubrics: rawRubrics,
     fixtureSpecs: rawFixtureSpecs,
   };
-  if (canonicalSha256(bundle) !== DEVELOPMENT_EXECUTION_BUNDLE_DIGEST) {
+  const benchmarkId = rawBenchmark !== null && typeof rawBenchmark === "object"
+    ? (rawBenchmark as { benchmarkId?: unknown }).benchmarkId
+    : undefined;
+  const expectedDigest = typeof benchmarkId === "string"
+    ? DEVELOPMENT_EXECUTION_BUNDLE_DIGESTS[benchmarkId as DevelopmentBundleId]
+    : undefined;
+  if (expectedDigest === undefined || canonicalSha256(bundle) !== expectedDigest) {
     throw new Error("Invalid development benchmark bundle: exact frozen bundle digest mismatch.");
   }
   return structuredClone(bundle) as BenchmarkExecutionBundle;
@@ -635,6 +744,7 @@ export type CompiledBenchmarkTaskExecution = {
   };
   trustedCoordinator: {
     preBriefSetup: FixtureTransactionPlan | null;
+    seedReadabilityPreflight: FixtureSeedReadabilityPreflight | null;
     concurrentEvent: ConcurrentEventPlan | null;
   };
   evaluator: {
@@ -658,11 +768,13 @@ export function compileBenchmarkTaskExecution(
     ? bundle.fixtureSpecs.concurrentEvents.find((candidate) => candidate.eventFixtureId === task.concurrentEventFixtureId)!
     : null;
   const packet = publicAuthorPacket(task);
+  const seedReadabilityPreflight = fixture ? preflightFixtureSeedReadability(fixture) : null;
   return {
     taskId,
     author: { packet, renderedBrief: renderPublicAuthorBrief(packet) },
     trustedCoordinator: {
       preBriefSetup: fixture ? compilePreBriefFixture(fixture) : null,
+      seedReadabilityPreflight,
       concurrentEvent: event ? compileConcurrentEvent(event) : null,
     },
     evaluator: { rubric: structuredClone(rubric) },

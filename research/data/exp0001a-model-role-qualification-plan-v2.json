@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "exp-0001a-model-role-qualification/v2",
+  "protocolId": "EXP-0001A-MODEL-ROLE-QUALIFICATION-V2",
+  "frozenAt": "2026-08-31T18:28:14.000Z",
+  "classification": "public-development-prospective-operational-qualification",
+  "supersedes": {
+    "planPath": "research/data/exp0001a-model-role-qualification-plan-v1.json",
+    "planDigest": "sha256:7ef8289fe13fe928f18b922dd84bfe1b9bae8a9b15e47027c308ce3933c8935d",
+    "resultPath": "research/results/exp0001a-terra-medium-qualification-v1.json",
+    "resultDigest": "sha256:e4cc8465d3c9847c7705bddc1a4719dcc265976e6f43f6b74d752f7529f97d84",
+    "priorDecision": "fail",
+    "priorDecisionRetained": true
+  },
+  "benchmark": {
+    "path": "research/benchmarks/development-v2.json",
+    "bundleDigest": "sha256:f0a12f0ff38b4dbcf1c6b32449207341634f042f75714af74b711ccbcc3a52b0",
+    "split": "development",
+    "sealedMaterialAccessed": false
+  },
+  "productionPrerequisite": {
+    "requiredReceiptSchema": "baseline-freeze/v2",
+    "successorToCommit": "88919b8e0070fbd1b2be4f3e4121cfdcf50638a6",
+    "exactReceiptDigestBoundAtLaunch": true,
+    "aliasAndContractDriftPermitted": false,
+    "status": "blocked_pending_successor_freeze"
+  },
+  "rolePolicy": {
+    "ecologicalAuthor": {
+      "model": "gpt-5.6-terra",
+      "reasoningEffort": "medium",
+      "selectionBasis": "balanced everyday-user author population, fixed independently of artifact quality"
+    },
+    "blindedReviewer": {
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "selectionBasis": "independent evidence review"
+    }
+  },
+  "tasks": [
+    {
+      "taskId": "dev-architecture-create-checkout",
+      "roleCoverage": "architecture_creation",
+      "observationTiming": "prospective_after_gate_freeze"
+    },
+    {
+      "taskId": "dev-architecture-edit-uncertainty",
+      "roleCoverage": "architecture_editing",
+      "observationTiming": "prospective_after_gate_freeze"
+    },
+    {
+      "taskId": "dev-drawing-create-wayfinding-icon",
+      "roleCoverage": "drawing_creation",
+      "observationTiming": "prospective_after_gate_freeze"
+    }
+  ],
+  "authorIsolation": {
+    "freshProjectlessTaskPerAttempt": true,
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "sharedHistory": false,
+    "forks": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "permittedInputs": [
+      "public_task_brief",
+      "private_room_url",
+      "browser_exposed_webmcp"
+    ]
+  },
+  "compatibilityGate": {
+    "allThreeAttemptsMustBeValidAndCompatible": true,
+    "artifactQualityControlsAdmission": false,
+    "successfulAuthoritativeMutationRequired": true,
+    "visualInspectionRequired": true,
+    "closingAuthoritativeReadRequired": true,
+    "revisionMatchedPngRequired": true,
+    "sanitizedSemanticStateRequired": true,
+    "terminalResultRequired": true,
+    "criticalBoundaryViolationsPermitted": false,
+    "rerunsPermitted": false,
+    "replacementAttemptsPermitted": false,
+    "invalidSetupBlocksWithoutScoringModel": true
+  },
+  "qualityEvidence": {
+    "primaryReviewersPerArtifact": 2,
+    "authorReviewerSeparation": true,
+    "conditionAndAuthorIdentityBlinded": true,
+    "adjudicationTrigger": "binary-primary-acceptance-disagreement-only",
+    "qualityDecisionAffectsCompatibility": false,
+    "statisticalImprovementClaimPermitted": false
+  },
+  "interpretation": {
+    "ecologicalModelChoiceFixedAfterDisclosedV1Failure": true,
+    "v1FailureReclassified": false,
+    "activeFrozen48RunMutatedByThisPlan": false,
+    "aaExecutionStatusUntilCompatibilityAndSuccessorFreezePass": "blocked"
+  },
+  "planDigest": "sha256:e318342431aa10f1813ea7ee9bcdd508f913096a71d0886cebde98212287188b"
+}

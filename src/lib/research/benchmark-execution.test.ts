@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import developmentManifest from "../../../research/benchmarks/development-v1.json";
-import developmentRubrics from "../../../research/benchmarks/development-evaluator-rubrics-v1.json";
-import developmentFixtureSpecs from "../../../research/benchmarks/development-fixture-specs-v1.json";
+import historicalDevelopmentManifest from "../../../research/benchmarks/development-v1.json";
+import historicalDevelopmentRubrics from "../../../research/benchmarks/development-evaluator-rubrics-v1.json";
+import historicalDevelopmentFixtureSpecs from "../../../research/benchmarks/development-fixture-specs-v1.json";
+import developmentManifest from "../../../research/benchmarks/development-v2.json";
+import developmentRubrics from "../../../research/benchmarks/development-evaluator-rubrics-v2.json";
+import developmentFixtureSpecs from "../../../research/benchmarks/development-fixture-specs-v2.json";
 
 import {
   CAPABILITY_NEUTRAL_AUTHOR_INSTRUCTIONS,
+  DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V1,
+  DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V2,
   benchmarkCommitments,
   canonicalSha256,
   compileBenchmarkExecution,
@@ -14,6 +19,7 @@ import {
   compilePreBriefFixture,
   normalizedPointsToWorld,
   parseBenchmarkExecutionBundle,
+  preflightFixtureSeedReadability,
   publicAuthorPacket,
   renderPublicAuthorBrief,
   type BenchmarkCanvasOperation,
@@ -36,9 +42,28 @@ function operationByTempRef(operations: readonly BenchmarkCanvasOperation[], tem
 }
 
 describe("benchmark execution bundle boundary", () => {
+  it("keeps the historical v1 bundle verifiable while selecting v2 prospectively", () => {
+    const historical = parseBenchmarkExecutionBundle(
+      historicalDevelopmentManifest,
+      historicalDevelopmentRubrics,
+      historicalDevelopmentFixtureSpecs,
+    );
+    expect(historical.benchmark.benchmarkId).toBe("jazzboard-development-v1");
+    expect(canonicalSha256({
+      benchmark: historicalDevelopmentManifest,
+      rubrics: historicalDevelopmentRubrics,
+      fixtureSpecs: historicalDevelopmentFixtureSpecs,
+    })).toBe(DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V1);
+    expect(canonicalSha256({
+      benchmark: developmentManifest,
+      rubrics: developmentRubrics,
+      fixtureSpecs: developmentFixtureSpecs,
+    })).toBe(DEVELOPMENT_EXECUTION_BUNDLE_DIGEST_V2);
+  });
+
   it("strictly validates the three-file bundle before compilation", () => {
     expect(bundle.benchmark.tasks).toHaveLength(12);
-    expect(bundle.fixtureSpecs.fixtures).toHaveLength(8);
+    expect(bundle.fixtureSpecs.fixtures).toHaveLength(10);
     expect(bundle.fixtureSpecs.concurrentEvents).toHaveLength(2);
 
     const invalid = structuredClone(developmentManifest) as Record<string, unknown>;
@@ -127,7 +152,7 @@ describe("public author boundary", () => {
 });
 
 describe("pre-brief fixture compiler", () => {
-  it("compiles every one of the 8 frozen setups to executable transaction vocabulary", () => {
+  it("compiles every one of the 10 retained/versioned setups to executable transaction vocabulary", () => {
     for (const fixture of bundle.fixtureSpecs.fixtures) {
       const plan = compilePreBriefFixture(fixture);
       expect(plan.toolName).toBe("apply_canvas_transaction");
@@ -180,6 +205,51 @@ describe("pre-brief fixture compiler", () => {
         }
       }
     }
+  });
+
+  it("blocks author-brief compilation when a seed already violates undeclared renderer text criteria", () => {
+    const historicalDefective = bundle.fixtureSpecs.fixtures.find(
+      (fixture) => fixture.fixtureId === "fixture-architecture-primary-path-v1",
+    )!;
+    expect(() => preflightFixtureSeedReadability(historicalDefective)).toThrow(
+      /FIXTURE_SEED_READABILITY_PREFLIGHT_FAILED:fixture-architecture-primary-path-v1:.*audit-sink:SHAPE_LABEL_LIKELY_TRUNCATED.*latency-note:TEXT_CONTENT_LIKELY_TRUNCATED/,
+    );
+
+    const releaseCandidate = structuredClone(bundle);
+    const task = releaseCandidate.benchmark.tasks.find(
+      (candidate) => candidate.id === "dev-architecture-edit-primary-path",
+    )!;
+    task.initialState = { kind: "fixture", fixtureId: historicalDefective.fixtureId };
+    expect(() => compileBenchmarkTaskExecution(releaseCandidate, task.id)).toThrow(
+      /FIXTURE_SEED_READABILITY_PREFLIGHT_FAILED/,
+    );
+  });
+
+  it("passes the corrected versioned seed and binds its preflight to the task execution", () => {
+    const corrected = bundle.fixtureSpecs.fixtures.find(
+      (fixture) => fixture.fixtureId === "fixture-architecture-primary-path-v2",
+    )!;
+    const preflight = preflightFixtureSeedReadability(corrected);
+    expect(preflight).toMatchObject({
+      schemaVersion: 1,
+      fixtureId: corrected.fixtureId,
+      rendererContract: "jazzboard-semantic-text-layout/v1",
+      status: "pass",
+      intentionallyDeclaredFindingCount: 0,
+      findings: [],
+    });
+    expect(preflight.receiptDigest).toBe(canonicalSha256({
+      schemaVersion: preflight.schemaVersion,
+      fixtureId: preflight.fixtureId,
+      rendererContract: preflight.rendererContract,
+      status: preflight.status,
+      checkedObjectCount: preflight.checkedObjectCount,
+      intentionallyDeclaredFindingCount: preflight.intentionallyDeclaredFindingCount,
+      findings: preflight.findings,
+    }));
+
+    const execution = compileBenchmarkTaskExecution(bundle, "dev-architecture-edit-primary-path");
+    expect(execution.trustedCoordinator.seedReadabilityPreflight).toEqual(preflight);
   });
 
   it("uses explicit architecture node classification and first-class Diagram membership", () => {

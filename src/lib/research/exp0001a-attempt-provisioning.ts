@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 
 import { z } from "zod";
 
-import developmentBenchmarkJson from "../../../research/benchmarks/development-v1.json";
-import developmentRubricsJson from "../../../research/benchmarks/development-evaluator-rubrics-v1.json";
-import developmentFixtureSpecsJson from "../../../research/benchmarks/development-fixture-specs-v1.json";
-import developmentManifestJson from "../../../research/data/development-execution-manifest-v1.json";
+import developmentBenchmarkJson from "../../../research/benchmarks/development-v2.json";
+import developmentRubricsJson from "../../../research/benchmarks/development-evaluator-rubrics-v2.json";
+import developmentFixtureSpecsJson from "../../../research/benchmarks/development-fixture-specs-v2.json";
+import developmentManifestJson from "../../../research/data/development-execution-manifest-v2.json";
 import { CURRENT_ROOM_CODE_PATTERN } from "../domain/room-code";
 import {
   compileBenchmarkTaskExecution,
@@ -14,6 +14,7 @@ import {
   type BenchmarkCanvasOperation,
   type BenchmarkCanvasTransactionInput,
   type ConcurrentEventPlan,
+  type FixtureSeedReadabilityPreflight,
   type FixtureTransactionPlan,
   type PublicAuthorPacket,
 } from "./benchmark-execution";
@@ -93,6 +94,8 @@ export type BrowserWebMcpCommand<TTool extends string, TInput> = Readonly<{
 
 export type ExpectedSeedRecord = Readonly<{
   tempRef: string;
+  semanticRef: string | null;
+  declaredIssueTags: readonly string[];
   recordKind: "object" | "diagram";
   operation: BenchmarkCanvasOperation;
   declarationDigest: string;
@@ -146,6 +149,7 @@ export type Exp0001aAttemptProvisioningPlan = Readonly<{
       authorReleaseAfterExpiry: true;
     }>;
     expectedCanvasTransition: "remain_blank" | "one_atomic_declared_seed";
+    seedReadabilityPreflight: FixtureSeedReadabilityPreflight | null;
     expectedSeedRecords: readonly ExpectedSeedRecord[];
     prohibitedTools: readonly string[];
   }>;
@@ -193,13 +197,20 @@ function seedRecordKind(operation: BenchmarkCanvasOperation): "object" | "diagra
 
 function expectedSeedRecords(seed: FixtureTransactionPlan | null): ExpectedSeedRecord[] {
   if (seed === null) return [];
+  const semanticRefByTempRef = new Map(Object.entries(seed.tempRefBySemanticRef)
+    .map(([semanticRef, tempRef]) => [tempRef, semanticRef] as const));
   return seed.input.operations.map((operation) => {
     const recordKind = seedRecordKind(operation);
     if (recordKind === null || !("tempRef" in operation)) {
       throw new Error(`${seed.sourceId}: pre-brief provisioning may contain only declared creates.`);
     }
+    const semanticRef = semanticRefByTempRef.get(operation.tempRef) ?? null;
     return {
       tempRef: operation.tempRef,
+      semanticRef,
+      declaredIssueTags: semanticRef === null
+        ? []
+        : [...(seed.provenance.issueTagsBySemanticRef[semanticRef] ?? [])],
       recordKind,
       operation: structuredClone(operation),
       declarationDigest: hashCanonicalJson(operation),
@@ -334,6 +345,9 @@ function buildProvisioningPlan(
           authorReleaseAfterExpiry: true as const,
         },
         expectedCanvasTransition: seed === null ? "remain_blank" as const : "one_atomic_declared_seed" as const,
+        seedReadabilityPreflight: execution.trustedCoordinator.seedReadabilityPreflight === null
+          ? null
+          : structuredClone(execution.trustedCoordinator.seedReadabilityPreflight),
         expectedSeedRecords: expectedSeedRecords(seed),
         prohibitedTools: [...PROHIBITED_DISCOVERY_TOOLS],
       },
@@ -736,8 +750,96 @@ const seedResultDataSchema = z.object({
   changedDiagramIds: z.array(identifierSchema),
   objects: z.array(canvasRecordProjectionSchema),
   diagrams: z.array(canvasRecordProjectionSchema),
+  visualQuality: z.array(z.object({
+    diagramId: identifierSchema,
+    diagramRevision: z.number().int().positive(),
+    roomRevision: nonNegativeIntegerSchema,
+    status: z.enum(["pass", "warning", "fail"]),
+    geometryCoverage: z.object({ status: z.enum(["complete", "partial"]) }).passthrough(),
+    findings: z.array(z.object({
+      code: z.string().min(1),
+      objectIds: z.array(identifierSchema),
+      connectorIds: z.array(identifierSchema),
+    }).passthrough()),
+    metrics: z.object({ findingsTruncated: z.boolean() }).passthrough(),
+  }).passthrough()),
+  visualQualityOmittedDiagramIds: z.array(identifierSchema),
+  visualQualityOmittedDiagramCount: nonNegativeIntegerSchema,
+  visualQualityOmittedDiagramIdsTruncated: z.boolean(),
+  verification: z.object({
+    visualInspectionStatus: z.literal("not_performed"),
+  }).passthrough(),
   proposal: z.null(),
 }).passthrough();
+
+const VISUAL_FINDING_ALLOWED_ISSUE_TAGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  ATTACHMENT_PORT_CONGESTION: ["connector_intrusion"],
+  CONNECTOR_CROSSING: ["connector_intrusion"],
+  CONNECTOR_LABEL_EDGE_COLLISION: ["connector_intrusion", "unreadable_label"],
+  CONNECTOR_LABEL_LABEL_COLLISION: ["connector_intrusion", "unreadable_label"],
+  CONNECTOR_LABEL_LIKELY_TRUNCATED: ["unreadable_label"],
+  CONNECTOR_LABEL_OBJECT_COLLISION: ["connector_intrusion", "unreadable_label"],
+  CONNECTOR_OBJECT_INTRUSION: ["connector_intrusion"],
+  CONNECTOR_SHARED_INITIAL_CORRIDOR: ["connector_intrusion"],
+  CONNECTOR_SHARED_SEGMENT: ["connector_intrusion"],
+  // No fixture issue tag authorizes an empty architecture Diagram.
+  DIAGRAM_EMPTY: [],
+  MEMBER_OBJECT_OVERLAP: ["intentional_overlap"],
+  MEMBER_SPACING_TOO_SMALL: ["intentional_overlap"],
+  SHAPE_LABEL_LIKELY_TRUNCATED: ["unreadable_label"],
+  TEXT_CONTENT_LIKELY_TRUNCATED: ["unreadable_label"],
+});
+
+function assertAppliedSeedReadabilityEvidence(
+  attempt: Exp0001aAttemptProvisioningPlan,
+  seedData: z.infer<typeof seedResultDataSchema>,
+): void {
+  if (attempt.room.seedReadabilityPreflight === null) {
+    throw new Error("SEED_READABILITY_STATIC_PREFLIGHT_MISSING");
+  }
+  if (seedData.visualQualityOmittedDiagramCount !== 0
+      || seedData.visualQualityOmittedDiagramIds.length !== 0
+      || seedData.visualQualityOmittedDiagramIdsTruncated) {
+    throw new Error("SEED_READABILITY_EVIDENCE_INCOMPLETE");
+  }
+  const expectedDiagramIds = attempt.room.expectedSeedRecords
+    .filter((record) => record.recordKind === "diagram")
+    .map((record) => seedData.temporaryReferences[record.tempRef])
+    .sort();
+  const reportedDiagramIds = seedData.visualQuality.map((report) => report.diagramId).sort();
+  if (expectedDiagramIds.some((id) => id === undefined)
+      || canonicalJson(reportedDiagramIds) !== canonicalJson(expectedDiagramIds)) {
+    throw new Error("SEED_READABILITY_DIAGRAM_COVERAGE_MISMATCH");
+  }
+  const recordByAuthoritativeId = new Map(attempt.room.expectedSeedRecords.flatMap((record) => {
+    const authoritativeId = seedData.temporaryReferences[record.tempRef];
+    return authoritativeId === undefined ? [] : [[authoritativeId, record] as const];
+  }));
+  for (const report of seedData.visualQuality) {
+    const diagram = seedData.diagrams.find((record) => record.id === report.diagramId);
+    if (!diagram || report.diagramRevision !== diagram.revision || report.roomRevision !== seedData.roomRevision
+        || report.metrics.findingsTruncated) {
+      throw new Error("SEED_READABILITY_EVIDENCE_STALE_OR_TRUNCATED");
+    }
+    if ((report.status === "pass") !== (report.findings.length === 0)) {
+      throw new Error("SEED_VISUAL_QUALITY_STATUS_FINDING_MISMATCH");
+    }
+    for (const finding of report.findings) {
+      const allowedIssueTags = VISUAL_FINDING_ALLOWED_ISSUE_TAGS[finding.code];
+      if (allowedIssueTags === undefined) {
+        throw new Error(`SEED_VISUAL_QUALITY_UNKNOWN_FINDING:${finding.code}`);
+      }
+      const affectedIds = [...finding.objectIds, ...finding.connectorIds];
+      const affectedRecords = affectedIds.map((id) => recordByAuthoritativeId.get(id));
+      if (affectedIds.length === 0 || affectedRecords.some((record) => record === undefined)) {
+        throw new Error(`SEED_VISUAL_QUALITY_UNBOUND_FINDING:${finding.code}`);
+      }
+      if (!affectedRecords.some((record) => record!.declaredIssueTags.some((tag) => allowedIssueTags.includes(tag)))) {
+        throw new Error(`SEED_VISUAL_QUALITY_UNDECLARED_FINDING:${finding.code}`);
+      }
+    }
+  }
+}
 
 const collaborationReadDataSchema = z.object({
   room: roomSummarySchema.extend({ roomRevision: nonNegativeIntegerSchema }).passthrough(),
@@ -944,6 +1046,7 @@ function deriveRoomProvisioningReceipt(
       request: attempt.room.seed.input,
     });
     seedData = seedResultDataSchema.parse(seedRetained.rawResult.data);
+    assertAppliedSeedReadabilityEvidence(attempt, seedData);
   }
 
   const preAuthorRetained = parseToolResult(authority.preAuthorRead, {

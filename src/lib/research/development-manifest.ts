@@ -42,7 +42,7 @@ const developmentTaskSchema = z.object({
 
 export const developmentBundleSchema = z.object({
   schemaVersion: z.literal(1),
-  benchmarkId: z.literal("jazzboard-development-v1"),
+  benchmarkId: z.enum(["jazzboard-development-v1", "jazzboard-development-v2"]),
   split: z.literal("development"),
   description: z.string().min(1),
   answerPolicy: z.literal("public-prompts-only-no-reference-answers-or-judge-rubrics"),
@@ -83,15 +83,21 @@ const pairAssignmentSchema = pairContentSchema.extend({
 
 const developmentExecutionManifestContentSchema = z.object({
   schemaVersion: z.literal(1),
-  manifestId: z.literal("exp-0001a-development-execution-v1"),
+  manifestId: z.enum([
+    "exp-0001a-development-execution-v1",
+    "exp-0001a-development-execution-v2",
+  ]),
   protocolId: z.literal("EXP-0001A"),
   studyKind: z.literal("aa_calibration"),
   partition: z.literal("development"),
   seed: z.literal(20260830),
   randomizationAlgorithm: z.literal("xorshift32-fisher-yates-weave-v1"),
   benchmark: z.object({
-    path: z.literal("research/benchmarks/development-v1.json"),
-    benchmarkId: z.literal("jazzboard-development-v1"),
+    path: z.enum([
+      "research/benchmarks/development-v1.json",
+      "research/benchmarks/development-v2.json",
+    ]),
+    benchmarkId: z.enum(["jazzboard-development-v1", "jazzboard-development-v2"]),
     bundleDigest: sha256Schema,
   }).strict(),
   opaqueLabels: z.tuple([z.literal("A0"), z.literal("A1")]),
@@ -110,7 +116,23 @@ const developmentExecutionManifestContentSchema = z.object({
 
 export const developmentExecutionManifestSchema = developmentExecutionManifestContentSchema.extend({
   manifestDigest: sha256Schema,
-}).strict();
+}).strict().superRefine((manifest, context) => {
+  const version = manifest.benchmark.benchmarkId === "jazzboard-development-v1" ? "v1" : "v2";
+  if (manifest.manifestId !== `exp-0001a-development-execution-${version}`) {
+    context.addIssue({
+      code: "custom",
+      path: ["manifestId"],
+      message: "Execution manifest and benchmark versions must match.",
+    });
+  }
+  if (manifest.benchmark.path !== `research/benchmarks/development-${version}.json`) {
+    context.addIssue({
+      code: "custom",
+      path: ["benchmark", "path"],
+      message: "Execution manifest path and benchmark versions must match.",
+    });
+  }
+});
 
 export type DevelopmentBundle = z.infer<typeof developmentBundleSchema>;
 export type DevelopmentTask = z.infer<typeof developmentTaskSchema>;
@@ -223,6 +245,7 @@ export function createDevelopmentExecutionManifest(
 ): DevelopmentExecutionManifest {
   if (seed !== DEVELOPMENT_EXECUTION_SEED) throw new Error(`EXP-0001A requires fixed seed ${DEVELOPMENT_EXECUTION_SEED}.`);
   const bundle = loadDevelopmentBundle(bundleInput);
+  const version = bundle.benchmarkId === "jazzboard-development-v1" ? "v1" : "v2";
   const random = xorshift32(seed);
   const tasks = taskCommitments(bundle);
   const taskById = new Map(tasks.map((task) => [task.taskId, task]));
@@ -276,14 +299,14 @@ export function createDevelopmentExecutionManifest(
 
   const content = developmentExecutionManifestContentSchema.parse({
     schemaVersion: 1,
-    manifestId: "exp-0001a-development-execution-v1",
+    manifestId: `exp-0001a-development-execution-${version}`,
     protocolId: "EXP-0001A",
     studyKind: "aa_calibration",
     partition: "development",
     seed,
     randomizationAlgorithm: DEVELOPMENT_RANDOMIZATION_ALGORITHM,
     benchmark: {
-      path: "research/benchmarks/development-v1.json",
+      path: `research/benchmarks/development-${version}.json`,
       benchmarkId: bundle.benchmarkId,
       bundleDigest: hashCanonicalJson(bundle),
     },
@@ -324,6 +347,7 @@ export function verifyDevelopmentExecutionManifest(
   if (manifest.treatments.A0 !== manifest.treatments.A1) errors.push("AA_TREATMENTS_DIFFER");
   if (manifest.treatments.A0 !== DEVELOPMENT_AA_TREATMENT_DIGEST) errors.push("AA_TREATMENT_NOT_FROZEN_BASELINE");
   if (manifest.benchmark.bundleDigest !== hashCanonicalJson(bundle)) errors.push("BUNDLE_DIGEST_INVALID");
+  if (manifest.benchmark.benchmarkId !== bundle.benchmarkId) errors.push("BENCHMARK_ID_MISMATCH");
 
   const pairIds = new Set<string>();
   const attemptIds = new Set<string>();

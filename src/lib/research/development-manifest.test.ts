@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 
 import developmentBundle from "../../../research/benchmarks/development-v1.json";
+import prospectiveDevelopmentBundle from "../../../research/benchmarks/development-v2.json";
 import checkedInManifest from "../../../research/data/development-execution-manifest-v1.json";
+import prospectiveCheckedInManifest from "../../../research/data/development-execution-manifest-v2.json";
 import {
   DEVELOPMENT_AA_TREATMENT_DIGEST,
   DEVELOPMENT_EXECUTION_SEED,
@@ -28,6 +30,29 @@ describe("EXP-0001A development execution manifest", () => {
     expect(bundle.tasks).toHaveLength(12);
     expect(generated).toEqual(checkedInManifest);
     expect(verifyDevelopmentExecutionManifest(checkedInManifest, bundle)).toMatchObject({ ok: true });
+  });
+
+  it("keeps v1 immutable while generating and verifying the prospective v2 manifest independently", () => {
+    const generated = createDevelopmentExecutionManifest(prospectiveDevelopmentBundle, DEVELOPMENT_EXECUTION_SEED);
+
+    expect(generated).toEqual(prospectiveCheckedInManifest);
+    expect(generated).toMatchObject({
+      manifestId: "exp-0001a-development-execution-v2",
+      benchmark: {
+        path: "research/benchmarks/development-v2.json",
+        benchmarkId: "jazzboard-development-v2",
+      },
+    });
+    expect(verifyDevelopmentExecutionManifest(prospectiveCheckedInManifest, prospectiveDevelopmentBundle))
+      .toMatchObject({ ok: true });
+    expect(createDevelopmentExecutionManifest(developmentBundle)).toEqual(checkedInManifest);
+  });
+
+  it("rejects cross-version manifest and benchmark pairings", () => {
+    expect(verifyDevelopmentExecutionManifest(prospectiveCheckedInManifest, developmentBundle)).toMatchObject({
+      ok: false,
+      errors: expect.arrayContaining(["BENCHMARK_ID_MISMATCH"]),
+    });
   });
 
   it("is deterministic and binds every task and pair canonically", () => {

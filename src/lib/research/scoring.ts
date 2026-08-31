@@ -883,7 +883,7 @@ export const benchmarkTaskSchema = z.object({
 
 export const developmentBenchmarkManifestSchema = z.object({
   schemaVersion: z.literal(RESEARCH_SCORING_SCHEMA_VERSION),
-  benchmarkId: z.literal("jazzboard-development-v1"),
+  benchmarkId: z.enum(["jazzboard-development-v1", "jazzboard-development-v2"]),
   split: z.literal("development"),
   description: z.string().trim().min(20).max(1_000),
   answerPolicy: z.literal("public-prompts-only-no-reference-answers-or-judge-rubrics"),
@@ -982,14 +982,27 @@ const drawingEvaluatorRubricSchema = z.object({
 
 export const developmentEvaluatorRubricsManifestSchema = z.object({
   schemaVersion: z.literal(RESEARCH_SCORING_SCHEMA_VERSION),
-  rubricId: z.literal("jazzboard-development-evaluator-rubrics-v1"),
-  benchmarkId: z.literal("jazzboard-development-v1"),
+  rubricId: z.enum([
+    "jazzboard-development-evaluator-rubrics-v1",
+    "jazzboard-development-evaluator-rubrics-v2",
+  ]),
+  benchmarkId: z.enum(["jazzboard-development-v1", "jazzboard-development-v2"]),
   scope: z.literal("development-only-public-criteria-operationalization"),
   rubrics: z.array(z.discriminatedUnion("domain", [
     architectureEvaluatorRubricSchema,
     drawingEvaluatorRubricSchema,
   ])).length(12),
 }).strict().superRefine((manifest, context) => {
+  const expectedRubricId = manifest.benchmarkId === "jazzboard-development-v1"
+    ? "jazzboard-development-evaluator-rubrics-v1"
+    : "jazzboard-development-evaluator-rubrics-v2";
+  if (manifest.rubricId !== expectedRubricId) {
+    context.addIssue({
+      code: "custom",
+      path: ["rubricId"],
+      message: "Evaluator rubric and benchmark versions must match.",
+    });
+  }
   const taskIds = manifest.rubrics.map((rubric) => rubric.taskId);
   if (new Set(taskIds).size !== taskIds.length) {
     context.addIssue({ code: "custom", path: ["rubrics"], message: "Evaluator rubric task IDs must be unique." });
@@ -1079,7 +1092,7 @@ const developmentFixtureSchema = z.object({
   fixtureId: z.string().regex(/^fixture-[a-z0-9-]{3,120}$/),
   domain: z.enum(["architecture", "drawing"]),
   description: z.string().trim().min(10).max(500),
-  frozenVersion: z.literal(1),
+  frozenVersion: z.number().int().positive(),
   preBriefSetup: z.object({
     operations: z.array(fixtureOperationSchema).min(1).max(200),
   }).strict(),
@@ -1125,12 +1138,25 @@ const concurrentEventFixtureSchema = z.object({
 
 export const developmentFixtureSpecsManifestSchema = z.object({
   schemaVersion: z.literal(RESEARCH_SCORING_SCHEMA_VERSION),
-  fixtureSpecId: z.literal("jazzboard-development-fixture-specs-v1"),
-  benchmarkId: z.literal("jazzboard-development-v1"),
+  fixtureSpecId: z.enum([
+    "jazzboard-development-fixture-specs-v1",
+    "jazzboard-development-fixture-specs-v2",
+  ]),
+  benchmarkId: z.enum(["jazzboard-development-v1", "jazzboard-development-v2"]),
   coordinatorContract: z.literal("trusted-pre-brief-semantic-setup-with-observable-trigger-events"),
   fixtures: z.array(developmentFixtureSchema).min(1).max(50),
   concurrentEvents: z.array(concurrentEventFixtureSchema).max(20),
 }).strict().superRefine((manifest, context) => {
+  const expectedFixtureSpecId = manifest.benchmarkId === "jazzboard-development-v1"
+    ? "jazzboard-development-fixture-specs-v1"
+    : "jazzboard-development-fixture-specs-v2";
+  if (manifest.fixtureSpecId !== expectedFixtureSpecId) {
+    context.addIssue({
+      code: "custom",
+      path: ["fixtureSpecId"],
+      message: "Fixture specification and benchmark versions must match.",
+    });
+  }
   for (const [path, ids] of [
     [["fixtures"], manifest.fixtures.map((fixture) => fixture.fixtureId)],
     [["concurrentEvents"], manifest.concurrentEvents.map((event) => event.eventFixtureId)],
@@ -1162,6 +1188,12 @@ export function validateDevelopmentBenchmarkBundle(
   const fixtureById = new Map(fixtureSpecs.fixtures.map((fixture) => [fixture.fixtureId, fixture]));
   const eventById = new Map(fixtureSpecs.concurrentEvents.map((event) => [event.eventFixtureId, event]));
   const failures: string[] = [];
+  if (rubrics.benchmarkId !== benchmark.benchmarkId) {
+    failures.push("evaluator rubric benchmark version differs from public benchmark");
+  }
+  if (fixtureSpecs.benchmarkId !== benchmark.benchmarkId) {
+    failures.push("fixture specification benchmark version differs from public benchmark");
+  }
   for (const task of benchmark.tasks) {
     const rubric = rubricByTaskId.get(task.id);
     if (!rubric) {
