@@ -1229,6 +1229,122 @@ describe("RedisRoomStore v3 persistence", () => {
     });
   });
 
+  it("returns stable current planes with one atomic read and no WATCH", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const source = presenceRoom();
+    const planes = splitRoomState(source);
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${source.id}`;
+    const coordinationKey = `jazzboard:room:v3:coordination:${source.id}`;
+    const { connection, state } = fakeRedis([
+      [documentKey, JSON.stringify(planes.document)],
+      [awarenessKey, JSON.stringify(planes.awareness)],
+      [coordinationKey, JSON.stringify(planes.coordination)],
+    ]);
+
+    await expect(
+      new RedisRoomStore(connection as unknown as Redis).getRoom(source.id),
+    ).resolves.toMatchObject({
+      id: source.id,
+      stateRevision: source.stateRevision,
+      participants: { p_owner: { connected: true } },
+    });
+    expect(state.mgets).toEqual([[documentKey, awarenessKey, coordinationKey]]);
+    expect(state.watches).toEqual([]);
+    expect(state.writes).toEqual([]);
+    expect(state.streamPayloads).toEqual([]);
+  });
+
+  it("rechecks stale derived state under WATCH before persisting it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const source = presenceRoom();
+    const planes = splitRoomState(source);
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${source.id}`;
+    const coordinationKey = `jazzboard:room:v3:coordination:${source.id}`;
+    const { connection, state } = fakeRedis([
+      [documentKey, JSON.stringify(planes.document)],
+      [awarenessKey, JSON.stringify(planes.awareness)],
+      [coordinationKey, JSON.stringify(planes.coordination)],
+    ]);
+    vi.advanceTimersByTime(75_001);
+    let refreshed = false;
+    state.afterMget = (keys) => {
+      if (
+        refreshed ||
+        keys.length !== 3 ||
+        !keys.includes(documentKey) ||
+        !keys.includes(awarenessKey) ||
+        !keys.includes(coordinationKey)
+      ) {
+        return;
+      }
+      refreshed = true;
+      const awareness = JSON.parse(
+        state.values.get(awarenessKey)!,
+      ) as PersistedRoomPlanes["awareness"];
+      const coordination = JSON.parse(
+        state.values.get(coordinationKey)!,
+      ) as PersistedRoomPlanes["coordination"];
+      awareness.participants.p_owner.connected = true;
+      awareness.participants.p_owner.lastSeenAt = Date.now();
+      awareness.participants.p_owner.human.lastSeenAt = Date.now();
+      coordination.stateRevision += 1;
+      writeFakeValue(state, awarenessKey, JSON.stringify(awareness));
+      writeFakeValue(state, coordinationKey, JSON.stringify(coordination));
+    };
+
+    const room = await new RedisRoomStore(
+      connection as unknown as Redis,
+    ).getRoom(source.id);
+
+    expect(refreshed).toBe(true);
+    expect(room).toMatchObject({
+      stateRevision: 8,
+      participants: {
+        p_owner: {
+          connected: true,
+          human: { lastSeenAt: Date.now() },
+        },
+      },
+    });
+    expect(state.mgets).toEqual([
+      [documentKey, awarenessKey, coordinationKey],
+      [awarenessKey, coordinationKey],
+    ]);
+    expect(state.watches).toEqual([[awarenessKey, coordinationKey]]);
+    expect(state.writes).toEqual([]);
+    expect(state.streamPayloads).toEqual([]);
+  });
+
+  it("does not bypass a mismatched durable-document fence on a stable read", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const source = presenceRoom();
+    const planes = splitRoomState(source);
+    planes.coordination.roomRevision = planes.document.roomRevision + 1;
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${source.id}`;
+    const coordinationKey = `jazzboard:room:v3:coordination:${source.id}`;
+    const { connection, state } = fakeRedis([
+      [documentKey, JSON.stringify(planes.document)],
+      [awarenessKey, JSON.stringify(planes.awareness)],
+      [coordinationKey, JSON.stringify(planes.coordination)],
+    ]);
+
+    await expect(
+      new RedisRoomStore(connection as unknown as Redis).getRoom(source.id),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(state.watches).toHaveLength(8);
+    expect(state.watches).toEqual(
+      Array.from({ length: 8 }, () => [awarenessKey, coordinationKey]),
+    );
+    expect(state.writes).toEqual([]);
+    expect(state.streamPayloads).toEqual([]);
+  });
+
   it("persists derived expiry once without consulting legacy storage", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
@@ -1251,24 +1367,45 @@ describe("RedisRoomStore v3 persistence", () => {
       handoffRequest: null,
     };
     const planes = splitRoomState(source);
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${source.id}`;
+    const coordinationKey = `jazzboard:room:v3:coordination:${source.id}`;
     const { connection, state } = fakeRedis([
-      [`jazzboard:room:v3:document:${source.id}`, JSON.stringify(planes.document)],
-      [`jazzboard:room:v3:awareness:${source.id}`, JSON.stringify(planes.awareness)],
-      [`jazzboard:room:v3:coordination:${source.id}`, JSON.stringify(planes.coordination)],
+      [documentKey, JSON.stringify(planes.document)],
+      [awarenessKey, JSON.stringify(planes.awareness)],
+      [coordinationKey, JSON.stringify(planes.coordination)],
     ]);
     const store = new RedisRoomStore(connection as unknown as Redis);
 
     vi.advanceTimersByTime(75_001);
     const expired = await store.getRoom(source.id);
-    const stable = await store.getRoom(source.id);
     expect(expired).toMatchObject({
       stateRevision: 8,
       participants: { p_owner: { connected: false } },
       leases: {},
       spotlight: null,
     });
-    expect(stable?.stateRevision).toBe(8);
+    expect(state.mgets).toEqual([
+      [documentKey, awarenessKey, coordinationKey],
+      [awarenessKey, coordinationKey],
+    ]);
+    expect(state.watches).toEqual([[awarenessKey, coordinationKey]]);
+    expect(state.writes.map(({ key }) => key)).toEqual([
+      awarenessKey,
+      coordinationKey,
+    ]);
     expect(state.streamPayloads).toHaveLength(1);
+
+    state.mgets.length = 0;
+    state.watches.length = 0;
+    state.writes.length = 0;
+    state.streamPayloads.length = 0;
+    const stable = await store.getRoom(source.id);
+    expect(stable?.stateRevision).toBe(8);
+    expect(state.mgets).toEqual([[documentKey, awarenessKey, coordinationKey]]);
+    expect(state.watches).toEqual([]);
+    expect(state.writes).toEqual([]);
+    expect(state.streamPayloads).toEqual([]);
     expect(state.mgets.flat()).not.toContain(`jazzboard:room:${source.id}`);
   });
 

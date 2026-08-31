@@ -987,7 +987,9 @@ describe("useRoom request ordering", () => {
     });
 
     expect(result.current.room).toMatchObject({ roomRevision: 4, stateRevision: 11 });
-    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.apiRequest.mock.calls.filter(([url]) => url === "/api/rooms/room-a"),
+    ).toHaveLength(1);
   });
 
   it("coalesces compact realtime invalidations through one authoritative refresh", async () => {
@@ -1004,7 +1006,9 @@ describe("useRoom request ordering", () => {
       realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
       realtime.onEvent(compactEvent(3), { cursor: "3-0", replay: false });
     });
-    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.apiRequest.mock.calls.filter(([url]) => url === "/api/rooms/room-a"),
+    ).toHaveLength(1);
 
     await act(async () => {
       pending.resolve({
@@ -1273,7 +1277,9 @@ describe("useRoom request ordering", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.apiRequest.mock.calls.filter(([url]) => url === "/api/rooms/room-a"),
+    ).toHaveLength(1);
 
     act(() => {
       realtimeFor("room-a").onStatusChange?.("connected");
@@ -1281,7 +1287,9 @@ describe("useRoom request ordering", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(12_500);
     });
-    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.apiRequest.mock.calls.filter(([url]) => url === "/api/rooms/room-a"),
+    ).toHaveLength(1);
     expect(result.current.connection).toBe("live");
 
     await act(async () => {
@@ -1298,5 +1306,169 @@ describe("useRoom request ordering", () => {
     expect(result.current.self?.participantId).toBe("participant-delayed");
     expect(result.current.connection).toBe("live");
     expect(result.current.error).toBeNull();
+  });
+
+  it("waits through a sustained realtime outage before starting fallback reads", async () => {
+    let roomReads = 0;
+    let draftReads = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        draftReads += 1;
+        return Promise.resolve({ ok: true, drafts: [], serverTime: Date.now() });
+      }
+      roomReads += 1;
+      return Promise.resolve({
+        ok: true,
+        room: room("room-a", roomReads, ["participant-a"]),
+        participantId: "participant-a",
+      });
+    });
+    renderHook(() => useRoom("room-a"));
+
+    act(() => {
+      realtimeFor("room-a").onStatusChange?.("reconnecting");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(roomReads).toBe(1);
+    expect(draftReads).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_001);
+    });
+    expect(roomReads).toBe(2);
+    expect(draftReads).toBe(1);
+  });
+
+  it("cancels fallback reads on recovery and requires a fresh outage grace period", async () => {
+    let roomReads = 0;
+    let draftReads = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        draftReads += 1;
+        return Promise.resolve({ ok: true, drafts: [], serverTime: Date.now() });
+      }
+      roomReads += 1;
+      return Promise.resolve({
+        ok: true,
+        room: room("room-a", roomReads, ["participant-a"]),
+        participantId: "participant-a",
+      });
+    });
+    renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => realtime.onStatusChange?.("reconnecting"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    act(() => realtime.onStatusChange?.("connected"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(roomReads).toBe(1);
+    expect(draftReads).toBe(1);
+
+    act(() => realtime.onStatusChange?.("reconnecting"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(roomReads).toBe(1);
+    expect(draftReads).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(roomReads).toBeGreaterThan(1);
+    expect(draftReads).toBeGreaterThanOrEqual(1);
+  });
+
+  it("polls idle drafts slowly but preserves the active-draft fallback cadence", async () => {
+    let roomReads = 0;
+    let draftReads = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        draftReads += 1;
+        return Promise.resolve({ ok: true, drafts: [], serverTime: Date.now() });
+      }
+      roomReads += 1;
+      return Promise.resolve({
+        ok: true,
+        room: room("room-a", roomReads, ["participant-a"]),
+        participantId: "participant-a",
+      });
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    act(() => realtimeFor("room-a").onStatusChange?.("reconnecting"));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(draftReads).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(draftReads).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(draftReads).toBe(2);
+
+    act(() => {
+      result.current.acceptAgentDraft(agentDraft());
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(draftReads).toBe(3);
+
+    act(() => realtimeFor("room-a").onStatusChange?.("connected"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(draftReads).toBe(3);
+  });
+
+  it("backs off an exhausted draft refresh instead of retrying every two seconds", async () => {
+    let draftReads = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        draftReads += 1;
+        return Promise.reject(new Error("Redis temporarily unavailable"));
+      }
+      return Promise.resolve({
+        ok: true,
+        room: room("room-a", 1, ["participant-a"]),
+        participantId: "participant-a",
+      });
+    });
+    renderHook(() => useRoom("room-a"));
+
+    act(() => {
+      realtimeFor("room-a").onReady?.({
+        connectionId: "connection-a",
+        participantId: "participant-a",
+        role: "participant",
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(480);
+    });
+    expect(draftReads).toBe(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_519);
+    });
+    expect(draftReads).toBe(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(draftReads).toBe(4);
   });
 });

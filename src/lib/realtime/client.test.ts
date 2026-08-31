@@ -218,6 +218,83 @@ describe("connectRoomRealtime", () => {
     expect(connection.getStatus()).toBe("closed");
   });
 
+  it("preserves backoff across short-lived ready connections and resets it only after 60 stable seconds", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-31T12:00:00.000Z"));
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const sockets: FakeBrowserSocket[] = [];
+    const connection = connectRoomRealtime({
+      roomId: "room_1",
+      url: "wss://jazzboard.example/api/ws",
+      onSnapshot: vi.fn(),
+      onEvent: vi.fn(),
+      webSocketFactory: (url) => {
+        const socket = new FakeBrowserSocket(url);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+
+    const openReadyAndClose = () => {
+      const socket = sockets.at(-1)!;
+      socket.open();
+      socket.serverMessage({
+        type: "ready",
+        protocol: 1,
+        connectionId: `connection_${sockets.length}`,
+        roomId: "room_1",
+        participantId: "p_1",
+        role: "participant",
+        serverTime: Date.now(),
+      });
+      socket.serverClose();
+    };
+    const expectReconnectAfter = (delayMs: number) => {
+      const count = sockets.length;
+      vi.advanceTimersByTime(delayMs - 1);
+      expect(sockets).toHaveLength(count);
+      vi.advanceTimersByTime(1);
+      expect(sockets).toHaveLength(count + 1);
+    };
+
+    for (const delayMs of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]) {
+      openReadyAndClose();
+      expectReconnectAfter(delayMs);
+    }
+
+    const almostStableSocket = sockets.at(-1)!;
+    almostStableSocket.open();
+    almostStableSocket.serverMessage({
+      type: "ready",
+      protocol: 1,
+      connectionId: "connection_almost_stable",
+      roomId: "room_1",
+      participantId: "p_1",
+      role: "participant",
+      serverTime: Date.now(),
+    });
+    vi.setSystemTime(Date.now() + 59_999);
+    almostStableSocket.serverClose();
+    expectReconnectAfter(30_000);
+
+    const stableSocket = sockets.at(-1)!;
+    stableSocket.open();
+    stableSocket.serverMessage({
+      type: "ready",
+      protocol: 1,
+      connectionId: "connection_stable",
+      roomId: "room_1",
+      participantId: "p_1",
+      role: "participant",
+      serverTime: Date.now(),
+    });
+    vi.setSystemTime(Date.now() + 60_000);
+    stableSocket.serverClose();
+    expectReconnectAfter(1_000);
+
+    connection.close();
+  });
+
   it("requests an explicit resync with the latest checkpoint", () => {
     const socket = new FakeBrowserSocket("ws://jazzboard.test/api/ws");
     const connection = connectRoomRealtime({
