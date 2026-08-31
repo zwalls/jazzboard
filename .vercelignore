@@ -3,7 +3,7 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
-artifacts/
+/artifacts/
 e2e/
 .research-private/
 research/

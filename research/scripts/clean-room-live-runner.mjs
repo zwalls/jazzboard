@@ -73,6 +73,180 @@ export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function normalizedMediaType(value) {
+  if (typeof value !== "string") return null;
+  const mediaType = value.split(";", 1)[0].trim().toLowerCase();
+  return mediaType || null;
+}
+
+function pngDimensions(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.byteLength < 45 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return null;
+  }
+  let offset = PNG_SIGNATURE.byteLength;
+  let width = 0;
+  let height = 0;
+  let ordinal = 0;
+  let sawImageData = false;
+  let sawEnd = false;
+  while (offset < bytes.byteLength) {
+    if (offset + 12 > bytes.byteLength) return null;
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    const next = offset + length + 12;
+    if (next > bytes.byteLength) return null;
+    if (ordinal === 0) {
+      if (type !== "IHDR" || length !== 13) return null;
+      width = bytes.readUInt32BE(offset + 8);
+      height = bytes.readUInt32BE(offset + 12);
+      if (width < 1 || height < 1) return null;
+    }
+    if (type === "IDAT") sawImageData = true;
+    if (type === "IEND") {
+      if (length !== 0 || next !== bytes.byteLength) return null;
+      sawEnd = true;
+    }
+    offset = next;
+    ordinal += 1;
+  }
+  return sawImageData && sawEnd ? { width, height } : null;
+}
+
+/**
+ * Builds a secret-free receipt before enforcing the semantic export contract.
+ * Keeping construction and assertion separate ensures an HTML/404 response is
+ * still hash-addressed in the terminal attempt evidence.
+ */
+export function buildSemanticExportEvidenceReceipt(input) {
+  const body = Buffer.isBuffer(input.bodyBytes)
+    ? input.bodyBytes
+    : Buffer.from(input.bodyBytes ?? "");
+  const result = input.toolResult;
+  return Object.freeze({
+    schemaVersion: "jazzboard-semantic-export-evidence/v1",
+    expectedRoomRevision: input.expectedRoomRevision,
+    response: Object.freeze({
+      status: input.status,
+      contentType: typeof input.contentType === "string" ? input.contentType : null,
+      mediaType: normalizedMediaType(input.contentType),
+      byteLength: body.byteLength,
+      bodySha256: sha256(body),
+    }),
+    tool: Object.freeze({
+      status: result?.ok === true ? "succeeded" : "failed",
+      failureCode: result?.ok === false && typeof result?.error?.code === "string"
+        ? result.error.code
+        : null,
+      format: typeof result?.data?.format === "string" ? result.data.format : null,
+      declaredMediaType: typeof result?.data?.mediaType === "string" ? result.data.mediaType : null,
+      sourceRoomRevision: Number.isSafeInteger(result?.data?.sourceRoomRevision)
+        ? result.data.sourceRoomRevision
+        : null,
+      artifactSourceRoomRevision: Number.isSafeInteger(result?.data?.artifact?.source?.roomRevision)
+        ? result.data.artifact.source.roomRevision
+        : null,
+    }),
+  });
+}
+
+export function assertSemanticExportEvidence(receipt) {
+  if (!Number.isSafeInteger(receipt?.expectedRoomRevision) || receipt.expectedRoomRevision < 1) {
+    throw new Error("SEMANTIC_EXPORT_EXPECTED_REVISION_INVALID");
+  }
+  if (receipt?.response?.status !== 200) {
+    throw new Error(`SEMANTIC_EXPORT_HTTP_STATUS_INVALID:${receipt?.response?.status ?? "missing"}`);
+  }
+  if (receipt.response.mediaType !== "application/json"
+      && !receipt.response.mediaType?.endsWith("+json")) {
+    throw new Error(`SEMANTIC_EXPORT_CONTENT_TYPE_INVALID:${receipt.response.mediaType ?? "missing"}`);
+  }
+  if (!Number.isSafeInteger(receipt.response.byteLength) || receipt.response.byteLength < 1
+      || !/^[a-f0-9]{64}$/.test(receipt.response.bodySha256 ?? "")) {
+    throw new Error("SEMANTIC_EXPORT_RESPONSE_BODY_INVALID");
+  }
+  if (receipt.tool.status !== "succeeded" || receipt.tool.format !== "semantic_json") {
+    throw new Error(`SEMANTIC_EXPORT_TOOL_FAILED:${receipt.tool.failureCode ?? "invalid_result"}`);
+  }
+  if (normalizedMediaType(receipt.tool.declaredMediaType) !== "application/vnd.jazzboard.semantic+json") {
+    throw new Error("SEMANTIC_EXPORT_DECLARED_MEDIA_TYPE_INVALID");
+  }
+  if (receipt.tool.sourceRoomRevision !== receipt.expectedRoomRevision
+      || receipt.tool.artifactSourceRoomRevision !== receipt.expectedRoomRevision) {
+    throw new Error("SEMANTIC_EXPORT_REVISION_BINDING_INVALID");
+  }
+  return receipt;
+}
+
+/** Builds a PNG receipt from selected tool metadata and the exact downloaded bytes. */
+export function buildPngExportEvidenceReceipt(input) {
+  const bytes = Buffer.isBuffer(input.downloadBytes) ? input.downloadBytes : null;
+  const dimensions = bytes ? pngDimensions(bytes) : null;
+  const result = input.toolResult;
+  return Object.freeze({
+    schemaVersion: "jazzboard-png-export-evidence/v1",
+    expectedRoomRevision: input.expectedRoomRevision,
+    tool: Object.freeze({
+      status: result?.ok === true ? "succeeded" : "failed",
+      failureCode: result?.ok === false && typeof result?.error?.code === "string"
+        ? result.error.code
+        : null,
+      filename: typeof result?.data?.filename === "string" ? result.data.filename : null,
+      declaredMimeType: typeof result?.data?.mimeType === "string" ? result.data.mimeType : null,
+      width: Number.isSafeInteger(result?.data?.width) ? result.data.width : null,
+      height: Number.isSafeInteger(result?.data?.height) ? result.data.height : null,
+      declaredByteLength: Number.isSafeInteger(result?.data?.byteLength) ? result.data.byteLength : null,
+      sourceRoomRevision: Number.isSafeInteger(result?.data?.sourceRevisions?.roomRevision)
+        ? result.data.sourceRevisions.roomRevision
+        : null,
+      persistedByJazzboard: result?.data?.persistedByJazzboard === false ? false : null,
+    }),
+    download: Object.freeze({
+      status: bytes ? "captured" : "failed",
+      failure: typeof input.downloadFailure === "string" ? input.downloadFailure.slice(0, 240) : null,
+      filename: typeof input.downloadFilename === "string" ? input.downloadFilename : null,
+      observedMimeType: dimensions ? "image/png" : null,
+      byteLength: bytes?.byteLength ?? null,
+      sha256: bytes ? sha256(bytes) : null,
+      width: dimensions?.width ?? null,
+      height: dimensions?.height ?? null,
+    }),
+  });
+}
+
+export function assertPngExportEvidence(receipt) {
+  if (!Number.isSafeInteger(receipt?.expectedRoomRevision) || receipt.expectedRoomRevision < 1) {
+    throw new Error("PNG_EXPORT_EXPECTED_REVISION_INVALID");
+  }
+  if (receipt?.tool?.status !== "succeeded") {
+    throw new Error(`PNG_EXPORT_TOOL_FAILED:${receipt?.tool?.failureCode ?? "invalid_result"}`);
+  }
+  if (receipt.download.status !== "captured" || receipt.download.observedMimeType !== "image/png") {
+    throw new Error(`PNG_EXPORT_DOWNLOAD_INVALID:${receipt.download.failure ?? "missing_png"}`);
+  }
+  if (normalizedMediaType(receipt.tool.declaredMimeType) !== "image/png") {
+    throw new Error("PNG_EXPORT_DECLARED_MEDIA_TYPE_INVALID");
+  }
+  if (receipt.tool.sourceRoomRevision !== receipt.expectedRoomRevision) {
+    throw new Error("PNG_EXPORT_REVISION_BINDING_INVALID");
+  }
+  if (receipt.tool.persistedByJazzboard !== false) {
+    throw new Error("PNG_EXPORT_PERSISTENCE_METADATA_INVALID");
+  }
+  if (!receipt.tool.filename?.toLowerCase().endsWith(".png")
+      || receipt.tool.filename !== receipt.download.filename) {
+    throw new Error("PNG_EXPORT_FILENAME_INVALID");
+  }
+  if (receipt.tool.declaredByteLength !== receipt.download.byteLength
+      || receipt.tool.width !== receipt.download.width
+      || receipt.tool.height !== receipt.download.height
+      || !/^[a-f0-9]{64}$/.test(receipt.download.sha256 ?? "")) {
+    throw new Error("PNG_EXPORT_BYTE_METADATA_INVALID");
+  }
+  return receipt;
+}
+
 export function createAuthorIdentityEvidence(attemptId, identityCommitment) {
   if (typeof attemptId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(attemptId)) {
     throw new Error("Author identity evidence requires a safe attempt ID.");
@@ -764,6 +938,118 @@ async function executeLiveTool(page, name, input, timeoutMs) {
       clearTimeout(timeout);
     }
   }, { toolName: name, toolInput: input, toolTimeoutMs: timeoutMs });
+}
+
+function isSemanticArtifactResponse(response) {
+  try {
+    const url = new URL(response.url());
+    return response.request().method() === "GET"
+      && /^\/api\/rooms\/[^/]+\/agent\/artifacts$/.test(url.pathname)
+      && url.searchParams.get("format") === "semantic_json"
+      && url.searchParams.get("scope") === "room";
+  } catch {
+    return false;
+  }
+}
+
+async function captureSemanticExportEvidence(page, expectedRoomRevision, timeoutMs) {
+  const responsePromise = page.waitForResponse(isSemanticArtifactResponse, { timeout: timeoutMs });
+  const [toolResult, response] = await Promise.all([
+    executeLiveTool(page, "export_canvas_artifact", {
+      format: "semantic_json",
+      scope: { kind: "room" },
+    }, timeoutMs),
+    responsePromise,
+  ]);
+  const bodyBytes = Buffer.from(await response.body());
+  const receipt = buildSemanticExportEvidenceReceipt({
+    expectedRoomRevision,
+    status: response.status(),
+    contentType: response.headers()["content-type"] ?? null,
+    bodyBytes,
+    toolResult,
+  });
+  return { receipt, toolResult };
+}
+
+async function readPlaywrightDownload(download) {
+  const failure = await download.failure();
+  if (failure) throw new Error(failure);
+  const stream = await download.createReadStream();
+  if (!stream) throw new Error("The browser did not expose the downloaded PNG bytes.");
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+async function capturePngExportEvidence(page, expectedRoomRevision, timeoutMs) {
+  let resolveDownload;
+  let rejectDownload;
+  let timeout;
+  const downloadPromise = new Promise((resolve, reject) => {
+    resolveDownload = resolve;
+    rejectDownload = reject;
+  });
+  // The tool call and download wait share the same deadline. Attach a handler
+  // immediately so a download timeout cannot become an unhandled rejection
+  // while the page-side tool is still resolving.
+  void downloadPromise.catch(() => {});
+  const onDownload = (download) => {
+    clearTimeout(timeout);
+    resolveDownload(download);
+  };
+  page.once("download", onDownload);
+  timeout = setTimeout(() => {
+    page.off("download", onDownload);
+    rejectDownload(new Error("The exact-revision PNG download did not begin before the evidence deadline."));
+  }, timeoutMs);
+
+  let toolResult;
+  try {
+    toolResult = await executeLiveTool(page, "export_canvas_png", {
+      scope: { kind: "room", expectedRevision: expectedRoomRevision },
+    }, timeoutMs);
+  } catch (error) {
+    clearTimeout(timeout);
+    page.off("download", onDownload);
+    throw error;
+  }
+
+  if (toolResult?.ok !== true) {
+    clearTimeout(timeout);
+    page.off("download", onDownload);
+    return {
+      bytes: null,
+      receipt: buildPngExportEvidenceReceipt({
+        expectedRoomRevision,
+        toolResult,
+        downloadFailure: "The WebMCP export tool failed before starting a download.",
+      }),
+    };
+  }
+
+  let download;
+  let downloadBytes = null;
+  let downloadFailure = null;
+  try {
+    download = await downloadPromise;
+    downloadBytes = await readPlaywrightDownload(download);
+  } catch (error) {
+    downloadFailure = error instanceof Error ? error.message : String(error);
+  } finally {
+    clearTimeout(timeout);
+    page.off("download", onDownload);
+  }
+  return {
+    bytes: downloadBytes,
+    receipt: buildPngExportEvidenceReceipt({
+      expectedRoomRevision,
+      toolResult,
+      downloadFilename: download?.suggestedFilename(),
+      downloadBytes,
+      downloadFailure,
+    }),
+  };
 }
 
 async function captureBoundPixels(page, toolName, result) {
@@ -1594,17 +1880,46 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
       throw new Error(`Live spectator WebMCP contract drifted: expected ${config.spectatorToolContractHash}, received ${spectatorContract.hash}.`);
     }
     const spectatorState = await executeLiveTool(spectator.page, "read_room_state", {}, config.perToolTimeoutMs);
+    const finalRoomRevision = spectatorState?.data?.room?.roomRevision;
+    if (!Number.isSafeInteger(finalRoomRevision) || finalRoomRevision < 1) {
+      throw new Error("Spectator final state did not expose a positive authoritative room revision.");
+    }
+    const semanticExport = await captureSemanticExportEvidence(
+      spectator.page,
+      finalRoomRevision,
+      config.perToolTimeoutMs,
+    );
+    artifacts.set(
+      "spectator-semantic-export-receipt.json",
+      jsonArtifact(semanticExport.receipt),
+    );
     let spectatorInspection = null;
     const inspectInput = inspectionInputFromState(spectatorState);
     if (inspectInput && spectatorTools.some((tool) => tool.name === "inspect_canvas_scope")) {
       const inspectionResult = await executeLiveTool(spectator.page, "inspect_canvas_scope", inspectInput, config.perToolTimeoutMs);
-      try {
-        const pixels = await captureBoundPixels(spectator.page, "inspect_canvas_scope", inspectionResult);
-        artifacts.set(`spectator-final-r${pixels.roomRevision}.png`, pixels.png);
-        spectatorInspection = { result: inspectionResult, pixel: { roomRevision: pixels.roomRevision, sha256: sha256(pixels.png) } };
-      } catch (error) {
-        spectatorInspection = { result: inspectionResult, pixelError: error instanceof Error ? error.message : String(error) };
-      }
+      spectatorInspection = { result: inspectionResult };
+    }
+    const pngExport = await capturePngExportEvidence(
+      spectator.page,
+      finalRoomRevision,
+      config.perToolTimeoutMs,
+    );
+    artifacts.set("spectator-png-export-receipt.json", jsonArtifact(pngExport.receipt));
+    if (pngExport.bytes) {
+      artifacts.set(`spectator-final-r${finalRoomRevision}.png`, pngExport.bytes);
+      spectatorInspection = {
+        ...(spectatorInspection ?? {}),
+        pixel: {
+          roomRevision: finalRoomRevision,
+          sha256: pngExport.receipt.download.sha256,
+          source: "export_canvas_png",
+        },
+      };
+    } else {
+      spectatorInspection = {
+        ...(spectatorInspection ?? {}),
+        pixelError: pngExport.receipt.download.failure ?? "Exact-revision PNG bytes were not captured.",
+      };
     }
     artifacts.set("spectator-tool-contract.json", jsonArtifact(spectatorContract));
     artifacts.set("spectator-final-state.json", jsonArtifact(sanitizeForResearch(spectatorState, { secrets })));
@@ -1612,6 +1927,10 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
       status: "not_available",
       reason: inspectInput ? "inspect_canvas_scope_not_registered" : "room_has_no_inspectable_objects",
     }, { secrets })));
+    // Persist every response/download receipt before enforcing acceptance so a
+    // non-JSON route response or corrupt download remains diagnosable.
+    assertSemanticExportEvidence(semanticExport.receipt);
+    assertPngExportEvidence(pngExport.receipt);
     resultStatus = dryRun ? "contract_verified" : authorResult.termination;
   } catch (error) {
     failure = sanitizeForResearch({ message: error instanceof Error ? error.message : String(error) }, { secrets });

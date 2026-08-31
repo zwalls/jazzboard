@@ -13,6 +13,8 @@ const runnerModulePath: string = "../../../research/scripts/clean-room-live-runn
 const {
   buildResponsesTools,
   buildAuthorVisibleSpec,
+  buildPngExportEvidenceReceipt,
+  buildSemanticExportEvidenceReceipt,
   canonicalJson,
   classifyAuthorToolObservation,
   commitCleanRoomAttemptEvidence,
@@ -22,6 +24,8 @@ const {
   accumulateResponseUsage,
   assertFrozenRuntimeEnvironment,
   assertFreshRoomCode,
+  assertPngExportEvidence,
+  assertSemanticExportEvidence,
   assertSpectatorToolIsolation,
   extractFunctionCalls,
   extractPixelCapture,
@@ -65,6 +69,11 @@ const liveTools = [
   },
 ];
 
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGP8z7DlPwMewIRPcvgoAADJ3wLCTMjowgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 describe("clean-room live runner pure contracts", () => {
   it("notifies the trusted coordinator exactly when a live brief is delivered", async () => {
     const callback = vi.fn();
@@ -81,6 +90,127 @@ describe("clean-room live runner pure contracts", () => {
     expect(hashArtifactSet({ "b.json": "two", "a.json": "one" })).toEqual(
       hashArtifactSet({ "a.json": "one", "b.json": "two" }),
     );
+  });
+
+  it("accepts only a JSON semantic export bound to the exact final room revision", () => {
+    const body = Buffer.from('{"ok":true,"export":{}}');
+    const receipt = buildSemanticExportEvidenceReceipt({
+      expectedRoomRevision: 12,
+      status: 200,
+      contentType: "application/json; charset=utf-8",
+      bodyBytes: body,
+      toolResult: {
+        ok: true,
+        tool: "export_canvas_artifact",
+        data: {
+          format: "semantic_json",
+          mediaType: "application/vnd.jazzboard.semantic+json; charset=utf-8",
+          sourceRoomRevision: 12,
+          artifact: { source: { roomRevision: 12 } },
+        },
+      },
+    });
+
+    expect(assertSemanticExportEvidence(receipt)).toBe(receipt);
+    expect(receipt.response).toMatchObject({
+      status: 200,
+      mediaType: "application/json",
+      byteLength: body.byteLength,
+      bodySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it("retains a secret-free response fingerprint and rejects an HTML artifact route", () => {
+    const roomSecret = "room_private_secret_123";
+    const html = Buffer.from(`<!DOCTYPE html><title>404 ${roomSecret}</title>`);
+    const receipt = buildSemanticExportEvidenceReceipt({
+      expectedRoomRevision: 12,
+      status: 404,
+      contentType: "text/html; charset=utf-8",
+      bodyBytes: html,
+      requestUrl: `https://jazzboard.example/api/rooms/${roomSecret}/agent/artifacts`,
+      toolResult: {
+        ok: false,
+        tool: "export_canvas_artifact",
+        error: { code: "TOOL_EXECUTION_FAILED", message: "not retained" },
+      },
+    });
+
+    expect(receipt.response).toEqual({
+      status: 404,
+      contentType: "text/html; charset=utf-8",
+      mediaType: "text/html",
+      byteLength: html.byteLength,
+      bodySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(JSON.stringify(receipt)).not.toContain("DOCTYPE");
+    expect(JSON.stringify(receipt)).not.toContain(roomSecret);
+    expect(() => assertSemanticExportEvidence(receipt)).toThrow("SEMANTIC_EXPORT_HTTP_STATUS_INVALID:404");
+  });
+
+  it("accepts only actual PNG bytes whose metadata and room revision match the WebMCP receipt", () => {
+    const receipt = buildPngExportEvidenceReceipt({
+      expectedRoomRevision: 12,
+      toolResult: {
+        ok: true,
+        tool: "export_canvas_png",
+        data: {
+          filename: "final-board.png",
+          mimeType: "image/png",
+          width: 8,
+          height: 8,
+          byteLength: TINY_PNG.byteLength,
+          sourceRevisions: { roomRevision: 12 },
+          persistedByJazzboard: false,
+        },
+      },
+      downloadFilename: "final-board.png",
+      downloadBytes: TINY_PNG,
+    });
+
+    expect(assertPngExportEvidence(receipt)).toBe(receipt);
+    expect(receipt.download).toMatchObject({
+      status: "captured",
+      observedMimeType: "image/png",
+      width: 8,
+      height: 8,
+      byteLength: TINY_PNG.byteLength,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it("rejects mislabeled, stale, truncated, or renamed PNG evidence", () => {
+    const build = (
+      overrides: Record<string, unknown> = {},
+      downloadOverrides: Record<string, unknown> = {},
+    ) => buildPngExportEvidenceReceipt({
+      expectedRoomRevision: 12,
+      toolResult: {
+        ok: true,
+        tool: "export_canvas_png",
+        data: {
+          filename: "final-board.png",
+          mimeType: "image/png",
+          width: 8,
+          height: 8,
+          byteLength: TINY_PNG.byteLength,
+          sourceRevisions: { roomRevision: 12 },
+          persistedByJazzboard: false,
+          ...overrides,
+        },
+      },
+      downloadFilename: "final-board.png",
+      downloadBytes: TINY_PNG,
+      ...downloadOverrides,
+    });
+
+    expect(() => assertPngExportEvidence(build({ mimeType: "text/html" }))).toThrow(/MEDIA_TYPE/);
+    expect(() => assertPngExportEvidence(build({ sourceRevisions: { roomRevision: 11 } }))).toThrow(/REVISION/);
+    expect(() => assertPngExportEvidence(build({ byteLength: TINY_PNG.byteLength - 1 }))).toThrow(/BYTE_METADATA/);
+    expect(() => assertPngExportEvidence(build({ filename: "other.png" }))).toThrow(/FILENAME/);
+    expect(() => assertPngExportEvidence(build({}, {
+      downloadBytes: TINY_PNG.subarray(0, 32),
+    }))).toThrow(/DOWNLOAD_INVALID/);
   });
 
   it("uses an exclusive terminal bundle as the durable commit marker and verifies exact readback", async () => {
