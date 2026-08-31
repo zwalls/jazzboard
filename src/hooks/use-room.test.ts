@@ -1269,6 +1269,52 @@ describe("useRoom request ordering", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("retries a failed authoritative refresh while realtime stays connected", async () => {
+    let roomReads = 0;
+    mocks.apiRequest.mockImplementation((url: string) => {
+      if (url.endsWith("/drafts")) {
+        return Promise.resolve({ ok: true, drafts: [], serverTime: Date.now() });
+      }
+      roomReads += 1;
+      if (roomReads === 2) return Promise.reject(new Error("temporary room read failure"));
+      return Promise.resolve({
+        ok: true,
+        room: room("room-a", roomReads === 1 ? 1 : 2, ["participant-a"]),
+        participantId: "participant-a",
+      });
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => realtime.onStatusChange?.("connected"));
+    await act(async () => {
+      realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(roomReads).toBe(2);
+    expect(result.current.room?.roomRevision).toBe(1);
+    expect(result.current.connection).toBe("live");
+    expect(result.current.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(roomReads).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(roomReads).toBe(3);
+    expect(result.current.room?.roomRevision).toBe(2);
+    expect(result.current.connection).toBe("live");
+    expect(result.current.error).toBeNull();
+  });
+
   it("coalesces delayed automatic polls and initializes identity after realtime advances status", async () => {
     const delayed = deferred<{ ok: true; room: RoomState; participantId: string }>();
     mocks.apiRequest.mockImplementationOnce(() => delayed.promise);

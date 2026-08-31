@@ -5,6 +5,8 @@ playwright-report/
 test-results/
 artifacts/
 e2e/
+.research-private/
+research/
 **/*.test.ts
 tsconfig.tsbuildinfo
 *.log

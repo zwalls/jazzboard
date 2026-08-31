@@ -185,6 +185,7 @@ export function useRoom(roomId: string) {
   const refreshGenerationRef = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const realtimeUnavailableSinceRef = useRef<number | null>(null);
+  const authoritativeRefreshFailedAtRef = useRef<number | null>(null);
   const lastDraftRequestAtRef = useRef<number | null>(null);
   const eventRefreshRef = useRef<{
     visit: RoomVisit;
@@ -574,6 +575,7 @@ export function useRoom(roomId: string) {
     roomRef.current = null;
     connectionRef.current = "connecting";
     realtimeUnavailableSinceRef.current = null;
+    authoritativeRefreshFailedAtRef.current = null;
     lastDraftRequestAtRef.current = null;
     transientCache.clear();
     draftCache.clear();
@@ -593,6 +595,7 @@ export function useRoom(roomId: string) {
       refreshGenerationRef.current += 1;
       realtimeRef.current = null;
       realtimeUnavailableSinceRef.current = null;
+      authoritativeRefreshFailedAtRef.current = null;
       lastDraftRequestAtRef.current = null;
       draftEventRefreshRef.current = null;
       transientCache.clear();
@@ -635,6 +638,7 @@ export function useRoom(roomId: string) {
         });
       }
       if (matchesActiveRoom && requestGeneration === refreshGenerationRef.current) {
+        authoritativeRefreshFailedAtRef.current = null;
         setConnectionState((current) => {
           const value =
             current.visit === requestVisit && current.value === "live" ? "live" : "polling";
@@ -649,9 +653,15 @@ export function useRoom(roomId: string) {
         requestVisit === roomVisitRef.current &&
         requestGeneration === refreshGenerationRef.current
       ) {
-        connectionRef.current = "offline";
-        setConnectionState({ visit: requestVisit, value: "offline" });
-        setRoomError({ visit: requestVisit, value: nextError as Error });
+        authoritativeRefreshFailedAtRef.current ??= Date.now();
+        if (connectionRef.current === "live") {
+          setConnectionState({ visit: requestVisit, value: "live" });
+          setRoomError({ visit: requestVisit, value: null });
+        } else {
+          connectionRef.current = "offline";
+          setConnectionState({ visit: requestVisit, value: "offline" });
+          setRoomError({ visit: requestVisit, value: nextError as Error });
+        }
       }
       throw nextError;
     }
@@ -782,12 +792,19 @@ export function useRoom(roomId: string) {
       if (cancelled) return;
       requestDraftRefresh();
     };
-    const fallbackPollingActive = () => {
+    const realtimeFallbackPollingActive = () => {
       const unavailableSince = realtimeUnavailableSinceRef.current;
       return (
         connectionRef.current !== "live" &&
         unavailableSince !== null &&
         Date.now() - unavailableSince >= REALTIME_FALLBACK_GRACE_MS
+      );
+    };
+    const roomFallbackPollingActive = () => {
+      const failedAt = authoritativeRefreshFailedAtRef.current;
+      return realtimeFallbackPollingActive() || (
+        failedAt !== null &&
+        Date.now() - failedAt >= REALTIME_FALLBACK_GRACE_MS
       );
     };
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(`jazzboard:${roomId}`);
@@ -809,7 +826,7 @@ export function useRoom(roomId: string) {
     const poll = window.setInterval(() => {
       if (
         document.visibilityState !== "hidden" &&
-        fallbackPollingActive()
+        roomFallbackPollingActive()
       ) {
         runAutomaticRefresh();
       }
@@ -826,7 +843,7 @@ export function useRoom(roomId: string) {
       const fallbackCadence = draftsRef.current.size > 0
         ? ACTIVE_DRAFT_FALLBACK_POLL_MS
         : IDLE_DRAFT_FALLBACK_POLL_MS;
-      const fallbackRefreshDue = fallbackPollingActive() && elapsed >= fallbackCadence;
+      const fallbackRefreshDue = realtimeFallbackPollingActive() && elapsed >= fallbackCadence;
       if (queuedRetryDue || fallbackRefreshDue) runDraftRefresh();
     }, ACTIVE_DRAFT_FALLBACK_POLL_MS);
     const draftExpiry = window.setInterval(() => {
