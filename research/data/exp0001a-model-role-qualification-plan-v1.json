@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "exp-0001a-model-role-qualification/v1",
+  "protocolId": "EXP-0001A-MODEL-ROLE-QUALIFICATION",
+  "frozenAt": "2026-08-31T14:51:40.000Z",
+  "classification": "public-development-preexecution-qualification",
+  "benchmark": {
+    "path": "research/benchmarks/development-v1.json",
+    "bundleDigest": "sha256:067802ba59f921b361442fd27d234063f7c30476b58aeb1801da1202c0a27136",
+    "split": "development",
+    "sealedMaterialAccessed": false
+  },
+  "rolePolicy": {
+    "ecologicalAuthor": {
+      "model": "gpt-5.6-terra",
+      "reasoningEffort": "medium",
+      "purpose": "primary author population representing balanced everyday use"
+    },
+    "platformDefaultValidationAuthor": {
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "medium",
+      "purpose": "secondary validation against the current Codex default Power setting"
+    },
+    "lowerBoundAuthor": {
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "purpose": "diagnostic lower-bound robustness check, not the primary estimand"
+    },
+    "blindedReviewer": {
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "purpose": "independent primary review, adjudication, and pairwise visual judgment"
+    }
+  },
+  "tasks": [
+    {
+      "taskId": "dev-architecture-create-observability",
+      "roleCoverage": "architecture_creation",
+      "observationTiming": "observed_before_gate_freeze"
+    },
+    {
+      "taskId": "dev-architecture-edit-primary-path",
+      "roleCoverage": "architecture_editing",
+      "observationTiming": "prospective_after_gate_freeze"
+    },
+    {
+      "taskId": "dev-drawing-create-layered-portrait",
+      "roleCoverage": "drawing_creation",
+      "observationTiming": "prospective_after_gate_freeze"
+    }
+  ],
+  "authorIsolation": {
+    "freshProjectlessTaskPerAttempt": true,
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "sharedHistory": false,
+    "forks": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "permittedInputs": [
+      "public_task_brief",
+      "private_room_url",
+      "browser_exposed_webmcp"
+    ]
+  },
+  "review": {
+    "primaryReviewersPerArtifact": 2,
+    "authorReviewerSeparation": true,
+    "conditionAndAuthorIdentityBlinded": true,
+    "permittedInputs": [
+      "public_requirement",
+      "frozen_rubric",
+      "sanitized_semantic_state",
+      "revision_matched_final_png"
+    ],
+    "adjudicationTrigger": "binary-primary-acceptance-disagreement-only"
+  },
+  "stoppingRule": {
+    "allThreeTasksMustPass": true,
+    "everyFrozenCriterionMustPass": true,
+    "reviewerAgreementRequiredWithoutAdjudication": true,
+    "rerunsPermitted": false,
+    "replacementAttemptsPermitted": false,
+    "setupFailuresRetainedButNotScoredAgainstModel": true
+  },
+  "interpretation": {
+    "firstObservationNonProspective": true,
+    "statisticalImprovementClaimPermitted": false,
+    "aaExecutionStatusUntilPass": "blocked",
+    "activeFrozen48RunMutatedByThisPlan": false
+  },
+  "planDigest": "sha256:7ef8289fe13fe928f18b922dd84bfe1b9bae8a9b15e47027c308ce3933c8935d"
+}

@@ -58,6 +58,9 @@ Start with these persisted documents after any handoff or context reset:
   its version-1 gate is revoked and cannot authorize A/A execution. The v2
   spike proves semantic transport and authoritative activity only; final PNG
   bytes are collected and verified independently for each real attempt.
+- [`protocols/exp-0001a-model-policy-amendment-v1.md`](protocols/exp-0001a-model-policy-amendment-v1.md)
+  freezes the three-task Terra/medium author qualification and keeps the
+  existing 48-attempt A/A blocked and unmodified until that gate passes.
 - [`protocols/public-gold-rater-validation-v1.md`](protocols/public-gold-rater-validation-v1.md)
   separates reviewer validity from A/A reliability. A later A/B claim remains
   blocked until a preregistered public gold corpus passes that gate.

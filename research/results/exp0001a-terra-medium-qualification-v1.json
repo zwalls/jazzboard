@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "exp-0001a-model-role-qualification-result/v1",
+  "protocolId": "EXP-0001A-MODEL-ROLE-QUALIFICATION",
+  "planDigest": "sha256:7ef8289fe13fe928f18b922dd84bfe1b9bae8a9b15e47027c308ce3933c8935d",
+  "completedAt": "2026-08-31T15:16:42.000Z",
+  "candidate": {
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "purpose": "primary author population representing balanced everyday use"
+  },
+  "retainedInvalidSetupAttempts": [
+    {
+      "authorTaskId": "01a0581e-8d3b-7753-bec0-a1f064b69ffb",
+      "reasonCode": "COORDINATOR_OMITTED_EXACT_ROOM_URL",
+      "countedAgainstModel": false,
+      "modelAttemptBegan": false,
+      "nextGenuinelyUnstartedAssignmentReleased": true
+    }
+  ],
+  "gateAttempts": [
+    {
+      "taskId": "dev-architecture-create-observability",
+      "authorTaskId": "01a05822-e23e-73a3-b2e2-df1fd52a7799",
+      "authorOutcome": "completed",
+      "qualificationValidity": "valid",
+      "invalidReasonCode": null,
+      "artifactEvidenceRoot": "sha256:0547ae3a0795eb750c3b67449d1443c1a8596510b69fdc9d318b3cc4673606ff",
+      "primaryReviews": [
+        {
+          "reviewerTaskId": "01a0582d-1aeb-78a3-8218-21a986fe16fe",
+          "artifactAccepted": false,
+          "criterionPasses": {
+            "criterion-observability-facts": false,
+            "criterion-observability-planes": true,
+            "criterion-observability-viewport": true
+          },
+          "evidenceRoot": "sha256:79390bc958f519cdc28b7baf0bfe9288ed96fa630280747da4428575c6db8559"
+        },
+        {
+          "reviewerTaskId": "01a0582d-1033-7fc3-b1d1-d188d90562b1",
+          "artifactAccepted": false,
+          "criterionPasses": {
+            "criterion-observability-facts": false,
+            "criterion-observability-planes": true,
+            "criterion-observability-viewport": true
+          },
+          "evidenceRoot": "sha256:847ac9646871cf4c4e273e00ae04b1458d93894f98d41f05076c0d37844d4fb5"
+        }
+      ],
+      "adjudication": null
+    },
+    {
+      "taskId": "dev-architecture-edit-primary-path",
+      "authorTaskId": "01a05857-f208-7ee3-8594-2a68461a3f92",
+      "authorOutcome": "completed",
+      "qualificationValidity": "invalid_setup",
+      "invalidReasonCode": "BASELINE_FIXTURE_NOT_EXACT_AND_ALREADY_VIOLATED_VISIBLE_PRESERVATION_CRITERION",
+      "artifactEvidenceRoot": "sha256:fcc1093845f81e08b6fe2a003031b2e25767d0aa05d01c16dc47f783540cfab8",
+      "primaryReviews": [
+        {
+          "reviewerTaskId": "01a05861-29d5-7513-b684-fa5b528e2f00",
+          "artifactAccepted": false,
+          "criterionPasses": {
+            "criterion-primary-facts": true,
+            "criterion-primary-routing": true,
+            "criterion-primary-preserve": false
+          },
+          "evidenceRoot": "sha256:cd8611a87834115e6b7b104ae5b9464e27c10bf16f50be03dffb74dd9bb91f89"
+        },
+        {
+          "reviewerTaskId": "01a05861-3735-7833-8911-52aea43d6ec7",
+          "artifactAccepted": false,
+          "criterionPasses": {
+            "criterion-primary-facts": true,
+            "criterion-primary-routing": true,
+            "criterion-primary-preserve": false
+          },
+          "evidenceRoot": "sha256:f5567232639481e3e3309244a30b586f44a98eaa88bc50e3dc3881f195abe8b1"
+        }
+      ],
+      "adjudication": null
+    },
+    {
+      "taskId": "dev-drawing-create-layered-portrait",
+      "authorTaskId": "01a05858-0165-70f2-b872-0fb4e6b0bee6",
+      "authorOutcome": "completed",
+      "qualificationValidity": "valid",
+      "invalidReasonCode": null,
+      "artifactEvidenceRoot": "sha256:56285ac0faa9621a6fb15ebdb3693764cb4dd796a56c77609ad389872fd09a95",
+      "primaryReviews": [
+        {
+          "reviewerTaskId": "01a05861-4e59-7411-b8f3-cab33b358160",
+          "artifactAccepted": true,
+          "criterionPasses": {
+            "criterion-portrait-content": true,
+            "criterion-portrait-style": true,
+            "criterion-portrait-layering": true
+          },
+          "evidenceRoot": "sha256:3deb3768054d417c8102f220bd34c6e1f4d01aa960a46d8e8bdcf1bf7f44acdc"
+        },
+        {
+          "reviewerTaskId": "01a05861-4262-7290-ac43-18bc74f4681e",
+          "artifactAccepted": true,
+          "criterionPasses": {
+            "criterion-portrait-content": true,
+            "criterion-portrait-style": true,
+            "criterion-portrait-layering": true
+          },
+          "evidenceRoot": "sha256:5beee8a26de2e800ce4e6dbba9e8e341f2a25c7135bf7ee5ba3082ec208e7642"
+        }
+      ],
+      "adjudication": null
+    }
+  ],
+  "metrics": [
+    {
+      "taskId": "dev-architecture-create-observability",
+      "observationTiming": "observed_before_gate_freeze",
+      "wallTimeMs": 250709,
+      "webMcpCallCount": "unobservable",
+      "webMcpFailureCount": "unobservable",
+      "inspectionCount": 3,
+      "correctionCount": 2,
+      "finalRoomRevision": 4,
+      "finalObjectCount": 17,
+      "finalDiagramCount": 1,
+      "semanticStateSha256": "sha256:314b085729c0979492be46891259a89da274647a2fa0eb5e47f14b18cd63190d",
+      "rubricSha256": "sha256:ab1e170f7c5210a13b599c452cd69953afaf9647ffbd88b97599ad1fc86ab116",
+      "finalPngSha256": "sha256:1ae067395d416a185a9d8553b4fb74279c0479b32a77cb8c83221dfa5fb2ebb0",
+      "resolvedModelSnapshot": "unobservable",
+      "exactTokens": "unobservable",
+      "subscriptionUsage": "unobservable",
+      "reviewerFormatRepairTurns": 0
+    },
+    {
+      "taskId": "dev-architecture-edit-primary-path",
+      "observationTiming": "prospective_after_gate_freeze",
+      "wallTimeMs": 107801,
+      "webMcpCallCount": 9,
+      "webMcpFailureCount": 0,
+      "inspectionCount": 2,
+      "correctionCount": 1,
+      "finalRoomRevision": 3,
+      "finalObjectCount": 8,
+      "finalDiagramCount": 1,
+      "semanticStateSha256": "sha256:f746af98c1e129590f0cb04437dbb2e961690c7aad2855d4256d8af7a55401da",
+      "rubricSha256": "sha256:1c3711cb40973eef2263e60674ec7aafc722634c3a6f94d829b24c3095d899fc",
+      "finalPngSha256": "sha256:5775899e8de9940982d264f0e4b4bbbea888583802f79f05664deccf7be9284e",
+      "resolvedModelSnapshot": "unobservable",
+      "exactTokens": "unobservable",
+      "subscriptionUsage": "unobservable",
+      "reviewerFormatRepairTurns": 2
+    },
+    {
+      "taskId": "dev-drawing-create-layered-portrait",
+      "observationTiming": "prospective_after_gate_freeze",
+      "wallTimeMs": 171429,
+      "webMcpCallCount": 12,
+      "webMcpFailureCount": 1,
+      "inspectionCount": 2,
+      "correctionCount": 0,
+      "finalRoomRevision": 2,
+      "finalObjectCount": 18,
+      "finalDiagramCount": 0,
+      "semanticStateSha256": "sha256:77f40e09ad464539a3f1116755a699c9f7d700cdf3fcca503a362e57965885c8",
+      "rubricSha256": "sha256:552b72449f0e3619b3b5123df9d2be3c8e64e709e326653bcf940f7bf5806eec",
+      "finalPngSha256": "sha256:1cbe4be7dd80b511e6f26ad6d7793f85a8b8d198a18c4bdc2a0f8e8bb9b687c3",
+      "resolvedModelSnapshot": "unobservable",
+      "exactTokens": "unobservable",
+      "subscriptionUsage": "unobservable",
+      "reviewerFormatRepairTurns": 0
+    }
+  ],
+  "gateDecision": {
+    "decision": "fail",
+    "passedTaskIds": ["dev-drawing-create-layered-portrait"],
+    "failedTaskIds": ["dev-architecture-create-observability"],
+    "incompleteTaskIds": ["dev-architecture-edit-primary-path"]
+  },
+  "interpretation": {
+    "ecologicalAuthorQualified": false,
+    "primary48ExecutionStatus": "blocked",
+    "statisticalImprovementClaimPermitted": false,
+    "nextAction": "diagnose_and_predeclare_new_qualification_or_choose_another_author_policy"
+  },
+  "resultDigest": "sha256:e4cc8465d3c9847c7705bddc1a4719dcc265976e6f43f6b74d752f7529f97d84"
+}

@@ -13,3 +13,9 @@ unsupported percentage increase in beauty or intelligence.
 Per-run transcripts, screenshots, and videos belong under `results/runs/` or an
 external artifact store and are ignored by Git. Publish their hashes in the
 aggregate report.
+
+`exp0001a-terra-medium-qualification-v1.json` retains the digest-bound outcome
+of the three-task Terra/medium author qualification. Its companion narrative
+report is `../reports/exp0001a-terra-medium-qualification-v1.md`. The gate
+failed, the seeded edit task is explicitly retained as invalid setup, and the
+48-attempt A/A remains blocked.

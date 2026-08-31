@@ -38,3 +38,9 @@ and fixed-authority eligibility gate for the one disposable projectless
 Codex/WebMCP spike. They prove semantic transport and authoritative activity
 only. The retained version-1 files are historical/revoked and cannot satisfy
 the active freeze. Neither version-2 file contains or claims PNG bytes.
+
+`exp0001a-model-role-qualification-plan-v1.json` is the machine-verifiable
+companion to the model-policy amendment. It freezes the candidate Terra/medium
+primary author setting, separate Sol/Luna diagnostic roles, the exact
+three-task public-development gate, and the disclosure that its first task was
+observed before the gate freeze. It is not authority to release the 48-run A/A.
