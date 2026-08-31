@@ -1,0 +1,343 @@
+{
+  "schemaVersion": "exp-0001a-codex-prebrief-freeze/v2",
+  "freezeId": "exp-0001a-codex-prebrief-freeze-v2",
+  "protocolId": "EXP-0001A",
+  "studyKind": "aa_calibration",
+  "partition": "development",
+  "frozenAt": "2026-08-31T03:30:00.000Z",
+  "executionStateAtFreeze": "not_started",
+  "briefReleaseAuthorized": false,
+  "supersedes": {
+    "path": "research/data/exp-0001a-prebrief-freeze-v1.json",
+    "freezeDigest": "sha256:6c76eafb78fb158527dff5bf6055f2e677e070e15ae65868bbb96d1b6fd21281",
+    "reason": "transport_changed_to_ChatGPT-authenticated Codex subscription tasks before any A/A brief release"
+  },
+  "transport": {
+    "kind": "chatgpt_authenticated_codex_tasks",
+    "authentication": "chatgpt_only",
+    "taskTransport": "codex_app",
+    "directHttpRequests": false,
+    "projectlessFreshTasks": true,
+    "repositoryAccess": false,
+    "privateApiAccess": false
+  },
+  "passedSpikeGate": {
+    "publicEvidencePath": "research/data/exp0001a-codex-webmcp-spike-public-v2.json",
+    "publicSignedGatePath": "research/data/exp0001a-codex-webmcp-spike-gate-public-v2.json",
+    "publicSignedGateFileDigest": "sha256:22cf048d8ee16f55dc222b65392b596ae0b2c8663de74afddac2bb4f9770fb4b",
+    "authoritySignaturePayloadDigest": "sha256:c83a7c8aa3ebce2525090d0b4124cd3a4c9377c34013865cff1cef29f42aa0e3",
+    "authoritySignatureBase64": "y87z3zILC1ToNsHvCJ+Gjgme+xS7sx8I0eOfacEjP8l+uIS2xw7+EKceHDoH0o20xj3iPmiRJzrWLcPHqqohCg==",
+    "spikeEvidenceDigest": "sha256:5bb4a984326c670567d2ba806a7b323d58b692b25e4f6cedf5c526e6aac09dab",
+    "gateDigest": "sha256:4abf2cefbdda18c207efb3c1aedd4113065925f1d900eed7554f31555fdd4f18",
+    "decision": "allow"
+  },
+  "authority": {
+    "signatureSchemaVersion": "exp-0001a-codex-authority-signature/v1",
+    "algorithm": "Ed25519",
+    "keyId": "exp0001a-launch-authority-2026-08-30",
+    "publicKeyPath": "research/data/exp0001a-execution-authority-public.pem",
+    "publicKeyDigest": "sha256:6fdb285e74644254c72c0e58b098bb1f7d9f8091dc861f830750e89464e503de",
+    "requiredPurposes": [
+      "spike_gate",
+      "prebrief_freeze",
+      "coordinator_checkpoint",
+      "usage_reset_probe",
+      "completion_attestation"
+    ],
+    "revokedCompletionPayloadDigests": [
+      "sha256:4b061142c4dffa3b6393d7966515926c343647f6cb3c40457b7382df4a03f757"
+    ],
+    "revokedSpikeGatePayloadDigests": [
+      "sha256:8a544d5422f8bd998f6d6919faa37f0b6d2fbba63d569e849104dde5188d7e4a",
+      "sha256:2bb94e7ea7bfffbdfaadc1a0c7ba8d53ce45223e9aef779208210d611dd68b66"
+    ],
+    "prebriefFreezeSignaturePath": "research/data/exp0001a-codex-prebrief-freeze-signature-v2.json",
+    "privateKeyPublishedOrBundled": false
+  },
+  "activeRuntime": {
+    "bundlePath": "research/runtime/exp0001a-runtime.bundle.mjs",
+    "bundleDigest": "sha256:e27df896cf07ff43663705fb3e56bd40623a44134d2c477783f60b8a592a0fa8",
+    "buildScript": {
+      "path": "research/scripts/build-exp0001a-runtime.mjs",
+      "digest": "sha256:5ab1c39b25d863fa0ed579a99ef2426f626d5b1c9bf697ac794fdada974de8c2",
+      "esbuildVersion": "0.25.12"
+    },
+    "requiredSourcePaths": [
+      "research/scripts/codex-auth-preflight.mjs",
+      "src/lib/research/codex-webmcp-spike.ts",
+      "src/lib/research/codex-webmcp-spike-recovery.ts",
+      "src/lib/research/exp0001a-attempt-provisioning.ts",
+      "src/lib/research/exp0001a-codex-accounting.ts",
+      "src/lib/research/exp0001a-codex-accounting-finalizer.ts",
+      "src/lib/research/exp0001a-codex-analysis.ts",
+      "src/lib/research/exp0001a-codex-artifact-packet-server.ts",
+      "src/lib/research/exp0001a-codex-authority.ts",
+      "src/lib/research/exp0001a-codex-coordinator.ts",
+      "src/lib/research/exp0001a-codex-prebrief-freeze.ts",
+      "src/lib/research/exp0001a-codex-review-runtime.ts",
+      "src/lib/research/exp0001a-codex-runtime-contract.ts",
+      "src/lib/research/exp0001a-codex-scientific-runtime.ts",
+      "src/lib/research/exp0001a-codex-task-transport.ts",
+      "src/lib/research/exp0001a-completion-attestation.ts",
+      "src/lib/research/exp0001a-runtime-composition.ts",
+      "src/lib/research/statistics.ts"
+    ],
+    "retiredProviderArtifacts": "historical_unreachable"
+  },
+  "outerExecution": {
+    "sourceCommitments": [
+      {
+        "path": "research/scripts/build-exp0001a-runtime.mjs",
+        "digest": "sha256:5ab1c39b25d863fa0ed579a99ef2426f626d5b1c9bf697ac794fdada974de8c2"
+      },
+      {
+        "path": "research/scripts/codex-auth-preflight.mjs",
+        "digest": "sha256:922b16414f0f2ba41121eb8f2653d3a6ad894d8768b41412e3adab19bf3a1e85"
+      },
+      {
+        "path": "research/scripts/exp0001a-batch-command.mjs",
+        "digest": "sha256:32ecd1b5366cbbd0dd20818376e7c1632604df2ce5e1e6a441f8146254238ed3"
+      },
+      {
+        "path": "research/scripts/exp0001a-authority-journal.mjs",
+        "digest": "sha256:52aa3e3889a297016dcd67487d0ac6911168305e39496d11eafee7e673481b3e"
+      },
+      {
+        "path": "research/scripts/exp0001a-artifact-packet-sidecar.mjs",
+        "digest": "sha256:53e8261c4b0dcfc775398d10596d39e846e19912276c9793a6d5471e6afcd462"
+      },
+      {
+        "path": "research/scripts/exp0001a-codex-launch-readiness.mjs",
+        "digest": "sha256:6477e619fb9c69fc89e7b3d828e2b87234ac6994717b7c912e562e291a53691e"
+      },
+      {
+        "path": "research/scripts/exp0001a-coordinator-transaction.mjs",
+        "digest": "sha256:e44cecc6ae10955a11ff7a15bf217ad7435ae1b2f7b4523ddab43b0e57ff92b4"
+      },
+      {
+        "path": "research/scripts/exp0001a-outer-source-verifier.mjs",
+        "digest": "sha256:f047f420d4097f4b119472e4f16f92be02493a85f2937ae93db6b2df056bb673"
+      },
+      {
+        "path": "research/scripts/generate-exp0001a-codex-freeze.mjs",
+        "digest": "sha256:9bde6429e6c6cc6af52706c78a5f3415e656cf3326a6761a5d113b295c21731a"
+      },
+      {
+        "path": "research/scripts/generate-exp0001a-codex-review-plan.mjs",
+        "digest": "sha256:4d35dd70c640b3e37cab3cbf85da229a56f0f21c09140f0d5e9d4e058d2b6fce"
+      },
+      {
+        "path": "research/scripts/sign-exp0001a-codex-spike-recovery-gate.mjs",
+        "digest": "sha256:4cdd9033a5aae99b50222d7351b80367b946a413a3b960b982fe0879970feed8"
+      },
+      {
+        "path": "research/scripts/sign-exp0001a-completion.mjs",
+        "digest": "sha256:58909c75eaf89ecd11ef7d4184583cb6db5f470a6ef7187084358c095d5ab0f3"
+      },
+      {
+        "path": "research/scripts/sign-exp0001a-coordinator-checkpoint.mjs",
+        "digest": "sha256:f6ceb346f2a571fc503ac268e3793124f0dd9b39705737d6a7664200391b14fd"
+      },
+      {
+        "path": "research/scripts/sign-exp0001a-codex-prebrief-freeze.mjs",
+        "digest": "sha256:f7c15f5421baf68fc6683511ccc29561d2483687956cba81921948b60467a7ae"
+      },
+      {
+        "path": "research/scripts/sign-exp0001a-usage-reset-probe.mjs",
+        "digest": "sha256:1606f61040efc554ff5d1535e8b281d350ce72527d36ca26ac34b0b70f2093be"
+      }
+    ],
+    "actionBoundary": "prepare_receipt_then_durable_delivery_ack_then_single_invocation_then_authoritative_ingest",
+    "directProviderApiDisabled": true,
+    "privateAuthorityKeyPublishedOrBundled": false
+  },
+  "schedule": {
+    "manifestPath": "research/data/development-execution-manifest-v1.json",
+    "manifestFileDigest": "sha256:5ea665d6292cdf47c7acd8127dd293035b60d42008901a05e05e960fbf1d3cf7",
+    "manifestDigest": "sha256:aa6fa47e1f2087f33b6b114f2a881f67d5b612d76c34b0353c4b622f54387790",
+    "benchmarkBundleDigest": "sha256:afca17a25a573219c776f20900d32fe17afab2a3a0685cced29fca837ee4693d",
+    "taskCommitmentsDigest": "sha256:80c1cff0180aca6aee755d6d8955b89bf97f86ac20dd0f392f7ed7d622928b56",
+    "fixedOrderDigest": "sha256:b92a9ca2f47c709f587fa9d86c12caacffc37dc763483920f938396b59d61cf4",
+    "codexSchedulerDigest": "sha256:1fa92bb297e8367724328793a1aa8210077ebef6547d2c3ee8e71c1b25df5cce",
+    "treatmentDigest": "sha256:72d801277a7ebb1dbe45427a4147b493fa825b34ca84e00a5c5453d3e983fc78",
+    "opaqueLabels": [
+      "A0",
+      "A1"
+    ],
+    "taskCount": 12,
+    "pairCount": 24,
+    "attemptCount": 48,
+    "rerunsPermitted": false,
+    "taskCommitments": [
+      {
+        "taskId": "dev-architecture-create-checkout",
+        "taskDigest": "sha256:d666c417b583d3dba6ee2a92e8f8c97198b7983277da11aa2c501e3f2dd5e7b0"
+      },
+      {
+        "taskId": "dev-architecture-create-observability",
+        "taskDigest": "sha256:76b80f735f7c4e546135d093835e284d7e90a31fade01d1c05f8c5478c0774de"
+      },
+      {
+        "taskId": "dev-architecture-edit-primary-path",
+        "taskDigest": "sha256:d23b3d431e084657d794d8f212011a77dce3aa287d87033e32719b1f72fcbabc"
+      },
+      {
+        "taskId": "dev-architecture-edit-uncertainty",
+        "taskDigest": "sha256:78d48c0f0c087985896c1276a912cd03c4cd8eec191d044f7aaae0405dc21dfa"
+      },
+      {
+        "taskId": "dev-architecture-stress-dense-routing",
+        "taskDigest": "sha256:475119e87b3638564706ac89912c863b7d5d5874771f1cbd838c5235535bd42f"
+      },
+      {
+        "taskId": "dev-architecture-stress-stale-revision",
+        "taskDigest": "sha256:7f1e61066af601c459fa8650cf906a410de0aad86160d4ee3137c73e44da3dad"
+      },
+      {
+        "taskId": "dev-drawing-create-layered-portrait",
+        "taskDigest": "sha256:44141d1f6f6551036491fe1189f80a6f444c2a4ae338a28e51d663a01aedcd6c"
+      },
+      {
+        "taskId": "dev-drawing-create-wayfinding-icon",
+        "taskDigest": "sha256:2a8fbc3368419a1ecf808aa07aa66133132def6668906e05ef59046bdbe53062"
+      },
+      {
+        "taskId": "dev-drawing-edit-crop-repair",
+        "taskDigest": "sha256:ebb8df354e77e9e27e3e2dab5ce2423c68b1495ac8036d48bf3926d6b94c049a"
+      },
+      {
+        "taskId": "dev-drawing-edit-style-match",
+        "taskDigest": "sha256:a2485f28350826353decc9b298230ff68e1807850ae1dff195f0d5cb2164816c"
+      },
+      {
+        "taskId": "dev-drawing-stress-concurrent-collage",
+        "taskDigest": "sha256:781b585dddc0ecc985d0df9ab423d5885ccc26f790ad2f52b29f3676efe49ba7"
+      },
+      {
+        "taskId": "dev-drawing-stress-untrusted-text",
+        "taskDigest": "sha256:6103e0be99bf648febe2806e762c9e74320b7ddbf7f864ac5f3b1b12b8020e18"
+      }
+    ]
+  },
+  "sources": {
+    "benchmark": {
+      "path": "research/benchmarks/development-v1.json",
+      "digest": "sha256:c463989713e2486082c47ed6dfe7cf3d9ae0e5350b6e47dc60195a2771adbbee"
+    },
+    "rubrics": {
+      "path": "research/benchmarks/development-evaluator-rubrics-v1.json",
+      "digest": "sha256:d29deb48689514f3b4e1bd98dcb5de309701b1ec2c479f273bff004856d98554"
+    },
+    "failureTaxonomy": {
+      "path": "research/protocols/failure-taxonomy-v2.md",
+      "digest": "sha256:5f445ed897992048b32b294837a9fe0137e0ebf4e011041afa296ed474be4a60"
+    },
+    "sealedSamplePlan": {
+      "path": "research/protocols/sealed-sample-plan-v1.md",
+      "digest": "sha256:6d102c32dcf019a3ae85bcc0f7e35b5d0fa8ecf83ee54f2a0783f9880aca8bc2"
+    }
+  },
+  "conditions": {
+    "A0": {
+      "productReceiptDigest": "sha256:32fddd038f6ec696f633bc5ee28ec587540282dbbd1e451e5d2debeb67069b23",
+      "productBuildDigest": "sha256:0342169d87c8c5b4aa770745222488fe934e83940a01e296872daa096e6465d4",
+      "scheduleConfigurationDigest": "sha256:72d801277a7ebb1dbe45427a4147b493fa825b34ca84e00a5c5453d3e983fc78",
+      "authorBriefCompilerDigest": "sha256:c1b69023daf62d80dbbe2b4dbf60642f9be2daf18b0024de0393c4add2093f4e",
+      "toolAllowlistDigest": "sha256:91c9f772fc8124b4eb0efa5a59bae16c877d0430a5864e478d6c8d078d718d80",
+      "participantContractDigest": "sha256:d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e",
+      "spectatorContractDigest": "sha256:1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2"
+    },
+    "A1": {
+      "productReceiptDigest": "sha256:32fddd038f6ec696f633bc5ee28ec587540282dbbd1e451e5d2debeb67069b23",
+      "productBuildDigest": "sha256:0342169d87c8c5b4aa770745222488fe934e83940a01e296872daa096e6465d4",
+      "scheduleConfigurationDigest": "sha256:72d801277a7ebb1dbe45427a4147b493fa825b34ca84e00a5c5453d3e983fc78",
+      "authorBriefCompilerDigest": "sha256:c1b69023daf62d80dbbe2b4dbf60642f9be2daf18b0024de0393c4add2093f4e",
+      "toolAllowlistDigest": "sha256:91c9f772fc8124b4eb0efa5a59bae16c877d0430a5864e478d6c8d078d718d80",
+      "participantContractDigest": "sha256:d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e",
+      "spectatorContractDigest": "sha256:1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2"
+    }
+  },
+  "roleSettings": {
+    "subscription_probe": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "low"
+    },
+    "spike_author": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "max"
+    },
+    "author": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "max"
+    },
+    "primary_reviewer": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "high"
+    },
+    "adjudicator": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "high"
+    },
+    "pairwise_visual_judge": {
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "high"
+    }
+  },
+  "reviewCommitments": {
+    "reviewPlanManifestPath": "research/data/exp0001a-codex-review-plan-v1.json",
+    "reviewPlanManifestFileDigest": "sha256:188df6dac64b3c45a1528144a2d5fdcfe20e9dd57fcf76bbb52615d196a2c56e",
+    "reviewPlanManifestDigest": "sha256:595509ee99142d4c7e78a42a7034f4f28dfdba70b870819f59f74f8e88995e6c",
+    "primaryReviewsPerArtifact": 2,
+    "primaryReviewerTaskCount": 96,
+    "primaryAssignmentAlgorithm": "sha256-ranked-by-registry-artifact-identity-and-purpose",
+    "primaryAssignmentSeed": "sha256:4ff57832530729a69f3d2b8b7f719e4a5fcfb04bc63156e1ec380c8a6063d7ba",
+    "primaryReviewerRosterRoot": "sha256:c2eeef52a25099d95110aa6dc524f914e3e32f35804982969245d0fadfacf818",
+    "adjudicationTrigger": "binary-primary-acceptance-disagreement-only",
+    "preserveOriginalReviews": true,
+    "minimumDistinctReviewers": 3,
+    "pairwiseComparisonCount": 24,
+    "pairwisePromptDigest": "sha256:be16214a6727b17085ab402bc0d1d5d6177c5f2b0b37d4d2d140f6b8ed011e69",
+    "pairwiseWorkOrderDigest": "sha256:b5eb1a2e805879876ad12fb0f85e74f9c68512290cec4655c88d03ce6d72a62e",
+    "pairwiseRandomizationAlgorithm": "sha256-ranked-balanced-family-replicate-v1",
+    "pairwiseLeftRightRandomizationDigest": "sha256:ac99d7ca1fe67c4a73ababc1733c8681356e691602853da6b8502c691bf2e11b",
+    "pairwiseReviewerRosterRoot": "sha256:0b14fe34534284ebd15d14c6a577c2d663e152f535326c4a53272d7bc06ef8e2",
+    "reviewerIdentityCommitmentsSourceFreezeDigest": "sha256:6c76eafb78fb158527dff5bf6055f2e677e070e15ae65868bbb96d1b6fd21281",
+    "authorMayReview": false,
+    "pairedArtifactVisibleBeforeLock": false,
+    "conditionLabelVisibleBeforeLock": false
+  },
+  "accounting": {
+    "taskRecordSchemaVersion": "exp-0001a-codex-task-accounting/v1",
+    "schedulerSchemaVersion": "exp-0001a-codex-subscription-scheduler/v1",
+    "exactTokensWhenObservableOtherwise": "unobservable",
+    "exactResolvedModelWhenObservableOtherwise": "unobservable",
+    "subscriptionUsageWhenObservableOtherwise": "unobservable",
+    "estimatesPermitted": false,
+    "monetaryAccounting": "not_collected"
+  },
+  "analysisSettings": {
+    "bootstrapDraws": 10000,
+    "seed": 20260830,
+    "primaryInference": "exact_two_sided_complete_task_vector_sign_flip",
+    "clusterCount": 12,
+    "replicatesPerCluster": 2,
+    "pairwiseUnavailablePolicy": "retain_as_unavailable_and_mark_cluster_vector_not_evaluable"
+  },
+  "usageLimitPolicy": {
+    "stopBeforeNextBrief": true,
+    "preserveEveryBegunAttempt": true,
+    "resumeAtNextGenuinelyUnstartedAssignment": true,
+    "retainFrozenOrder": true,
+    "maintainTemporalConditionBalance": true
+  },
+  "scientificControls": {
+    "randomizedInterleavedSchedule": true,
+    "artifactHashingAndProvenance": true,
+    "blindedIndependentReview": true,
+    "separateAdjudicationContexts": true,
+    "pairwiseVisualComparison": true,
+    "clusterAwareStatistics": true,
+    "sealedTestProtection": true
+  },
+  "freezeDigest": "sha256:d3e5af41951328d3a8767efe1d8d451e7fc1473b23871f1d165e66816d1ab9bc"
+}

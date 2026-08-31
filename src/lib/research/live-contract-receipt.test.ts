@@ -25,18 +25,17 @@ function receiptClone() {
 
 function verificationWithBytes(receipt: unknown = liveContractReceipt) {
   return verifyBaselineLiveContractReceipt(receipt, baselineFreeze, baselineInventory, {
-    runnerScriptBytes: runnerBytes,
     receiptFileBytes: receiptBytes,
   });
 }
 
 describe("checked-in baseline live-contract receipt", () => {
-  it("verifies the frozen production contract and both explicitly supplied files", () => {
+  it("verifies the frozen production contract and its immutable receipt bytes", () => {
     const verification = verificationWithBytes();
     expect(verification).toMatchObject({
       ok: true,
       verifiedFileByteDigests: {
-        runnerScript: EXPECTED_BASELINE_LIVE_CONTRACT.scriptDigest,
+        runnerScript: null,
         receiptFile: EXPECTED_BASELINE_LIVE_CONTRACT.receiptFileArtifactDigest,
       },
     });

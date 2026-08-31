@@ -1,7 +1,8 @@
 # EXP-0001A — A/A measurement calibration
 
-- Protocol version: 2
-- Status: preregistered; execution requires frozen manifests listed below
+- Protocol version: 4
+- Status: preregistered; disposable Codex/WebMCP spike passed; full execution
+  remains blocked pending the frozen Codex-native coordinator and validation
 - Product commit behind both labels: `48a52e0837144ea0db8a09e43217397226759f83`
 - Baseline receipt: `research/data/baseline-freeze-v1.json`
 - Partition: `development` only
@@ -10,11 +11,16 @@
 
 ## Purpose and non-hypothesis
 
-Version 2 replaces the pre-execution short commit reference with the exact
-receipt-bound production identity; no task brief had been delivered under
-version 1. EXP-0001A tests the experiment machinery, not a harness change. Its purpose is
-to expose label leakage, order effects, environment drift, missing artifacts,
-unreliable scoring, broken pairing, or analysis errors before EXP-0001. Because
+Version 2 replaced the pre-execution short commit reference with the exact
+receipt-bound production identity. Version 3 separates A/A reliability from
+public-gold rater validity and prospectively binds failure taxonomy v2's
+binary-disagreement-only adjudication rule. Version 4 replaces the unexecuted
+API-key transport with fresh projectless Codex tasks authenticated through
+ChatGPT and is governed by `exp-0001a-codex-native-transport-v1.md`. No A/A
+task brief was delivered under versions 1 through 3. EXP-0001A tests the experiment machinery, not a harness
+change. Its purpose is to expose label leakage, order effects, environment
+drift, missing artifacts, unreliable scoring, broken pairing, or analysis
+errors before EXP-0001. Because
 `A0` and `A1` run the same frozen commit and configuration, any apparent label
 effect is diagnostic noise or measurement bias, not product improvement.
 
@@ -29,7 +35,9 @@ manifest, model snapshot and reasoning settings, system instructions, budgets,
 browser and WebMCP host versions, deployment, scorer and judge instructions,
 artifact schemas, randomization schedule, and analysis script. Verify that the
 resolved commit and treatment-relevant configuration hashes for `A0` and `A1`
-are identical. A mismatch is a protocol failure, not an alternative treatment.
+are identical. Freeze the exact bytes and digest of
+`failure-taxonomy-v2.md`; version 1 remains historical and is not rewritten.
+A mismatch is a protocol failure, not an alternative treatment.
 
 No validation, `sealed-test-A`, or `replication-B` prompt, source, rubric,
 answer, manifest content, or artifact may be opened, sampled, inspected, or
@@ -66,8 +74,10 @@ Authors may not act as evaluators for their own sessions.
 Report the four paired binary-success cells, the absolute `A1 - A0` success-rate
 difference, exact raw denominators, task-level results, label win/tie/loss
 preference, reviewer agreement, adjudication rate, artifact completeness, and
-paired latency, token, call, and cost summaries. Any interval or randomization
-test is descriptive calibration evidence only.
+paired wall-time, task, WebMCP-call, failure, revision, and inspection summaries.
+Report tokens, resolved model snapshots, subscription usage, or ChatGPT credits
+only when exposed; otherwise record `unobservable`. Any interval or
+randomization test is descriptive calibration evidence only.
 
 Do not pool repeat sessions or judge ratings as independent task samples. Do
 not tune thresholds after inspecting outcomes.
@@ -111,14 +121,16 @@ documented disposition before EXP-0001 may begin:
   when estimable, or more than 20% of artifacts require adjudication.
 - Fewer than 95% of required non-outcome artifact fields are captured, any
   required hash fails verification, or any attempted session is absent.
-- The median paired `A1/A0` ratio for latency, tokens, calls, or cost falls
-  outside `[0.80, 1.25]`, or a material label-by-order pattern appears.
+- The median paired `A1/A0` ratio for wall time, WebMCP calls, revisions, or
+  inspections falls outside `[0.80, 1.25]`, or a material label-by-order or
+  usage-reset-window pattern appears. An unobservable measure is excluded with
+  its coverage reported; it is never imputed.
 
 These are bias alarms, not equivalence margins. Crossing a diagnostic threshold
 does not automatically identify a cause; not crossing one does not certify an
-unbiased scorer. Investigate by task, order, time block, judge, failure class,
-and environment while preserving the original data. Any changed machinery
-requires a new version and a fresh A/A calibration.
+unbiased or accurate scorer. Investigate by task, order, time block, judge,
+failure class, and environment while preserving the original data. Any changed
+machinery requires a new version and a fresh A/A calibration.
 
 ## Stopping and decision rule
 
@@ -130,7 +142,11 @@ before resumption.
 
 EXP-0001 may start only after all hard falsification checks pass, every
 diagnostic trigger has a documented disposition, the report and run registry
-reconcile, and the product/configuration identity of both labels is verified.
+reconcile, the product/configuration identity of both labels is verified, and
+the separately frozen public rendered-gold rater-validation gate in
+`public-gold-rater-validation-v1.md` passes. A/A agreement cannot substitute
+for sensitivity, specificity, false-accept, and false-reject evidence against
+independently established public gold labels.
 
 ## Permitted claims
 
@@ -140,11 +156,12 @@ an A/A difference of Z percentage points; scorer agreement was K and artifact
 capture was C. These results are instrumentation diagnostics, not an estimate
 of harness improvement.” State every triggered threshold and protocol incident.
 
-Not allowed: either label is better, worse, equivalent, unbiased, validated for
-production, or evidence of a harness improvement; “statistically significant”
-as a product claim; “X% better”; a ship recommendation; or generalization
-beyond this development calibration. A null result is not proof that the
-measurement system is correct.
+Not allowed: either label is better, worse, equivalent, unbiased, accurate,
+validated for production, or evidence of a harness improvement;
+“statistically significant” as a product claim; “X% better”; a ship
+recommendation; or generalization beyond this development calibration. A null
+result is not proof that the measurement system is correct. A null A/A result
+is reliability evidence only; it is not rater-validity evidence.
 
 ## Required execution identifiers
 

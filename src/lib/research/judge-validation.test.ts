@@ -93,8 +93,30 @@ describe("judge validation", () => {
     expect(result.judgments.every((item) => item.primaryRatings.length === 2)).toBe(true);
   });
 
-  it("reports binary and primary-class agreement separately while still adjudicating class disputes", () => {
+  it("reports class-only disagreement without creating an outcome-selective adjudication", () => {
     const result = validateAndResolveJudges({
+      schemaVersion: 1,
+      reviewerPair: reviewers,
+      primaryRatings: [
+        rating({ artifactId: "artifact_1", reviewerId: reviewers[0], accepted: false, primaryClass: "FAIL_SEMANTIC" }),
+        rating({ artifactId: "artifact_1", reviewerId: reviewers[1], accepted: false, primaryClass: "FAIL_GEOMETRY_VISUAL" }),
+      ],
+      adjudications: [],
+      treatmentMappingDecodedAt: null,
+    });
+
+    expect(result.rawAgreement).toBe(1);
+    expect(result.classificationAgreementRate).toBe(0);
+    expect(result.adjudicationRate).toBe(0);
+    expect(result.judgments[0]).toMatchObject({
+      binaryAgreement: true,
+      classAgreement: false,
+      requiresAdjudication: false,
+      primaryClass: "FAIL_SEMANTIC",
+      classResolution: "frozen_precedence",
+    });
+
+    expect(() => validateAndResolveJudges({
       schemaVersion: 1,
       reviewerPair: reviewers,
       primaryRatings: [
@@ -109,17 +131,7 @@ describe("judge validation", () => {
         primaryClass: "FAIL_SEMANTIC",
       })],
       treatmentMappingDecodedAt: null,
-    });
-
-    expect(result.rawAgreement).toBe(1);
-    expect(result.classificationAgreementRate).toBe(0);
-    expect(result.adjudicationRate).toBe(1);
-    expect(result.judgments[0]).toMatchObject({
-      binaryAgreement: true,
-      classAgreement: false,
-      requiresAdjudication: true,
-      primaryClass: "FAIL_SEMANTIC",
-    });
+    })).toThrow(/must not receive outcome-selective adjudication/);
   });
 
   it("requires adjudication for disagreement and forbids outcome-selective adjudication", () => {

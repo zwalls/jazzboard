@@ -1,0 +1,2 @@
+# Deterministic bundles retain byte-significant vendor template-literal whitespace.
+research/runtime/*.bundle.mjs -whitespace

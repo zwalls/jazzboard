@@ -6,6 +6,7 @@ import {
   formatSealedSampleScenarioTable,
   intrataskDesignEffect,
   monteCarloClusterPower,
+  monteCarloTaskClusterSignFlipPower,
   pairedBinaryAssumptionsSchema,
   pairedBinaryProbabilities,
   planSealedSampleScenario,
@@ -125,6 +126,25 @@ describe("cluster adjustment and Monte Carlo sensitivity", () => {
     expect(result.monteCarlo95Interval[1]).toBeGreaterThan(result.power);
     expect(result.totalPairs).toBe(200);
     expect(result.designEffect).toBe(1.2);
+  });
+
+  it("retains the declared task-cluster sign-flip planning decision and seed", () => {
+    const input = {
+      ...assumptions,
+      taskCount: 80,
+      replicatesPerTask: 2,
+      intrataskCorrelation: 0.4,
+      simulations: 1_000,
+      seed: 2_026_084_080,
+    };
+    const result = monteCarloTaskClusterSignFlipPower(input);
+    expect(result).toEqual(monteCarloTaskClusterSignFlipPower(input));
+    expect(result).toMatchObject({
+      taskCount: 80,
+      totalPairs: 160,
+      seed: 2_026_084_080,
+      method: "two_sided_task_cluster_sign_flip_normal_approximation_with_common_shock_correlation",
+    });
   });
 
   it("separates nominal independent pairs from cluster-adjusted task planning", () => {

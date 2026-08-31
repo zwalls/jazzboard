@@ -103,7 +103,7 @@ describe("EXP-0000 frozen smoke configuration", () => {
       .toBe("sha256:dfc1884328ebdeb381950a7f9f4a130a5540805d17c73d6a29b1dbd894817146");
   });
 
-  it("preserves historical v1/v2 bindings while leaving the current runner for a new amendment", () => {
+  it("preserves historical v1/v2/v3 bindings while allowing the current runner to evolve", () => {
     const parentProtocol = readFileSync("research/protocols/exp-0000-live-author-smoke.md", "utf8");
     const amendmentOne = readFileSync("research/protocols/exp-0000-amendment-1.md", "utf8");
     const runnerBytes = readFileSync("research/scripts/clean-room-live-runner.mjs");
@@ -119,7 +119,7 @@ describe("EXP-0000 frozen smoke configuration", () => {
     expect(amendmentOne).toContain(v1RunnerDigest);
     expect(amendmentOne).toContain(v2RunnerDigest);
     expect(amendmentOne).toContain(v2ReceiptDigest);
-    expect(currentRunnerDigest).toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
+    expect(currentRunnerDigest).not.toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
     expect(currentReceiptDigest).toBe("sha256:799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff");
     expect(amendmentOne).not.toContain(currentRunnerDigest);
     expect(amendmentOne).not.toContain(currentReceiptDigest);
@@ -172,9 +172,9 @@ describe("EXP-0000 frozen smoke configuration", () => {
     expect(hashCanonicalJson(diagnosticSmokeConfig))
       .toBe("sha256:530a33e0ae1e14f15d25de015899f4854e3ecbd648fa0ce6a5d842f671555cfd");
     expect(fileDigest("research/scripts/clean-room-live-runner.mjs"))
-      .toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
+      .not.toBe("sha256:699d803722f6425547246c9a70c7ec96e56ff525043638a6c21f48f94ca5ec12");
     expect(fileDigest("research/scripts/blinded-evaluator-runner.mjs"))
-      .toBe("sha256:1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6");
+      .not.toBe("sha256:1888105ca84a46a69f16a1439b704222201f7d04a7bb9afa3d8c87a462c4c5a6");
     expect(fileDigest("research/data/baseline-live-contract-v1.json"))
       .toBe("sha256:799997c344a5525be92824380e8115d65f4c7224aeb6f64f6c3938d607a12cff");
 

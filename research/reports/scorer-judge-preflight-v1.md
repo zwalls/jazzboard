@@ -11,7 +11,9 @@ This report validates that the version-1 measurement code reacts in the
 intended direction to known synthetic corruptions and that the blinded
 two-reviewer/adjudication accounting is executable. It does not estimate how
 accurately a model or human reviewer will score real Jazzboard artifacts. That
-requires the preregistered A/A development calibration.
+requires the separately preregistered public rendered-gold rater-validation
+gate. A/A calibration measures reliability and treatment neutrality, not
+accuracy.
 
 ## Frozen inputs
 
@@ -58,9 +60,12 @@ The checked-in synthetic fixture replayed to:
 
 The executable contract also rejects treatment-label leakage, viewing a paired
 artifact before the individual lock, ratings locked after unblinding, reused
-primary reviewers as adjudicators, duplicate ratings, missing adjudication,
-or outcome-selective adjudication of an agreement. It reports binary agreement
-separately from failure-class agreement and preserves both original ratings.
+primary reviewers as adjudicators, duplicate ratings, missing binary-decision
+adjudication, or outcome-selective adjudication of a binary agreement. It
+reports binary agreement separately from failure-class agreement, leaves a
+class-only disagreement visible, resolves it by the frozen taxonomy-v2
+precedence without an outcome-selective third call, and preserves both original
+ratings.
 
 These values were intentionally constructed to exercise the formulas and
 thresholds. They are not empirical reviewer-reliability estimates and may not
@@ -71,6 +76,9 @@ be cited as evidence that Jazzboard's evaluators are 90% accurate.
 The deterministic scorer and reviewer-accounting layers are ready to enter the
 clean-room A/A calibration. They are not yet sufficient to start an A/B harness
 claim. Before that step, real development artifacts must be independently
-rated, every original rating and adjudication retained, deterministic scores
-replayed from hashed evidence, and every A/A diagnostic threshold disposition
-published without exposing a sealed partition.
+rated against independently established public gold labels. Every A/A
+diagnostic threshold must be disposed; the gold gate must report domain-
+specific sensitivity, specificity, false accepts, false rejects, and
+uncertainty; every original rating and adjudication must remain retained; and
+deterministic scores must replay from hashed evidence without exposing a sealed
+partition.

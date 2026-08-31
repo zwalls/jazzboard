@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import type { AtomicRegistryStore } from "./atomic-registry-store";
 import benchmarkJson from "../../../research/benchmarks/development-v1.json";
 import fixtureSpecsJson from "../../../research/benchmarks/development-fixture-specs-v1.json";
 import rubricsJson from "../../../research/benchmarks/development-evaluator-rubrics-v1.json";
@@ -24,20 +25,36 @@ import {
   type ExperimentFreezeReceipt,
 } from "./experiment-freeze";
 import { compileBenchmarkTaskExecution, parseBenchmarkExecutionBundle } from "./benchmark-execution";
+import {
+  exp0001aPerAttemptAliasReceiptSchema,
+  verifyExp0001aPerAttemptAliasReceipt,
+  type Exp0001aPerAttemptAliasVerifier,
+} from "./exp0001a-per-attempt-alias-verifier";
 import { hashCanonicalJson, SHA256_DIGEST_PATTERN } from "./provenance-crypto";
 
 const digestSchema = z.string().regex(SHA256_DIGEST_PATTERN);
 const rawDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const idSchema = z.string().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const timestampSchema = z.string().datetime({ offset: true });
+const PER_ATTEMPT_ALIAS_MAX_AGE_MS = 60_000;
 
 export const providerUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
+  uncachedInputTokens: z.number().int().nonnegative(),
   cachedInputTokens: z.number().int().nonnegative(),
+  cacheWriteInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
+  reasoningOutputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
 }).strict().superRefine((usage, context) => {
-  if (usage.cachedInputTokens > usage.inputTokens) {
-    context.addIssue({ code: "custom", path: ["cachedInputTokens"], message: "Cached input cannot exceed total input." });
+  if (usage.uncachedInputTokens + usage.cachedInputTokens + usage.cacheWriteInputTokens !== usage.inputTokens) {
+    context.addIssue({ code: "custom", path: ["inputTokens"], message: "Input token classes must exactly reconcile to total input." });
+  }
+  if (usage.reasoningOutputTokens > usage.outputTokens) {
+    context.addIssue({ code: "custom", path: ["reasoningOutputTokens"], message: "Reasoning output is already included in output tokens." });
+  }
+  if (usage.totalTokens !== usage.inputTokens + usage.outputTokens) {
+    context.addIssue({ code: "custom", path: ["totalTokens"], message: "Total tokens must equal input plus output." });
   }
 });
 
@@ -45,8 +62,21 @@ export const providerPricingSchema = z.object({
   currency: z.literal("USD"),
   inputUsdPerMillionTokens: z.number().nonnegative(),
   cachedInputUsdPerMillionTokens: z.number().nonnegative(),
+  cacheWriteInputUsdPerMillionTokens: z.number().nonnegative(),
   outputUsdPerMillionTokens: z.number().nonnegative(),
   source: idSchema,
+}).strict();
+
+export const providerIdentityObservationSchema = z.object({
+  provider: z.literal("openai_responses"),
+  requestedModelIdentifier: idSchema,
+  requestedServiceTier: z.literal("default"),
+  immutableModelSnapshotVerified: z.literal(false),
+  completedTurns: z.number().int().nonnegative(),
+  status: z.enum(["observed", "unobservable", "falsified"]),
+  observedModelIdentifiers: z.array(idSchema),
+  observedServiceTiers: z.array(idSchema),
+  requestedAliasExactMatch: z.boolean(),
 }).strict();
 
 const retainedArtifactSchema = z.object({
@@ -71,15 +101,64 @@ export const executorResultSchema = z.discriminatedUnion("kind", [
     finishedAt: timestampSchema,
     outcome: z.enum(["completed", "failed", "timeout", "infra_failure", "policy_violation"]),
     usage: providerUsageSchema,
+    usageByTurn: z.array(providerUsageSchema).max(10_000),
     artifacts: z.array(retainedArtifactSchema),
     artifactRoot: rawDigestSchema.nullable(),
     authorEvidenceRoot: rawDigestSchema.nullable(),
     attemptBundleSha256: rawDigestSchema.nullable(),
+    authorIdentityCommitment: digestSchema,
+    authorIdentityArtifactSha256: digestSchema,
+    costObservability: z.enum(["observed", "attested_no_provider_call", "unobservable"]),
+    providerEvidenceDigest: digestSchema,
+    providerIdentity: providerIdentityObservationSchema,
     hardIncident: z.boolean(),
     falsification: z.boolean(),
     incidentCode: idSchema.nullable(),
   }).strict(),
-]);
+]).superRefine((result, context) => {
+  if (result.kind !== "begun") return;
+  const summed = result.usageByTurn.reduce<ProviderUsage>((total, turn) => ({
+    inputTokens: total.inputTokens + turn.inputTokens,
+    uncachedInputTokens: total.uncachedInputTokens + turn.uncachedInputTokens,
+    cachedInputTokens: total.cachedInputTokens + turn.cachedInputTokens,
+    cacheWriteInputTokens: total.cacheWriteInputTokens + turn.cacheWriteInputTokens,
+    outputTokens: total.outputTokens + turn.outputTokens,
+    reasoningOutputTokens: total.reasoningOutputTokens + turn.reasoningOutputTokens,
+    totalTokens: total.totalTokens + turn.totalTokens,
+  }), {
+    inputTokens: 0,
+    uncachedInputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+  });
+  for (const field of Object.keys(summed) as Array<keyof ProviderUsage>) {
+    if (summed[field] !== result.usage[field]) {
+      context.addIssue({
+        code: "custom",
+        path: ["usageByTurn"],
+        message: `Per-turn ${field} must exactly reconcile to aggregate usage.`,
+      });
+    }
+  }
+  if (result.usageByTurn.length !== result.providerIdentity.completedTurns) {
+    context.addIssue({
+      code: "custom",
+      path: ["usageByTurn"],
+      message: "Per-turn usage count must equal providerIdentity.completedTurns.",
+    });
+  }
+  if (result.costObservability === "attested_no_provider_call"
+      && (result.usageByTurn.length !== 0 || result.usage.totalTokens !== 0)) {
+    context.addIssue({
+      code: "custom",
+      path: ["costObservability"],
+      message: "A no-provider-call attestation cannot contain provider usage.",
+    });
+  }
+});
 
 export type ProviderUsage = z.infer<typeof providerUsageSchema>;
 export type ProviderPricing = z.infer<typeof providerPricingSchema>;
@@ -128,6 +207,13 @@ const briefDeliveredEventSchema = z.object({
   data: z.object({ briefDigest: digestSchema }).strict(),
 }).strict();
 
+const aliasVerifiedEventSchema = z.object({
+  ...eventMetadata,
+  kind: z.literal("alias_verified"),
+  attemptId: idSchema,
+  data: z.object({ receipt: exp0001aPerAttemptAliasReceiptSchema }).strict(),
+}).strict();
+
 const attemptRetainedEventSchema = z.object({
   ...eventMetadata,
   kind: z.literal("attempt_retained"),
@@ -136,12 +222,18 @@ const attemptRetainedEventSchema = z.object({
     executorOutcome: z.enum(["completed", "failed", "timeout", "infra_failure", "policy_violation", "executor_threw"]),
     retainedOutcome: z.enum(["completed", "failed", "timeout", "infra_failure", "policy_violation"]),
     usage: providerUsageSchema.nullable(),
+    usageByTurn: z.array(providerUsageSchema).nullable(),
     pricing: providerPricingSchema,
     actualCostUsd: z.number().nonnegative().nullable(),
+    costObservability: z.enum(["observed", "attested_no_provider_call", "unobservable"]),
+    providerEvidenceDigest: digestSchema.nullable(),
+    providerIdentity: providerIdentityObservationSchema.nullable(),
     artifacts: z.array(retainedArtifactSchema),
     artifactRoot: rawDigestSchema.nullable(),
     authorEvidenceRoot: rawDigestSchema.nullable(),
     attemptBundleSha256: rawDigestSchema.nullable(),
+    authorIdentityCommitment: digestSchema,
+    authorIdentityArtifactSha256: digestSchema.nullable(),
     missingArtifacts: z.array(z.string()),
     duplicateArtifactPaths: z.array(z.string()),
     evidenceComplete: z.boolean(),
@@ -164,6 +256,7 @@ const hardStopEventSchema = z.object({
 export const batchRegistryEventSchema = z.discriminatedUnion("kind", [
   assignmentRegisteredEventSchema,
   notStartedEventSchema,
+  aliasVerifiedEventSchema,
   briefDeliveredEventSchema,
   attemptRetainedEventSchema,
   hardStopEventSchema,
@@ -194,15 +287,19 @@ export type Exp0001aBatchPlan = {
   executionFreeze: ExperimentFreezeReceipt;
   livePreflight: AliasPreflightReceipt;
   pricing: ProviderPricing;
+  authorIdentityCommitmentsDigest: string;
   configs: DevelopmentAttemptConfig[];
   planDigest: string;
 };
+
+export type AuthorIdentityCommitmentManifest = Readonly<Record<string, string>>;
 
 const REQUIRED_BEGUN_ARTIFACTS = Object.freeze([
   "attempt-bundle.json",
   "author-brief.json",
   "author-events.jsonl",
   "author-final.json",
+  "author-identity-commitment.json",
   "coordinator-events.jsonl",
 ]);
 
@@ -214,6 +311,7 @@ const REQUIRED_EVALUATOR_ARTIFACTS = Object.freeze([
   "spectator-inspection.json",
   "spectator-tool-contract.json",
 ]);
+const SPECTATOR_FINAL_PIXEL = /^spectator-final-r\d+\.png$/;
 
 function withoutKey(value: Record<string, unknown>, key: string): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key));
@@ -225,6 +323,14 @@ function eventDigest(event: Omit<BatchRegistryEvent, "eventDigest"> | BatchRegis
 
 function registryDigest(registry: Omit<BatchRegistry, "registryDigest"> | BatchRegistry): string {
   return hashCanonicalJson(withoutKey(registry as unknown as Record<string, unknown>, "registryDigest"));
+}
+
+function registryDigestBeforeEvent(registry: BatchRegistry, sequence: number): string {
+  const content = batchRegistryContentSchema.parse({
+    ...withoutKey(registry as unknown as Record<string, unknown>, "registryDigest"),
+    events: registry.events.slice(0, sequence),
+  });
+  return registryDigest(content);
 }
 
 function appendEvent(
@@ -252,6 +358,25 @@ function orderedAssignments(manifest: DevelopmentExecutionManifest) {
     .flatMap((pair) => [...pair.attempts]
       .sort((left, right) => left.orderIndex - right.orderIndex)
       .map((attempt) => ({ pair, attempt })));
+}
+
+function validateAuthorIdentityCommitments(
+  input: AuthorIdentityCommitmentManifest,
+  attemptIds: readonly string[],
+): Readonly<Record<string, string>> {
+  const parsed = z.record(z.string(), digestSchema).parse(input);
+  const actualIds = Object.keys(parsed);
+  const expectedSet = new Set(attemptIds);
+  const missing = attemptIds.filter((attemptId) => !(attemptId in parsed));
+  const extra = actualIds.filter((attemptId) => !expectedSet.has(attemptId));
+  if (missing.length > 0 || extra.length > 0 || actualIds.length !== attemptIds.length) {
+    throw new Error(`Author identity manifest must cover the exact frozen attempt set (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"}).`);
+  }
+  const ordered = Object.fromEntries(attemptIds.map((attemptId) => [attemptId, parsed[attemptId]]));
+  if (new Set(Object.values(ordered)).size !== attemptIds.length) {
+    throw new Error("Author identity manifest must assign one unique commitment to every frozen attempt.");
+  }
+  return Object.freeze(ordered);
 }
 
 function assertFreezeMatchesFrozenPlan(
@@ -288,6 +413,7 @@ export function createExp0001aBatchPlan(input: {
   executionFreeze: unknown;
   livePreflight: unknown;
   pricing: unknown;
+  authorIdentityCommitments: AuthorIdentityCommitmentManifest;
   manifest?: unknown;
 }): Exp0001aBatchPlan {
   const manifestVerification = verifyDevelopmentExecutionManifest(input.manifest ?? executionManifestJson, benchmarkJson);
@@ -296,8 +422,18 @@ export function createExp0001aBatchPlan(input: {
   if (!freezeVerification.ok) throw new Error(`Execution freeze is invalid: ${freezeVerification.errors.join(" ")}`);
   const livePreflight = aliasPreflightReceiptSchema.parse(input.livePreflight);
   const pricing = providerPricingSchema.parse(input.pricing);
-  const configs = orderedAssignments(manifestVerification.manifest).map(({ attempt }) => createDevelopmentAttemptConfig({
+  const assignments = orderedAssignments(manifestVerification.manifest);
+  const authorIdentityCommitments = validateAuthorIdentityCommitments(
+    input.authorIdentityCommitments,
+    assignments.map(({ attempt }) => attempt.attemptId),
+  );
+  const authorIdentityCommitmentsDigest = hashCanonicalJson(assignments.map(({ attempt }) => ({
     attemptId: attempt.attemptId,
+    identityCommitment: authorIdentityCommitments[attempt.attemptId],
+  })));
+  const configs = assignments.map(({ attempt }) => createDevelopmentAttemptConfig({
+    attemptId: attempt.attemptId,
+    authorIdentityCommitment: authorIdentityCommitments[attempt.attemptId],
     aliasPreflight: livePreflight,
     manifest: input.manifest ?? executionManifestJson,
     runnerProfile: runnerProfileJson,
@@ -308,6 +444,7 @@ export function createExp0001aBatchPlan(input: {
     runnerProfileDigest: runnerProfileJson.profileDigest,
     executionFreezeDigest: freezeVerification.receipt.freezeDigest,
     livePreflightDigest: hashCanonicalJson(livePreflight),
+    authorIdentityCommitmentsDigest,
     pricing,
     assignments: configs.map((config, manifestPosition) => ({
       manifestPosition,
@@ -320,6 +457,7 @@ export function createExp0001aBatchPlan(input: {
     executionFreeze: freezeVerification.receipt,
     livePreflight,
     pricing,
+    authorIdentityCommitmentsDigest,
     configs,
     planDigest: hashCanonicalJson(planContent),
   };
@@ -382,22 +520,118 @@ export function verifyExp0001aBatchRegistry(registryInput: unknown, plan: Exp000
   if (registered.length !== 48) throw new Error("Registry must retain exactly 48 frozen assignment registrations.");
   registered.forEach((event, index) => {
     const config = plan.configs[index];
-    if (event.attemptId !== config.attempt.attemptId || event.data.manifestPosition !== index || event.data.configDigest !== config.configDigest) {
+    if (registry.events[index] !== event
+      || event.attemptId !== config.attempt.attemptId
+      || event.data.manifestPosition !== index
+      || event.data.configDigest !== config.configDigest) {
       throw new Error(`Registry assignment ${index} does not match manifest order.`);
     }
   });
+  const manifestPositionByAttemptId = new Map(plan.configs.map((config, index) => [config.attempt.attemptId, index]));
+  let lastLifecyclePosition = 0;
+  for (const event of registry.events.slice(48)) {
+    const manifestPosition = manifestPositionByAttemptId.get(event.attemptId);
+    if (manifestPosition === undefined) throw new Error(`Registry contains lifecycle evidence for unknown attempt ${event.attemptId}.`);
+    if (manifestPosition < lastLifecyclePosition) throw new Error("Registry lifecycle events do not follow frozen manifest order.");
+    lastLifecyclePosition = manifestPosition;
+  }
   const hardStops = registry.events.filter((event) => event.kind === "hard_stop");
   if (hardStops.length > 1 || (hardStops.length === 1 && hardStops[0] !== registry.events.at(-1))) throw new Error("A hard stop must be unique and final.");
+  if (hardStops.length === 1) {
+    const hardStop = hardStops[0];
+    const source = registry.events.at(-2);
+    if (!source
+      || source.eventDigest !== hardStop.data.sourceEventDigest
+      || source.attemptId !== hardStop.attemptId
+      || Date.parse(hardStop.at) < Date.parse(source.at)) {
+      throw new Error("A hard stop must immediately and monotonically bind its same-attempt source event.");
+    }
+  }
   let activePosition = 0;
   for (const config of plan.configs) {
     const lifecycle = registry.events.filter((event) => event.attemptId === config.attempt.attemptId && event.kind !== "assignment_registered" && event.kind !== "hard_stop");
     const briefs = lifecycle.filter((event) => event.kind === "brief_delivered");
     const retained = lifecycle.filter((event) => event.kind === "attempt_retained");
+    const aliasReceipts = lifecycle.filter((event) => event.kind === "alias_verified");
     if (briefs.length > 1 || retained.length > 1) throw new Error(`Attempt ${config.attempt.attemptId} has duplicate lifecycle records.`);
     if (retained.length && !briefs.length) throw new Error(`Attempt ${config.attempt.attemptId} was retained without brief delivery.`);
-    if (lifecycle.some((event) => event.kind === "not_started") && briefs.length
-      && lifecycle.findIndex((event) => event.kind === "not_started") > lifecycle.findIndex((event) => event.kind === "brief_delivered")) {
-      throw new Error(`Attempt ${config.attempt.attemptId} records not_started after brief delivery.`);
+    for (const event of retained) {
+      if (event.kind !== "attempt_retained") continue;
+      const identityArtifact = event.data.artifacts.find((artifact) => artifact.path === "author-identity-commitment.json");
+      if (event.data.authorIdentityCommitment !== config.runnerConfig.authorIdentityCommitment
+          || (event.data.authorIdentityArtifactSha256 !== null
+            && (!identityArtifact || `sha256:${identityArtifact.sha256}` !== event.data.authorIdentityArtifactSha256))) {
+        throw new Error(`Attempt ${config.attempt.attemptId} author identity differs from its frozen runner configuration.`);
+      }
+    }
+    for (const aliasEvent of aliasReceipts) {
+      if (aliasEvent.kind !== "alias_verified") continue;
+      verifyExp0001aPerAttemptAliasReceipt(aliasEvent.data.receipt, {
+        attemptId: config.attempt.attemptId,
+        manifestPosition: plan.configs.indexOf(config),
+        deploymentId: plan.livePreflight.resolvedDeploymentId,
+        releaseGateRequestedAt: aliasEvent.data.receipt.releaseGateRequestedAt,
+        releaseGateRegistryDigest: registryDigestBeforeEvent(registry, aliasEvent.sequence),
+      });
+      if (aliasEvent.at !== aliasEvent.data.receipt.verifiedAt) {
+        throw new Error(`Attempt ${config.attempt.attemptId} alias event timestamp differs from its signed receipt.`);
+      }
+    }
+
+    // Exact frozen author lifecycle grammar:
+    //   (not_started | alias_verified, not_started)*, then either
+    //   nothing | alias_verified | alias_verified, brief_delivered |
+    //   alias_verified, brief_delivered, attempt_retained.
+    // A standalone not_started is provider-free runner/setup or release-gate
+    // evidence produced before any effective alias receipt. This rejects
+    // self-hashed reordering, duplicate/extra events, and post-brief incidents.
+    let lifecycleIndex = 0;
+    while (lifecycleIndex < lifecycle.length) {
+      if (lifecycle[lifecycleIndex]?.kind === "not_started") {
+        lifecycleIndex += 1;
+        continue;
+      }
+      if (lifecycle[lifecycleIndex]?.kind === "alias_verified"
+          && lifecycle[lifecycleIndex + 1]?.kind === "not_started") {
+        lifecycleIndex += 2;
+        continue;
+      }
+      break;
+    }
+    const remaining = lifecycle.slice(lifecycleIndex);
+    const isTransientAliasTail = remaining.length === 1
+      && remaining[0].kind === "alias_verified"
+      && registry.events.at(-1)?.eventDigest === remaining[0].eventDigest;
+    const isUnresolvedBegun = remaining.length === 2
+      && remaining[0].kind === "alias_verified"
+      && remaining[1].kind === "brief_delivered";
+    const isRetained = remaining.length === 3
+      && remaining[0].kind === "alias_verified"
+      && remaining[1].kind === "brief_delivered"
+      && remaining[2].kind === "attempt_retained";
+    if (remaining.length !== 0
+      && !isTransientAliasTail
+      && !isUnresolvedBegun
+      && !isRetained) {
+      throw new Error(`Attempt ${config.attempt.attemptId} violates the frozen alias-before-brief-before-retained lifecycle.`);
+    }
+    if (briefs.length) {
+      const brief = briefs[0];
+      const briefIndex = lifecycle.indexOf(brief);
+      const effectiveAlias = lifecycle[briefIndex - 1];
+      if (!effectiveAlias || effectiveAlias.kind !== "alias_verified") {
+        throw new Error(`Attempt ${config.attempt.attemptId} lacks exactly one immediate pre-brief alias verification.`);
+      }
+      const ageMs = Date.parse(brief.at) - Date.parse(effectiveAlias.data.receipt.verifiedAt);
+      if (ageMs < 0 || ageMs > PER_ATTEMPT_ALIAS_MAX_AGE_MS) {
+        throw new Error(`Attempt ${config.attempt.attemptId} alias verification was not fresh at brief delivery.`);
+      }
+      if (brief.data.briefDigest !== config.hashes.brief) {
+        throw new Error(`Attempt ${config.attempt.attemptId} brief digest differs from its frozen author brief.`);
+      }
+      if (retained.length && Date.parse(retained[0].at) < Date.parse(brief.at)) {
+        throw new Error(`Attempt ${config.attempt.attemptId} was retained before its author brief was delivered.`);
+      }
     }
     const progressed = briefs.length > 0 || retained.length > 0 || lifecycle.some((event) => event.kind === "not_started");
     if (progressed && plan.configs.indexOf(config) > activePosition) throw new Error("Registry skips manifest order.");
@@ -405,6 +639,39 @@ export function verifyExp0001aBatchRegistry(registryInput: unknown, plan: Exp000
     else if (progressed) activePosition = plan.configs.indexOf(config);
   }
   return registry;
+}
+
+/** Dedicated commitment over the one fresh alias receipt that immediately
+ * precedes each of the 48 delivered author briefs. Earlier no-brief incident
+ * receipts remain append-only evidence but are deliberately outside this root. */
+export function computeExp0001aEffectiveAliasVerificationRoot(
+  registryInput: BatchRegistry,
+  plan: Exp0001aBatchPlan,
+): string {
+  const registry = verifyExp0001aBatchRegistry(registryInput, plan);
+  const receiptDigests = plan.configs.map((config) => {
+    const lifecycle = registry.events.filter((event) => (
+      event.attemptId === config.attempt.attemptId
+      && event.kind !== "assignment_registered"
+      && event.kind !== "hard_stop"
+    ));
+    const briefIndex = lifecycle.findIndex((event) => event.kind === "brief_delivered");
+    if (briefIndex < 1 || lifecycle[briefIndex - 1]?.kind !== "alias_verified") {
+      throw new Error(`Attempt ${config.attempt.attemptId} lacks a committed effective alias receipt.`);
+    }
+    const aliasEvent = lifecycle[briefIndex - 1];
+    if (aliasEvent.kind !== "alias_verified") throw new Error("Alias receipt narrowing failed.");
+    return aliasEvent.data.receipt.receiptDigest;
+  });
+  if (receiptDigests.length !== 48 || new Set(receiptDigests).size !== 48) {
+    throw new Error("EXP-0001A requires 48 unique effective per-attempt alias receipts.");
+  }
+  return hashCanonicalJson({
+    schemaVersion: "exp-0001a-effective-alias-verification-root/v1",
+    protocolId: "EXP-0001A",
+    manifestDigest: plan.manifest.manifestDigest,
+    receiptDigests,
+  });
 }
 
 export type BatchDenominator = {
@@ -442,12 +709,30 @@ export function summarizeBatchDenominator(registryInput: BatchRegistry, plan: Ex
 export function computeActualProviderCost(usageInput: unknown, pricingInput: unknown): number {
   const usage = providerUsageSchema.parse(usageInput);
   const pricing = providerPricingSchema.parse(pricingInput);
-  const uncachedInput = usage.inputTokens - usage.cachedInputTokens;
   return Number(((
-    uncachedInput * pricing.inputUsdPerMillionTokens
+    usage.uncachedInputTokens * pricing.inputUsdPerMillionTokens
     + usage.cachedInputTokens * pricing.cachedInputUsdPerMillionTokens
+    + usage.cacheWriteInputTokens * pricing.cacheWriteInputUsdPerMillionTokens
     + usage.outputTokens * pricing.outputUsdPerMillionTokens
   ) / 1_000_000).toFixed(12));
+}
+
+/** Price each Responses request independently because GPT-5.6 long-context
+ * rates apply to the whole request once that turn exceeds 272K input tokens. */
+export function computeActualProviderTurnCost(turnsInput: readonly unknown[], pricingInput: unknown): number {
+  const pricing = providerPricingSchema.parse(pricingInput);
+  const turns = turnsInput.map((turn) => providerUsageSchema.parse(turn));
+  return Number(turns.reduce((total, usage) => {
+    const longContext = usage.inputTokens > 272_000;
+    const inputMultiplier = longContext ? 2 : 1;
+    const outputMultiplier = longContext ? 1.5 : 1;
+    return total + (
+      usage.uncachedInputTokens * pricing.inputUsdPerMillionTokens * inputMultiplier
+      + usage.cachedInputTokens * pricing.cachedInputUsdPerMillionTokens * inputMultiplier
+      + usage.cacheWriteInputTokens * pricing.cacheWriteInputUsdPerMillionTokens * inputMultiplier
+      + usage.outputTokens * pricing.outputUsdPerMillionTokens * outputMultiplier
+    ) / 1_000_000;
+  }, 0).toFixed(12));
 }
 
 export type ResumeDecision =
@@ -473,14 +758,26 @@ export function determineSafeResume(registryInput: BatchRegistry, plan: Exp0001a
 
 export type BatchAttemptExecutor = (
   config: DevelopmentAttemptConfig,
-  controls: { onBriefDelivered: (at: string) => void },
+  controls: { onBriefDelivered: (at: string) => Promise<string> },
 ) => Promise<unknown>;
 
-function artifactProblems(result: z.infer<typeof executorResultSchema> & { kind: "begun" }) {
+function artifactProblems(
+  result: z.infer<typeof executorResultSchema> & { kind: "begun" },
+  expectedAuthorIdentityCommitment: string,
+) {
   const paths = result.artifacts.map((artifact) => artifact.path);
   const duplicateArtifactPaths = [...new Set(paths.filter((value, index) => paths.indexOf(value) !== index))].sort();
   const required = result.outcome === "completed" ? REQUIRED_EVALUATOR_ARTIFACTS : REQUIRED_BEGUN_ARTIFACTS;
   const missingArtifacts = required.filter((requiredPath) => !paths.includes(requiredPath));
+  const identityArtifacts = result.artifacts.filter((artifact) => artifact.path === "author-identity-commitment.json");
+  if (result.authorIdentityCommitment !== expectedAuthorIdentityCommitment
+      || identityArtifacts.length !== 1
+      || `sha256:${identityArtifacts[0].sha256}` !== result.authorIdentityArtifactSha256) {
+    missingArtifacts.push("author-identity-commitment-integrity");
+  }
+  if (result.outcome === "completed" && paths.filter((candidate) => SPECTATOR_FINAL_PIXEL.test(candidate)).length !== 1) {
+    missingArtifacts.push("spectator-final-r<revision>.png");
+  }
   if (result.outcome === "completed" && result.artifacts.length > 0
     && (!result.artifactRoot || !result.authorEvidenceRoot || !result.attemptBundleSha256)) {
     missingArtifacts.push("evidence-root-commitments");
@@ -503,8 +800,11 @@ export async function runExp0001aBatch(input: {
   mode?: "dry-run" | "execute";
   executionAuthorized?: boolean;
   executor?: BatchAttemptExecutor;
+  verifyAliasBeforeAttempt?: Exp0001aPerAttemptAliasVerifier;
   existingArtifactPaths?: Readonly<Record<string, readonly string[]>>;
   maxAssignments?: number;
+  registryStore?: AtomicRegistryStore<BatchRegistry>;
+  afterRegistryPersisted?: (registry: BatchRegistry, cause: string) => Promise<void>;
 }): Promise<{
   mode: "dry-run" | "execute";
   registry: BatchRegistry;
@@ -518,11 +818,27 @@ export async function runExp0001aBatch(input: {
   if (mode === "dry-run") {
     return { mode, registry, plannedConfigs: input.plan.configs, invokedAttemptIds: [], resume: initialResume };
   }
-  if (input.executionAuthorized !== true || !input.executor) throw new Error("Live batch execution requires explicit authorization and an injected executor.");
+  if (input.executionAuthorized !== true || !input.executor || !input.verifyAliasBeforeAttempt || !input.registryStore) {
+    throw new Error("Live batch execution requires explicit authorization, an executor, per-attempt alias verification, and a durable atomic registry store.");
+  }
   if (!initialResume.safe) throw new Error(`Unsafe resume refused: ${initialResume.reason}`);
   if (initialResume.complete) return { mode, registry, plannedConfigs: input.plan.configs, invokedAttemptIds: [], resume: initialResume };
 
   const invokedAttemptIds: string[] = [];
+  let durableRegistryDigest = registry.registryDigest;
+  const persistCandidate = async (candidate: BatchRegistry, cause: string): Promise<void> => {
+    const retained = verifyExp0001aBatchRegistry(
+      await input.registryStore!.persist(candidate, durableRegistryDigest),
+      input.plan,
+    );
+    if (retained.registryDigest !== candidate.registryDigest) {
+      throw new Error(`Durable batch registry readback differs after ${cause}.`);
+    }
+    registry = retained;
+    durableRegistryDigest = retained.registryDigest;
+    await input.afterRegistryPersisted?.(retained, cause);
+  };
+  const persistRegistry = async (cause: string): Promise<void> => persistCandidate(registry, cause);
   const limit = input.maxAssignments ?? 48;
   if (!Number.isInteger(limit) || limit < 1 || limit > 48) throw new Error("maxAssignments must be an integer from 1 through 48.");
   for (let position = initialResume.nextManifestPosition; position < input.plan.configs.length && invokedAttemptIds.length < limit; position += 1) {
@@ -532,38 +848,111 @@ export async function runExp0001aBatch(input: {
     invokedAttemptIds.push(config.attempt.attemptId);
     let briefDelivered = false;
     let briefDeliveredAt: string | null = null;
-    const onBriefDelivered = (at: string): void => {
+    let releaseGateFailure: {
+      incidentCode: string;
+      hardIncident: boolean;
+      falsification: boolean;
+      message: string;
+    } | null = null;
+    // The release callback mutates this state across an awaited executor call.
+    // Reading through a function prevents TypeScript from incorrectly treating
+    // the pre-await null initializer as a permanent control-flow fact.
+    const currentReleaseGateFailure = () => releaseGateFailure;
+    const onBriefDelivered = async (requestedAt: string): Promise<string> => {
       if (briefDelivered) throw new Error(`Brief delivery was reported twice for ${config.attempt.attemptId}.`);
-      timestampSchema.parse(at);
-      briefDelivered = true;
-      briefDeliveredAt = at;
-      registry = appendEvent(registry, {
-        kind: "brief_delivered",
-        attemptId: config.attempt.attemptId,
-        at,
-        data: { briefDigest: config.hashes.brief },
-      });
+      timestampSchema.parse(requestedAt);
+      let releaseGateStage: "verification" | "alias_persistence" | "brief_persistence" = "verification";
+      try {
+        const danglingAlias = registry.events.at(-1);
+        if (danglingAlias?.kind === "alias_verified" && danglingAlias.attemptId === config.attempt.attemptId) {
+          const interrupted = appendEvent(registry, {
+            kind: "not_started",
+            attemptId: config.attempt.attemptId,
+            at: requestedAt,
+            data: {
+              incidentCode: "interrupted_after_alias_verification_before_brief",
+              message: "A prior process retained alias verification without delivering the author brief; the provider was not invoked and the alias was reverified at the new release gate.",
+              hardIncident: false,
+              falsification: false,
+            },
+          });
+          await persistCandidate(interrupted, `not_started:${config.attempt.attemptId}`);
+        }
+        const releaseGateRegistryDigest = registry.registryDigest;
+        const receipt = verifyExp0001aPerAttemptAliasReceipt(await input.verifyAliasBeforeAttempt!({
+          attemptId: config.attempt.attemptId,
+          manifestPosition: position,
+          expectedDeploymentId: input.plan.livePreflight.resolvedDeploymentId,
+          releaseGateRequestedAt: requestedAt,
+          releaseGateRegistryDigest,
+        }), {
+          attemptId: config.attempt.attemptId,
+          manifestPosition: position,
+          deploymentId: input.plan.livePreflight.resolvedDeploymentId,
+          releaseGateRequestedAt: requestedAt,
+          releaseGateRegistryDigest,
+        });
+        const aliasCandidate = appendEvent(registry, {
+          kind: "alias_verified",
+          attemptId: config.attempt.attemptId,
+          at: receipt.verifiedAt,
+          data: { receipt },
+        });
+        releaseGateStage = "alias_persistence";
+        await persistCandidate(aliasCandidate, `alias_verified:${config.attempt.attemptId}`);
+        const briefCandidate = appendEvent(registry, {
+          kind: "brief_delivered",
+          attemptId: config.attempt.attemptId,
+          at: receipt.verifiedAt,
+          data: { briefDigest: config.hashes.brief },
+        });
+        releaseGateStage = "brief_persistence";
+        await persistCandidate(briefCandidate, `brief_delivered:${config.attempt.attemptId}`);
+        briefDelivered = true;
+        briefDeliveredAt = receipt.verifiedAt;
+        return receipt.verifiedAt;
+      } catch (error) {
+        releaseGateFailure = {
+          incidentCode: releaseGateStage === "verification"
+            ? "per_attempt_alias_verification_failed"
+            : "brief_registry_persistence_failure",
+          hardIncident: true,
+          falsification: releaseGateStage === "verification",
+          message: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      }
     };
 
     let rawResult: unknown;
     try {
       rawResult = await input.executor(config, { onBriefDelivered });
     } catch (error) {
-      const at = new Date(0).toISOString();
+      const at = new Date().toISOString();
+      const gateFailure = currentReleaseGateFailure();
       if (!briefDelivered) {
+        const incidentCode = gateFailure?.incidentCode ?? "executor_threw_before_brief";
+        const hardIncident = gateFailure?.hardIncident ?? false;
+        const falsification = gateFailure?.falsification ?? false;
         registry = appendEvent(registry, {
           kind: "not_started",
           attemptId: config.attempt.attemptId,
           at,
           data: {
-            incidentCode: "executor_threw_before_brief",
-            message: error instanceof Error ? error.message : String(error),
-            hardIncident: false,
-            falsification: false,
+            incidentCode,
+            message: gateFailure?.message ?? (error instanceof Error ? error.message : String(error)),
+            hardIncident,
+            falsification,
           },
         });
+        await persistRegistry(`not_started:${config.attempt.attemptId}`);
+        if (hardIncident || falsification) {
+          const source = registry.events.at(-1)!;
+          registry = appendHardStop(registry, config.attempt.attemptId, at, incidentCode, source.eventDigest);
+          await persistRegistry(`hard_stop:${config.attempt.attemptId}`);
+        }
       } else {
-        const retained = appendEvent(registry, {
+        registry = appendEvent(registry, {
           kind: "attempt_retained",
           attemptId: config.attempt.attemptId,
           at,
@@ -571,12 +960,18 @@ export async function runExp0001aBatch(input: {
             executorOutcome: "executor_threw",
             retainedOutcome: "infra_failure",
             usage: null,
+            usageByTurn: null,
             pricing: input.plan.pricing,
             actualCostUsd: null,
+            costObservability: "unobservable",
+            providerEvidenceDigest: null,
+            providerIdentity: null,
             artifacts: [],
             artifactRoot: null,
             authorEvidenceRoot: null,
             attemptBundleSha256: null,
+            authorIdentityCommitment: config.runnerConfig.authorIdentityCommitment,
+            authorIdentityArtifactSha256: null,
             missingArtifacts: [...REQUIRED_BEGUN_ARTIFACTS],
             duplicateArtifactPaths: [],
             evidenceComplete: false,
@@ -585,8 +980,10 @@ export async function runExp0001aBatch(input: {
             incidentCode: "executor_threw_after_brief",
           },
         });
-        const source = retained.events.at(-1)!;
-        registry = appendHardStop(retained, config.attempt.attemptId, at, "executor_threw_after_brief", source.eventDigest);
+        await persistRegistry(`attempt_retained:${config.attempt.attemptId}`);
+        const source = registry.events.at(-1)!;
+        registry = appendHardStop(registry, config.attempt.attemptId, at, "executor_threw_after_brief", source.eventDigest);
+        await persistRegistry(`hard_stop:${config.attempt.attemptId}`);
       }
       break;
     }
@@ -594,26 +991,33 @@ export async function runExp0001aBatch(input: {
     const result = executorResultSchema.parse(rawResult);
     if (result.kind === "not_started") {
       if (briefDelivered) throw new Error("Executor reported not_started after announcing brief delivery.");
+      const gateFailure = currentReleaseGateFailure();
+      const incidentCode = gateFailure?.incidentCode ?? result.incidentCode;
+      const message = gateFailure?.message ?? result.message;
+      const hardIncident = gateFailure?.hardIncident ?? result.hardIncident;
+      const falsification = gateFailure?.falsification ?? result.falsification;
       registry = appendEvent(registry, {
         kind: "not_started",
         attemptId: config.attempt.attemptId,
         at: result.at,
         data: {
-          incidentCode: result.incidentCode,
-          message: result.message,
-          hardIncident: result.hardIncident,
-          falsification: result.falsification,
+          incidentCode,
+          message,
+          hardIncident,
+          falsification,
         },
       });
-      if (result.hardIncident || result.falsification) {
+      await persistRegistry(`not_started:${config.attempt.attemptId}`);
+      if (hardIncident || falsification) {
         const source = registry.events.at(-1)!;
-        registry = appendHardStop(registry, config.attempt.attemptId, result.at, result.incidentCode, source.eventDigest);
+        registry = appendHardStop(registry, config.attempt.attemptId, result.at, incidentCode, source.eventDigest);
+        await persistRegistry(`hard_stop:${config.attempt.attemptId}`);
       }
       break;
     }
     if (!briefDelivered || !briefDeliveredAt) throw new Error("Executor returned a begun outcome without the brief-delivery callback.");
     if (Date.parse(result.finishedAt) < Date.parse(briefDeliveredAt)) throw new Error("Attempt finished before brief delivery.");
-    const problems = artifactProblems(result);
+    const problems = artifactProblems(result, config.runnerConfig.authorIdentityCommitment);
     const evidenceComplete = problems.missingArtifacts.length === 0 && problems.duplicateArtifactPaths.length === 0;
     const integrityFailure = !evidenceComplete;
     registry = appendEvent(registry, {
@@ -624,12 +1028,18 @@ export async function runExp0001aBatch(input: {
         executorOutcome: result.outcome,
         retainedOutcome: integrityFailure ? "infra_failure" : result.outcome,
         usage: result.usage,
+        usageByTurn: result.usageByTurn,
         pricing: input.plan.pricing,
-        actualCostUsd: computeActualProviderCost(result.usage, input.plan.pricing),
+        actualCostUsd: computeActualProviderTurnCost(result.usageByTurn, input.plan.pricing),
+        costObservability: result.costObservability,
+        providerEvidenceDigest: result.providerEvidenceDigest,
+        providerIdentity: result.providerIdentity,
         artifacts: result.artifacts,
         artifactRoot: result.artifactRoot,
         authorEvidenceRoot: result.authorEvidenceRoot,
         attemptBundleSha256: result.attemptBundleSha256,
+        authorIdentityCommitment: config.runnerConfig.authorIdentityCommitment,
+        authorIdentityArtifactSha256: result.authorIdentityArtifactSha256,
         missingArtifacts: problems.missingArtifacts,
         duplicateArtifactPaths: problems.duplicateArtifactPaths,
         evidenceComplete,
@@ -638,6 +1048,7 @@ export async function runExp0001aBatch(input: {
         incidentCode: integrityFailure ? "artifact_integrity_failure" : result.incidentCode,
       },
     });
+    await persistRegistry(`attempt_retained:${config.attempt.attemptId}`);
     if (result.hardIncident || result.falsification || integrityFailure) {
       const source = registry.events.at(-1)!;
       registry = appendHardStop(
@@ -647,6 +1058,7 @@ export async function runExp0001aBatch(input: {
         integrityFailure ? "artifact_integrity_failure" : result.incidentCode ?? "hard_incident",
         source.eventDigest,
       );
+      await persistRegistry(`hard_stop:${config.attempt.attemptId}`);
       break;
     }
   }
@@ -683,7 +1095,8 @@ export function createOpaqueEvaluatorWorkItem(
     event.kind === "attempt_retained" && event.attemptId === attemptId
   ));
   if (!retained || !retained.data.evidenceComplete || !retained.data.artifactRoot
-    || !retained.data.authorEvidenceRoot || !retained.data.attemptBundleSha256) {
+    || !retained.data.authorEvidenceRoot || !retained.data.attemptBundleSha256
+    || !retained.data.authorIdentityArtifactSha256) {
     throw new Error("Evaluator work requires complete retained evidence.");
   }
   const registration = registry.events.find((event): event is z.infer<typeof assignmentRegisteredEventSchema> => (
@@ -701,6 +1114,8 @@ export function createOpaqueEvaluatorWorkItem(
     expectedAttemptBundleSha256: retained.data.attemptBundleSha256,
     expectedArtifactRoot: retained.data.artifactRoot,
     expectedAuthorEvidenceRoot: retained.data.authorEvidenceRoot,
+    expectedAuthorIdentityCommitment: retained.data.authorIdentityCommitment,
+    expectedAuthorIdentityArtifactSha256: retained.data.authorIdentityArtifactSha256,
     taskId: registration.data.taskId,
     expectedRubricSha256: compiled.commitments.rubric,
     reviewerId: options.reviewerId,

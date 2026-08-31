@@ -4,6 +4,11 @@
 - Baseline product commit: `48a52e0837144ea0db8a09e43217397226759f83`
 - Baseline freeze receipt: `research/data/baseline-freeze-v1.json`
 - Initial development protocol: `exp-0001-development-pilot.md`
+- Active measurement-calibration protocol: `exp-0001a-aa-calibration.md`
+- Operational continuation record: `exp-0001a-execution-readiness.md`
+- Active transport amendment: `exp-0001a-codex-native-transport-v1.md`
+- Public rater-validity gate: `public-gold-rater-validation-v1.md`
+- Active failure contract: `failure-taxonomy-v2.md` once the prebrief is frozen
 
 ## Purpose
 
@@ -38,10 +43,12 @@ a real Jazzboard user. It receives no repository access, terminal, private room
 API, `page.evaluate` mutation, prepared coordinates, operation fixture,
 benchmark answer, or evaluator assistance.
 
-Each attempt uses a fresh private room and fresh agent context. Baseline and
-candidate sessions use the same frozen model snapshot, reasoning setting,
-sampling settings, task instance, source packet, browser and host versions,
-viewport, and token, time, call, and correction budgets. The conditions are
+Each attempt uses a fresh private room and fresh projectless Codex task backed
+by ChatGPT sign-in. Baseline and candidate sessions use the same frozen
+requested model, reasoning setting, task instance, source packet, browser and
+host versions, viewport, and time, call, and correction budgets. Resolved model
+snapshots, tokens, subscription usage, and ChatGPT credits are recorded only
+when exposed and are otherwise `unobservable`. The conditions are
 interleaved, and their order is randomized within task-and-replicate blocks.
 If an API does not provide deterministic sampling, replicate index and time
 block are pairing controls; they must not be described as identical randomness.
@@ -63,6 +70,23 @@ to choose a candidate during the development pilot or validation phases.**
 
 ## Phased program
 
+The active program inserts two validity gates before the previously described
+development A/B pilot. This ordering is authoritative for the current research
+branch:
+
+1. complete provider-free execution readiness and hard-block API transport;
+2. pass one fresh projectless Codex/WebMCP disposable spike through ChatGPT
+   sign-in;
+3. run EXP-0001A A/A through isolated Codex tasks while preserving usage-limit
+   pauses and chronological A0/A1 balance;
+4. validate the frozen rater on a separately preregistered public gold corpus;
+5. publish both gate reports and resolve every alarm; and only then
+6. freeze and run a candidate-versus-baseline development A/B experiment.
+
+A/A agreement is reliability evidence, not reviewer-accuracy evidence. Public
+gold validity is rater-accuracy evidence, not product-lift evidence. Neither
+gate may be skipped or pooled into an apparent improvement estimate.
+
 ### Phase 0 — Measurement readiness
 
 Freeze the baseline, artifact schemas, trace validation, scorer behavior,
@@ -70,13 +94,34 @@ reviewer blinding, hash manifests, environment capture, and all-attempt run
 registry. Verify that transport fixtures and contract tests are labeled
 separately from autonomous authoring trials.
 
-### Phase 1 — Development pilot
+### Phase 0A — A/A operational calibration
 
-Run experiment `exp-0001`: 12 development tasks, two paired replicates per
-task, 24 baseline/candidate pairs and 48 total agent sessions. Use it to measure
-feasibility, characterize failure modes, estimate paired discordance and
-task-level variance, validate scoring, and simulate later sample sizes. It is
-not confirmatory evidence and cannot authorize a general improvement claim.
+Run EXP-0001A with the exact same receipt-bound baseline behind both opaque
+labels. Its fixed schedule is 12 public development tasks, two task-level
+replicates, 24 pairs, 48 author attempts, and two primaries per retained
+attempt. It tests clean-room execution, denominator completeness, treatment
+neutrality, reviewer repeatability, provenance, recovery, accounting, and
+cluster-aware analysis. It cannot support a product-improvement or reviewer-
+accuracy claim.
+
+### Phase 0B — Public gold rater validation
+
+Run the exact production-shaped blinded evaluator on independently labeled
+public rendered artifacts spanning architecture and drawing. Report
+sensitivity, specificity, false accepts, false rejects, criterion behavior,
+domain differences, evidence coverage, and source-exemplar-clustered
+uncertainty. A/A may not substitute for this gate. The corpus, thresholds,
+randomization, task settings, and subscription-accounting policy must freeze
+before the first evaluated response.
+
+### Phase 1 — Development A/B pilot
+
+Only after phases 0A and 0B pass, freeze a new version of experiment `exp-0001`:
+12 development tasks, two paired replicates per task, 24 baseline/candidate
+pairs and 48 total agent sessions. Use it to measure feasibility, characterize
+failure modes, estimate paired discordance and task-level variance, and
+simulate later sample sizes. It is exploratory, not confirmatory, and cannot
+authorize a general improvement claim.
 
 ### Phase 2 — Validation and ablation
 

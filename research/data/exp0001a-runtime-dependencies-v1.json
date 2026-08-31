@@ -1,0 +1,32 @@
+{
+  "capturedAt": "2026-08-31T01:42:45.646Z",
+  "captureVerificationDurationMs": 925,
+  "componentSetRoot": "sha256:e17ed0ae303b9ff9d2e1e48ec76d0c88082e7f9e240c5cfada33a2aada3c32e8",
+  "components": [
+    {"criticalBytes":284532053,"criticalEntryCount":29,"criticalRoot":"sha256:819988fd7053e4b3bde5f6081b3c796d1447cda490db64ee61d2ed59bba064b5","entryCount":654,"fileCount":334,"id":"chromiumRuntime","kind":"tree","symlinkCount":5,"totalBytes":372014756,"treeRoot":"sha256:0ee019de903a5f479c57133b54415cdb315b6789fa9c648139403bfdfbf7ec79","version":"151.0.7922.34"},
+    {"criticalBytes":11429,"criticalEntryCount":5,"criticalRoot":"sha256:534add0612cfcf2c43685415a7fd103d49f81ab755f997840910e052d8168bf1","entryCount":9,"fileCount":8,"id":"detectLibcPackage","kind":"tree","symlinkCount":0,"totalBytes":26437,"treeRoot":"sha256:d4b09b4eb101674f182f9fd93c421664900b857877d412c97e9763a2fbd9a428","version":"2.1.2"},
+    {"criticalBytes":84640,"criticalEntryCount":1,"criticalRoot":"sha256:a2a8b0130777bb8b4bcb252d81c68761e3a9c022aa4fb1761dea0eaf05e26704","entryCount":1,"fileCount":1,"id":"nodeExecutable","kind":"file","symlinkCount":0,"totalBytes":84640,"treeRoot":"sha256:ceefd2883b0825bb177e1b4b24921a51c51a6b256b814dfe16f25fd49d51f056","version":"22.22.0"},
+    {"criticalBytes":10422299,"criticalEntryCount":49,"criticalRoot":"sha256:5c66a54efc6c4dba4f3f6e234f62d1d6570ac2142dbf2f3d12e5ba6e79227cd4","entryCount":136,"fileCount":111,"id":"playwrightCorePackage","kind":"tree","symlinkCount":0,"totalBytes":13442086,"treeRoot":"sha256:4de2ed89547ef40659fffaa9d0bbe7c5c9b0e1522a336c1872c4b125241a8879","version":"1.62.1"},
+    {"criticalBytes":4400577,"criticalEntryCount":35,"criticalRoot":"sha256:633b10ff8813c994140b10a67d47fa9b84a1c27e3228cf6515965375257b944b","entryCount":74,"fileCount":62,"id":"playwrightPackage","kind":"tree","symlinkCount":0,"totalBytes":5074152,"treeRoot":"sha256:f04fd2bca040b571ea26aaa2b6afc554a06bfcf62b40ca30d13c6a867fff4103","version":"1.62.1"},
+    {"criticalBytes":46700,"criticalEntryCount":3,"criticalRoot":"sha256:bed01b345db7ef4a9be5afd35b98c4bf37523a30070861ade7e11abb23538eba","entryCount":6,"fileCount":6,"id":"sharpColourPackage","kind":"tree","symlinkCount":0,"totalBytes":73264,"treeRoot":"sha256:77a0b50c6583ad3a7cec3533a2d1489cfff3011d23080b8fb83444c2ec32a374","version":"1.1.0"},
+    {"criticalBytes":17767497,"criticalEntryCount":4,"criticalRoot":"sha256:9e2ee349ff544a717cc3a6472a8ffb678d8b7b4b70ee29d7eeca44560e2ae780","entryCount":9,"fileCount":6,"id":"sharpLibvipsPackage","kind":"tree","symlinkCount":0,"totalBytes":17777811,"treeRoot":"sha256:477c71baacc0d7860f48d7e89066226e63a7bb4a4ad758fd7964a3a34aad3b19","version":"1.3.2"},
+    {"criticalBytes":281259,"criticalEntryCount":3,"criticalRoot":"sha256:411783a0fbaf86a925eae62e78698f77f7c8b8dc2abb6437f34344f655399cf3","entryCount":6,"fileCount":5,"id":"sharpNativePackage","kind":"tree","symlinkCount":0,"totalBytes":292231,"treeRoot":"sha256:4c04cbe8432b9d13cded4c4ac63a4fb03fc88af07b700eab777f8827e1e52f66","version":"0.35.3"},
+    {"criticalBytes":523334,"criticalEntryCount":79,"criticalRoot":"sha256:ce0bde0d0047dbea53fc8248974feb099fd07be9ffe8806095fdee6348b87334","entryCount":113,"fileCount":100,"id":"sharpPackage","kind":"tree","symlinkCount":1,"totalBytes":1059554,"treeRoot":"sha256:26fd9f57b5d937946a048958116da0bdc09d966953a229708c3a44f426d5e7d2","version":"0.35.3"}
+  ],
+  "host": {
+    "architecture": "arm64",
+    "nodeVersion": "22.22.0",
+    "operatingSystemBuild": "25G83",
+    "platform": "darwin"
+  },
+  "policy": {
+    "absolutePathsPublished": false,
+    "criticalSelection": "symlinks-or-executable-bit-or-js-json-native-dylib-extension",
+    "criticalVerification": "two-identical-captures-before-each-attempt-before-browser-or-brief",
+    "forbiddenEnvironmentVariables": ["DYLD_INSERT_LIBRARIES","DYLD_LIBRARY_PATH","LD_PRELOAD","NODE_OPTIONS","NODE_PATH","PLAYWRIGHT_BROWSERS_PATH","PLAYWRIGHT_NODEJS_PATH","SHARP_FORCE_GLOBAL_LIBVIPS","SHARP_IGNORE_GLOBAL_LIBVIPS"],
+    "fullTreeVerification": "two-identical-captures-before-runtime-import"
+  },
+  "protocolId": "EXP-0001A",
+  "receiptDigest": "sha256:624318d3717f9f26211659d6ef552f4e40585ff2a6d598a24f19a2dfdd45e1c4",
+  "schemaVersion": "exp-0001a-runtime-dependencies/v1"
+}

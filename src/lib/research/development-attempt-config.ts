@@ -26,7 +26,7 @@ import { findSecretLeakage } from "./provenance-redaction";
 const PUBLIC_BASE_URL = "https://www.jazzboard.xyz/" as const;
 const EXPECTED_PARTICIPANT_CONTRACT_HASH = "d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e" as const;
 const EXPECTED_SPECTATOR_CONTRACT_HASH = "1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2" as const;
-const EXPECTED_PROFILE_DIGEST = "sha256:a19cce624843cee156f38b5514e2e1b1590f2ad05752e8f70f520ab5d6d34ba4" as const;
+const EXPECTED_PROFILE_DIGEST = "sha256:d2175a5868d8eb72c24745feb820d54a8c7d2e4cd864f54c39cd9d74de0ded74" as const;
 const sha256Schema = z.string().regex(SHA256_DIGEST_PATTERN);
 const safeIdSchema = z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
 const toolNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/);
@@ -51,6 +51,10 @@ const runnerProfileContentSchema = z.object({
   model: z.object({
     id: z.literal("gpt-5.6-sol"),
     reasoningEffort: z.literal("max"),
+    serviceTier: z.literal("default"),
+  }).strict(),
+  runtime: z.object({
+    nodeVersion: z.literal("22.22.0"),
   }).strict(),
   browser: z.object({
     engine: z.literal("chromium"),
@@ -111,10 +115,17 @@ const runnerConcurrentEventSchema = z.object({
 
 export const cleanRoomRunnerConfigSchema = z.object({
   attemptId: safeIdSchema,
+  sessionAlias: z.string().regex(/^session-[a-f0-9]{12}$/),
+  authorIdentityCommitment: sha256Schema,
   baseUrl: z.literal(PUBLIC_BASE_URL),
+  expectedRuntime: z.object({
+    nodeVersion: z.literal("22.22.0"),
+    browserVersion: z.literal("151.0.7922.34"),
+  }).strict(),
   brief: z.string().min(1),
   model: z.literal("gpt-5.6-sol"),
   reasoningEffort: z.literal("max"),
+  serviceTier: z.literal("default"),
   allowedToolNames: z.array(toolNameSchema).min(1),
   participantToolContractHash: z.literal(EXPECTED_PARTICIPANT_CONTRACT_HASH),
   spectatorToolContractHash: z.literal(EXPECTED_SPECTATOR_CONTRACT_HASH),
@@ -157,7 +168,11 @@ const treatmentConfigurationSchema = z.object({
   buildIdentityDigest: z.literal(EXPECTED_BASELINE_FREEZE.buildIdentityDigest),
   participantToolContractHash: z.literal(EXPECTED_PARTICIPANT_CONTRACT_HASH),
   spectatorToolContractHash: z.literal(EXPECTED_SPECTATOR_CONTRACT_HASH),
-  model: z.object({ id: z.literal("gpt-5.6-sol"), reasoningEffort: z.literal("max") }).strict(),
+  model: z.object({
+    id: z.literal("gpt-5.6-sol"),
+    reasoningEffort: z.literal("max"),
+    serviceTier: z.literal("default"),
+  }).strict(),
   browser: runnerProfileContentSchema.shape.browser,
   viewport: runnerProfileContentSchema.shape.viewport,
   budgets: runnerProfileContentSchema.shape.budgets,
@@ -209,12 +224,13 @@ function contentWithoutDigest<T extends Record<string, unknown>>(value: T, key: 
   return Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key)) as Omit<T, keyof T> & Record<string, unknown>;
 }
 
-function permittedBudgetTokenFinding(finding: string): boolean {
-  return /\/(?:budgets\/)?(?:inputTokenBudget|outputTokenBudget|perResponseMaxOutputTokens):secret-key$/.test(finding);
+function permittedPublishableFinding(finding: string): boolean {
+  return /\/(?:budgets\/)?(?:inputTokenBudget|outputTokenBudget|perResponseMaxOutputTokens):secret-key$/.test(finding)
+    || finding === "/runnerConfig/sessionAlias:secret-key";
 }
 
 function assertPublishable(value: unknown, label: string): void {
-  const leakage = findSecretLeakage(value).filter((finding) => !permittedBudgetTokenFinding(finding));
+  const leakage = findSecretLeakage(value).filter((finding) => !permittedPublishableFinding(finding));
   const serialized = JSON.stringify(value);
   if (/sealed/i.test(serialized)) leakage.push("sealed-material");
   if (leakage.length > 0) throw new Error(`${label} contains sensitive or sealed material: ${[...new Set(leakage)].join(", ")}`);
@@ -264,10 +280,17 @@ function operation(plan: { toolName: "apply_canvas_transaction"; input: Record<s
 
 export type CreateDevelopmentAttemptConfigOptions = {
   attemptId: string;
+  authorIdentityCommitment: string;
   aliasPreflight: unknown;
   manifest?: unknown;
   runnerProfile?: unknown;
 };
+
+/** Opaque author-visible alias; its trusted mapping to attemptId never enters the author context. */
+export function deriveAuthorSessionAlias(authorIdentityCommitmentInput: string): string {
+  const authorIdentityCommitment = sha256Schema.parse(authorIdentityCommitmentInput);
+  return `session-${hashCanonicalJson({ schemaVersion: 1, authorIdentityCommitment }).slice("sha256:".length, "sha256:".length + 12)}`;
+}
 
 /**
  * Pure bridge from frozen research inputs to a single executable runner config.
@@ -281,6 +304,8 @@ export function createDevelopmentAttemptConfig(
     options.runnerProfile ?? developmentRunnerProfileJson,
   );
   const preflight = aliasPreflightReceiptSchema.parse(options.aliasPreflight);
+  const authorIdentityCommitment = sha256Schema.parse(options.authorIdentityCommitment);
+  const sessionAlias = deriveAuthorSessionAlias(authorIdentityCommitment);
   const { pair, attempt } = selectAttempt(manifest, options.attemptId);
   if (!attempt.freshAuthorContext || !attempt.freshRoom) throw new Error("Every EXP-0001A attempt requires a fresh author context and room.");
 
@@ -308,10 +333,17 @@ export function createDevelopmentAttemptConfig(
     : [];
   const runnerConfig = cleanRoomRunnerConfigSchema.parse({
     attemptId: attempt.attemptId,
+    sessionAlias,
+    authorIdentityCommitment,
     baseUrl: profile.baseUrl,
+    expectedRuntime: {
+      nodeVersion: profile.runtime.nodeVersion,
+      browserVersion: profile.browser.version,
+    },
     brief: compiled.author.renderedBrief,
     model: profile.model.id,
     reasoningEffort: profile.model.reasoningEffort,
+    serviceTier: profile.model.serviceTier,
     allowedToolNames: profile.allowedToolNames,
     participantToolContractHash: profile.participantToolContractHash,
     spectatorToolContractHash: profile.spectatorToolContractHash,
@@ -323,7 +355,7 @@ export function createDevelopmentAttemptConfig(
     perResponseMaxOutputTokens: profile.budgets.perResponseMaxOutputTokens,
     allowedBrowserOrigins: ["https://www.jazzboard.xyz"],
     displayName: "Research Author",
-    roomTitle: `EXP-0001A ${attempt.attemptId}`,
+    roomTitle: `Jazzboard ${sessionAlias.slice("session-".length).toUpperCase()}`,
     spectatorDisplayName: "Research Evaluator",
     setupActorDisplayName: "Research Fixture",
     eventActorDisplayName: "Research Collaborator",
@@ -390,6 +422,7 @@ export function verifyDevelopmentAttemptConfig(input: unknown): DevelopmentAttem
   const parsed = developmentAttemptConfigSchema.parse(input);
   const expected = createDevelopmentAttemptConfig({
     attemptId: parsed.attempt.attemptId,
+    authorIdentityCommitment: parsed.runnerConfig.authorIdentityCommitment,
     aliasPreflight: parsed.aliasPreflight,
   });
   if (hashCanonicalJson(parsed) !== hashCanonicalJson(expected)) throw new Error("Attempt config differs from the deterministic frozen bridge output.");

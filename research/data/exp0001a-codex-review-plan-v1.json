@@ -1,0 +1,402 @@
+{
+  "schemaVersion": "exp-0001a-codex-review-plan-manifest/v1",
+  "protocolId": "EXP-0001A",
+  "sourceExecutionManifestDigest": "sha256:aa6fa47e1f2087f33b6b114f2a881f67d5b612d76c34b0353c4b622f54387790",
+  "sourceFreezeDigest": "sha256:6c76eafb78fb158527dff5bf6055f2e677e070e15ae65868bbb96d1b6fd21281",
+  "primaryAssignmentAlgorithm": "sha256-ranked-by-registry-artifact-identity-and-purpose",
+  "primaryAssignmentSeed": "sha256:4ff57832530729a69f3d2b8b7f719e4a5fcfb04bc63156e1ec380c8a6063d7ba",
+  "primaryReviewerRoster": [
+    {
+      "reviewerId": "rvw-aa-01",
+      "identityCommitment": "sha256:1cfb1c0df2dffc4f35358d88de0cca5c2b31d84d26c5394945c6ab5210ae7303"
+    },
+    {
+      "reviewerId": "rvw-aa-02",
+      "identityCommitment": "sha256:9db22bcb3719a9903c60883f6dd4ba0cfa711d3fc28f33566bb9e435be2ac5c2"
+    },
+    {
+      "reviewerId": "rvw-aa-03",
+      "identityCommitment": "sha256:751a017ce8ce9fb9b9084f7211b513b99979e119f77870e047c4c9af298f82d8"
+    },
+    {
+      "reviewerId": "rvw-aa-04",
+      "identityCommitment": "sha256:683e01cbb6d3655f3815411a2e61887c5836ce999d92b929f5b57af7b078adeb"
+    },
+    {
+      "reviewerId": "rvw-aa-05",
+      "identityCommitment": "sha256:01d00b16ada73bbb1ca22541efdc0f70fd8e17adf262273a5a7c29627f12ca50"
+    }
+  ],
+  "primaryReviewerRosterRoot": "sha256:c2eeef52a25099d95110aa6dc524f914e3e32f35804982969245d0fadfacf818",
+  "adjudicationTrigger": "binary-primary-acceptance-disagreement-only",
+  "pairwisePromptDigest": "sha256:be16214a6727b17085ab402bc0d1d5d6177c5f2b0b37d4d2d140f6b8ed011e69",
+  "pairwiseRandomizationAlgorithm": "sha256-ranked-balanced-family-replicate-v1",
+  "pairwiseReviewerRoster": [
+    {
+      "reviewerId": "pairwise-rvw-01",
+      "identityCommitment": "sha256:a710473c25f7a1e49d2eecabe70b8f3801acdb130e2c796c682f8a7f5fa180ce"
+    },
+    {
+      "reviewerId": "pairwise-rvw-02",
+      "identityCommitment": "sha256:819f8f159007babacc2c06390fd99edd780ad431fb6c9700a4edb0a0ad5f7aa4"
+    },
+    {
+      "reviewerId": "pairwise-rvw-03",
+      "identityCommitment": "sha256:51822e4f1f414225a4070f0197baa2902ff06ac9438958681352460215da299a"
+    },
+    {
+      "reviewerId": "pairwise-rvw-04",
+      "identityCommitment": "sha256:3da58d190c00ae56cebe0909eb43779c9d4a791c8b1797576917ce2ca05d0ec8"
+    },
+    {
+      "reviewerId": "pairwise-rvw-05",
+      "identityCommitment": "sha256:c89ea9da3a56d31aae0e8535ff568b56dedd2f8d98dad01e0c09d51910fdcdfc"
+    },
+    {
+      "reviewerId": "pairwise-rvw-06",
+      "identityCommitment": "sha256:3f137aca16f67be2a83adc34d849daf587979b4cbac7263620ff3522bda0e7f0"
+    },
+    {
+      "reviewerId": "pairwise-rvw-07",
+      "identityCommitment": "sha256:52461261d2463532e4095c0a080b8f5a2b81565393a7ede5d31e198243a63621"
+    },
+    {
+      "reviewerId": "pairwise-rvw-08",
+      "identityCommitment": "sha256:303521a5105201c4795a3efbef74bbf72a82e994e01fbf5f249c2cb46d151334"
+    },
+    {
+      "reviewerId": "pairwise-rvw-09",
+      "identityCommitment": "sha256:b37223af87142d21a86ad1008a4879d6cc24179a2a830f07249ab84fe54f8718"
+    },
+    {
+      "reviewerId": "pairwise-rvw-10",
+      "identityCommitment": "sha256:309106b7079f8d6eee1676b616e9a21fd4e30effed6ed3387f63f5ec2572fc9c"
+    },
+    {
+      "reviewerId": "pairwise-rvw-11",
+      "identityCommitment": "sha256:5b2b5670cad280aade8680874849bfe0783342be0da5867feda189ee21209fc1"
+    },
+    {
+      "reviewerId": "pairwise-rvw-12",
+      "identityCommitment": "sha256:550b49b1ea6391a5bbad80f69434808f8126c757caf5a2e6bccd13ee5ce56906"
+    },
+    {
+      "reviewerId": "pairwise-rvw-13",
+      "identityCommitment": "sha256:f2ff40cdf60f668fecc0f3f9d39ad24b51225dd72bd5c1d369223fdc62ef4bb6"
+    },
+    {
+      "reviewerId": "pairwise-rvw-14",
+      "identityCommitment": "sha256:5d659e904b69fff26260e5a03b9cf2a0ac82fee927377a532be74894162bf614"
+    },
+    {
+      "reviewerId": "pairwise-rvw-15",
+      "identityCommitment": "sha256:b603faafbc3201c383b15d37ba430979ad6ae11690a2f8e27767f7196fb26224"
+    },
+    {
+      "reviewerId": "pairwise-rvw-16",
+      "identityCommitment": "sha256:3085b1e654bc1fc8b4fe30da1cdac68861852abc9f10fb9f73e540dbf81bc0be"
+    },
+    {
+      "reviewerId": "pairwise-rvw-17",
+      "identityCommitment": "sha256:2602b702bc9eb3519c22560dadc4e2587e83a235afe0ef8728eb6fe5a38a3f8c"
+    },
+    {
+      "reviewerId": "pairwise-rvw-18",
+      "identityCommitment": "sha256:ae2fe977ab46569c3c8b6577bcfc818369e21bc3f79129b77fc2cbab9a07ffce"
+    },
+    {
+      "reviewerId": "pairwise-rvw-19",
+      "identityCommitment": "sha256:6d2cf68cba56e1848bd3811253f888555b39d232325b0f4a6931b20192cceae4"
+    },
+    {
+      "reviewerId": "pairwise-rvw-20",
+      "identityCommitment": "sha256:64ad8dfa55712812909e3a364800d9cf7448dfe19bfd9a5cf446f88210fa66a3"
+    },
+    {
+      "reviewerId": "pairwise-rvw-21",
+      "identityCommitment": "sha256:e7100a52726a94437ec0f22f75c39897abbba578b1835e53a0807ca8292b2141"
+    },
+    {
+      "reviewerId": "pairwise-rvw-22",
+      "identityCommitment": "sha256:88eba5eb05d78659b8a290d251200942dfd12068a288abb9b986ff63f7da5916"
+    },
+    {
+      "reviewerId": "pairwise-rvw-23",
+      "identityCommitment": "sha256:3621014de225cb3ff3774cc220fafb7424910cdbba320ff04d63a4d864966900"
+    },
+    {
+      "reviewerId": "pairwise-rvw-24",
+      "identityCommitment": "sha256:fba31bbfdfcf430aa23cdb3dbd2af67a9f5c1aef94e94f6917b03f1de7fb5137"
+    }
+  ],
+  "pairwiseReviewerRosterRoot": "sha256:0b14fe34534284ebd15d14c6a577c2d663e152f535326c4a53272d7bc06ef8e2",
+  "pairwiseAssignments": [
+    {
+      "pairIndex": 0,
+      "pairId": "pair-dev-architecture-create-checkout-r1",
+      "taskId": "dev-architecture-create-checkout",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-01",
+      "reviewerIdentityCommitment": "sha256:a710473c25f7a1e49d2eecabe70b8f3801acdb130e2c796c682f8a7f5fa180ce",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:5942224b4b89ff90603efad0c735f4d0f60e91a0984d0ac53035de33c4bee163"
+    },
+    {
+      "pairIndex": 1,
+      "pairId": "pair-dev-drawing-stress-concurrent-collage-r1",
+      "taskId": "dev-drawing-stress-concurrent-collage",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-02",
+      "reviewerIdentityCommitment": "sha256:819f8f159007babacc2c06390fd99edd780ad431fb6c9700a4edb0a0ad5f7aa4",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:6822bc5361c6cadd86578bbea2e30f1d1dca682911d04f4e6342b151cca87101"
+    },
+    {
+      "pairIndex": 2,
+      "pairId": "pair-dev-architecture-edit-uncertainty-r1",
+      "taskId": "dev-architecture-edit-uncertainty",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-03",
+      "reviewerIdentityCommitment": "sha256:51822e4f1f414225a4070f0197baa2902ff06ac9438958681352460215da299a",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:f5ebf017a518972498fbb877fdb40bddd14aa4fdbefd8859ecd144ed72ddf6fd"
+    },
+    {
+      "pairIndex": 3,
+      "pairId": "pair-dev-drawing-edit-style-match-r1",
+      "taskId": "dev-drawing-edit-style-match",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-04",
+      "reviewerIdentityCommitment": "sha256:3da58d190c00ae56cebe0909eb43779c9d4a791c8b1797576917ce2ca05d0ec8",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:cf9cc802f7d35beef0fbb5d702caaf94d241be391513e96b207e21c897f500cf"
+    },
+    {
+      "pairIndex": 4,
+      "pairId": "pair-dev-architecture-stress-dense-routing-r1",
+      "taskId": "dev-architecture-stress-dense-routing",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-05",
+      "reviewerIdentityCommitment": "sha256:c89ea9da3a56d31aae0e8535ff568b56dedd2f8d98dad01e0c09d51910fdcdfc",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:c5b88a4c791ce697100a575405dbb6f681725e6ccf8e6d399d6f060f38248b49"
+    },
+    {
+      "pairIndex": 5,
+      "pairId": "pair-dev-drawing-edit-crop-repair-r1",
+      "taskId": "dev-drawing-edit-crop-repair",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-06",
+      "reviewerIdentityCommitment": "sha256:3f137aca16f67be2a83adc34d849daf587979b4cbac7263620ff3522bda0e7f0",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:b098902958880a557b3870d4cc6dd225f4428d3f9c98051f8b1b178555a8baf2"
+    },
+    {
+      "pairIndex": 6,
+      "pairId": "pair-dev-architecture-create-observability-r1",
+      "taskId": "dev-architecture-create-observability",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-07",
+      "reviewerIdentityCommitment": "sha256:52461261d2463532e4095c0a080b8f5a2b81565393a7ede5d31e198243a63621",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:056d4b08f5c03a01ae158ee172205d472863784331a964b36dd89b36daeb7ebf"
+    },
+    {
+      "pairIndex": 7,
+      "pairId": "pair-dev-drawing-create-layered-portrait-r1",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-08",
+      "reviewerIdentityCommitment": "sha256:303521a5105201c4795a3efbef74bbf72a82e994e01fbf5f249c2cb46d151334",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:43cba92b95c46d1359fed5616054755201d088e18b16f8721edb60cf91b18800"
+    },
+    {
+      "pairIndex": 8,
+      "pairId": "pair-dev-architecture-edit-primary-path-r1",
+      "taskId": "dev-architecture-edit-primary-path",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-09",
+      "reviewerIdentityCommitment": "sha256:b37223af87142d21a86ad1008a4879d6cc24179a2a830f07249ab84fe54f8718",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:53ac442667eb3ecca2a25dd4246100d8fb5834808c037e0aed4a020c13cafdf7"
+    },
+    {
+      "pairIndex": 9,
+      "pairId": "pair-dev-drawing-stress-untrusted-text-r1",
+      "taskId": "dev-drawing-stress-untrusted-text",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-10",
+      "reviewerIdentityCommitment": "sha256:309106b7079f8d6eee1676b616e9a21fd4e30effed6ed3387f63f5ec2572fc9c",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:c02076ba3d47d78f19f8ee02865a27cf4193d96c4b029b3c596d07f614378fd5"
+    },
+    {
+      "pairIndex": 10,
+      "pairId": "pair-dev-architecture-stress-stale-revision-r1",
+      "taskId": "dev-architecture-stress-stale-revision",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-11",
+      "reviewerIdentityCommitment": "sha256:5b2b5670cad280aade8680874849bfe0783342be0da5867feda189ee21209fc1",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:18c51875091edb2937ee12c41588cdd01118d455d6d9149c73318f7fdf7f2def"
+    },
+    {
+      "pairIndex": 11,
+      "pairId": "pair-dev-drawing-create-wayfinding-icon-r1",
+      "taskId": "dev-drawing-create-wayfinding-icon",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-12",
+      "reviewerIdentityCommitment": "sha256:550b49b1ea6391a5bbad80f69434808f8126c757caf5a2e6bccd13ee5ce56906",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:260f2a2e7b3a52ed7d30c7a44b3a5fd25eaf42205e4f83675d20788e160536ff"
+    },
+    {
+      "pairIndex": 12,
+      "pairId": "pair-dev-architecture-stress-stale-revision-r2",
+      "taskId": "dev-architecture-stress-stale-revision",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-13",
+      "reviewerIdentityCommitment": "sha256:f2ff40cdf60f668fecc0f3f9d39ad24b51225dd72bd5c1d369223fdc62ef4bb6",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:42fd7de3ccc6ece9fd730642280d82940f03ef8f2ec9f913a2c30a110f9f082d"
+    },
+    {
+      "pairIndex": 13,
+      "pairId": "pair-dev-drawing-edit-crop-repair-r2",
+      "taskId": "dev-drawing-edit-crop-repair",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-14",
+      "reviewerIdentityCommitment": "sha256:5d659e904b69fff26260e5a03b9cf2a0ac82fee927377a532be74894162bf614",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:1429b5b6704e3b5183f61753f72759452be188c4d14a62f34aaf274f5d430884"
+    },
+    {
+      "pairIndex": 14,
+      "pairId": "pair-dev-architecture-create-checkout-r2",
+      "taskId": "dev-architecture-create-checkout",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-15",
+      "reviewerIdentityCommitment": "sha256:b603faafbc3201c383b15d37ba430979ad6ae11690a2f8e27767f7196fb26224",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:228378574616f95a28499d76759a3e539c8e5dddf912797da62d6a765fa4446c"
+    },
+    {
+      "pairIndex": 15,
+      "pairId": "pair-dev-drawing-stress-untrusted-text-r2",
+      "taskId": "dev-drawing-stress-untrusted-text",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-16",
+      "reviewerIdentityCommitment": "sha256:3085b1e654bc1fc8b4fe30da1cdac68861852abc9f10fb9f73e540dbf81bc0be",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:3ec176b6cef4dacb2bf08a285236992de6890a71a7489e611b7295c0108f45dc"
+    },
+    {
+      "pairIndex": 16,
+      "pairId": "pair-dev-architecture-stress-dense-routing-r2",
+      "taskId": "dev-architecture-stress-dense-routing",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-17",
+      "reviewerIdentityCommitment": "sha256:2602b702bc9eb3519c22560dadc4e2587e83a235afe0ef8728eb6fe5a38a3f8c",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:956bf7059e13d4000f92e6c052165bf77a77daff1af45b8277350f9831e97a43"
+    },
+    {
+      "pairIndex": 17,
+      "pairId": "pair-dev-drawing-create-wayfinding-icon-r2",
+      "taskId": "dev-drawing-create-wayfinding-icon",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-18",
+      "reviewerIdentityCommitment": "sha256:ae2fe977ab46569c3c8b6577bcfc818369e21bc3f79129b77fc2cbab9a07ffce",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:a0a94270cdc2e564ed7c0eee3336d8f303450fb9ffd4b8efaea22cbfe4059441"
+    },
+    {
+      "pairIndex": 18,
+      "pairId": "pair-dev-architecture-edit-primary-path-r2",
+      "taskId": "dev-architecture-edit-primary-path",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-19",
+      "reviewerIdentityCommitment": "sha256:6d2cf68cba56e1848bd3811253f888555b39d232325b0f4a6931b20192cceae4",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:8d93a9815bb9b29fce72641d0692f915fa61ca3a355d6cef28176524ed65803e"
+    },
+    {
+      "pairIndex": 19,
+      "pairId": "pair-dev-drawing-stress-concurrent-collage-r2",
+      "taskId": "dev-drawing-stress-concurrent-collage",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-20",
+      "reviewerIdentityCommitment": "sha256:64ad8dfa55712812909e3a364800d9cf7448dfe19bfd9a5cf446f88210fa66a3",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:1bc8ade09fe62b7575488b8510514a1d71350cb67959bd2f42f785a0aec5b776"
+    },
+    {
+      "pairIndex": 20,
+      "pairId": "pair-dev-architecture-edit-uncertainty-r2",
+      "taskId": "dev-architecture-edit-uncertainty",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-21",
+      "reviewerIdentityCommitment": "sha256:e7100a52726a94437ec0f22f75c39897abbba578b1835e53a0807ca8292b2141",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:767e45f01c61bfec637ce53b71716b27d8fc8c3db1a0cffc6f87221203aaf722"
+    },
+    {
+      "pairIndex": 21,
+      "pairId": "pair-dev-drawing-edit-style-match-r2",
+      "taskId": "dev-drawing-edit-style-match",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-22",
+      "reviewerIdentityCommitment": "sha256:88eba5eb05d78659b8a290d251200942dfd12068a288abb9b986ff63f7da5916",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:1e5133ddc126733d4f1359a1a360287d96318664fce9f723908d76f86d46cf4a"
+    },
+    {
+      "pairIndex": 22,
+      "pairId": "pair-dev-architecture-create-observability-r2",
+      "taskId": "dev-architecture-create-observability",
+      "taskFamily": "architecture",
+      "reviewerId": "pairwise-rvw-23",
+      "reviewerIdentityCommitment": "sha256:3621014de225cb3ff3774cc220fafb7424910cdbba320ff04d63a4d864966900",
+      "canvas1Condition": "A0",
+      "canvas2Condition": "A1",
+      "assignmentDigest": "sha256:2f1ac96ec5b6ec270fa8d829287963f582416637f4c4c436bf6e881a1395bcc6"
+    },
+    {
+      "pairIndex": 23,
+      "pairId": "pair-dev-drawing-create-layered-portrait-r2",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "taskFamily": "drawing",
+      "reviewerId": "pairwise-rvw-24",
+      "reviewerIdentityCommitment": "sha256:fba31bbfdfcf430aa23cdb3dbd2af67a9f5c1aef94e94f6917b03f1de7fb5137",
+      "canvas1Condition": "A1",
+      "canvas2Condition": "A0",
+      "assignmentDigest": "sha256:0d81f299237a923928811fdc76242fa8d23b9e80055c7dad7bf522e9414a6280"
+    }
+  ],
+  "pairwiseAssignmentRoot": "sha256:b5eb1a2e805879876ad12fb0f85e74f9c68512290cec4655c88d03ce6d72a62e",
+  "pairwiseLeftRightRoot": "sha256:ac99d7ca1fe67c4a73ababc1733c8681356e691602853da6b8502c691bf2e11b",
+  "manifestDigest": "sha256:595509ee99142d4c7e78a42a7034f4f28dfdba70b870819f59f74f8e88995e6c"
+}

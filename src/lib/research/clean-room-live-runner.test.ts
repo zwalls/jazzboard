@@ -1,3 +1,7 @@
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/registration";
@@ -11,23 +15,32 @@ const {
   buildAuthorVisibleSpec,
   canonicalJson,
   classifyAuthorToolObservation,
+  commitCleanRoomAttemptEvidence,
+  createAuthorIdentityEvidence,
   createConcurrentEventController,
   executePreBriefSetup,
   accumulateResponseUsage,
+  assertFrozenRuntimeEnvironment,
   assertFreshRoomCode,
   assertSpectatorToolIsolation,
   extractFunctionCalls,
   extractPixelCapture,
   emptyResponseUsageTotals,
   hashArtifactSet,
+  notifyBriefDelivered,
   recoverCompletedResponseUsage,
   responseProviderObservation,
   responseUsageCostInputs,
   responsesRequestCompletedData,
+  responsesRequestInputExposure,
+  runAuthor,
+  runCleanRoomAttempt,
+  resolveCleanRoomAttemptOutputDirectory,
   sanitizeForResearch,
   summarizeObservedProvider,
   toolContractHash,
   validateRunnerConfig,
+  verifyCommittedCleanRoomAttemptEvidence,
 } = await import(runnerModulePath);
 
 const liveTools = [
@@ -53,11 +66,70 @@ const liveTools = [
 ];
 
 describe("clean-room live runner pure contracts", () => {
+  it("notifies the trusted coordinator exactly when a live brief is delivered", async () => {
+    const callback = vi.fn();
+    await expect(notifyBriefDelivered(callback, 1_788_124_641_111))
+      .resolves.toBe("2026-08-30T21:17:21.111Z");
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith("2026-08-30T21:17:21.111Z");
+    await expect(notifyBriefDelivered("not-a-function", 1_788_124_641_111)).rejects.toThrow(/function/);
+    await expect(notifyBriefDelivered(callback, Number.NaN)).rejects.toThrow(/safe epoch/);
+  });
+
   it("canonicalizes and hashes artifact sets independently of insertion order", () => {
     expect(canonicalJson({ z: 1, a: { y: 2, x: 3 } })).toBe('{"a":{"x":3,"y":2},"z":1}');
     expect(hashArtifactSet({ "b.json": "two", "a.json": "one" })).toEqual(
       hashArtifactSet({ "a.json": "one", "b.json": "two" }),
     );
+  });
+
+  it("uses an exclusive terminal bundle as the durable commit marker and verifies exact readback", async () => {
+    const outputDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "clean-room-attempt-commit-")));
+    try {
+      const staged = new Map<string, string | Buffer>([
+        ["author-events.jsonl", '{"type":"brief_delivered"}\n'],
+        ["author-final.json", '{"termination":"author_completed"}\n'],
+      ]);
+      const bundle = { artifactIndex: hashArtifactSet(Object.fromEntries(staged)) };
+
+      await writeFile(path.join(outputDir, "author-events.jsonl"), staged.get("author-events.jsonl")!);
+      await expect(verifyCommittedCleanRoomAttemptEvidence(outputDir, staged, bundle))
+        .rejects.toThrow(/missing or unexpected artifacts/i);
+      await rm(path.join(outputDir, "author-events.jsonl"));
+
+      await expect(commitCleanRoomAttemptEvidence(outputDir, staged, bundle)).resolves.toMatchObject({
+        artifactIndex: bundle.artifactIndex,
+        attemptBundleSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      await expect(verifyCommittedCleanRoomAttemptEvidence(outputDir, staged, bundle)).resolves.toBeTruthy();
+      await expect(commitCleanRoomAttemptEvidence(outputDir, staged, bundle)).rejects.toThrow();
+
+      await writeFile(path.join(outputDir, "author-final.json"), "tampered\n");
+      await expect(verifyCommittedCleanRoomAttemptEvidence(outputDir, staged, bundle))
+        .rejects.toThrow(/readback differs/i);
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("seals the trusted registry author identity in exact canonical artifact bytes", () => {
+    const firstCommitment = `sha256:${"1".repeat(64)}`;
+    const secondCommitment = `sha256:${"2".repeat(64)}`;
+    const first = createAuthorIdentityEvidence("attempt-001", firstCommitment);
+    const second = createAuthorIdentityEvidence("attempt-001", secondCommitment);
+
+    expect(first.path).toBe("author-identity-commitment.json");
+    expect(first.record).toEqual({
+      attemptId: "attempt-001",
+      identityCommitment: firstCommitment,
+      schemaVersion: "author-identity-commitment/v1",
+    });
+    expect(first.bytes.toString("utf8")).toBe(canonicalJson(first.record));
+    expect(first.bytes.toString("utf8")).not.toMatch(/\n$/);
+    expect(first.artifactSha256).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(first.record.identityCommitment).not.toBe(second.record.identityCommitment);
+    expect(() => createAuthorIdentityEvidence("../unsafe", Buffer.alloc(32))).toThrow(/safe attempt/);
+    expect(() => createAuthorIdentityEvidence("attempt-001", `sha256:${"g".repeat(64)}`)).toThrow(/trusted registry/);
   });
 
   it("redacts room, participant, preview, session, and literal secret values without destroying object IDs", () => {
@@ -226,6 +298,9 @@ describe("clean-room live runner pure contracts", () => {
   it("keeps coordinator setup and concurrent operations out of author-visible inputs", () => {
     const visible = buildAuthorVisibleSpec({
       attemptId: "attempt-1",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
+      authorIdentityCommitment: `sha256:${"9".repeat(64)}`,
       model: "model-snapshot",
       brief: "Edit the supplied scene.",
       allowedToolNames: ["read_room_state"],
@@ -239,6 +314,7 @@ describe("clean-room live runner pure contracts", () => {
     });
     expect(visible).not.toHaveProperty("setupOperations");
     expect(visible).not.toHaveProperty("concurrentEvents");
+    expect(visible).not.toHaveProperty("authorIdentityCommitment");
     expect(JSON.stringify(visible)).not.toContain("create_node");
   });
 
@@ -493,6 +569,7 @@ describe("clean-room live runner pure contracts", () => {
       turnUsage,
       turnUsage,
       providerResponse,
+      12_345,
     );
     expect(completed).toEqual({
       turn: 1,
@@ -500,6 +577,7 @@ describe("clean-room live runner pure contracts", () => {
       cumulativeUsage: turnUsage,
       status: "completed",
       provider: { model: "gpt-5.6-sol-2026-08-01", serviceTier: "priority" },
+      requestContextBytes: 12_345,
     });
     expect(Object.isFrozen(completed)).toBe(true);
     expect(Object.isFrozen(completed.provider)).toBe(true);
@@ -508,6 +586,102 @@ describe("clean-room live runner pure contracts", () => {
     expect(serialized).not.toContain(providerResponse.api_key);
     expect(serialized).not.toContain("secret-response-token");
     expect(serialized).not.toContain("response_id");
+  });
+
+  it("uses exact serialized UTF-8 bytes plus a fixed margin as a conservative pre-call input bound", () => {
+    const request = JSON.stringify({ input: [{ role: "user", content: "🎷".repeat(100) }], store: false });
+    const exposure = responsesRequestInputExposure(request, 16_384);
+    expect(exposure.requestContextBytes).toBe(Buffer.byteLength(request, "utf8"));
+    expect(exposure.maximumInputTokens).toBe(exposure.requestContextBytes + 16_384);
+    expect(() => responsesRequestInputExposure(request, -1)).toThrow(/margin/i);
+  });
+
+  it("rejects frozen Node or browser drift before execution can proceed", () => {
+    const expected = { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" };
+    expect(assertFrozenRuntimeEnvironment(expected, expected)).toEqual(expected);
+    expect(() => assertFrozenRuntimeEnvironment(expected, { ...expected, nodeVersion: "22.21.0" })).toThrow("RUNTIME_NODE_VERSION_DRIFT");
+    expect(() => assertFrozenRuntimeEnvironment(expected, { ...expected, browserVersion: "150.0.0.0" })).toThrow("RUNTIME_BROWSER_VERSION_DRIFT");
+  });
+
+  it("hard-blocks the removed author transport before token preflight or provider release", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const retainedEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
+    try {
+      const result = await runAuthor({
+        config: {
+          model: "gpt-5.6-sol",
+          brief: "x".repeat(4_000),
+          allowedToolNames: [],
+          wallBudgetMs: 60_000,
+          toolCallBudget: 1,
+          perToolTimeoutMs: 1_000,
+          inputTokenBudget: 10_000,
+          outputTokenBudget: 1_000,
+          perResponseMaxOutputTokens: 1_000,
+          reasoningEffort: "high",
+        },
+        page: null,
+        tools: [],
+        events: { add: (type: string, data: Record<string, unknown>) => retainedEvents.push({ type, data }) },
+        secrets: [],
+        artifacts: new Map(),
+        startedAt: Date.now(),
+        concurrentEvents: { afterAuthorToolCall: async () => [] },
+      });
+      expect(result.termination).toBe("codex_native_transport_required");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(retainedEvents).toEqual([
+        {
+          type: "legacy_author_transport_blocked",
+          data: {
+            reasonCode: "CODEX_NATIVE_TRANSPORT_REQUIRED",
+            providerCallMayHaveOccurred: false,
+          },
+        },
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not consult global fetch when the removed author transport is called directly", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const retainedEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
+    try {
+      const result = await runAuthor({
+        config: {
+          model: "gpt-5.6-sol",
+          serviceTier: "default",
+          brief: "Create a small diagram.",
+          allowedToolNames: [],
+          wallBudgetMs: 60_000,
+          toolCallBudget: 1,
+          perToolTimeoutMs: 1_000,
+          inputTokenBudget: 100_000,
+          outputTokenBudget: 1_000,
+          perResponseMaxOutputTokens: 1_000,
+          reasoningEffort: "high",
+        },
+        page: null,
+        tools: [],
+        events: { add: (type: string, data: Record<string, unknown>) => retainedEvents.push({ type, data }) },
+        secrets: [],
+        artifacts: new Map(),
+        startedAt: Date.now(),
+        concurrentEvents: { afterAuthorToolCall: async () => [] },
+      });
+      expect(result.termination).toBe("codex_native_transport_required");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(retainedEvents).toEqual([{
+        type: "legacy_author_transport_blocked",
+        data: {
+          reasonCode: "CODEX_NATIVE_TRANSPORT_REQUIRED",
+          providerCallMayHaveOccurred: false,
+        },
+      }]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("summarizes observed provider provenance across turns without substituting configured intent", () => {
@@ -542,10 +716,124 @@ describe("clean-room live runner pure contracts", () => {
     expect(() => assertFreshRoomCode("ABC01O")).toThrow(/low-entropy/);
   });
 
+  it("binds batch output to one canonical attempt directory and blocks path attacks before brief delivery", async () => {
+    const allowedRunsRoot = path.join(process.cwd(), "research/results/runs");
+    const runRoot = await mkdtemp(path.join(allowedRunsRoot, "runner-output-test-"));
+    const externalRoot = await mkdtemp(path.join(os.tmpdir(), "runner-output-external-"));
+    const attemptId = "live-path-1";
+    try {
+      const attemptsRoot = path.join(runRoot, "attempts");
+      await mkdir(attemptsRoot, { mode: 0o700 });
+      const expectedOutputDir = path.join(attemptsRoot, attemptId);
+      await expect(resolveCleanRoomAttemptOutputDirectory({
+        attemptId,
+        allowedRunsRoot,
+        expectedOutputDir,
+      })).resolves.toBe(expectedOutputDir);
+      await expect(resolveCleanRoomAttemptOutputDirectory({
+        attemptId,
+        allowedRunsRoot,
+        expectedOutputDir: path.join(externalRoot, attemptId),
+      })).rejects.toThrow(/beneath the fixed research runs root/i);
+      await expect(resolveCleanRoomAttemptOutputDirectory({
+        attemptId,
+        allowedRunsRoot,
+        expectedOutputDir: path.join(attemptsRoot, "wrong-attempt"),
+      })).rejects.toThrow(/exact attempt ID leaf/i);
+
+      const linkedParent = path.join(runRoot, "linked-attempts");
+      await symlink(externalRoot, linkedParent, "dir");
+      await expect(resolveCleanRoomAttemptOutputDirectory({
+        attemptId,
+        allowedRunsRoot,
+        expectedOutputDir: path.join(linkedParent, attemptId),
+      })).rejects.toThrow(/canonical plain directory/i);
+
+      const onBriefDelivered = vi.fn();
+      await expect(runCleanRoomAttempt({
+        attemptId,
+        sessionAlias: "session-0123456789ab",
+        expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
+        authorIdentityCommitment: `sha256:${"9".repeat(64)}`,
+        baseUrl: "https://jazzboard.example",
+        brief: "Create a diagram.",
+        model: "model-snapshot",
+        serviceTier: "default",
+        allowedToolNames: ["read_room_state"],
+        participantToolContractHash: "a".repeat(64),
+        spectatorToolContractHash: "b".repeat(64),
+        inputTokenBudget: 20_000,
+        outputTokenBudget: 5_000,
+        perResponseMaxOutputTokens: 2_000,
+      }, {
+        dryRun: true,
+        expectedOutputDir: path.join(attemptsRoot, "wrong-attempt"),
+        onBriefDelivered,
+        verifyRuntimeDependencies: async () => ({
+          receiptDigest: `sha256:${"a".repeat(64)}`,
+          componentSetRoot: `sha256:${"b".repeat(64)}`,
+          verificationScope: "critical-load-and-executable-subset",
+          verificationDurationMs: 1,
+        }),
+      })).rejects.toThrow(/exact attempt ID leaf/i);
+      expect(onBriefDelivered).not.toHaveBeenCalled();
+    } finally {
+      await Promise.all([
+        rm(runRoot, { recursive: true, force: true }),
+        rm(externalRoot, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
+  it("checks frozen runtime dependencies before browser load and never releases a brief on drift", async () => {
+    const allowedRunsRoot = path.join(process.cwd(), "research/results/runs");
+    const runRoot = await mkdtemp(path.join(allowedRunsRoot, "runner-dependency-test-"));
+    const attemptId = "dependency-drift-1";
+    const expectedOutputDir = path.join(runRoot, attemptId);
+    const onBriefDelivered = vi.fn();
+    const verifyRuntimeDependencies = vi.fn(async () => {
+      throw new Error("runtime dependency critical root drift");
+    });
+    try {
+      await expect(runCleanRoomAttempt({
+        attemptId,
+        sessionAlias: "session-0123456789ab",
+        expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
+        authorIdentityCommitment: `sha256:${"9".repeat(64)}`,
+        baseUrl: "https://jazzboard.example",
+        brief: "Create a diagram.",
+        model: "gpt-5.6-sol",
+        serviceTier: "default",
+        allowedToolNames: ["read_room_state"],
+        participantToolContractHash: "a".repeat(64),
+        spectatorToolContractHash: "b".repeat(64),
+        inputTokenBudget: 20_000,
+        outputTokenBudget: 5_000,
+        perResponseMaxOutputTokens: 2_000,
+      }, {
+        dryRun: true,
+        expectedOutputDir,
+        onBriefDelivered,
+        verifyRuntimeDependencies,
+      })).rejects.toThrow(/runtime dependency critical root drift.*attempt evidence/i);
+      expect(verifyRuntimeDependencies).toHaveBeenCalledTimes(1);
+      expect(onBriefDelivered).not.toHaveBeenCalled();
+      const bundle = JSON.parse(await readFile(path.join(expectedOutputDir, "attempt-bundle.json"), "utf8"));
+      expect(bundle.attemptStartedAt).toBeNull();
+      expect(bundle.author.toolCalls).toBe(0);
+      expect(bundle.environment.browser.version).toBeNull();
+    } finally {
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
   it("validates setup and concurrent plans without adding them to the author allowlist", () => {
     const config = validateRunnerConfig({
       attemptId: "contract-1",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
       baseUrl: "http://127.0.0.1:3000",
+      serviceTier: "default",
       brief: "",
       allowedToolNames: ["read_room_state"],
       setupOperations: [{ tool: "create_object", input: { object: { x: 1, y: 2 } } }],
@@ -563,7 +851,10 @@ describe("clean-room live runner pure contracts", () => {
   it("normalizes frozen observable event triggers from benchmark-style records", () => {
     const config = validateRunnerConfig({
       attemptId: "contract-trigger",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
       baseUrl: "http://127.0.0.1:3000",
+      serviceTier: "default",
       concurrentEvents: [{
         eventFixtureId: "human-note-v1",
         observableTrigger: { kind: "after_observable", observable: "first_author_mutation", occurrence: 1 },
@@ -579,7 +870,10 @@ describe("clean-room live runner pure contracts", () => {
   it("accepts the staged-draft observable used by progressive-authoring fixtures", () => {
     const config = validateRunnerConfig({
       attemptId: "contract-draft-trigger",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
       baseUrl: "http://127.0.0.1:3000",
+      serviceTier: "default",
       concurrentEvents: [{
         eventFixtureId: "after-first-draft",
         observableTrigger: { kind: "after_observable", observable: "first_draft_staged", occurrence: 1 },
@@ -594,7 +888,10 @@ describe("clean-room live runner pure contracts", () => {
   it("accepts opaque semantic event operations only with a frozen callback digest", () => {
     const config = validateRunnerConfig({
       attemptId: "semantic-trigger",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
       baseUrl: "http://127.0.0.1:3000",
+      serviceTier: "default",
       concurrentEventCallbackHash: "d".repeat(64),
       concurrentEvents: [{
         eventFixtureId: "event-v1",
@@ -609,9 +906,13 @@ describe("clean-room live runner pure contracts", () => {
   it("requires cumulative token and both live contract pins for paid runs", () => {
     const base = {
       attemptId: "live-1",
+      sessionAlias: "session-0123456789ab",
+      expectedRuntime: { nodeVersion: "22.22.0", browserVersion: "151.0.7922.34" },
+      authorIdentityCommitment: `sha256:${"9".repeat(64)}`,
       baseUrl: "https://jazzboard.example",
       brief: "Create a diagram.",
       model: "model-snapshot",
+      serviceTier: "default",
       allowedToolNames: ["read_room_state"],
       participantToolContractHash: "a".repeat(64),
       spectatorToolContractHash: "b".repeat(64),
@@ -620,6 +921,8 @@ describe("clean-room live runner pure contracts", () => {
       perResponseMaxOutputTokens: 2_000,
     };
     expect(validateRunnerConfig(base).outputTokenBudget).toBe(5_000);
+    expect(validateRunnerConfig(base).authorIdentityCommitment).toBe(base.authorIdentityCommitment);
+    expect(() => validateRunnerConfig({ ...base, authorIdentityCommitment: undefined })).toThrow(/identity-registry commitment/);
     expect(() => validateRunnerConfig({ ...base, inputTokenBudget: undefined })).toThrow(/inputTokenBudget/);
     expect(() => validateRunnerConfig({ ...base, spectatorToolContractHash: undefined })).toThrow(/spectator tool-contract/);
     expect(() => validateRunnerConfig({ ...base, perResponseMaxOutputTokens: 6_000 })).toThrow(/cumulative output-token/);

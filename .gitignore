@@ -12,3 +12,4 @@ tsconfig.tsbuildinfo
 *.log
 .vercel
 .env*.local
+.research-private/

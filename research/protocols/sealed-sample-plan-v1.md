@@ -85,6 +85,12 @@ from an external rationale or a separately authorized public-development
 pilot. Sealed results may never be used to revise this table or choose a more
 favorable row.
 
+In the EXP-0001A analysis report these legacy hypothetical Monte Carlo rows are
+retained only as `non_recommendation_diagnostics_only`. Their older
+cluster-mean normal test cannot be selected as the design test. The only
+sample-size recommendation is the uncertainty-aware observed-A/A search below,
+which consistently uses the task-cluster sign-flip planning approximation.
+
 ## Replicate-allocation sensitivity
 
 The following table holds the central hypothetical effect and discordance
@@ -121,6 +127,30 @@ replicate” does not mean one unpaired run.
 7. If resources cannot support the chosen plan, change the claim or return to
    public development planning. Do not inspect a subset of sealed outcomes to
    negotiate the sample size.
+
+## Public-development A/A calibration update
+
+When the exact 48-attempt, 24-pair, 12-task development A/A denominator is
+available, the report may add an exploratory planning calibration without
+touching sealed-test data. It reports Wilson 95% intervals for pooled success
+and paired discordance, plus a deterministic 10,000-draw task-cluster bootstrap
+interval for within-task dependence. Non-estimable dependence uses the
+predeclared `0.40` fallback; planning otherwise takes at least the upper
+bootstrap bound and `0.40`. Planning discordance takes at least its upper
+Wilson bound, the fixed lift, and `0.30`.
+
+The old nominal-pairs-times-design-effect result remains visible as a
+`diagnostic_only_not_recommended_sample_size` calculation. The recommendation
+instead searches every unique-task count from that diagnostic starting point
+through 600, in increments of one, using 1,000 simulations and fixed
+candidate-specific seeds. Its decision statistic is the complete-task
+sign-flip sum with the preregistered large-task normal randomization
+approximation. The retained pointwise Wilson Monte Carlo interval is
+descriptive. Selection uses a simultaneous one-sided 95% Hoeffding lower bound
+with Bonferroni allocation over the complete fixed candidate universe of 571
+counts (30 through 600). Therefore an isolated noisy pointwise crossing cannot
+be selected. If no simultaneous lower bound reaches 0.80, the plan reports
+`maximum_exhausted` and recommends no sample size.
 
 Under the central hypothetical assumptions, the breadth-first planning
 recommendation is 172 unique tasks with one paired replicate per task. If two

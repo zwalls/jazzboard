@@ -17,7 +17,11 @@
   },
   "model": {
     "id": "gpt-5.6-sol",
-    "reasoningEffort": "max"
+    "reasoningEffort": "max",
+    "serviceTier": "default"
+  },
+  "runtime": {
+    "nodeVersion": "22.22.0"
   },
   "browser": {
     "engine": "chromium",
@@ -37,7 +41,7 @@
     "wallBudgetMs": 900000,
     "toolCallBudget": 120,
     "perToolTimeoutMs": 30000,
-    "inputTokenBudget": 300000,
+    "inputTokenBudget": 600000,
     "outputTokenBudget": 80000,
     "perResponseMaxOutputTokens": 20000,
     "maxCorrectionRounds": 3
@@ -77,5 +81,5 @@
   "participantToolContractHash": "d64cf3d25b9e275003438597b3b01c35419063d71613082d45aaf2f97c388b8e",
   "spectatorToolContractHash": "1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2",
   "sensitiveMaterialRedacted": true,
-  "profileDigest": "sha256:a19cce624843cee156f38b5514e2e1b1590f2ad05752e8f70f520ab5d6d34ba4"
+  "profileDigest": "sha256:d2175a5868d8eb72c24745feb820d54a8c7d2e4cd864f54c39cd9d74de0ded74"
 }

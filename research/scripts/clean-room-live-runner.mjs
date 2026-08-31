@@ -1,15 +1,25 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, mkdir, open, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const CODEX_NATIVE_TRANSPORT_REQUIRED =
+  "CODEX_NATIVE_TRANSPORT_REQUIRED: direct provider execution is disabled; run the ChatGPT-authenticated Codex task preflight and disposable WebMCP spike.";
+// JSON UTF-8 bytes are a conservative upper bound for content tokens because
+// no token can encode fewer than one source byte. This fixed allowance covers
+// provider-side message/tool framing that is not present in the serialized
+// request. A request is never released if that bound could cross the frozen
+// cumulative input-token budget.
+export const RESPONSES_INPUT_FRAMING_MARGIN_TOKENS = 16_384;
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
 const PRIVATE_KEY_PATTERN = /^(?:room(?:id|code)|room_id|room_code|session(?:id|key|token)?|session_id|participantid|participant_id|selfparticipantid|previewid|recentroom|recentrooms|cookie|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|secret)$/i;
 const SAFE_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/;
+const AUTHOR_IDENTITY_ARTIFACT_PATH = "author-identity-commitment.json";
+const AUTHOR_IDENTITY_ARTIFACT_VERSION = "author-identity-commitment/v1";
 const FROZEN_SPECTATOR_TOOL_NAMES = new Set([
   "get_canvas_capabilities",
   "read_room_state",
@@ -61,6 +71,27 @@ export function canonicalJson(value) {
 
 export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function createAuthorIdentityEvidence(attemptId, identityCommitment) {
+  if (typeof attemptId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(attemptId)) {
+    throw new Error("Author identity evidence requires a safe attempt ID.");
+  }
+  if (typeof identityCommitment !== "string" || !/^sha256:[a-f0-9]{64}$/.test(identityCommitment)) {
+    throw new Error("Author identity evidence requires a trusted registry SHA-256 commitment.");
+  }
+  const record = {
+    attemptId,
+    identityCommitment,
+    schemaVersion: AUTHOR_IDENTITY_ARTIFACT_VERSION,
+  };
+  const bytes = Buffer.from(canonicalJson(record), "utf8");
+  return Object.freeze({
+    path: AUTHOR_IDENTITY_ARTIFACT_PATH,
+    record: Object.freeze(record),
+    bytes,
+    artifactSha256: `sha256:${sha256(bytes)}`,
+  });
 }
 
 export function assertFreshRoomCode(value) {
@@ -267,7 +298,7 @@ export function accumulateResponseUsage(current, usage, budgets) {
 
 export function buildAuthorVisibleSpec(config, dryRun = false) {
   return {
-    attemptId: config.attemptId,
+    sessionAlias: config.sessionAlias,
     model: dryRun ? null : config.model,
     brief: config.brief,
     allowedToolNames: config.allowedToolNames,
@@ -410,9 +441,27 @@ export function validateRunnerConfig(raw, dryRun = false) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(attemptId)) {
     throw new Error("attemptId must be a safe 1-80 character artifact identifier.");
   }
+  const sessionAlias = String(raw.sessionAlias ?? "");
+  if (!/^session-[a-f0-9]{12}$/.test(sessionAlias)) {
+    throw new Error("sessionAlias must be a trusted opaque session identifier.");
+  }
+  const authorIdentityCommitment = raw.authorIdentityCommitment ?? null;
+  if (!dryRun && (typeof authorIdentityCommitment !== "string" || !/^sha256:[a-f0-9]{64}$/.test(authorIdentityCommitment))) {
+    throw new Error("A live run requires the trusted author identity-registry commitment frozen into its runner config.");
+  }
+  if (authorIdentityCommitment !== null
+      && (typeof authorIdentityCommitment !== "string" || !/^sha256:[a-f0-9]{64}$/.test(authorIdentityCommitment))) {
+    throw new Error("authorIdentityCommitment must be a SHA-256 identity-registry commitment.");
+  }
   const baseUrl = new URL(String(raw.baseUrl ?? ""));
   if (!["http:", "https:"].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash || baseUrl.pathname !== "/") {
     throw new Error("baseUrl must be an HTTP(S) deployment origin without credentials, path, query, or fragment.");
+  }
+  const expectedRuntime = raw.expectedRuntime;
+  if (!expectedRuntime || typeof expectedRuntime !== "object" || Array.isArray(expectedRuntime)
+      || expectedRuntime.nodeVersion !== "22.22.0"
+      || expectedRuntime.browserVersion !== "151.0.7922.34") {
+    throw new Error("expectedRuntime must bind the frozen Node and browser versions.");
   }
   const brief = String(raw.brief ?? "").trim();
   if (!dryRun && !brief) throw new Error("A non-empty author brief is required for a live run.");
@@ -431,6 +480,7 @@ export function validateRunnerConfig(raw, dryRun = false) {
   }
   const model = String(raw.model ?? "").trim();
   if (!dryRun && !model) throw new Error("A live run requires an explicit Responses API model.");
+  if (raw.serviceTier !== "default") throw new Error("Responses serviceTier must be explicitly frozen to default pricing.");
   const wallBudgetMs = Number(raw.wallBudgetMs ?? 900_000);
   const toolCallBudget = Number(raw.toolCallBudget ?? 80);
   const perToolTimeoutMs = Number(raw.perToolTimeoutMs ?? 30_000);
@@ -501,9 +551,13 @@ export function validateRunnerConfig(raw, dryRun = false) {
   }
   return {
     attemptId,
+    sessionAlias,
+    authorIdentityCommitment,
     baseUrl: baseUrl.href,
+    expectedRuntime: structuredClone(expectedRuntime),
     brief,
     model,
+    serviceTier: "default",
     reasoningEffort: raw.reasoningEffort ?? "high",
     allowedToolNames,
     participantToolContractHash,
@@ -516,7 +570,7 @@ export function validateRunnerConfig(raw, dryRun = false) {
     perResponseMaxOutputTokens,
     allowedBrowserOrigins,
     displayName: String(raw.displayName ?? "Research Author").slice(0, 48),
-    roomTitle: String(raw.roomTitle ?? `Research ${attemptId}`).slice(0, 100),
+    roomTitle: String(raw.roomTitle ?? `Jazzboard ${sessionAlias.slice("session-".length).toUpperCase()}`).slice(0, 100),
     spectatorDisplayName: String(raw.spectatorDisplayName ?? "Research Evaluator").slice(0, 48),
     setupActorDisplayName: String(raw.setupActorDisplayName ?? "Research Fixture").slice(0, 48),
     eventActorDisplayName: String(raw.eventActorDisplayName ?? "Research Collaborator").slice(0, 48),
@@ -733,22 +787,8 @@ function outputText(response) {
     .join("\n");
 }
 
-async function responsesRequest(body, apiKey, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(OPENAI_RESPONSES_URL, {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const json = await response.json();
-    if (!response.ok) throw new Error(`Responses API failed with HTTP ${response.status}: ${json?.error?.message ?? "unknown error"}`);
-    return json;
-  } finally {
-    clearTimeout(timer);
-  }
+async function responsesRequest() {
+  throw new Error(CODEX_NATIVE_TRANSPORT_REQUIRED);
 }
 
 function replayableOutput(output) {
@@ -792,14 +832,39 @@ export function summarizeObservedProvider(observations) {
   });
 }
 
-export function responsesRequestCompletedData(turn, usage, cumulativeUsage, response) {
+export function responsesRequestCompletedData(turn, usage, cumulativeUsage, response, requestContextBytes) {
+  if (!Number.isSafeInteger(requestContextBytes) || requestContextBytes < 0) {
+    throw new Error("Completed Responses request requires its exact serialized request byte length.");
+  }
   return Object.freeze({
     turn,
     usage,
     cumulativeUsage,
     status: response?.status ?? null,
     provider: responseProviderObservation(response),
+    requestContextBytes,
   });
+}
+
+export function responsesRequestInputExposure(serializedRequest, framingMarginTokens = RESPONSES_INPUT_FRAMING_MARGIN_TOKENS) {
+  if (typeof serializedRequest !== "string") throw new Error("Responses request must be serialized exactly once before release.");
+  if (!Number.isSafeInteger(framingMarginTokens) || framingMarginTokens < 0) throw new Error("Responses framing margin must be a non-negative integer.");
+  const requestContextBytes = Buffer.byteLength(serializedRequest, "utf8");
+  return Object.freeze({
+    requestContextBytes,
+    maximumInputTokens: requestContextBytes + framingMarginTokens,
+    framingMarginTokens,
+  });
+}
+
+export function assertFrozenRuntimeEnvironment(expected, observed) {
+  if (!expected || !observed || expected.nodeVersion !== observed.nodeVersion) {
+    throw new Error(`RUNTIME_NODE_VERSION_DRIFT: expected ${expected?.nodeVersion ?? "missing"}, received ${observed?.nodeVersion ?? "missing"}.`);
+  }
+  if (expected.browserVersion !== observed.browserVersion) {
+    throw new Error(`RUNTIME_BROWSER_VERSION_DRIFT: expected ${expected.browserVersion}, received ${observed.browserVersion ?? "missing"}.`);
+  }
+  return Object.freeze({ nodeVersion: observed.nodeVersion, browserVersion: observed.browserVersion });
 }
 
 /** Rebuilds durable usage from completed response events after an interrupted run. */
@@ -813,9 +878,40 @@ export function recoverCompletedResponseUsage(events, fallbackTotals = emptyResp
   };
 }
 
-async function runAuthor({ config, page, tools, events, secrets, artifacts, startedAt, concurrentEvents }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is required for a live run and is read only from the process environment.");
+export async function notifyBriefDelivered(callback, deliveredAtMs) {
+  if (!Number.isSafeInteger(deliveredAtMs) || deliveredAtMs < 0) {
+    throw new Error("Brief-delivery time must be a safe epoch-millisecond value.");
+  }
+  const deliveredAt = new Date(deliveredAtMs).toISOString();
+  if (callback !== undefined) {
+    if (typeof callback !== "function") throw new Error("onBriefDelivered must be a function when supplied.");
+    const effectiveAt = await callback(deliveredAt);
+    if (effectiveAt !== undefined) {
+      if (typeof effectiveAt !== "string" || !Number.isFinite(Date.parse(effectiveAt))
+          || Date.parse(effectiveAt) < deliveredAtMs) {
+        throw new Error("onBriefDelivered returned an invalid or pre-gate effective timestamp.");
+      }
+      return new Date(Date.parse(effectiveAt)).toISOString();
+    }
+  }
+  return deliveredAt;
+}
+
+export async function runAuthor({ config, page, tools, events, secrets, artifacts, startedAt, concurrentEvents }) {
+  if (CODEX_NATIVE_TRANSPORT_REQUIRED.length > 0) {
+    events.add("legacy_author_transport_blocked", {
+      reasonCode: "CODEX_NATIVE_TRANSPORT_REQUIRED",
+      providerCallMayHaveOccurred: false,
+    });
+    const totals = emptyResponseUsageTotals();
+    return {
+      termination: "codex_native_transport_required",
+      finalText: "",
+      toolCalls: 0,
+      usage: { totals, byTurn: [], costInputs: responseUsageCostInputs(totals) },
+      observedProvider: summarizeObservedProvider([]),
+    };
+  }
   const responseTools = buildResponsesTools(tools, config.allowedToolNames);
   const descriptorsByName = new Map(tools.map((tool) => [tool.name, tool]));
   const conversation = [{ role: "user", content: [{ type: "input_text", text: config.brief }] }];
@@ -843,30 +939,63 @@ async function runAuthor({ config, page, tools, events, secrets, artifacts, star
       break;
     }
     const turn = usageByTurn.length + 1;
-    events.add("responses_request_started", { turn, remainingOutputTokens });
+    const requestBody = {
+      model: config.model,
+      service_tier: config.serviceTier,
+      instructions,
+      input: conversation,
+      tools: responseTools,
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      store: false,
+      include: ["reasoning.encrypted_content"],
+      reasoning: { effort: config.reasoningEffort },
+      max_output_tokens: Math.min(config.perResponseMaxOutputTokens, remainingOutputTokens),
+    };
+    const serializedRequest = JSON.stringify(requestBody);
+    const requestExposure = responsesRequestInputExposure(serializedRequest);
+    if (usageTotals.inputTokens + requestExposure.maximumInputTokens > config.inputTokenBudget) {
+      termination = "input_token_budget_preflight_exceeded";
+      events.add("responses_request_preflight_rejected", {
+        turn,
+        requestContextBytes: requestExposure.requestContextBytes,
+        framingMarginTokens: requestExposure.framingMarginTokens,
+        maximumInputTokens: requestExposure.maximumInputTokens,
+        cumulativeInputTokens: usageTotals.inputTokens,
+        inputTokenBudget: config.inputTokenBudget,
+        termination,
+      });
+      break;
+    }
+    events.add("responses_request_started", {
+      turn,
+      remainingOutputTokens,
+      requestContextBytes: requestExposure.requestContextBytes,
+      maximumInputTokens: requestExposure.maximumInputTokens,
+    });
     let response;
     try {
-      response = await responsesRequest({
-        model: config.model,
-        instructions,
-        input: conversation,
-        tools: responseTools,
-        tool_choice: "auto",
-        parallel_tool_calls: false,
-        store: false,
-        include: ["reasoning.encrypted_content"],
-        reasoning: { effort: config.reasoningEffort },
-        max_output_tokens: Math.min(config.perResponseMaxOutputTokens, remainingOutputTokens),
-      }, apiKey, remaining);
+      response = await responsesRequest();
     } catch (error) {
-      events.add("responses_request_failed", { message: error instanceof Error ? error.message : String(error) });
+      events.add("responses_request_failed", {
+        turn,
+        message: error instanceof Error ? error.message : String(error),
+        providerCallMayHaveOccurred: true,
+        costObservability: "unobservable",
+      });
       termination = error instanceof DOMException && error.name === "AbortError" ? "wall_budget_exceeded" : "responses_api_failed";
       break;
     }
     const usage = accumulateResponseUsage(usageTotals, response.usage, config);
     usageTotals = usage.totals;
     usageByTurn.push({ turn, ...usage.turn });
-    const completed = responsesRequestCompletedData(turn, usage.turn, usageTotals, response);
+    const completed = responsesRequestCompletedData(
+      turn,
+      usage.turn,
+      usageTotals,
+      response,
+      requestExposure.requestContextBytes,
+    );
     providerByTurn.push(completed.provider);
     events.add("responses_request_completed", completed);
     for (const item of response.output ?? []) {
@@ -886,9 +1015,14 @@ async function runAuthor({ config, page, tools, events, secrets, artifacts, star
       for (const call of calls) events.add("author_tool_rejected", { name: call.name, reason: termination });
       break;
     }
-    if (response.status === "incomplete") {
-      termination = "responses_incomplete";
-      events.add("responses_incomplete", { details: response.incomplete_details ?? null });
+    if (response.status !== "completed") {
+      termination = response.status === "incomplete" ? "responses_incomplete" : "responses_provider_failed";
+      events.add("responses_noncompleted", {
+        status: response.status ?? null,
+        error: response.error ?? null,
+        incompleteDetails: response.incomplete_details ?? null,
+        termination,
+      });
       for (const call of calls) events.add("author_tool_rejected", { name: call.name, reason: termination });
       break;
     }
@@ -982,12 +1116,121 @@ function inspectionInputFromState(state) {
   return targets.length ? { scope: { kind: "objects", targets }, representation: "overview", padding: 32 } : null;
 }
 
+async function syncPlainDirectory(directory, label) {
+  const stat = await lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`${label} must be a plain directory.`);
+  const handle = await open(directory, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function durableArtifactWrite(outputDir, relativePath, contents, exclusive = false) {
+  if (typeof relativePath !== "string" || relativePath.startsWith("/") || relativePath.includes("\\")
+      || relativePath.split("/").some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`Unsafe retained artifact path: ${relativePath}`);
+  }
+  const destination = path.join(outputDir, relativePath);
+  const parent = path.dirname(destination);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  if (await realpath(parent) !== parent || (parent !== outputDir && !isStrictDescendant(outputDir, parent))) {
+    throw new Error(`Retained artifact parent escaped the attempt directory: ${relativePath}`);
+  }
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW
+    | (exclusive ? fsConstants.O_EXCL : fsConstants.O_TRUNC);
+  const handle = await open(destination, flags, 0o600);
+  try {
+    await handle.writeFile(contents);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  const retained = await readFile(destination);
+  const expected = Buffer.isBuffer(contents) ? contents : Buffer.from(String(contents));
+  if (!retained.equals(expected)) throw new Error(`Durable artifact readback differs: ${relativePath}`);
+  await syncPlainDirectory(parent, `Retained artifact parent for ${relativePath}`);
+}
+
 async function writeArtifacts(outputDir, artifacts) {
   for (const [relativePath, contents] of artifacts) {
-    const destination = path.join(outputDir, relativePath);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, contents);
+    if (relativePath === "attempt-bundle.json") {
+      throw new Error("The terminal attempt bundle must be retained only by the exclusive commit path.");
+    }
+    await durableArtifactWrite(outputDir, relativePath, contents, false);
   }
+}
+
+async function retainedArtifactInventory(root, current = "") {
+  const directory = current ? path.join(root, current) : root;
+  const entries = await readdir(directory, { withFileTypes: true });
+  const inventory = new Map();
+  for (const entry of entries.sort((left, right) => compareCodeUnits(left.name, right.name))) {
+    const relative = current ? `${current}/${entry.name}` : entry.name;
+    const absolute = path.join(root, relative);
+    const stat = await lstat(absolute);
+    if (stat.isSymbolicLink()) throw new Error(`Retained attempt contains a symbolic link: ${relative}`);
+    if (stat.isDirectory()) {
+      for (const [childPath, childBytes] of await retainedArtifactInventory(root, relative)) {
+        inventory.set(childPath, childBytes);
+      }
+    } else if (stat.isFile()) {
+      inventory.set(relative, await readFile(absolute));
+    } else {
+      throw new Error(`Retained attempt contains a non-file artifact: ${relative}`);
+    }
+  }
+  return inventory;
+}
+
+export async function commitCleanRoomAttemptEvidence(outputDir, stagedArtifacts, bundle) {
+  if (!(stagedArtifacts instanceof Map) || stagedArtifacts.has("attempt-bundle.json")) {
+    throw new Error("Attempt commit requires staged non-bundle artifacts in a Map.");
+  }
+  const expectedIndex = hashArtifactSet(Object.fromEntries(stagedArtifacts));
+  if (canonicalJson(bundle?.artifactIndex) !== canonicalJson(expectedIndex)) {
+    throw new Error("Attempt bundle artifact index does not match the exact staged bytes.");
+  }
+  const bundleBytes = jsonArtifact(bundle);
+  await writeArtifacts(outputDir, stagedArtifacts);
+  await durableArtifactWrite(outputDir, "attempt-bundle.json", bundleBytes, true);
+  await syncPlainDirectory(outputDir, "Committed attempt directory");
+
+  return verifyCommittedCleanRoomAttemptEvidence(outputDir, stagedArtifacts, bundle);
+}
+
+export async function verifyCommittedCleanRoomAttemptEvidence(outputDir, stagedArtifacts, bundle) {
+  if (!(stagedArtifacts instanceof Map) || stagedArtifacts.has("attempt-bundle.json")) {
+    throw new Error("Attempt verification requires staged non-bundle artifacts in a Map.");
+  }
+  const expectedIndex = hashArtifactSet(Object.fromEntries(stagedArtifacts));
+  if (canonicalJson(bundle?.artifactIndex) !== canonicalJson(expectedIndex)) {
+    throw new Error("Attempt bundle artifact index does not match the exact staged bytes.");
+  }
+  const bundleBytes = jsonArtifact(bundle);
+  const retained = await retainedArtifactInventory(outputDir);
+  const expectedPaths = [...stagedArtifacts.keys(), "attempt-bundle.json"].sort(compareCodeUnits);
+  const actualPaths = [...retained.keys()].sort(compareCodeUnits);
+  if (canonicalJson(actualPaths) !== canonicalJson(expectedPaths)) {
+    throw new Error("Committed attempt directory contains missing or unexpected artifacts.");
+  }
+  for (const [artifactPath, contents] of stagedArtifacts) {
+    const expected = Buffer.isBuffer(contents) ? contents : Buffer.from(String(contents));
+    if (!retained.get(artifactPath)?.equals(expected)) {
+      throw new Error(`Committed attempt readback differs: ${artifactPath}`);
+    }
+  }
+  if (!retained.get("attempt-bundle.json")?.equals(Buffer.from(bundleBytes))) {
+    throw new Error("Committed attempt-bundle readback differs.");
+  }
+  const retainedNonBundle = Object.fromEntries([...retained]
+    .filter(([artifactPath]) => artifactPath !== "attempt-bundle.json")
+    .map(([artifactPath, contents]) => [artifactPath, contents]));
+  if (canonicalJson(hashArtifactSet(retainedNonBundle)) !== canonicalJson(expectedIndex)) {
+    throw new Error("Committed attempt artifact index does not match durable readback.");
+  }
+  return Object.freeze({ artifactIndex: expectedIndex, attemptBundleSha256: sha256(bundleBytes) });
 }
 
 function jsonArtifact(value) {
@@ -1010,9 +1253,69 @@ function assertNoSecretLeak(artifacts, secrets) {
   }
 }
 
+function isStrictDescendant(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative.length > 0
+    && relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+async function statNoFollow(filePath) {
+  try {
+    return await lstat(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** Resolve the trusted batch-owned attempt directory before browser or brief
+ * setup. The internal expectedOutputDir option is supplied by the batch
+ * executor and is deliberately absent from the author-visible runner config. */
+export async function resolveCleanRoomAttemptOutputDirectory({
+  attemptId,
+  allowedRunsRoot,
+  expectedOutputDir,
+}) {
+  if (typeof attemptId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(attemptId)) {
+    throw new Error("Attempt output resolution requires a safe attempt ID.");
+  }
+  if (typeof allowedRunsRoot !== "string" || !path.isAbsolute(allowedRunsRoot)
+      || path.normalize(allowedRunsRoot) !== allowedRunsRoot) {
+    throw new Error("Allowed research runs root must be absolute and normalized.");
+  }
+  const allowedStat = await statNoFollow(allowedRunsRoot);
+  if (!allowedStat?.isDirectory() || allowedStat.isSymbolicLink()
+      || await realpath(allowedRunsRoot) !== allowedRunsRoot) {
+    throw new Error("Allowed research runs root must be one canonical plain directory.");
+  }
+  const outputDir = expectedOutputDir ?? path.join(allowedRunsRoot, attemptId);
+  if (typeof outputDir !== "string" || !path.isAbsolute(outputDir)
+      || path.normalize(outputDir) !== outputDir || path.basename(outputDir) !== attemptId) {
+    throw new Error("Expected attempt output must be an absolute normalized path with the exact attempt ID leaf.");
+  }
+  const parent = path.dirname(outputDir);
+  if (parent !== allowedRunsRoot && !isStrictDescendant(allowedRunsRoot, parent)) {
+    throw new Error("Expected attempt output must remain beneath the fixed research runs root.");
+  }
+  const parentStat = await statNoFollow(parent);
+  if (!parentStat?.isDirectory() || parentStat.isSymbolicLink() || await realpath(parent) !== parent) {
+    throw new Error("Expected attempt output parent must be one canonical plain directory.");
+  }
+  if (await statNoFollow(outputDir)) {
+    throw new Error("Expected attempt output already exists; refusing overwrite or ambiguous resume.");
+  }
+  return outputDir;
+}
+
 export async function runCleanRoomAttempt(rawConfig, options = {}) {
   const dryRun = options.dryRun === true;
   const config = validateRunnerConfig(rawConfig, dryRun);
+  if (!dryRun) throw new Error(CODEX_NATIVE_TRANSPORT_REQUIRED);
+  if (options.expectedOutputDir !== undefined && typeof options.verifyRuntimeDependencies !== "function") {
+    throw new Error("Trusted batch execution requires runtime dependency verification before browser load.");
+  }
   if (options.concurrentEventExecutor && !config.concurrentEventCallbackHash) {
     throw new Error("A trusted concurrent-event executor requires its frozen SHA-256 digest.");
   }
@@ -1021,13 +1324,21 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
   }
   const repoRoot = path.resolve(import.meta.dirname, "../..");
   const outputRoot = path.resolve(repoRoot, "research/results/runs");
-  const outputDir = path.join(outputRoot, config.attemptId);
   await mkdir(outputRoot, { recursive: true });
-  await mkdir(outputDir);
+  const outputDir = await resolveCleanRoomAttemptOutputDirectory({
+    attemptId: config.attemptId,
+    allowedRunsRoot: outputRoot,
+    expectedOutputDir: options.expectedOutputDir,
+  });
+  await mkdir(outputDir, { mode: 0o700 });
   const startedAt = Date.now();
   const secrets = [];
   const events = eventRecorder(startedAt, secrets);
   const artifacts = new Map();
+  const authorIdentity = config.authorIdentityCommitment
+    ? createAuthorIdentityEvidence(config.attemptId, config.authorIdentityCommitment)
+    : null;
+  if (authorIdentity) artifacts.set(authorIdentity.path, authorIdentity.bytes);
   let browser;
   let authorContext;
   let spectatorContext;
@@ -1055,10 +1366,39 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
   let authorEventsSealed = false;
   let attemptStartedAt = null;
   let browserVersion = null;
+  let runtimeDependencyVerification = null;
   try {
+    const observedNodeVersion = process.version.replace(/^v/, "");
+    if (observedNodeVersion !== config.expectedRuntime.nodeVersion) assertFrozenRuntimeEnvironment(config.expectedRuntime, {
+      nodeVersion: observedNodeVersion,
+      browserVersion: config.expectedRuntime.browserVersion,
+    });
+    if (typeof options.verifyRuntimeDependencies === "function") {
+      const verification = await options.verifyRuntimeDependencies();
+      if (!verification || typeof verification !== "object"
+          || typeof verification.receiptDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(verification.receiptDigest)
+          || typeof verification.componentSetRoot !== "string" || !/^sha256:[a-f0-9]{64}$/.test(verification.componentSetRoot)
+          || verification.verificationScope !== "critical-load-and-executable-subset"
+          || !Number.isSafeInteger(verification.verificationDurationMs)
+          || verification.verificationDurationMs < 0) {
+        throw new Error("Runtime dependency verifier returned an invalid critical verification receipt.");
+      }
+      runtimeDependencyVerification = {
+        receiptDigest: verification.receiptDigest,
+        componentSetRoot: verification.componentSetRoot,
+        verificationScope: verification.verificationScope,
+        verificationDurationMs: verification.verificationDurationMs,
+      };
+      events.add("runtime_dependencies_verified", runtimeDependencyVerification);
+    }
     const { chromium } = await import("playwright");
     browser = await chromium.launch({ headless: config.headless });
     browserVersion = browser.version();
+    assertFrozenRuntimeEnvironment(config.expectedRuntime, { nodeVersion: observedNodeVersion, browserVersion });
+    events.add("runtime_environment_verified", {
+      nodeVersion: observedNodeVersion,
+      browserVersion,
+    });
     const author = await createCleanContext(browser, config, events, "author");
     authorContext = author.context;
     await author.page.goto(config.baseUrl, { waitUntil: "domcontentloaded" });
@@ -1186,9 +1526,11 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
     artifacts.set("author-brief.json", jsonArtifact(sanitizeForResearch(buildAuthorVisibleSpec(config, dryRun), { secrets })));
     artifacts.set("participant-tool-contract.json", jsonArtifact(participantContract));
 
-    attemptStartedAt = Date.now();
-    authorEvents = eventRecorder(attemptStartedAt, secrets);
     if (!dryRun) {
+      const briefReleaseRequestedAt = Date.now();
+      const effectiveBriefDeliveredAt = await notifyBriefDelivered(options.onBriefDelivered, briefReleaseRequestedAt);
+      attemptStartedAt = Date.parse(effectiveBriefDeliveredAt);
+      authorEvents = eventRecorder(attemptStartedAt, secrets);
       authorEvents.add("brief_delivered", { briefHash: sha256(config.brief) });
       authorResult = await runAuthor({
         config,
@@ -1200,6 +1542,8 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
         startedAt: attemptStartedAt,
         concurrentEvents: concurrentController,
       });
+    } else {
+      authorEvents = eventRecorder(startedAt, secrets);
     }
     let authorFinalState;
     if (authorResult.termination === "tool_timeout") {
@@ -1316,7 +1660,18 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
       attemptStartedAt: attemptStartedAt ? new Date(attemptStartedAt).toISOString() : null,
       participantContract: participantContract ? { hash: participantContract.hash, toolCount: participantContract.tools.length } : null,
       spectatorContract: spectatorContract ? { hash: spectatorContract.hash, toolCount: spectatorContract.tools.length } : null,
+      providerIntent: {
+        provider: "openai_responses",
+        requestedModelIdentifier: config.model,
+        requestedServiceTier: config.serviceTier,
+        immutableModelSnapshotVerified: false,
+      },
       author: authorResult,
+      authorIdentity: authorIdentity ? {
+        identityCommitment: authorIdentity.record.identityCommitment,
+        artifactPath: authorIdentity.path,
+        artifactSha256: authorIdentity.artifactSha256,
+      } : null,
       authorEvidenceRoot,
       setup: setupProvenance ? { planHash: setupProvenance.planHash, initialStateHash: setupProvenance.initialStateHash } : null,
       concurrentEvents: {
@@ -1337,11 +1692,13 @@ export async function runCleanRoomAttempt(rawConfig, options = {}) {
         browser: { engine: "chromium", version: browserVersion },
         viewport: DEFAULT_VIEWPORT,
         baseUrl: config.baseUrl,
+        runtimeDependencies: runtimeDependencyVerification,
       },
     }, { secrets });
-    artifacts.set("attempt-bundle.json", jsonArtifact(bundle));
-    assertNoSecretLeak(artifacts, secrets);
-    await writeArtifacts(outputDir, artifacts);
+    const bundleBytes = jsonArtifact(bundle);
+    assertNoSecretLeak(new Map([...artifacts, ["attempt-bundle.json", bundleBytes]]), secrets);
+    await commitCleanRoomAttemptEvidence(outputDir, artifacts, bundle);
+    artifacts.set("attempt-bundle.json", bundleBytes);
   }
   if (failure) throw new Error(`${failure.message} Attempt evidence: ${outputDir}`);
   return {

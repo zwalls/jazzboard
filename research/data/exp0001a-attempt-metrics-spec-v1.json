@@ -1,0 +1,31 @@
+{
+  "costRatesUsdPerMillion": {
+    "uncachedInput": 4,
+    "cachedInput": 0.4,
+    "cacheWriteInput": 5,
+    "output": 20
+  },
+  "presentationCriteria": {
+    "maximumTimeToFirstVisibleObjectMs": 2000,
+    "minimumVisibleActivityRatio": 0.5,
+    "minimumRevealEventCount": 2,
+    "minimumSemanticRevealOrderRate": 1,
+    "maximumFlickerCount": 0,
+    "maximumDuplicatePresentationFrameCount": 0,
+    "maximumViewportInstabilityCount": 0,
+    "maximumHandoffGapMs": 1000
+  },
+  "efficiencyBudgets": {
+    "toolCalls": 120,
+    "roundTrips": 4,
+    "inputTokens": 600000,
+    "outputTokens": 80000,
+    "contextBytes": 2400000,
+    "receiptBytes": 100000000,
+    "wallTimeMs": 900000,
+    "timeToUsefulDraftMs": 300000,
+    "costUsd": 8.4
+  },
+  "qualityScaleId": "public-criteria-quality-v1",
+  "possibleIssueOpportunityCount": 20
+}

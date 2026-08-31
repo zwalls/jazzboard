@@ -28,9 +28,14 @@ const PREFLIGHT = Object.freeze({
   verifiedAt: "2026-08-30T22:00:00.000Z",
 });
 
+function authorIdentityCommitment(attemptId: string): string {
+  return hashCanonicalJson({ attemptId, registry: "test-author-identity-registry-v1" });
+}
+
 function createAllConfigs() {
   return listDevelopmentAttemptIds().map((attemptId) => createDevelopmentAttemptConfig({
     attemptId,
+    authorIdentityCommitment: authorIdentityCommitment(attemptId),
     aliasPreflight: PREFLIGHT,
   }));
 }
@@ -88,8 +93,12 @@ describe("EXP-0001A development attempt bridge", () => {
       const visible = buildAuthorVisibleSpec(config.runnerConfig, false);
       const serializedVisible = JSON.stringify(visible);
 
-      expect(Object.keys(visible).sort()).toEqual(["allowedToolNames", "attemptId", "brief", "budgets", "model"]);
+      expect(Object.keys(visible).sort()).toEqual(["allowedToolNames", "brief", "budgets", "model", "sessionAlias"]);
       expect(serializedVisible).not.toMatch(/setupOperations|concurrentEvents|sourceCommitments|"rubric"/i);
+      expect(visible.sessionAlias).toMatch(/^session-[a-f0-9]{12}$/);
+      expect(serializedVisible).not.toContain(config.attempt.attemptId);
+      expect(serializedVisible).not.toMatch(/(?:-a[01]\b)|"opaqueLabel"|"pairId"|"orderIndex"|"timeBlock"/i);
+      expect(config.runnerConfig.roomTitle).not.toContain(config.attempt.attemptId);
       for (const fixture of fixtureSpecs.fixtures) expect(serializedVisible).not.toContain(fixture.fixtureId);
       for (const event of fixtureSpecs.concurrentEvents) expect(serializedVisible).not.toContain(event.eventFixtureId);
     }
@@ -99,7 +108,7 @@ describe("EXP-0001A development attempt bridge", () => {
     const profile = FROZEN_DEVELOPMENT_RUNNER_PROFILE;
     const participantTools = new Set(profile.allowedToolNames);
 
-    expect(profile.model).toEqual({ id: "gpt-5.6-sol", reasoningEffort: "max" });
+    expect(profile.model).toEqual({ id: "gpt-5.6-sol", reasoningEffort: "max", serviceTier: "default" });
     expect(profile.viewport).toEqual({
       width: 1280,
       height: 720,
@@ -110,7 +119,7 @@ describe("EXP-0001A development attempt bridge", () => {
     expect(profile.budgets).toMatchObject({
       wallBudgetMs: 900_000,
       toolCallBudget: 120,
-      inputTokenBudget: 300_000,
+      inputTokenBudget: 600_000,
       outputTokenBudget: 80_000,
       perResponseMaxOutputTokens: 20_000,
       maxCorrectionRounds: 3,
@@ -122,8 +131,16 @@ describe("EXP-0001A development attempt bridge", () => {
 
   it("is deterministic and binds brief, setup, event, treatment, and full config hashes", () => {
     const attemptId = listDevelopmentAttemptIds()[0];
-    const first = createDevelopmentAttemptConfig({ attemptId, aliasPreflight: PREFLIGHT });
-    const second = createDevelopmentAttemptConfig({ attemptId, aliasPreflight: structuredClone(PREFLIGHT) });
+    const first = createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
+      aliasPreflight: PREFLIGHT,
+    });
+    const second = createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
+      aliasPreflight: structuredClone(PREFLIGHT),
+    });
 
     expect(first).toEqual(second);
     expect(first.hashes.brief).toBe(hashCanonicalJson(first.runnerConfig.brief));
@@ -136,9 +153,14 @@ describe("EXP-0001A development attempt bridge", () => {
 
   it("refuses missing/stale alias preflight and frozen build or contract drift", () => {
     const attemptId = listDevelopmentAttemptIds()[0];
-    expect(() => createDevelopmentAttemptConfig({ attemptId, aliasPreflight: {} })).toThrow();
     expect(() => createDevelopmentAttemptConfig({
       attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
+      aliasPreflight: {},
+    })).toThrow();
+    expect(() => createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
       aliasPreflight: { ...PREFLIGHT, resolvedDeploymentId: "dpl_wrong" },
     })).toThrow();
 
@@ -146,6 +168,7 @@ describe("EXP-0001A development attempt bridge", () => {
     buildDrift.expectedDeployment.buildId = "bld_drift";
     expect(() => createDevelopmentAttemptConfig({
       attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
       aliasPreflight: PREFLIGHT,
       runnerProfile: rehashProfile(buildDrift),
     })).toThrow();
@@ -154,6 +177,7 @@ describe("EXP-0001A development attempt bridge", () => {
     contractDrift.participantToolContractHash = "0".repeat(64);
     expect(() => createDevelopmentAttemptConfig({
       attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
       aliasPreflight: PREFLIGHT,
       runnerProfile: rehashProfile(contractDrift),
     })).toThrow();
@@ -165,12 +189,46 @@ describe("EXP-0001A development attempt bridge", () => {
     manifest.assignments[0].attempts[0].attemptId = "attempt-tampered";
     expect(() => createDevelopmentAttemptConfig({
       attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
       aliasPreflight: PREFLIGHT,
       manifest,
     })).toThrow(/manifest verification failed/i);
 
-    const valid = createDevelopmentAttemptConfig({ attemptId, aliasPreflight: PREFLIGHT });
+    const valid = createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: authorIdentityCommitment(attemptId),
+      aliasPreflight: PREFLIGHT,
+    });
     expect(developmentAttemptConfigSchema.safeParse({ ...valid, evaluator: true }).success).toBe(false);
+  });
+
+  it("requires and cryptographically binds the trusted author identity commitment", () => {
+    const attemptId = listDevelopmentAttemptIds()[0];
+    const first = createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: `sha256:${"1".repeat(64)}`,
+      aliasPreflight: PREFLIGHT,
+    });
+    const second = createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: `sha256:${"2".repeat(64)}`,
+      aliasPreflight: PREFLIGHT,
+    });
+
+    expect(first.runnerConfig.authorIdentityCommitment).toBe(`sha256:${"1".repeat(64)}`);
+    expect(first.runnerConfig.sessionAlias).toMatch(/^session-[a-f0-9]{12}$/);
+    expect(first.runnerConfig.sessionAlias).not.toBe(second.runnerConfig.sessionAlias);
+    expect(first.configDigest).not.toBe(second.configDigest);
+    expect(buildAuthorVisibleSpec(first.runnerConfig, false)).not.toHaveProperty("authorIdentityCommitment");
+    expect(() => createDevelopmentAttemptConfig({
+      attemptId,
+      authorIdentityCommitment: "not-a-commitment",
+      aliasPreflight: PREFLIGHT,
+    })).toThrow();
+    expect(() => createDevelopmentAttemptConfig({
+      attemptId,
+      aliasPreflight: PREFLIGHT,
+    } as never)).toThrow();
   });
 
   it("contains no sealed content or credential-bearing fields", () => {

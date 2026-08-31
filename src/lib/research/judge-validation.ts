@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { FROZEN_PRIMARY_FAILURE_CLASSES } from "./blinded-review-orchestration";
+
 const stableId = z.string().trim().min(1).max(160)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const timestamp = z.string().datetime({ offset: true });
@@ -80,8 +82,20 @@ export type ArtifactJudgment = {
   requiresAdjudication: boolean;
   adjudication: BlindBinaryRating | null;
   accepted: boolean;
+  /** Class-only disagreement is resolved by frozen precedence without a third review. */
   primaryClass: string;
+  classResolution: "primary_class_agreement" | "frozen_precedence" | "binary_adjudication";
 };
+
+function resolveClassByFrozenPrecedence(left: string, right: string): string {
+  return [left, right].sort((a, b) => {
+    const leftRank = FROZEN_PRIMARY_FAILURE_CLASSES.indexOf(a as typeof FROZEN_PRIMARY_FAILURE_CLASSES[number]);
+    const rightRank = FROZEN_PRIMARY_FAILURE_CLASSES.indexOf(b as typeof FROZEN_PRIMARY_FAILURE_CLASSES[number]);
+    const normalizedLeft = leftRank === -1 ? Number.MAX_SAFE_INTEGER : leftRank;
+    const normalizedRight = rightRank === -1 ? Number.MAX_SAFE_INTEGER : rightRank;
+    return normalizedLeft - normalizedRight || a.localeCompare(b);
+  })[0];
+}
 
 export type JudgeCalibrationResult = {
   schemaVersion: 1;
@@ -154,7 +168,7 @@ export function validateAndResolveJudges(raw: unknown): JudgeCalibrationResult {
 
     const binaryAgreement = first.accepted === second.accepted;
     const classAgreement = first.primaryClass === second.primaryClass;
-    const requiresAdjudication = !binaryAgreement || !classAgreement;
+    const requiresAdjudication = !binaryAgreement;
     const adjudication = adjudicationsByArtifact.get(artifactId) ?? null;
     if (requiresAdjudication && adjudication === null) {
       throw new Error(`Artifact ${artifactId} requires independent adjudication.`);
@@ -176,7 +190,12 @@ export function validateAndResolveJudges(raw: unknown): JudgeCalibrationResult {
       requiresAdjudication,
       adjudication,
       accepted: requiresAdjudication ? (adjudication as BlindBinaryRating).accepted : first.accepted,
-      primaryClass: requiresAdjudication ? (adjudication as BlindBinaryRating).primaryClass : first.primaryClass,
+      primaryClass: requiresAdjudication
+        ? (adjudication as BlindBinaryRating).primaryClass
+        : classAgreement ? first.primaryClass : resolveClassByFrozenPrecedence(first.primaryClass, second.primaryClass),
+      classResolution: requiresAdjudication
+        ? "binary_adjudication"
+        : classAgreement ? "primary_class_agreement" : "frozen_precedence",
     });
   }
 

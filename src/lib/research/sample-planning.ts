@@ -334,6 +334,70 @@ export function monteCarloClusterPower(raw: ClusterMonteCarloInput): ClusterMont
   };
 }
 
+export type TaskClusterSignFlipMonteCarloPower = Omit<ClusterMonteCarloPower, "method"> & {
+  method: "two_sided_task_cluster_sign_flip_normal_approximation_with_common_shock_correlation";
+};
+
+/**
+ * Power for the preregistered task-level sign-flip statistic. The data
+ * generator retains the paired-outcome common-shock model; the simulated
+ * decision compares the observed task-sum statistic to its sign-flip null
+ * variance. This is the large-task planning approximation to the exact
+ * enumerated randomization test used for the 12-task A/A analysis.
+ */
+export function monteCarloTaskClusterSignFlipPower(
+  raw: ClusterMonteCarloInput,
+): TaskClusterSignFlipMonteCarloPower {
+  const input = clusterMonteCarloInputSchema.parse(raw);
+  const probabilities = pairedBinaryProbabilities({
+    baselineRate: input.baselineRate,
+    candidateLift: input.candidateLift,
+    discordanceRate: input.discordanceRate,
+    alpha: input.alpha,
+    targetPower: input.targetPower,
+  });
+  const random = mulberry32(input.seed);
+  const sharedOutcomeProbability = Math.sqrt(input.intrataskCorrelation);
+  const criticalValue = inverseStandardNormal(1 - input.alpha / 2);
+  const drawDifference = (): -1 | 0 | 1 => {
+    const draw = random();
+    if (draw < probabilities.candidateOnlyPass) return 1;
+    if (draw < probabilities.candidateOnlyPass + probabilities.baselineOnlyPass) return -1;
+    return 0;
+  };
+  let rejectedSimulations = 0;
+  for (let simulation = 0; simulation < input.simulations; simulation += 1) {
+    let observedSignedSum = 0;
+    let signFlipNullVariance = 0;
+    for (let task = 0; task < input.taskCount; task += 1) {
+      const commonOutcome = drawDifference();
+      let taskSignedSum = 0;
+      for (let replicate = 0; replicate < input.replicatesPerTask; replicate += 1) {
+        taskSignedSum += random() < sharedOutcomeProbability ? commonOutcome : drawDifference();
+      }
+      observedSignedSum += taskSignedSum;
+      signFlipNullVariance += taskSignedSum ** 2;
+    }
+    const statistic = signFlipNullVariance === 0
+      ? 0
+      : Math.abs(observedSignedSum) / Math.sqrt(signFlipNullVariance);
+    if (statistic >= criticalValue) rejectedSimulations += 1;
+  }
+  return {
+    power: rejectedSimulations / input.simulations,
+    rejectedSimulations,
+    simulations: input.simulations,
+    monteCarlo95Interval: wilsonInterval(rejectedSimulations, input.simulations),
+    taskCount: input.taskCount,
+    replicatesPerTask: input.replicatesPerTask,
+    totalPairs: input.taskCount * input.replicatesPerTask,
+    intrataskCorrelation: input.intrataskCorrelation,
+    designEffect: intrataskDesignEffect(input.replicatesPerTask, input.intrataskCorrelation),
+    seed: input.seed,
+    method: "two_sided_task_cluster_sign_flip_normal_approximation_with_common_shock_correlation",
+  };
+}
+
 export const sealedSampleScenarioSchema = nominalPairRequirementInputSchema.extend({
   id: z.string().regex(/^sensitivity-[a-z0-9-]{3,100}$/),
   replicatesPerTask: positiveInteger.max(100),

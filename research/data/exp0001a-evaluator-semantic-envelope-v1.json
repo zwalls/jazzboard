@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "exp-0001a-evaluator-semantic-envelope/v1",
+  "pilotTaskBasis": {
+    "benchmarkId": "jazzboard-development",
+    "benchmarkVersion": "v1",
+    "taskCount": 12,
+    "maximumArchitectureEntities": 9,
+    "maximumArchitectureRelationships": 9,
+    "mandatoryCriteriaPerTask": 3,
+    "benchmarkSource": {
+      "path": "research/benchmarks/development-v1.json",
+      "fileDigest": "sha256:c463989713e2486082c47ed6dfe7cf3d9ae0e5350b6e47dc60195a2771adbbee"
+    },
+    "rubricSource": {
+      "path": "research/benchmarks/development-evaluator-rubrics-v1.json",
+      "fileDigest": "sha256:d29deb48689514f3b4e1bd98dcb5de309701b1ec2c479f273bff004856d98554"
+    }
+  },
+  "limits": {
+    "visibleTextBytesPerField": 512,
+    "aggregateVisibleTextBytes": 4096,
+    "semanticProjectionBytes": 65536
+  },
+  "domainPolicy": {
+    "architecture": "complete_compact_objects_connectors_routes_groups_diagrams_and_visible_text_within_limits",
+    "drawing": "complete_stable_object_geometry_path_segment_counts_and_pixels_with_visible_text_within_limits",
+    "outsideEnvelope": "evaluator_unobservable_not_author_failure"
+  },
+  "envelopeDigest": "sha256:fbd8bf82a5dd282bd95d33f8d29ed47fc1d328bb7eb64f557440d207f25110ba"
+}

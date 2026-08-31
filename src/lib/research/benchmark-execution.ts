@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 
-import {
-  validateDevelopmentBenchmarkBundle,
-  type DevelopmentBenchmarkManifest,
-  type DevelopmentEvaluatorRubricsManifest,
-  type DevelopmentFixtureSpecsManifest,
+import type {
+  DevelopmentBenchmarkManifest,
+  DevelopmentEvaluatorRubricsManifest,
+  DevelopmentFixtureSpecsManifest,
 } from "./scoring";
 
 /**
@@ -25,7 +24,11 @@ type ConcurrentEvent = DevelopmentFixtureSpecsManifest["concurrentEvents"][numbe
 type FixtureOperation = Fixture["preBriefSetup"]["operations"][number];
 type FixtureCreateObject = Extract<FixtureOperation, { type: "create_object" }>;
 
-export type BenchmarkExecutionBundle = ReturnType<typeof validateDevelopmentBenchmarkBundle>;
+export type BenchmarkExecutionBundle = {
+  benchmark: DevelopmentBenchmarkManifest;
+  rubrics: DevelopmentEvaluatorRubricsManifest;
+  fixtureSpecs: DevelopmentFixtureSpecsManifest;
+};
 
 export type PublicAuthorPacket = {
   instructions: readonly string[];
@@ -199,6 +202,12 @@ export type BenchmarkCommitments = {
 };
 
 const CANONICAL_HASH_PREFIX = "sha256:";
+// The active EXP-0001A runtime accepts only this exact, previously validated
+// public development bundle. Binding the complete three-file value here keeps
+// provider-era efficiency/cost scoring schemas outside the task-execution
+// bundle while remaining stricter than accepting a caller-selected manifest.
+export const DEVELOPMENT_EXECUTION_BUNDLE_DIGEST =
+  "sha256:067802ba59f921b361442fd27d234063f7c30476b58aeb1801da1202c0a27136" as const;
 
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -230,7 +239,15 @@ export function parseBenchmarkExecutionBundle(
   rawRubrics: unknown,
   rawFixtureSpecs: unknown,
 ): BenchmarkExecutionBundle {
-  return validateDevelopmentBenchmarkBundle(rawBenchmark, rawRubrics, rawFixtureSpecs);
+  const bundle = {
+    benchmark: rawBenchmark,
+    rubrics: rawRubrics,
+    fixtureSpecs: rawFixtureSpecs,
+  };
+  if (canonicalSha256(bundle) !== DEVELOPMENT_EXECUTION_BUNDLE_DIGEST) {
+    throw new Error("Invalid development benchmark bundle: exact frozen bundle digest mismatch.");
+  }
+  return structuredClone(bundle) as BenchmarkExecutionBundle;
 }
 
 /** This is the only payload intended for the author model. */

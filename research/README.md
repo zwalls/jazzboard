@@ -35,6 +35,43 @@ and prior harness-engineering research remains in [`learnings`](../learnings/REA
 New controlled experiments should reference those sources without silently
 rewriting their results.
 
+## Active research program
+
+Start with these persisted documents after any handoff or context reset:
+
+- [`protocols/roadmap-v1.md`](protocols/roadmap-v1.md) defines the estimand,
+  benchmark partitions, phased research program, analysis principles, and
+  permitted claim language.
+- [`protocols/exp-0001a-execution-readiness.md`](protocols/exp-0001a-execution-readiness.md)
+  is the operational continuation record for the current A/A measurement
+  calibration. Its unchecked closures and fixed execution order are
+  authoritative until a versioned protocol amendment replaces them.
+- [`protocols/exp-0001a-codex-native-transport-v1.md`](protocols/exp-0001a-codex-native-transport-v1.md)
+  replaces the unexecuted API-key transport with fresh projectless Codex tasks
+  backed by ChatGPT sign-in. The verified transport prerequisite is the
+  narrowly scoped [v2 disposable-spike protocol](protocols/codex-webmcp-disposable-spike-v2.md),
+  [v2 report](reports/exp0001a-codex-webmcp-spike-v2.md), and fixed-key-signed
+  [v2 recovery gate](data/exp0001a-codex-webmcp-spike-gate-public-v2.json).
+  The original behavior spike is preserved as
+  [historical redacted evidence](data/exp0001a-codex-webmcp-spike-public-v1.json)
+  and a [historical spike report](reports/exp0001a-codex-webmcp-spike-v1.md), but
+  its version-1 gate is revoked and cannot authorize A/A execution. The v2
+  spike proves semantic transport and authoritative activity only; final PNG
+  bytes are collected and verified independently for each real attempt.
+- [`protocols/public-gold-rater-validation-v1.md`](protocols/public-gold-rater-validation-v1.md)
+  separates reviewer validity from A/A reliability. A later A/B claim remains
+  blocked until a preregistered public gold corpus passes that gate.
+- [`protocols/failure-taxonomy-v2.md`](protocols/failure-taxonomy-v2.md) resolves
+  the version-1 adjudication contradiction prospectively while preserving all
+  historical version-1 records.
+
+The current experiment is an A/A calibration on public development tasks. It
+does not authorize access to a sealed benchmark or a product-improvement
+claim. Direct API execution is prohibited. A task brief may be released only
+through the ChatGPT-authenticated Codex task transport after the complete
+receipt-bound chain passes; the 48-attempt run additionally requires a passing
+disposable Codex/WebMCP spike with a currently valid signed recovery gate.
+
 ## Reproducibility contract
 
 Every reported experiment must identify the product commit, harness version,
