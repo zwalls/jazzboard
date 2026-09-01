@@ -198,6 +198,9 @@ initialization:
 The production CLI runs
 the committed `runCodexAuthPreflight()` at this boundary; no auth-receipt input
 exists. Anything other than current ChatGPT sign-in fails closed.
+The request `at` records submission time only. After the preflight returns, the
+CLI records its own clock as the authoritative action `preparedAt`; an operator
+cannot guess or backdate the post-authentication timestamp.
 
 The resulting pending action is exactly one fresh `gpt-5.6-terra` / `medium`
 projectless task with a unique title. It contains only the public task packet,

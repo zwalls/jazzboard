@@ -927,6 +927,8 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     await chmod(benchmarkPath, 0o600);
     await writeFile(rubricsPath, `${JSON.stringify(rubricBundle)}\n`, { mode: 0o600 });
     await writeFile(fixtureSpecsPath, `${JSON.stringify(fixtureSpecs)}\n`, { mode: 0o600 });
+    await chmod(rubricsPath, 0o600);
+    await chmod(fixtureSpecsPath, 0o600);
     const baseRequest = {
       operation: "prepare_author",
       statePath,
@@ -967,5 +969,21 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
       { runAuthPreflightForTesting: async () => { preflightInvoked = true; return authReceipt("2026-08-31T20:00:02.000Z"); } },
     )).toBe(1);
     expect(preflightInvoked).toBe(false);
+
+    await writeFile(requestPath, `${JSON.stringify(baseRequest)}\n`, { mode: 0o600 });
+    await chmod(requestPath, 0o600);
+    const internallyObservedPreparedAt = "2026-08-31T20:00:03.100Z";
+    expect(await runQualificationV2CoordinatorCli(
+      ["--request", requestPath],
+      { stdout: { write: () => true }, stderr: { write: () => true } },
+      repositoryRoot,
+      {
+        runAuthPreflightForTesting: async () => authReceipt("2026-08-31T20:00:03.000Z"),
+        nowForTesting: () => internallyObservedPreparedAt,
+      },
+    )).toBe(0);
+    const prepared = qualificationV2CoordinatorStateSchema.parse(JSON.parse(await readFile(statePath, "utf8")));
+    expect(prepared.pendingAction?.preparedAt).toBe(internallyObservedPreparedAt);
+    expect(prepared.updatedAt).toBe(internallyObservedPreparedAt);
   });
 });

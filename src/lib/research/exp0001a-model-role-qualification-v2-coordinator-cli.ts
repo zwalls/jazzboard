@@ -320,7 +320,10 @@ export async function runQualificationV2CoordinatorCli(
   argv: readonly string[],
   io: { stdout: Pick<NodeJS.WriteStream, "write">; stderr: Pick<NodeJS.WriteStream, "write"> },
   repositoryRoot: string,
-  dependencies: Readonly<{ runAuthPreflightForTesting?: () => Promise<unknown> }> = {},
+  dependencies: Readonly<{
+    runAuthPreflightForTesting?: () => Promise<unknown>;
+    nowForTesting?: () => string;
+  }> = {},
 ) {
   let incidentStatePath: string | null = null;
   let incidentOperation: string | null = null;
@@ -540,11 +543,12 @@ export async function runQualificationV2CoordinatorCli(
           ? await authRuntime.runCodexAuthPreflight()
           : await dependencies.runAuthPreflightForTesting();
         if (authRuntime !== null) authRuntime.assertCodexNativeExperimentAuthorized(authReceipt);
+        const preparedAt = (dependencies.nowForTesting ?? (() => new Date().toISOString()))();
         state = prepareQualificationV2AuthorAction({
           state: current,
           publicTask: executionBundle.publicTasks[current.currentTaskIndex],
           authReceipt,
-          preparedAt: request.at,
+          preparedAt,
         });
       } else if (request.operation === "prepare_capture") {
         for (const privatePath of [
@@ -608,10 +612,11 @@ export async function runQualificationV2CoordinatorCli(
           ? await authRuntime.runCodexAuthPreflight()
           : await dependencies.runAuthPreflightForTesting();
         if (authRuntime !== null) authRuntime.assertCodexNativeExperimentAuthorized(authReceipt);
+        const preparedAt = (dependencies.nowForTesting ?? (() => new Date().toISOString()))();
         state = prepareQualificationV2ReviewAction({
           state: current,
           authReceipt,
-          preparedAt: request.at,
+          preparedAt,
           reviewEnvelope: envelope,
         });
       } else if (request.operation === "resume_after_usage_limit") {
@@ -622,7 +627,8 @@ export async function runQualificationV2CoordinatorCli(
           ? await authRuntime.runCodexAuthPreflight()
           : await dependencies.runAuthPreflightForTesting();
         if (authRuntime !== null) authRuntime.assertCodexNativeExperimentAuthorized(authReceipt);
-        state = resumeQualificationV2AfterUsageLimit(current, request.at, authReceipt);
+        const resumedAt = (dependencies.nowForTesting ?? (() => new Date().toISOString()))();
+        state = resumeQualificationV2AfterUsageLimit(current, resumedAt, authReceipt);
       } else if (request.operation === "derive_author_evidence") {
         for (const privatePath of [
           ...request.waitThreadResultPaths,
