@@ -721,6 +721,47 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     });
   });
 
+  it("accepts a bounded literal browser wait without treating it as external access", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const call = payload.turns[0]!.items.find((item) => item.type === "mcpToolCall")!;
+        const args = call.arguments as { code: string };
+        args.code += "; await tab.playwright.waitForTimeout(500);";
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "completed",
+      repositoryAccess: false,
+      privateApiAccess: false,
+    });
+  });
+
+  it.each([
+    "const delay = 500; await tab.playwright.waitForTimeout(delay);",
+    "await tab.playwright.waitForTimeout(60001);",
+  ])("rejects an unbounded browser wait: %s", async (waitCode) => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const call = payload.turns[0]!.items.find((item) => item.type === "mcpToolCall")!;
+        const args = call.arguments as { code: string };
+        args.code += `; ${waitCode}`;
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "failed",
+      repositoryAccess: "unobservable",
+      privateApiAccess: "unobservable",
+    });
+  });
+
   it("fails closed when the selected browser documentation is never read", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);

@@ -35,6 +35,14 @@ function staticString(value: unknown): string | null {
   return candidate?.type === "Literal" && typeof candidate.value === "string" ? candidate.value : null;
 }
 
+function staticNumber(value: unknown): number | null {
+  const candidate = node(value);
+  return candidate?.type === "Literal" && typeof candidate.value === "number"
+    && Number.isSafeInteger(candidate.value)
+    ? candidate.value
+    : null;
+}
+
 function unwrap(value: unknown): AstNode | null {
   const candidate = node(value);
   return candidate?.type === "AwaitExpression" ? node(candidate.argument) : candidate;
@@ -449,7 +457,10 @@ export function validateQualificationV2NodeReplIsolation(input: Readonly<{
       const allowedTabCall = method === "goto" || method === "url" || method === "screenshot"
         || (method === "get" && memberProperty(callee.object) === "capabilities"
           && staticString(args[0]) === "webmcp")
-        || (method === "waitForLoadState" && memberProperty(callee.object) === "playwright");
+        || (method === "waitForLoadState" && memberProperty(callee.object) === "playwright")
+        || (method === "waitForTimeout" && memberProperty(callee.object) === "playwright"
+          && args.length === 1 && staticNumber(args[0]) !== null
+          && staticNumber(args[0])! >= 0 && staticNumber(args[0])! <= 60_000);
       if (!allowedTabCall) rejected = true;
     }
     if (rootName === "webmcp" && method !== "fetchTools") rejected = true;
