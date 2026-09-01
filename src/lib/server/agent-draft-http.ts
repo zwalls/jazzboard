@@ -1,12 +1,14 @@
 import {
   commitAgentCanvasDraftRequestSchema,
   discardAgentCanvasDraftRequestSchema,
+  keepaliveAgentCanvasDraftRequestSchema,
   replaceAgentCanvasDraftRequestSchema,
   stageAgentCanvasDraftRequestSchema,
 } from "@/lib/agent-drafts/schemas";
 import {
   commitAgentCanvasDraft,
   discardAgentCanvasDraft,
+  keepaliveAgentCanvasDraft,
   listAgentCanvasDrafts,
   readAgentCanvasDraft,
   replaceAgentCanvasDraft,
@@ -115,6 +117,31 @@ export async function handleDiscardAgentCanvasDraft(
       actorKind: "agent",
       parsedBody: { draftId, ...body },
       execute: () => discardAgentCanvasDraft({ roomId, draftId, participantId, request: body }),
+    });
+    return json({ ok: true, ...result });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function handleKeepaliveAgentCanvasDraft(
+  request: Request,
+  context: DraftRouteContext,
+): Promise<Response> {
+  try {
+    const participantId = requireGuestParticipantId(request);
+    const { roomId, draftId } = await context.params;
+    const body = keepaliveAgentCanvasDraftRequestSchema.parse(
+      await readJsonBody(request, { maximumBytes: MAX_AGENT_DRAFT_REQUEST_BYTES }),
+    );
+    const result = await runMutationRequest({
+      request,
+      participantId,
+      roomId,
+      operation: "room.agent.draft.keepalive",
+      actorKind: "agent",
+      parsedBody: { draftId, ...body },
+      execute: () => keepaliveAgentCanvasDraft({ roomId, draftId, participantId, request: body }),
     });
     return json({ ok: true, ...result });
   } catch (error) {

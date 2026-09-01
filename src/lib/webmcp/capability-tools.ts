@@ -62,7 +62,7 @@ const UNIVERSAL_AGENT_PRINCIPLES = [
   "The user's requested meaning, composition, and acceptance criteria control the work.",
   "Read the narrowest authoritative semantic scope and preserve exact revisions before editing.",
   "For every user-visible new multi-object composition, use a progressive draft by default so collaborators see the agent trace each part before one atomic commit. Reserve direct transactions for revision-checked corrections, explicitly instant work, or work with no live audience.",
-  "Author at full speed: submit the largest coherent candidate that fits the transaction limits, and never split, pause, or delay draft replacements merely to pace animation. The client presentation queue absorbs rapid cumulative revisions; only the final finish follows completion of the latest visible construction.",
+  "Author at full speed: submit the largest coherent candidate that fits the transaction limits, and never split, pause, or delay draft replacements merely to pace animation. The client presentation queue absorbs rapid cumulative revisions; call finish once and let Jazzboard wait for visible completion internally.",
   "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
   "Preserve deliberate overlap, asymmetry, cropping, routing, spacing, and layering.",
   "A successful mutation or geometry report is not visual QA; inspect the final exact-revision pixels.",
@@ -271,7 +271,7 @@ const ARCHITECTURE_BUNDLE = {
     "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
     "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
-    "Read the live draft while authoring, let the latest visible construction complete, finish it once atomically, then inspect exact authoritative semantics and pixels and patch only identified defects.",
+    "Read the live draft only when semantic inspection helps, finish the latest exact revision once while Jazzboard waits for visible construction internally, then inspect exact authoritative semantics and pixels and patch only identified defects.",
   ],
   toolChoices: {
     coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
@@ -334,7 +334,7 @@ const ARCHITECTURE_BUNDLE = {
         delivery: { mode: "draft" },
       },
       semantics:
-        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition. Rapid cumulative replacements may refine the candidate without animation-driven pauses; finish once after the latest visible construction completes.",
+        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition. Rapid cumulative replacements may refine the candidate without animation-driven pauses; call finish once and let Jazzboard wait for visible completion internally.",
     },
     optionalHierarchyLayout: {
       operation: {
@@ -434,7 +434,7 @@ const ILLUSTRATION_BUNDLE = {
         delivery: { mode: "draft" },
       },
       next:
-        "Replace with the complete cumulative create-only operation list and exact draft revision as quickly as reasoning requires. After the latest visible construction completes, finish once atomically and perform pixel inspection of the committed result.",
+        "Replace with the complete cumulative create-only operation list and exact draft revision as quickly as reasoning requires. Call finish once; Jazzboard waits for visible construction and commits atomically, after which you perform pixel inspection of the committed result.",
     },
   },
 } as const;

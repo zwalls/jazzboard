@@ -121,6 +121,86 @@ describe("MemoryAgentCanvasDraftStore", () => {
     expect(restored).toMatchObject({ status: "active", revision: 4 });
   });
 
+  it("keeps only an exact-revision active owner draft alive without advancing its revision", async () => {
+    const store = new MemoryAgentCanvasDraftStore();
+    const events: AgentCanvasDraftEvent[] = [];
+    const unsubscribe = subscribeToLocalAgentDraftEvents((event) => events.push(event));
+    const created = await store.create(draft());
+    const touchedAt = NOW + 4 * 60_000;
+    const touched = await store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision,
+      now: touchedAt,
+    });
+
+    expect(touched).toMatchObject({
+      revision: created.revision,
+      updatedAt: created.updatedAt,
+      expiresAt: touchedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+      hardExpiresAt: created.hardExpiresAt,
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "draft.upsert",
+      revision: created.revision,
+      occurredAt: touchedAt,
+      expiresAt: touchedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+    });
+    await domainError(store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: "p_other",
+      expectedRevision: created.revision,
+      now: touchedAt + 1,
+    }), "FORBIDDEN");
+    await domainError(store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision + 1,
+      now: touchedAt + 1,
+    }), "REVISION_CONFLICT");
+
+    const committing = await store.beginCommit({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision,
+      mutationId: "mutation_touch",
+      now: touchedAt + 2,
+    });
+    await domainError(store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: committing.revision,
+      now: touchedAt + 3,
+    }), "REVISION_CONFLICT");
+    unsubscribe();
+  });
+
+  it("caps keepalive renewal at the draft hard deadline", async () => {
+    const store = new MemoryAgentCanvasDraftStore();
+    const created = await store.create(draft({ expiresAt: NOW + AGENT_DRAFT_HARD_TTL_MS }));
+    const touched = await store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision,
+      now: created.hardExpiresAt - 60_000,
+    });
+    expect(touched.expiresAt).toBe(created.hardExpiresAt);
+    await domainError(store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision,
+      now: created.hardExpiresAt,
+    }), "INVALID_OPERATION");
+    await expect(store.get(created.roomId, created.id, created.hardExpiresAt)).resolves.toBeNull();
+  });
+
   it("retains an immutable awaiting-review snapshot and expires at the hard deadline", async () => {
     const store = new MemoryAgentCanvasDraftStore();
     await store.create(draft());

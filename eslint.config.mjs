@@ -5,5 +5,14 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores([".next/**", "coverage/**", "playwright-report/**", "test-results/**"]),
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**",
+    ".research-private/**",
+    // Deterministically generated and byte-verified experiment artifact.
+    // Lint its typed source graph, not esbuild's bundled dependency output.
+    "research/runtime/**",
+  ]),
 ]);

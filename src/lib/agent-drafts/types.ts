@@ -170,6 +170,10 @@ export type ReplaceAgentCanvasDraftRequest = Omit<StageAgentCanvasDraftRequest, 
   expectedDraftRevision: number;
 };
 
+export type KeepaliveAgentCanvasDraftRequest = {
+  expectedDraftRevision: number;
+};
+
 export type CommitAgentCanvasDraftRequest = {
   expectedDraftRevision: number;
 };

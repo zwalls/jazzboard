@@ -74,6 +74,11 @@ export type JazzboardWebMcpDependencies = {
   request?: WebMcpRequest;
   createId?: (prefix: string) => string;
   canvasPreviewTransport?: CanvasPreviewTransportAdapter;
+  waitForDraftPresentation?: (
+    draftId: string,
+    revision: number,
+    signal: AbortSignal,
+  ) => Promise<AgentDraftPresentationStatus>;
 };
 
 export type JazzboardWebMcpRegistrationStatus = {
