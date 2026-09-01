@@ -504,6 +504,7 @@ async function captureProduction(outputDir, captureHistoryPath) {
         text: await response.text(),
       };
     }, { privateRoomId: roomId });
+    const semanticHttpBytes = Buffer.from(semanticHttp.text, "utf8");
     const semanticEnvelope = JSON.parse(semanticHttp.text);
     const semanticArtifact = JSON.parse(semanticEnvelope.export.content);
     if (semanticHttp.status !== 200
