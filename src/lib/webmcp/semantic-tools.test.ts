@@ -768,7 +768,7 @@ describe("progressive draft delivery", () => {
           complete: false,
         },
         nextStep: expect.stringMatching(
-          /poll read_canvas_drafts until presentation\.state is complete.*finish_canvas_draft/i,
+          /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,
         ),
         previewObjects: [{
           id: "node_preview",
@@ -819,7 +819,7 @@ describe("progressive draft delivery", () => {
           complete: false,
         },
         nextStep: expect.stringMatching(
-          /poll read_canvas_drafts until presentation\.state is complete.*finish_canvas_draft/i,
+          /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,
         ),
       },
     });

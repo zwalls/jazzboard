@@ -6,6 +6,7 @@ import type {
   AgentCanvasDraftSnapshot,
   CommitAgentCanvasDraftRequest,
   DiscardAgentCanvasDraftRequest,
+  KeepaliveAgentCanvasDraftRequest,
   ReplaceAgentCanvasDraftRequest,
   StageAgentCanvasDraftRequest,
 } from "@/lib/agent-drafts/types";
@@ -448,7 +449,8 @@ export async function replaceAgentCanvasDraft(input: {
     ...preview,
     metadata: input.request.metadata ? structuredClone(input.request.metadata) : null,
     updatedAt: now,
-    expiresAt: Math.min(current.hardExpiresAt, now + AGENT_DRAFT_SLIDING_TTL_MS),
+    expiresAt: now + AGENT_DRAFT_SLIDING_TTL_MS,
+    hardExpiresAt: now + AGENT_DRAFT_HARD_TTL_MS,
     awaitingReview: null,
     committing: null,
     status: "active",
@@ -457,6 +459,26 @@ export async function replaceAgentCanvasDraft(input: {
     draft,
     expectedRevision: input.request.expectedDraftRevision,
   }));
+}
+
+export async function keepaliveAgentCanvasDraft(input: {
+  roomId: string;
+  draftId: string;
+  participantId: string;
+  request: KeepaliveAgentCanvasDraftRequest;
+  now?: number;
+}): Promise<{ draft: AgentCanvasDraftSnapshot; serverTime: number }> {
+  const now = input.now ?? Date.now();
+  const room = await readAuthorizedRoom(input.roomId, input.participantId);
+  requireAgentParticipant(room, input.participantId);
+  const draft = await getAgentCanvasDraftStore().touch({
+    roomId: input.roomId,
+    draftId: input.draftId,
+    ownerParticipantId: input.participantId,
+    expectedRevision: input.request.expectedDraftRevision,
+    now,
+  });
+  return { draft: snapshot(draft), serverTime: now };
 }
 
 export async function discardAgentCanvasDraft(input: {

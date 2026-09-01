@@ -102,10 +102,10 @@ describe("canvas draft WebMCP tools", () => {
       untrustedContentHint: true,
     });
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
-      /only after read_canvas_drafts reports.*presentation\.state=complete/i,
+      /keeps the owned draft alive.*waits inside this single call/i,
     );
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
-      /earlier commit returns not_applied without a server mutation/i,
+      /no authoritative canvas mutation is sent.*recoverable/i,
     );
   });
 
@@ -186,21 +186,24 @@ describe("canvas draft WebMCP tools", () => {
       completedObjectCount: 1,
     }));
     state.binding.context.getAgentDraftPresentation = getPresentation;
+    const renewedDraft = draft({ expiresAt: 300_000 });
     const authoritativeRoom = { id: "room/a b", roomRevision: 8 } as RoomState;
-    const request = vi.fn(async () => ({
-      ok: true,
-      outcome: "applied",
-      draft: null,
-      mutation: {
-        outcome: "applied",
-        room: authoritativeRoom,
-        changedObjectIds: ["node_stable"],
-        changedDiagramIds: [],
-        membershipObjectIds: [],
-        activity: null,
-        proposal: null,
-      },
-    })) as unknown as WebMcpRequest;
+    const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+      ? { ok: true, draft: renewedDraft, serverTime: 100 }
+      : {
+          ok: true,
+          outcome: "applied",
+          draft: null,
+          mutation: {
+            outcome: "applied",
+            room: authoritativeRoom,
+            changedObjectIds: ["node_stable"],
+            changedDiagramIds: [],
+            membershipObjectIds: [],
+            activity: null,
+            proposal: null,
+          },
+        }) as unknown as WebMcpRequest;
     const tools = createJazzboardDraftWebMcpTools(state.binding, { request });
 
     const result = await execute(tool(tools, "finish_canvas_draft"), {
@@ -213,7 +216,17 @@ describe("canvas draft WebMCP tools", () => {
       ok: true,
       data: { outcome: "applied", action: "commit", draftId: "draft_architecture" },
     });
-    expect(request).toHaveBeenCalledWith(
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/api/rooms/room%2Fa%20b/agent/drafts/draft_architecture/keepalive",
+      {
+        method: "POST",
+        body: JSON.stringify({ expectedDraftRevision: 2 }),
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
       "/api/rooms/room%2Fa%20b/agent/drafts/draft_architecture/commit",
       {
         method: "POST",
@@ -221,6 +234,7 @@ describe("canvas draft WebMCP tools", () => {
         signal: expect.any(AbortSignal),
       },
     );
+    expect(state.acceptedDrafts).toEqual([renewedDraft]);
     expect(state.acceptedRooms).toEqual([authoritativeRoom]);
     expect(state.retiredCommittedDrafts).toEqual([{
       draftId: "draft_architecture",
@@ -231,21 +245,139 @@ describe("canvas draft WebMCP tools", () => {
     expect(getPresentation).toHaveBeenCalledOnce();
   });
 
-  it("keeps an early commit local and non-applied until the exact presentation completes", async () => {
+  it("keeps the draft alive and waits inside one finish call for exact presentation completion", async () => {
     const state = fixture();
-    const getPresentation = vi.fn((draftId: string, revision: number) => ({
+    const completedPresentation = {
       source: "client-local" as const,
-      draftId,
-      requestedRevision: revision,
-      observedRevision: revision,
-      state: "pending" as const,
-      complete: false,
+      draftId: "draft_architecture",
+      requestedRevision: 2,
+      observedRevision: 2,
+      state: "complete" as const,
+      complete: true,
       objectCount: 12,
-      completedObjectCount: 5,
-    }));
-    state.binding.context.getAgentDraftPresentation = getPresentation;
-    const request = vi.fn() as unknown as WebMcpRequest;
-    const tools = createJazzboardDraftWebMcpTools(state.binding, { request });
+      completedObjectCount: 12,
+    };
+    const waitForDraftPresentation = vi.fn(async () => completedPresentation);
+    const renewedDraft = draft({ expiresAt: 300_000 });
+    const authoritativeRoom = { id: "room/a b", roomRevision: 8 } as RoomState;
+    const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+      ? { ok: true, draft: renewedDraft, serverTime: 100 }
+      : {
+          ok: true,
+          outcome: "applied",
+          draft: null,
+          room: authoritativeRoom,
+          draftRevision: 2,
+          changedObjectIds: ["node_stable"],
+          changedDiagramIds: [],
+          membershipObjectIds: [],
+        }) as unknown as WebMcpRequest;
+    const tools = createJazzboardDraftWebMcpTools(state.binding, {
+      request,
+      waitForDraftPresentation,
+    });
+
+    const result = await execute(tool(tools, "finish_canvas_draft"), {
+      draftId: "draft_architecture",
+      expectedDraftRevision: 2,
+      action: "commit",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { action: "commit", outcome: "applied" },
+    });
+    expect(waitForDraftPresentation).toHaveBeenCalledWith(
+      "draft_architecture",
+      2,
+      expect.any(AbortSignal),
+    );
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(state.acceptedRooms).toEqual([authoritativeRoom]);
+    expect(state.acceptedDrafts).toEqual([renewedDraft]);
+    expect(state.removedDrafts).toEqual([]);
+    expect(state.retiredCommittedDrafts).toEqual([{
+      draftId: "draft_architecture",
+      draftRevision: 2,
+      authoritativeRoomRevision: 8,
+    }]);
+  });
+
+  it("polls browser-local presentation internally instead of requiring agent round trips", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = fixture();
+      let presentationReads = 0;
+      state.binding.context.getAgentDraftPresentation = (draftId, revision) => {
+        presentationReads += 1;
+        const complete = presentationReads >= 2;
+        return {
+          source: "client-local",
+          draftId,
+          requestedRevision: revision,
+          observedRevision: revision,
+          state: complete ? "complete" : "pending",
+          complete,
+          objectCount: 4,
+          completedObjectCount: complete ? 4 : 2,
+        };
+      };
+      const renewedDraft = draft({ expiresAt: 300_000 });
+      const authoritativeRoom = { id: "room/a b", roomRevision: 8 } as RoomState;
+      const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+        ? { ok: true, draft: renewedDraft, serverTime: 100 }
+        : {
+            ok: true,
+            outcome: "applied",
+            room: authoritativeRoom,
+            draftRevision: 2,
+          }) as unknown as WebMcpRequest;
+      const tools = createJazzboardDraftWebMcpTools(state.binding, { request });
+
+      const pendingResult = execute(tool(tools, "finish_canvas_draft"), {
+        draftId: "draft_architecture",
+        expectedDraftRevision: 2,
+        action: "commit",
+      });
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(80);
+
+      await expect(pendingResult).resolves.toMatchObject({
+        ok: true,
+        data: { outcome: "applied", action: "commit" },
+      });
+      expect(presentationReads).toBe(2);
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out without an authoritative mutation and tells the agent to retry the draft path", async () => {
+    const state = fixture();
+    const renewedDraft = draft({ expiresAt: 300_000 });
+    const requestMock = vi.fn(async (url: string) => {
+      void url;
+      return {
+        ok: true,
+        draft: renewedDraft,
+        serverTime: 100,
+      };
+    });
+    const request = requestMock as unknown as WebMcpRequest;
+    const tools = createJazzboardDraftWebMcpTools(state.binding, {
+      request,
+      waitForDraftPresentation: async () => ({
+        source: "client-local",
+        draftId: "draft_architecture",
+        requestedRevision: 2,
+        observedRevision: 2,
+        state: "pending",
+        complete: false,
+        objectCount: 12,
+        completedObjectCount: 5,
+      }),
+    });
 
     const result = await execute(tool(tools, "finish_canvas_draft"), {
       draftId: "draft_architecture",
@@ -256,28 +388,18 @@ describe("canvas draft WebMCP tools", () => {
     expect(result).toMatchObject({
       ok: true,
       data: {
-        draftId: "draft_architecture",
-        draftRevision: 2,
-        action: "commit",
         outcome: "not_applied",
-        reasonCode: "PRESENTATION_NOT_COMPLETE",
+        reasonCode: "PRESENTATION_TIMEOUT",
         authoritativeMutationApplied: false,
-        serverRequestSent: false,
-        presentation: {
-          source: "client-local",
-          requestedRevision: 2,
-          observedRevision: 2,
-          state: "pending",
-          complete: false,
-        },
-        nextStep: expect.stringMatching(/poll read_canvas_drafts.*latest exact draft revision/i),
+        authoritativeMutationRequestSent: false,
+        keepaliveSent: true,
+        nextStep: expect.stringMatching(/retry finish_canvas_draft.*do not bypass progressive delivery/i),
       },
     });
-    expect(getPresentation).toHaveBeenCalledWith("draft_architecture", 2);
-    expect(request).not.toHaveBeenCalled();
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(String(requestMock.mock.calls[0]?.[0])).toMatch(/\/keepalive$/);
     expect(state.acceptedRooms).toEqual([]);
-    expect(state.acceptedDrafts).toEqual([]);
-    expect(state.removedDrafts).toEqual([]);
+    expect(state.acceptedDrafts).toEqual([renewedDraft]);
     expect(state.retiredCommittedDrafts).toEqual([]);
   });
 
@@ -321,14 +443,17 @@ describe("canvas draft WebMCP tools", () => {
       objectCount: 1,
       completedObjectCount: 1,
     });
+    const renewedDraft = draft({ expiresAt: 300_000 });
     const proposedDraft = draft({ revision: 3, status: "awaiting_review" });
-    const request = vi.fn(async () => ({
-      ok: true,
-      outcome: "proposed",
-      draft: proposedDraft,
-      activity: null,
-      proposal: { proposalId: "proposal_1" },
-    })) as unknown as WebMcpRequest;
+    const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+      ? { ok: true, draft: renewedDraft, serverTime: 100 }
+      : {
+          ok: true,
+          outcome: "proposed",
+          draft: proposedDraft,
+          activity: null,
+          proposal: { proposalId: "proposal_1" },
+        }) as unknown as WebMcpRequest;
     const tools = createJazzboardDraftWebMcpTools(state.binding, { request });
 
     const result = await execute(tool(tools, "finish_canvas_draft"), {
@@ -341,7 +466,7 @@ describe("canvas draft WebMCP tools", () => {
       ok: true,
       data: { outcome: "proposed", action: "commit" },
     });
-    expect(state.acceptedDrafts).toEqual([proposedDraft]);
+    expect(state.acceptedDrafts).toEqual([renewedDraft, proposedDraft]);
     expect(state.removedDrafts).toEqual([]);
     expect(state.retiredCommittedDrafts).toEqual([]);
   });

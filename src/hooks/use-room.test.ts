@@ -621,6 +621,76 @@ describe("useRoom request ordering", () => {
     expect(result.current.agentDrafts[0]).toMatchObject({ revision: 3, status: "committing" });
   });
 
+  it("accepts an expiry-only keepalive acknowledgement without changing draft revision", () => {
+    const original = agentDraft(2);
+    const renewed = { ...original, expiresAt: original.expiresAt + 240_000 };
+    const { result } = renderHook(() => useRoom("room-a"));
+
+    act(() => {
+      result.current.acceptAgentDraft(original);
+    });
+    let accepted = false;
+    act(() => {
+      accepted = result.current.acceptAgentDraft(renewed);
+    });
+
+    expect(accepted).toBe(true);
+    expect(result.current.agentDrafts).toEqual([renewed]);
+    expect(result.current.agentDrafts[0]).toMatchObject({ revision: 2, expiresAt: renewed.expiresAt });
+  });
+
+  it("keeps a renewed expiry when an equal-revision draft list arrives stale", async () => {
+    const original = agentDraft(2);
+    const renewed = { ...original, expiresAt: original.expiresAt + 240_000 };
+    mocks.apiRequest.mockResolvedValue({
+      ok: true,
+      drafts: [original],
+      serverTime: Date.now(),
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+
+    act(() => {
+      result.current.acceptAgentDraft(renewed);
+    });
+    await act(async () => {
+      await result.current.refreshDrafts();
+    });
+
+    expect(result.current.agentDrafts[0]).toMatchObject({
+      revision: 2,
+      expiresAt: renewed.expiresAt,
+    });
+  });
+
+  it("applies same-revision realtime keepalive expiry without refetching the draft", () => {
+    const original = agentDraft(2);
+    const renewedExpiry = original.expiresAt + 240_000;
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+
+    act(() => {
+      result.current.acceptAgentDraft(original);
+      realtime.onDraftInvalidated?.({
+        schemaVersion: 1,
+        id: "draft_keepalive_2",
+        roomId: "room-a",
+        occurredAt: Date.now(),
+        type: "draft.upsert",
+        draftId: original.id,
+        ownerParticipantId: original.ownerParticipantId,
+        revision: original.revision,
+        status: original.status,
+        expiresAt: renewedExpiry,
+      });
+    });
+
+    expect(result.current.agentDrafts[0]).toMatchObject({
+      revision: 2,
+      expiresAt: renewedExpiry,
+    });
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
   it("coalesces overlapping invalidations and recovers when the trailing fetch fails", async () => {
     const revisionTwo = agentDraft(2);
     const revisionThree = { ...agentDraft(3), status: "committing" as const };

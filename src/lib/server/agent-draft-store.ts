@@ -15,8 +15,8 @@ import { REALTIME_EVENT_STREAM } from "@/lib/realtime/protocol";
 import { currentMutationContext } from "./mutation-context";
 import { getRedisForRealtime } from "./room-store";
 
-export const AGENT_DRAFT_SLIDING_TTL_MS = 90_000;
-export const AGENT_DRAFT_HARD_TTL_MS = 10 * 60_000;
+export const AGENT_DRAFT_SLIDING_TTL_MS = 5 * 60_000;
+export const AGENT_DRAFT_HARD_TTL_MS = 30 * 60_000;
 export const DEFAULT_AGENT_DRAFT_LIMITS = Object.freeze({
   draftBytes: 192 * 1024,
   roomBytes: 768 * 1024,
@@ -67,6 +67,13 @@ export interface AgentCanvasDraftStore {
   replace(input: {
     draft: AgentCanvasDraft;
     expectedRevision: number;
+  }): Promise<AgentCanvasDraft>;
+  touch(input: {
+    roomId: string;
+    draftId: string;
+    ownerParticipantId: string;
+    expectedRevision: number;
+    now: number;
   }): Promise<AgentCanvasDraft>;
   beginCommit(input: {
     roomId: string;
@@ -383,6 +390,25 @@ export class MemoryAgentCanvasDraftStore implements AgentCanvasDraftStore {
     });
   }
 
+  async touch(input: {
+    roomId: string; draftId: string; ownerParticipantId: string; expectedRevision: number; now: number;
+  }): Promise<AgentCanvasDraft> {
+    return this.locked(input.roomId, () => {
+      const record = this.state.rooms.get(input.roomId)?.get(input.draftId);
+      if (!record || isExpired(record.draft, input.now)) throw draftNotFound();
+      requireOwner(record.draft, input.ownerParticipantId);
+      if (record.draft.revision !== input.expectedRevision) {
+        throw revisionConflict(input.expectedRevision, record.draft.revision);
+      }
+      if (record.draft.status !== "active") {
+        throw new DomainError("REVISION_CONFLICT", "This draft cannot be kept alive in its current state.");
+      }
+      record.draft.expiresAt = activeUntil(record.draft, input.now);
+      publishLocal(upsertEvent(record.draft, input.now));
+      return structuredClone(record.draft);
+    });
+  }
+
   async beginCommit(input: {
     roomId: string; draftId: string; ownerParticipantId: string; expectedRevision: number;
     mutationId: string; now: number;
@@ -674,6 +700,53 @@ export class RedisAgentCanvasDraftStore implements AgentCanvasDraftStore {
         return { result: structuredClone(input.draft), write, event: upsertEvent(input.draft, input.draft.updatedAt) };
       },
     });
+  }
+
+  async touch(input: {
+    roomId: string; draftId: string; ownerParticipantId: string; expectedRevision: number; now: number;
+  }): Promise<AgentCanvasDraft> {
+    const connection = this.redis.duplicate();
+    const key = redisKey(input.roomId);
+    try {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await connection.watch(key);
+        const encoded = await connection.hget(key, input.draftId);
+        if (!encoded) throw draftNotFound();
+        const current = parseStored(encoded);
+        if (
+          current.draft.id !== input.draftId ||
+          current.draft.roomId !== input.roomId ||
+          isExpired(current.draft, input.now)
+        ) {
+          throw draftNotFound();
+        }
+        requireOwner(current.draft, input.ownerParticipantId);
+        if (current.draft.revision !== input.expectedRevision) {
+          throw revisionConflict(input.expectedRevision, current.draft.revision);
+        }
+        if (current.draft.status !== "active") {
+          throw new DomainError("REVISION_CONFLICT", "This draft cannot be kept alive in its current state.");
+        }
+        const draft = structuredClone(current.draft);
+        draft.expiresAt = activeUntil(draft, input.now);
+        const event = upsertEvent(draft, input.now);
+        const transaction = connection.multi();
+        transaction.hset(key, draft.id, JSON.stringify({ draft, lastWrite: current.lastWrite }));
+        transaction.xadd(
+          REALTIME_EVENT_STREAM,
+          "MAXLEN", "~", 20_000, "*",
+          "roomId", input.roomId,
+          "data", JSON.stringify(event),
+        );
+        const committed = await transaction.exec();
+        if (!committed) continue;
+        publishLocal(event);
+        return structuredClone(draft);
+      }
+      throw new DomainError("REVISION_CONFLICT", "The draft changed too quickly; inspect it and retry.");
+    } finally {
+      await connection.quit().catch(() => undefined);
+    }
   }
 
   async beginCommit(input: {

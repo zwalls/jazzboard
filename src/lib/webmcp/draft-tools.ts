@@ -102,6 +102,10 @@ function exactAgentDraftUrl(roomId: string, candidateDraftId: string): string {
   return `${agentDraftsUrl(roomId)}/${encodeURIComponent(candidateDraftId)}`;
 }
 
+function exactAgentDraftKeepaliveUrl(roomId: string, candidateDraftId: string): string {
+  return `${exactAgentDraftUrl(roomId, candidateDraftId)}/keepalive`;
+}
+
 function exactPresentationStatus(
   binding: JazzboardWebMcpBinding,
   candidateDraftId: string,
@@ -124,6 +128,44 @@ function presentationStatus(
   draft: AgentCanvasDraftSnapshot,
 ): AgentDraftPresentationStatus {
   return exactPresentationStatus(binding, draft.id, draft.revision);
+}
+
+const PRESENTATION_WAIT_TIMEOUT_MS = 12_000;
+const PRESENTATION_POLL_INTERVAL_MS = 80;
+
+function waitForDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException("The WebMCP tool call was cancelled.", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      window.clearTimeout(timeout);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("The WebMCP tool call was cancelled.", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function waitForExactPresentation(
+  binding: JazzboardWebMcpBinding,
+  candidateDraftId: string,
+  requestedRevision: number,
+  signal: AbortSignal,
+): Promise<AgentDraftPresentationStatus> {
+  const deadline = Date.now() + PRESENTATION_WAIT_TIMEOUT_MS;
+  let presentation = exactPresentationStatus(binding, candidateDraftId, requestedRevision);
+  while (
+    !presentation.complete &&
+    presentation.state !== "superseded" &&
+    Date.now() < deadline
+  ) {
+    await waitForDelay(Math.min(PRESENTATION_POLL_INTERVAL_MS, Math.max(deadline - Date.now(), 1)), signal);
+    presentation = exactPresentationStatus(binding, candidateDraftId, requestedRevision);
+  }
+  return presentation;
 }
 
 function failure(tool: string, error: unknown): JazzboardToolFailure {
@@ -200,9 +242,13 @@ export const JAZZBOARD_DRAFT_TOOL_NAMES = [
 /** Role-scoped lifecycle tools for genuine, server-persisted agent draft previews. */
 export function createJazzboardDraftWebMcpTools(
   binding: JazzboardWebMcpBinding,
-  dependencies: Pick<JazzboardWebMcpDependencies, "request"> = {},
+  dependencies: Pick<JazzboardWebMcpDependencies, "request" | "waitForDraftPresentation"> = {},
 ): WebMCP.ModelContextTool[] {
   const request = dependencies.request ?? (apiRequest as WebMcpRequest);
+  const waitForDraftPresentation = dependencies.waitForDraftPresentation ?? (
+    (candidateDraftId: string, revision: number, signal: AbortSignal) =>
+      waitForExactPresentation(binding, candidateDraftId, revision, signal)
+  );
   const reads: WebMCP.ModelContextTool[] = [
     defineTool({
       name: "read_canvas_drafts",
@@ -247,29 +293,44 @@ export function createJazzboardDraftWebMcpTools(
       name: "finish_canvas_draft",
       title: "Finish a canvas draft",
       description:
-        "Commit one exact draft atomically only after read_canvas_drafts reports browser-local presentation.state=complete for that latest exact draft revision, including its closing inspection motion; an earlier commit returns not_applied without a server mutation. Discard remains immediate. A review-mode commit may return proposed instead of applied.",
+        "Finish one exact draft. Commit keeps the owned draft alive, waits inside this single call for the latest exact revision's visible construction and closing inspection motion, then applies it atomically. If presentation cannot complete, no authoritative canvas mutation is sent and the draft remains recoverable. Discard remains immediate. A review-mode commit may return proposed instead of applied.",
       schema: finishDraftInput,
       inputSchema: FINISH_DRAFT_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
         if (input.action === "commit") {
-          const presentation = exactPresentationStatus(
-            binding,
+          const keepalive = await request<DraftResponse>(
+            exactAgentDraftKeepaliveUrl(binding.roomId, input.draftId),
+            {
+              method: "POST",
+              body: JSON.stringify({ expectedDraftRevision: input.expectedDraftRevision }),
+              signal,
+            },
+          );
+          binding.context.acceptAgentDraft?.(keepalive.draft);
+          const presentation = await waitForDraftPresentation(
             input.draftId,
             input.expectedDraftRevision,
+            signal,
           );
           if (presentation.state !== "complete" || !presentation.complete) {
+            const reasonCode = presentation.state === "superseded"
+              ? "PRESENTATION_SUPERSEDED"
+              : "PRESENTATION_TIMEOUT";
             return {
               draftId: input.draftId,
               draftRevision: input.expectedDraftRevision,
               action: input.action,
               outcome: "not_applied",
-              reasonCode: "PRESENTATION_NOT_COMPLETE",
+              reasonCode,
               authoritativeMutationApplied: false,
-              serverRequestSent: false,
+              authoritativeMutationRequestSent: false,
+              keepaliveSent: true,
               presentation,
               nextStep:
-                "Poll read_canvas_drafts for this draft ID. Commit only when presentation.state is complete for the latest exact draft revision; if it is superseded, use the latest returned revision.",
+                presentation.state === "superseded"
+                  ? "Read the latest draft revision, preserve its cumulative candidate, and finish that exact revision. Do not bypass progressive delivery with a direct transaction."
+                  : "The owned draft remains alive. Retry finish_canvas_draft for this same exact revision; do not bypass progressive delivery with a direct transaction.",
             };
           }
         }

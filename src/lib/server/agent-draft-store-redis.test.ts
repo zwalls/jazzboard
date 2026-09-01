@@ -91,6 +91,10 @@ class FakeRedis {
     return Object.fromEntries(this.state.hashes.get(key) ?? []);
   }
 
+  async hget(key: string, field: string) {
+    return this.state.hashes.get(key)?.get(field) ?? null;
+  }
+
   async hdel(key: string, ...fields: string[]) {
     const hash = this.state.hashes.get(key);
     let removed = 0;
@@ -177,6 +181,39 @@ describe("RedisAgentCanvasDraftStore", () => {
     expect(JSON.stringify(event)).not.toContain("transaction");
     expect(JSON.stringify(event)).not.toContain("previewObjects");
     await expect(store.list("room_redis", NOW + 1)).resolves.toMatchObject([{ id: "draft_redis" }]);
+  });
+
+  it("atomically renews active expiry and streams same-revision expiry evidence", async () => {
+    const redis = new FakeRedis();
+    const store = new RedisAgentCanvasDraftStore(redis as unknown as Redis);
+    const created = await store.create(draft());
+    const readAll = vi.spyOn(FakeRedis.prototype, "hgetall");
+    const readOne = vi.spyOn(FakeRedis.prototype, "hget");
+    const touchedAt = NOW + 4 * 60_000;
+    const touched = await store.touch({
+      roomId: created.roomId,
+      draftId: created.id,
+      ownerParticipantId: created.ownerParticipantId,
+      expectedRevision: created.revision,
+      now: touchedAt,
+    });
+
+    expect(touched).toMatchObject({
+      revision: created.revision,
+      updatedAt: created.updatedAt,
+      expiresAt: touchedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+      hardExpiresAt: created.hardExpiresAt,
+    });
+    expect(streamEvent(redis.state)).toMatchObject({
+      type: "draft.upsert",
+      revision: created.revision,
+      occurredAt: touchedAt,
+      expiresAt: touchedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+    });
+    expect(redis.state.stream).toHaveLength(2);
+    expect([...redis.state.expiries.values()]).toEqual([created.hardExpiresAt - NOW]);
+    expect(readAll).not.toHaveBeenCalled();
+    expect(readOne).toHaveBeenCalledTimes(1);
   });
 
   it("keeps Redis CAS/status transitions monotonic and publishes removal", async () => {

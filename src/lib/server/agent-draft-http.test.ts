@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   readAgentCanvasDraft: vi.fn(),
   stageAgentCanvasDraft: vi.fn(),
   replaceAgentCanvasDraft: vi.fn(),
+  keepaliveAgentCanvasDraft: vi.fn(),
   discardAgentCanvasDraft: vi.fn(),
   commitAgentCanvasDraft: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock("./agent-draft-service", () => ({
   readAgentCanvasDraft: mocks.readAgentCanvasDraft,
   stageAgentCanvasDraft: mocks.stageAgentCanvasDraft,
   replaceAgentCanvasDraft: mocks.replaceAgentCanvasDraft,
+  keepaliveAgentCanvasDraft: mocks.keepaliveAgentCanvasDraft,
   discardAgentCanvasDraft: mocks.discardAgentCanvasDraft,
   commitAgentCanvasDraft: mocks.commitAgentCanvasDraft,
 }));
@@ -29,6 +31,7 @@ vi.mock("./agent-draft-service", () => ({
 import { POST as stage } from "../../app/api/rooms/[roomId]/agent/drafts/route";
 import { DELETE as discard, PUT as replace } from "../../app/api/rooms/[roomId]/agent/drafts/[draftId]/route";
 import { POST as commit } from "../../app/api/rooms/[roomId]/agent/drafts/[draftId]/commit/route";
+import { POST as keepalive } from "../../app/api/rooms/[roomId]/agent/drafts/[draftId]/keepalive/route";
 import { GET as list } from "../../app/api/rooms/[roomId]/drafts/route";
 import { GET as read } from "../../app/api/rooms/[roomId]/drafts/[draftId]/route";
 
@@ -71,6 +74,10 @@ describe("agent canvas draft routes", () => {
     mocks.readAgentCanvasDraft.mockResolvedValue({ draft: { id: "draft_http" }, serverTime: 10 });
     mocks.stageAgentCanvasDraft.mockResolvedValue({ id: "draft_http", revision: 1 });
     mocks.replaceAgentCanvasDraft.mockResolvedValue({ id: "draft_http", revision: 2 });
+    mocks.keepaliveAgentCanvasDraft.mockResolvedValue({
+      draft: { id: "draft_http", revision: 2, expiresAt: 20 },
+      serverTime: 10,
+    });
     mocks.discardAgentCanvasDraft.mockResolvedValue({ discarded: true, draftId: "draft_http" });
     mocks.commitAgentCanvasDraft.mockResolvedValue({ outcome: "applied", draft: null, mutation: {} });
   });
@@ -135,6 +142,23 @@ describe("agent canvas draft routes", () => {
       draftId: "draft_http",
       request: { expectedDraftRevision: 2 },
     }));
+  });
+
+  it("routes an exact-revision keepalive and returns renewed expiry evidence", async () => {
+    const response = await keepalive(request("POST", { expectedDraftRevision: 2 }), draftContext);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      draft: { id: "draft_http", revision: 2, expiresAt: 20 },
+      serverTime: 10,
+    });
+    expect(mocks.keepaliveAgentCanvasDraft).toHaveBeenCalledWith({
+      roomId: "room_http",
+      draftId: "draft_http",
+      participantId: "p_session",
+      request: { expectedDraftRevision: 2 },
+    });
   });
 
   it("requires a signed session and rejects oversized staging bodies before service execution", async () => {

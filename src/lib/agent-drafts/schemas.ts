@@ -35,6 +35,10 @@ export const replaceAgentCanvasDraftRequestSchema = z
   })
   .strict();
 
+export const keepaliveAgentCanvasDraftRequestSchema = z
+  .object({ expectedDraftRevision: positiveRevision })
+  .strict();
+
 export const commitAgentCanvasDraftRequestSchema = z
   .object({ expectedDraftRevision: positiveRevision })
   .strict();

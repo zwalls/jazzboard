@@ -25,6 +25,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { JazzboardLogo } from "@/components/brand/JazzboardLogo";
+import {
+  AGENT_DRAFT_KEEPALIVE_INTERVAL_MS,
+  keepAliveOwnedAgentDrafts,
+} from "@/lib/client/agent-draft-keepalive";
 import { downloadBlobFile } from "@/lib/client/download";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type {
@@ -134,6 +138,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const { room, self, participantId } = controller;
   const spotlightAction = controller.spotlight;
   const retireCommittedAgentDraft = controller.retireCommittedAgentDraft;
+  const acceptAgentDraft = controller.acceptAgentDraft;
+  const refreshAgentDrafts = controller.refreshDrafts;
   const [followTarget, setFollowTarget] = useState<FollowTarget>(null);
   const [followOpen, setFollowOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
@@ -165,6 +171,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const selectionRef = useRef(selection);
   const canvasRuntimeRef = useRef(canvasRuntime);
   const followTargetRef = useRef(followTarget);
+  const agentDraftsRef = useRef(controller.agentDrafts);
   const followPopoverAnchorRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<CanvasSurfaceHandle | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
@@ -237,7 +244,51 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     selectionRef.current = selection;
     canvasRuntimeRef.current = canvasRuntime;
     followTargetRef.current = followTarget;
-  }, [canvasRuntime, followTarget, room, selection]);
+    agentDraftsRef.current = controller.agentDrafts;
+  }, [canvasRuntime, controller.agentDrafts, followTarget, room, selection]);
+
+  useEffect(() => {
+    if (!participantId || webMcpRole !== "participant") return;
+    let disposed = false;
+    let renewing = false;
+    let controller: AbortController | null = null;
+
+    const keepOwnedDraftsAlive = async () => {
+      if (disposed || renewing) return;
+      renewing = true;
+      controller = new AbortController();
+      try {
+        await keepAliveOwnedAgentDrafts({
+          roomId,
+          participantId,
+          drafts: agentDraftsRef.current,
+          signal: controller.signal,
+          acceptDraft: (draft) => {
+            if (!disposed) acceptAgentDraft(draft);
+          },
+        });
+      } catch (error) {
+        if (!disposed && !(error instanceof DOMException && error.name === "AbortError")) {
+          void refreshAgentDrafts().catch(() => undefined);
+        }
+      } finally {
+        renewing = false;
+        controller = null;
+      }
+    };
+
+    const timer = window.setInterval(() => void keepOwnedDraftsAlive(), AGENT_DRAFT_KEEPALIVE_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void keepOwnedDraftsAlive();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [acceptAgentDraft, participantId, refreshAgentDrafts, roomId, webMcpRole]);
 
   useEffect(() => {
     const canRenderPng = canvasRuntimeRef.current?.capabilities.renderPng === true;

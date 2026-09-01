@@ -1470,7 +1470,7 @@ function conciseDraftReceipt(
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     nextStep:
-      "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, poll read_canvas_drafts until presentation.state is complete for this latest exact draftRevision, then call finish_canvas_draft to commit. Discard remains immediate.",
+      "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, call finish_canvas_draft once; Jazzboard keeps the draft alive, waits for this exact revision's visible construction to finish, then commits atomically. Discard remains immediate.",
   };
 }
 
@@ -2382,7 +2382,7 @@ export function createJazzboardSemanticWebMcpTools(
             previewDiagrams: response.draft.previewDiagrams,
             ...(presentation ? { presentation } : {}),
             nextStep:
-              "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, poll read_canvas_drafts until presentation.state is complete for this latest exact draftRevision, then call finish_canvas_draft to commit. Discard remains immediate.",
+              "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, call finish_canvas_draft once; Jazzboard keeps the draft alive, waits for this exact revision's visible construction to finish, then commits atomically. Discard remains immediate.",
           };
         }
         const response = await mutate(

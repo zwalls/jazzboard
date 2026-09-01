@@ -294,7 +294,15 @@ export function useRoom(roomId: string) {
     }
     const tombstoneRevision = draftTombstonesRef.current.get(draft.id) ?? 0;
     const current = draftsRef.current.get(draft.id);
-    if (draft.revision <= tombstoneRevision || (current && current.revision >= draft.revision)) return false;
+    if (draft.revision <= tombstoneRevision || (current && current.revision > draft.revision)) return false;
+    if (current?.revision === draft.revision) {
+      const expiryRefresh =
+        current.status === draft.status &&
+        current.baselineRoomRevision === draft.baselineRoomRevision &&
+        draft.expiresAt > current.expiresAt &&
+        draft.updatedAt >= current.updatedAt;
+      if (!expiryRefresh) return false;
+    }
     if (draft.expiresAt <= Date.now()) {
       draftsRef.current.delete(draft.id);
       draftTombstonesRef.current.set(draft.id, Math.max(tombstoneRevision, draft.revision));
@@ -470,8 +478,23 @@ export function useRoom(roomId: string) {
       }
       const tombstoneRevision = draftTombstonesRef.current.get(draft.id) ?? 0;
       const current = draftsRef.current.get(draft.id);
-      if (draft.revision > tombstoneRevision && (!current || draft.revision >= current.revision)) {
+      if (draft.revision <= tombstoneRevision || (current && draft.revision < current.revision)) {
+        continue;
+      }
+      if (!current || draft.revision > current.revision) {
         draftsRef.current.set(draft.id, draft);
+        continue;
+      }
+      if (draft.updatedAt > current.updatedAt) {
+        draftsRef.current.set(draft.id, {
+          ...draft,
+          expiresAt: Math.max(current.expiresAt, draft.expiresAt),
+        });
+      } else if (draft.expiresAt > current.expiresAt) {
+        draftsRef.current.set(draft.id, {
+          ...current,
+          expiresAt: draft.expiresAt,
+        });
       }
     }
     for (const [draftId, draft] of draftsRef.current) {
@@ -544,10 +567,23 @@ export function useRoom(roomId: string) {
     }
     const current = draftsRef.current.get(event.draftId);
     const tombstoneRevision = draftTombstonesRef.current.get(event.draftId) ?? 0;
+    if (
+      current?.revision === event.revision &&
+      tombstoneRevision < event.revision &&
+      (event.expiresAt > current.expiresAt || event.status !== current.status)
+    ) {
+      draftsRef.current.set(event.draftId, {
+        ...current,
+        expiresAt: Math.max(current.expiresAt, event.expiresAt),
+        status: event.status,
+      });
+      publishDraftState();
+      return;
+    }
     if ((!current || current.revision < event.revision) && tombstoneRevision < event.revision) {
       requestDraftRefreshRef.current?.();
     }
-  }, [removeAgentDraft]);
+  }, [publishDraftState, removeAgentDraft]);
 
   const setConnection: Dispatch<SetStateAction<ConnectionState>> = useCallback((next) => {
     const activeVisit = roomVisitRef.current;

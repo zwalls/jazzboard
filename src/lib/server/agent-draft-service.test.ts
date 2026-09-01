@@ -6,6 +6,8 @@ import type { StageAgentCanvasDraftRequest } from "@/lib/agent-drafts/types";
 import { DomainError } from "@/lib/domain/errors";
 
 import {
+  AGENT_DRAFT_HARD_TTL_MS,
+  AGENT_DRAFT_SLIDING_TTL_MS,
   type AgentCanvasDraftStore,
   MemoryAgentCanvasDraftStore,
   resetMemoryAgentCanvasDraftStoreForTests,
@@ -14,6 +16,7 @@ import {
 import {
   commitAgentCanvasDraft,
   discardAgentCanvasDraft,
+  keepaliveAgentCanvasDraft,
   listAgentCanvasDrafts,
   readAgentCanvasDraft,
   replaceAgentCanvasDraft,
@@ -242,6 +245,94 @@ describe("agent canvas draft service", () => {
     expect(committed).toMatchObject({ outcome: "applied", draft: null });
     expect((await store.getRoom(room.id))?.objects.draft_note).toMatchObject({ content: "Refined draft" });
     expect((await listAgentCanvasDrafts({ roomId: room.id, participantId: "p_owner" })).drafts).toEqual([]);
+  });
+
+  it("keeps an owner draft alive without mutating the canvas or draft revision", async () => {
+    const { store, room } = await seedRoom();
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: stageRequest(room.roomRevision),
+      now: NOW,
+    });
+    await store.joinRoom({
+      participantId: "p_other",
+      displayName: "Other participant",
+      code: room.code,
+      role: "participant",
+    });
+    const roomBefore = await store.getRoom(room.id);
+    const touchedAt = NOW + 4 * 60_000;
+    const keptAlive = await keepaliveAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: staged.revision },
+      now: touchedAt,
+    });
+    const roomAfter = await store.getRoom(room.id);
+
+    expect(keptAlive).toMatchObject({
+      serverTime: touchedAt,
+      draft: {
+        revision: staged.revision,
+        baselineRoomRevision: staged.baselineRoomRevision,
+        updatedAt: staged.updatedAt,
+        expiresAt: touchedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+        hardExpiresAt: staged.hardExpiresAt,
+      },
+    });
+    expect(roomAfter).toEqual(roomBefore);
+    await expect(keepaliveAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_other",
+      request: { expectedDraftRevision: staged.revision },
+      now: touchedAt + 1,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(keepaliveAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: staged.revision + 1 },
+      now: touchedAt + 1,
+    })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
+
+  it("renews the hard deadline only for a meaningful replacement revision", async () => {
+    const { room } = await seedRoom();
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: stageRequest(room.roomRevision),
+      now: NOW,
+    });
+    const replacement = stageRequest(room.roomRevision);
+    const create = replacement.transaction.commands[0];
+    if (create?.type !== "create" || create.object.kind !== "text") {
+      throw new Error("Expected a text create command.");
+    }
+    create.object.content = "Meaningfully revised";
+    const replacedAt = NOW + 60_000;
+    const replaced = await replaceAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        baselineRoomRevision: room.roomRevision,
+        transaction: replacement.transaction,
+        temporaryReferences: replacement.temporaryReferences,
+      },
+      now: replacedAt,
+    });
+
+    expect(replaced).toMatchObject({
+      revision: staged.revision + 1,
+      expiresAt: replacedAt + AGENT_DRAFT_SLIDING_TTL_MS,
+      hardExpiresAt: replacedAt + AGENT_DRAFT_HARD_TTL_MS,
+    });
+    expect(replaced.hardExpiresAt).toBeGreaterThan(staged.hardExpiresAt);
   });
 
   it("reserves temporary-reference identities across omitted and reintroduced candidates", async () => {
