@@ -134,6 +134,14 @@ unstarted task, complete the following sequence.
 
 ### 1. Provision a private room with the controller
 
+Create the task's parent directory first with mode `0700`. The `provision`
+output directory itself must remain absent so the controller can create it
+exclusively. For example:
+
+```sh
+mkdir -m 700 /ABS/.research-private/exp0001a-qualification-v3/TASK
+```
+
 Create a mode-`0600` room-controller request:
 
 ```json

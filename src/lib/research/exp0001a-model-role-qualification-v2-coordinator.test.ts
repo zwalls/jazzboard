@@ -556,8 +556,10 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     expect(state.pendingAction!.arguments.title.length).toBeLessThanOrEqual(60);
     expect(state.pendingAction!.arguments.prompt).toContain("PRIVATE_ROOM_INVITE_URL=https://www.jazzboard.xyz/#join=ABC234");
     expect(state.pendingAction!.arguments.prompt).toContain("call join_room");
-    expect(state.pendingAction!.arguments.prompt).toContain("sed -n '1,220p' ~/.codex/plugins/cache/openai-bundled/browser/26.825.51511/skills/control-in-app-browser/SKILL.md");
-    expect(state.pendingAction!.arguments.prompt).toContain("Copy it exactly; do not guess, rewrite, or probe any alternate path");
+    expect(state.pendingAction!.arguments.prompt).toContain("passing exactly this command text to the terminal tool once");
+    expect(state.pendingAction!.arguments.prompt).toContain("`sed -n '1,220p' ~/.codex/plugins/cache/openai-bundled/browser/26.825.51511/skills/control-in-app-browser/SKILL.md`");
+    expect(state.pendingAction!.arguments.prompt).toContain("the terminal tool supplies its own shell wrapper");
+    expect(state.pendingAction!.arguments.prompt).toContain("do not add `/bin/zsh -lc`, another shell, or alternate path probing");
     expect(state.pendingAction!.arguments.prompt).toContain("only permitted terminal or filesystem access");
     expect(state.pendingAction!.arguments.prompt).toContain("required selected-browser documentation read");
     expect(state.pendingAction!.arguments.prompt).toContain("let tools = await webmcp.fetchTools()");
