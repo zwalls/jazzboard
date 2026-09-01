@@ -79,6 +79,9 @@ type ToolResult = Readonly<{
   error?: Record<string, unknown>;
 }>;
 
+const QUALIFICATION_V2_DEFAULT_WEBMCP_TIMEOUT_MS = 30_000;
+const QUALIFICATION_V2_PNG_EXPORT_TIMEOUT_MS = 120_000;
+
 type RegisteredTool = Readonly<{
   name: string;
   title?: string;
@@ -223,16 +226,17 @@ async function executeTool(
   page: Page,
   name: string,
   input: unknown,
+  timeoutMs = QUALIFICATION_V2_DEFAULT_WEBMCP_TIMEOUT_MS,
 ): Promise<ToolResult> {
-  const raw = await page.evaluate(async ({ toolName, toolInput }) => {
+  const raw = await page.evaluate(async ({ toolName, toolInput, toolTimeoutMs }) => {
     const hostWindow = window as unknown as { __jazzboardQualificationTools?: Map<string, BrowserTool> };
     const tool = hostWindow.__jazzboardQualificationTools?.get(toolName);
     if (!tool) throw new Error(`QUALIFICATION_V2_WEBMCP_TOOL_NOT_REGISTERED:${toolName}`);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), toolTimeoutMs);
     try { return await tool.execute(toolInput, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
-  }, { toolName: name, toolInput: input });
+  }, { toolName: name, toolInput: input, toolTimeoutMs: timeoutMs });
   const cloned = cloneJson(raw);
   if (cloned === null || Array.isArray(cloned) || typeof cloned !== "object") {
     throw new Error(`QUALIFICATION_V2_WEBMCP_RESULT_INVALID:${name}`);
@@ -945,11 +949,13 @@ async function captureAuthorEvidence(
     const inspection = await executeTool(page, "inspect_canvas_scope", { scope, representation: "overview" });
     const inspectionData = successfulTool(inspection, "inspect_canvas_scope");
     assertExactInspectionSceneContext(inspectionData, scope.targets, Number(roomRevision));
-    const downloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+    const downloadPromise = page.waitForEvent("download", {
+      timeout: QUALIFICATION_V2_PNG_EXPORT_TIMEOUT_MS,
+    });
     const pngPromise = executeTool(page, "export_canvas_png", {
       scope,
       filename: `qualification-${roomReceipt.taskId}`,
-    });
+    }, QUALIFICATION_V2_PNG_EXPORT_TIMEOUT_MS);
     const [download, pngResult] = await Promise.all([downloadPromise, pngPromise]);
     const pngBytes = await readDownload(download);
     assertQualificationV2PngStructure(pngBytes);
@@ -1186,6 +1192,10 @@ export async function runQualificationV2RoomControllerCli(
 }
 
 export const qualificationV2RoomControllerInternalsForTesting = Object.freeze({
+  timeouts: Object.freeze({
+    defaultWebMcpMs: QUALIFICATION_V2_DEFAULT_WEBMCP_TIMEOUT_MS,
+    pngExportMs: QUALIFICATION_V2_PNG_EXPORT_TIMEOUT_MS,
+  }),
   asCallToolResult,
   roomStateData,
   exactObjectScope,

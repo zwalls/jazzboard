@@ -25,6 +25,14 @@ const descriptor = (name: string) => ({
 });
 
 describe("EXP-0001A qualification-v2 room controller", () => {
+  it("gives PNG evidence export a bounded allowance beyond normal semantic calls", () => {
+    expect(controller.timeouts).toEqual({
+      defaultWebMcpMs: 30_000,
+      pngExportMs: 120_000,
+    });
+    expect(controller.timeouts.pngExportMs).toBeGreaterThan(controller.timeouts.defaultWebMcpMs);
+  });
+
   it("builds an order-independent, exact semantic tool contract", () => {
     const first = controller.toolContract([descriptor("beta"), descriptor("alpha")]);
     const second = controller.toolContract([descriptor("alpha"), descriptor("beta")]);
