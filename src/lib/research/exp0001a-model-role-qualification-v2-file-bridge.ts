@@ -116,7 +116,11 @@ async function replacePrivate(filePath: string, value: unknown) {
 }
 
 async function readPrivateJson(filePath: string) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  // A no-replace publication briefly has two hard links while its private
+  // temporary name is being retired. Under a busy trusted host that window can
+  // outlive a few scheduler ticks, so wait for the completed single-link state
+  // without ever accepting the in-flight file as authoritative.
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const metadata = await lstat(filePath);
     if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.nlink === 1 && (metadata.mode & 0o777) === 0o600) {
       const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -134,7 +138,7 @@ async function readPrivateJson(filePath: string) {
         }
       }
       if (samePublishTemporaryExists) {
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        await new Promise((resolve) => setTimeout(resolve, 2));
         continue;
       }
     }
