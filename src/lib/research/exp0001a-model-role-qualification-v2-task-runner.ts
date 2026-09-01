@@ -41,9 +41,8 @@ const QUALIFICATION_V2_LIST_THREADS_LIMIT = 50 as const;
  * even when a conforming agent chooses 240 or 260 as the harmless bound. */
 const QUALIFICATION_V2_BROWSER_SKILL_COMPLETE_LINE_COUNT = 150 as const;
 const QUALIFICATION_V2_BROWSER_SKILL_MAXIMUM_READ_LINE = 1_000 as const;
-/** The live Codex host retains at most 47 Unicode code points in a requested
- * task title: the first 46 plus one ellipsis. */
-const QUALIFICATION_V2_LIVE_TITLE_LENGTH = 47 as const;
+/** Qualification titles are kept below this observed live-host display bound. */
+const QUALIFICATION_V2_LIVE_TITLE_LENGTH = 60 as const;
 const jsonValue = z.custom<JsonValue>((value) => {
   try { canonicalJson(value); return true; } catch { return false; }
 });
@@ -266,6 +265,27 @@ function codexDelegationTextNode(requestedPrompt: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function codexDelegationReadbackMatches(actual: string, requestedPrompt: string): boolean {
+  const expected = codexDelegationTextNode(requestedPrompt);
+  if (actual === expected) return true;
+  const segments = actual.split("…");
+  if (segments.length < 2 || segments.some((segment) => segment.length === 0)) return false;
+  const first = segments[0]!;
+  const last = segments.at(-1)!;
+  const retainedLength = segments.reduce((total, segment) => total + segment.length, 0);
+  if (first.length < 256 || last.length < 256
+      || retainedLength < Math.min(2_048, Math.floor(expected.length / 2))
+      || !expected.startsWith(first) || !expected.endsWith(last)) return false;
+  let cursor = first.length;
+  const suffixStart = expected.length - last.length;
+  for (const segment of segments.slice(1, -1)) {
+    const index = expected.indexOf(segment, cursor);
+    if (index < cursor || index + segment.length > suffixStart) return false;
+    cursor = index + segment.length;
+  }
+  return cursor <= suffixStart;
+}
+
 function terminalMessages(payloads: readonly Record<string, JsonValue>[]) {
   const messages: string[] = [];
   for (const payload of payloads) {
@@ -334,7 +354,7 @@ function validateRetainedTaskIsolation(input: Readonly<{
   const delegated = (promptOutput as Record<string, JsonValue>).text as string;
   const delegatedMatch = /^<codex_delegation>\n  <source_thread_id>[A-Za-z0-9-]+<\/source_thread_id>\n  <input>([\s\S]*)<\/input>\n<\/codex_delegation>\n?$/.exec(delegated);
   if (delegatedMatch === null
-      || delegatedMatch[1] !== codexDelegationTextNode(input.action.arguments.prompt)) return false;
+      || !codexDelegationReadbackMatches(delegatedMatch[1], input.action.arguments.prompt)) return false;
   const commands = items.filter((item) => item.type === "commandExecution");
   if (commands.length !== 1) return false;
   const bootstrap = commands[0]!;

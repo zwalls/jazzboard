@@ -506,10 +506,8 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
       forkedFromTaskId: null,
     });
     const actionSuffix = state.pendingAction!.actionId.split("-").at(-1)!;
-    expect(state.pendingAction!.arguments.title).toMatch(
-      new RegExp(`^Qualification ${actionSuffix} .+ ${actionSuffix}$`),
-    );
-    expect(state.pendingAction!.arguments.title.slice(0, 46)).toContain(actionSuffix);
+    expect(state.pendingAction!.arguments.title).toBe(`Q ${actionSuffix} author 1`);
+    expect(state.pendingAction!.arguments.title.length).toBeLessThanOrEqual(60);
     expect(state.pendingAction!.arguments.prompt).toContain("PRIVATE_ROOM_INVITE_URL=https://www.jazzboard.xyz/#join=ABC234");
     expect(state.pendingAction!.arguments.prompt).toContain("call join_room");
     expect(state.pendingAction!.arguments.prompt).toContain("exact filesystem path shown for that skill in your available-skills catalog");

@@ -185,7 +185,7 @@ function appResult(payload: unknown, isError = false) {
 
 function liveThreadTitle(requestedTitle: string) {
   const characters = Array.from(requestedTitle.trim().replace(/\s+/g, " "));
-  return characters.length <= 47 ? characters.join("") : `${characters.slice(0, 46).join("")}…`;
+  return characters.length <= 60 ? characters.join("") : `${characters.slice(0, 59).join("")}…`;
 }
 
 function delegationTextNode(requestedPrompt: string) {
@@ -257,9 +257,9 @@ function readResult(
   items: unknown[] = authorItems(),
   delegatedPrompt = preparedAuthorState().pendingAction!.arguments.prompt,
 ) {
-  const titleMatch = / (author|primary_reviewer|adjudicator) [12] ([a-f0-9]{12})$/.exec(title);
+  const titleMatch = /^Q ([a-f0-9]{12}) (author|primary_reviewer|adjudicator) [12]$/.exec(title);
   if (titleMatch === null) throw new Error("test title does not encode projectless directory");
-  const projectlessCwd = `/private/tmp/qual-${titleMatch[1]}-${titleMatch[2]}`;
+  const projectlessCwd = `/private/tmp/qual-${titleMatch[2]}-${titleMatch[1]}`;
   return appResult({
     thread: { id: TASK_ID, hostId: HOST_ID, title: liveThreadTitle(title), cwd: projectlessCwd },
     page: { order: "newest_first", limit: 10, hasMore: false, nextCursor: null },
@@ -715,6 +715,44 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
     expect(result.receipt.terminalStatus).toBe("failed");
     expect(result.receipt.repositoryAccess).toBe("unobservable");
+  });
+
+  it("accepts a substantial ordered ellipsis projection of the exact delegated prompt", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const promptRecord = payload.turns[0]!.items.find((item) => item.type === "functionCallOutput")!;
+        const output = promptRecord.output as { text: string; truncated: false };
+        const match = /^(<codex_delegation>\n  <source_thread_id>[A-Za-z0-9-]+<\/source_thread_id>\n  <input>)([\s\S]*)(<\/input>\n<\/codex_delegation>)$/.exec(output.text)!;
+        const body = match[2]!;
+        output.text = `${match[1]}${body.slice(0, 1_500)}…${body.slice(2_500, 3_200)}…${body.slice(-1_200)}${match[3]}`;
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "completed",
+      repositoryAccess: false,
+      privateApiAccess: false,
+    });
+  });
+
+  it("rejects an ellipsis projection with altered retained bytes", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const promptRecord = payload.turns[0]!.items.find((item) => item.type === "functionCallOutput")!;
+        const output = promptRecord.output as { text: string; truncated: false };
+        const match = /^(<codex_delegation>\n  <source_thread_id>[A-Za-z0-9-]+<\/source_thread_id>\n  <input>)([\s\S]*)(<\/input>\n<\/codex_delegation>)$/.exec(output.text)!;
+        const body = match[2]!;
+        output.text = `${match[1]}${body.slice(0, 1_500)}ALTERED…${body.slice(-1_200)}${match[3]}`;
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt.terminalStatus).toBe("failed");
   });
 
   it("fails closed when the retained live-normalized title differs", async () => {
