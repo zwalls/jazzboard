@@ -33,6 +33,8 @@ import { validateQualificationV2NodeReplIsolation } from "./exp0001a-model-role-
 const digest = z.string().regex(SHA256_DIGEST_PATTERN);
 const timestamp = z.string().datetime({ offset: true });
 const QUALIFICATION_V2_READ_THREAD_MAX_OUTPUT_CHARS_PER_ITEM = 1_000_000 as const;
+/** Live Codex list_threads rejects values above 50. */
+const QUALIFICATION_V2_LIST_THREADS_LIMIT = 50 as const;
 const jsonValue = z.custom<JsonValue>((value) => {
   try { canonicalJson(value); return true; } catch { return false; }
 });
@@ -87,7 +89,7 @@ export const qualificationV2RawToolObservationSchema = z.object({
 
 export type QualificationV2CodexAppAdapter = Readonly<{
   createThread: (input: z.infer<typeof qualificationV2ExternalActionSchema>["arguments"]) => Promise<unknown>;
-  listThreads: (input: Readonly<{ limit: 100 }>) => Promise<unknown>;
+  listThreads: (input: Readonly<{ limit: typeof QUALIFICATION_V2_LIST_THREADS_LIMIT }>) => Promise<unknown>;
   waitThreads: (input: Readonly<{
     targets: readonly [Readonly<{ threadId: string; hostId: string; afterCursor?: string }>];
     timeoutMs: 120_000;
@@ -798,7 +800,7 @@ async function runWithAdapter(input: Readonly<{
       const expectedHostId = hostId;
       createdTaskId = null;
       hostId = null;
-      const listArguments = { limit: 100 as const };
+      const listArguments = { limit: QUALIFICATION_V2_LIST_THREADS_LIMIT };
       const listObservation = await retainOrInvoke({
         mode,
         actionDigest: action.actionDigest,

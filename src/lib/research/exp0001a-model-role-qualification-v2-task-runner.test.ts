@@ -512,6 +512,7 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     });
     expect(adapter.createThread).toHaveBeenCalledTimes(1);
     expect(adapter.listThreads).toHaveBeenCalledTimes(1);
+    expect(adapter.listThreads).toHaveBeenCalledWith({ limit: 50 });
     expect(adapter.waitThreads).toHaveBeenCalledTimes(1);
     expect(adapter.readThread).toHaveBeenCalledWith(expect.objectContaining({
       includeOutputs: true,

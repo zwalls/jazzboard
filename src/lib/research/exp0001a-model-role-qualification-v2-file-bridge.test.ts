@@ -185,7 +185,7 @@ describe("EXP-0001A qualification-v2 Codex-app file bridge", () => {
     for (const testCase of cases) {
       const item = await fixture();
       const adapter = createQualificationV2FileBridgeAdapter({ privateRoot: item.privateRoot, bridgeRoot: item.bridgeRoot, now: () => NOW, maxWaitMs: 1 });
-      void adapter.listThreads({ limit: 100 }).catch(() => undefined);
+      void adapter.listThreads({ limit: 50 }).catch(() => undefined);
       const request = await waitForRequest(item.bridgeRoot);
       const requestPath = path.join(item.privateRoot, `${testCase.suffix}-request.json`);
       await writeRequest(requestPath, {
@@ -209,7 +209,7 @@ describe("EXP-0001A qualification-v2 Codex-app file bridge", () => {
   it("recovers a missing pointer from the one immutable unresolved slot", async () => {
     const item = await fixture();
     const adapter = createQualificationV2FileBridgeAdapter({ privateRoot: item.privateRoot, bridgeRoot: item.bridgeRoot, now: () => NOW, maxWaitMs: 1 });
-    void adapter.listThreads({ limit: 100 }).catch(() => undefined);
+    void adapter.listThreads({ limit: 50 }).catch(() => undefined);
     const request = await waitForRequest(item.bridgeRoot);
     // Simulate loss before the atomic pointer publish by retaining only the
     // immutable request slot. Status reconstructs it from that slot.
@@ -236,7 +236,7 @@ describe("EXP-0001A qualification-v2 Codex-app file bridge", () => {
       now: () => NOW,
       pollIntervalMs: 2,
     });
-    const pending = adapter.listThreads({ limit: 100 });
+    const pending = adapter.listThreads({ limit: 50 });
     const request = await waitForRequest(item.bridgeRoot);
     const rawResult = { isError: false, content: [{ type: "text", text: "{\"threads\":[]}" }] };
     await recordQualificationV2FileBridgeResult({
@@ -374,7 +374,7 @@ describe("EXP-0001A qualification-v2 Codex-app file bridge", () => {
       now: () => NOW,
       maxWaitMs: 1,
     });
-    void adapter.listThreads({ limit: 100 }).catch(() => undefined);
+    void adapter.listThreads({ limit: 50 }).catch(() => undefined);
     const request = await waitForRequest(item.bridgeRoot);
     const badPath = path.join(item.privateRoot, "caller-time-request.json");
     await writeRequest(badPath, {

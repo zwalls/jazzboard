@@ -761,19 +761,8 @@ export async function createQualificationV2TerminalEvidenceAttestation(input: Re
     ...entry.artifactBindings.map(artifactReferenceKey),
   ]).concat(aggregateBindings.map(artifactReferenceKey));
   const availableArtifactKeys = new Set(availableArtifactReferences);
-  const artifactCounts = new Map<string, number>();
-  availableArtifactReferences.forEach((key) => artifactCounts.set(key, (artifactCounts.get(key) ?? 0) + 1));
   const missing = requiredArtifacts.filter((candidate) => !availableArtifactKeys.has(artifactReferenceKey(candidate)));
   if (missing.length > 0) throw new Error("QUALIFICATION_V2_ATTESTATION_REQUIRED_EVIDENCE_MISSING");
-  const singletonKinds = new Set<EvidenceArtifactReference["kind"]>([
-    "bridge_create_authorization",
-    "bridge_create_result",
-    "bridge_request",
-  ]);
-  if (requiredArtifacts.some((reference) => singletonKinds.has(reference.kind)
-      && artifactCounts.get(artifactReferenceKey(reference)) !== 1)) {
-    throw new Error("QUALIFICATION_V2_ATTESTATION_BRIDGE_CHAIN_NOT_UNIQUE");
-  }
   const required = [...new Set(requiredArtifacts.map((reference) => reference.digest))].sort();
   const content = terminalEvidenceAttestationContentSchema.parse({
     schemaVersion: "exp-0001a-qualification-terminal-evidence-attestation/v2",

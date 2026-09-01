@@ -575,4 +575,26 @@ describe("qualification v2 terminal evidence attestation", () => {
       await writePrivateJson(item.artifactPaths[name], item.artifacts[name]);
     }
   });
+
+  it("allows a byte-identical operator export of an authoritative bridge request", async () => {
+    const item = await completedTransportChainFixture();
+    await writePrivateJson(
+      path.join(item.evidenceDirectory, "bridge-request-operator-export.json"),
+      item.artifacts["bridge-request.json"],
+    );
+
+    const attestation = await createQualificationV2TerminalEvidenceAttestation({
+      repositoryRoot: item.repositoryRoot,
+      statePath: item.statePath,
+      excludedPaths: [],
+      attestedAt: ATTESTED_AT,
+    });
+    expect(attestation.requiredEvidenceArtifacts).toContainEqual({
+      kind: "bridge_request",
+      digest: item.artifacts["bridge-request.json"].requestDigest,
+    });
+    expect(attestation.evidenceFiles.map((entry) => entry.relativePath)).toContain(
+      "evidence/bridge-request-operator-export.json",
+    );
+  });
 });

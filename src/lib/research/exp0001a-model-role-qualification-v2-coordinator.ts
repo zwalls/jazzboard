@@ -1508,7 +1508,7 @@ const qualificationResultContentSchema = z.object({
     compatibleTaskIds: z.array(taskIdSchema),
     failedTaskIds: z.array(taskIdSchema),
     incompleteTaskIds: z.array(taskIdSchema),
-    diagnosticQuality: z.record(taskIdSchema, z.enum(["accepted", "rejected", "unobservable"])),
+    diagnosticQuality: z.partialRecord(taskIdSchema, z.enum(["accepted", "rejected", "unobservable"])),
   }).strict(),
   aaExecutionStatus: z.enum(["eligible_for_successor_freeze", "blocked"]),
 }).strict();
@@ -1532,6 +1532,27 @@ export const qualificationV2ResultSchema = qualificationResultContentSchema.exte
 
 export type QualificationV2Result = z.infer<typeof qualificationV2ResultSchema>;
 
+const qualificationV2ResultAttestationBindingSchema = z.object({
+  attestedAt: timestampSchema,
+  attestationDigest: digestSchema,
+  terminalStateDigest: digestSchema,
+  harnessRuntimeProvenanceDigest: digestSchema,
+  evidenceInventoryRoot: digestSchema,
+  evidenceFileCount: z.number().int().positive(),
+}).strict();
+
+export function qualificationV2ResultAttestationBinding(input: unknown) {
+  const source = qualificationV2ResultAttestationBindingSchema.passthrough().parse(input);
+  return Object.freeze(qualificationV2ResultAttestationBindingSchema.parse({
+    attestedAt: source.attestedAt,
+    attestationDigest: source.attestationDigest,
+    terminalStateDigest: source.terminalStateDigest,
+    harnessRuntimeProvenanceDigest: source.harnessRuntimeProvenanceDigest,
+    evidenceInventoryRoot: source.evidenceInventoryRoot,
+    evidenceFileCount: source.evidenceFileCount,
+  }));
+}
+
 function qualityDecision(task: z.infer<typeof taskStateSchema>) {
   if (task.primaryReviews.length !== 2) return "unobservable" as const;
   const left = task.primaryReviews[0].reviewDecision?.artifactAccepted;
@@ -1554,14 +1575,7 @@ export function sealQualificationV2Result(
 ): QualificationV2Result {
   const state = qualificationV2CoordinatorStateSchema.parse(stateInput);
   if (!state.stopped && state.currentTaskIndex !== 3) throw new Error("QUALIFICATION_V2_RESULT_NOT_TERMINAL");
-  const attestation = z.object({
-    attestedAt: timestampSchema,
-    attestationDigest: digestSchema,
-    terminalStateDigest: digestSchema,
-    harnessRuntimeProvenanceDigest: digestSchema,
-    evidenceInventoryRoot: digestSchema,
-    evidenceFileCount: z.number().int().positive(),
-  }).strict().parse(attestationInput);
+  const attestation = qualificationV2ResultAttestationBinding(attestationInput);
   const harnessRuntimeProvenanceDigest = hashCanonicalJson(
     qualificationV2HarnessRuntimeProvenanceSchema.parse(state.controllerHarnessRuntimeProvenance) as unknown as JsonValue,
   );

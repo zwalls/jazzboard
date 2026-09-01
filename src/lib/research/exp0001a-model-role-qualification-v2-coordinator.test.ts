@@ -581,6 +581,53 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     expect(result.metrics.every((metric) => metric.exactTokens === "unobservable")).toBe(true);
   });
 
+  it("seals an incomplete stopped run from a full terminal attestation", () => {
+    let state = initialize();
+    state = retainQualificationV2Room(
+      state,
+      roomReceipt(0),
+      digest("c"),
+      digest("d"),
+      "2026-08-31T20:00:01.000Z",
+      HARNESS_RUNTIME_PROVENANCE,
+    );
+    state = prepareQualificationV2AuthorAction({
+      state,
+      publicTask: publicTasks[0],
+      authReceipt: authReceipt("2026-08-31T20:00:02.000Z"),
+      preparedAt: "2026-08-31T20:00:02.000Z",
+    });
+    state = dispatch(state, "2026-08-31T20:00:03.000Z");
+    state = ingestQualificationV2ExternalTaskReceipt(
+      state,
+      taskReceipt(state, { terminalStatus: "invalid_setup", createdTask: false }),
+      "2026-08-31T20:00:04.000Z",
+    );
+    expect(state).toMatchObject({ stopped: true, stopReason: "invalid_setup" });
+
+    const fullAttestation = {
+      schemaVersion: "exp-0001a-qualification-terminal-evidence-attestation/v2",
+      protocolId: "EXP-0001A-MODEL-ROLE-QUALIFICATION-V2",
+      kind: "terminal-evidence-attestation",
+      attestedAt: "2026-08-31T21:00:00.000Z",
+      attestationDigest: digest("7"),
+      terminalStateDigest: state.stateDigest,
+      harnessRuntimeProvenanceDigest: hashCanonicalJson(HARNESS_RUNTIME_PROVENANCE as unknown as JsonValue),
+      evidenceInventoryRoot: digest("8"),
+      evidenceFileCount: 34,
+      evidenceFiles: [],
+    };
+    const result = sealQualificationV2Result(state, fullAttestation.attestedAt, fullAttestation);
+    expect(result.gateDecision).toEqual({
+      decision: "incomplete",
+      compatibleTaskIds: [],
+      failedTaskIds: [],
+      incompleteTaskIds: EXP0001A_QUALIFICATION_V2_TASK_IDS,
+      diagnosticQuality: {},
+    });
+    expect(result.aaExecutionStatus).toBe("blocked");
+  });
+
   it("uses a fresh blinded adjudicator only for binary primary disagreement", () => {
     let state = initialize();
     state = retainQualificationV2Room(state, roomReceipt(0), digest("c"), digest("d"), "2026-08-31T20:00:01.000Z", HARNESS_RUNTIME_PROVENANCE);
