@@ -507,6 +507,10 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     });
     expect(state.pendingAction!.arguments.prompt).toContain("PRIVATE_ROOM_INVITE_URL=https://www.jazzboard.xyz/#join=ABC234");
     expect(state.pendingAction!.arguments.prompt).toContain("call join_room");
+    expect(state.pendingAction!.arguments.prompt).toContain("exact filesystem path shown for that skill in your available-skills catalog");
+    expect(state.pendingAction!.arguments.prompt).toContain("Use sed from line 1 through at least line 150");
+    expect(state.pendingAction!.arguments.prompt).toContain("do not guess or probe any alternate path");
+    expect(state.pendingAction!.arguments.prompt).toContain("only permitted terminal or filesystem access");
     expect(state.pendingAction!.arguments.prompt).not.toContain("room-private-0");
     expect(state.pendingAction!.arguments.prompt).not.toContain("FROZEN_RUBRIC");
     expect(state.pendingAction!.arguments.prompt).not.toContain("api.openai.com");

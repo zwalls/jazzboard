@@ -36,6 +36,11 @@ const timestamp = z.string().datetime({ offset: true });
 const QUALIFICATION_V2_READ_THREAD_MAX_OUTPUT_CHARS_PER_ITEM = 20_000 as const;
 /** Live Codex list_threads rejects values above 50. */
 const QUALIFICATION_V2_LIST_THREADS_LIMIT = 50 as const;
+/** The frozen browser skill v26.825.51511 is 150 lines. A bounded sed range
+ * whose upper line covers the whole file is semantically the same bootstrap,
+ * even when a conforming agent chooses 240 or 260 as the harmless bound. */
+const QUALIFICATION_V2_BROWSER_SKILL_COMPLETE_LINE_COUNT = 150 as const;
+const QUALIFICATION_V2_BROWSER_SKILL_MAXIMUM_READ_LINE = 1_000 as const;
 const jsonValue = z.custom<JsonValue>((value) => {
   try { canonicalJson(value); return true; } catch { return false; }
 });
@@ -316,6 +321,12 @@ function validateRetainedTaskIsolation(input: Readonly<{
   if (commands.length !== 1) return false;
   const bootstrap = commands[0]!;
   const bootstrapOutput = bootstrap.output;
+  const bootstrapCommandMatch = typeof bootstrap.command === "string"
+    ? /^\/bin\/zsh -lc "sed -n '1,(\d+)p' \/Users\/[^/]+\/\.codex\/plugins\/cache\/openai-bundled\/browser\/26\.825\.51511\/skills\/control-in-app-browser\/SKILL\.md"$/.exec(bootstrap.command)
+    : null;
+  const bootstrapLastLine = bootstrapCommandMatch === null
+    ? null
+    : Number.parseInt(bootstrapCommandMatch[1]!, 10);
   if (typeof bootstrap.cwd !== "string" || retainedProjectlessCwd === null
       || path.resolve(bootstrap.cwd) !== retainedProjectlessCwd
       || path.resolve(bootstrap.cwd) === path.resolve(input.repositoryRoot)
@@ -325,7 +336,9 @@ function validateRetainedTaskIsolation(input: Readonly<{
       || bootstrapOutput === null || Array.isArray(bootstrapOutput) || typeof bootstrapOutput !== "object"
       || (bootstrapOutput as Record<string, JsonValue>).truncated !== false
       || typeof (bootstrapOutput as Record<string, JsonValue>).text !== "string"
-      || !/^\/bin\/zsh -lc "sed -n '1,240p' \/Users\/[^/]+\/\.codex\/plugins\/cache\/openai-bundled\/browser\/26\.825\.51511\/skills\/control-in-app-browser\/SKILL\.md"$/.test(bootstrap.command)) {
+      || bootstrapLastLine === null
+      || bootstrapLastLine < QUALIFICATION_V2_BROWSER_SKILL_COMPLETE_LINE_COUNT
+      || bootstrapLastLine > QUALIFICATION_V2_BROWSER_SKILL_MAXIMUM_READ_LINE) {
     return false;
   }
   const allowedRetainedItemTypes = new Set([

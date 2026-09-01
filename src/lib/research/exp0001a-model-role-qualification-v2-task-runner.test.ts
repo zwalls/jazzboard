@@ -525,6 +525,24 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     }
   });
 
+  it("accepts an equivalent complete browser-skill read with a wider bounded sed range", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const command = payload.turns[0]!.items.find((item) => item.type === "commandExecution")!;
+        command.command = String(command.command).replace("1,240p", "1,260p");
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "completed",
+      repositoryAccess: false,
+      privateApiAccess: false,
+    });
+  });
+
   it("fails closed when retained task output proves disallowed private API access", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);
@@ -577,6 +595,9 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     }],
     ["a private repository path", (item: Record<string, unknown>) => {
       item.command = "/bin/zsh -lc \"sed -n '1,240p' /Volumes/Development/Projects/jazzboard/PRODUCT-SPEC.md\"";
+    }],
+    ["an incomplete browser-skill read", (item: Record<string, unknown>) => {
+      item.command = String(item.command).replace("1,240p", "1,149p");
     }],
     ["a second command", (_item: Record<string, unknown>, items: Array<Record<string, unknown>>) => {
       items.push({
