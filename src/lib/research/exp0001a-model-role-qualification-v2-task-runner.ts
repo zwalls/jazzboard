@@ -791,11 +791,14 @@ async function runWithAdapter(input: Readonly<{
       }
     }
 
-    // Independent exact-title reconciliation runs for both direct-ready and
-    // client-setup create results. Zero or duplicate matches are ambiguous and
-    // must never trigger another create invocation.
-    if (terminalStatus !== "usage_limit_interrupted"
-        && (mode === "recover" || createdTaskId !== null || clientTaskId !== null)) {
+    // A direct-ready create result already provides the authoritative task and
+    // host identity; wait_threads/read_thread validate that exact identity.
+    // list_threads does not necessarily enumerate a newly created active task,
+    // so exact-title reconciliation is reserved for missing/client-setup
+    // identities. Zero or duplicate matches remain fail-closed and must never
+    // trigger another create invocation.
+    if (terminalStatus !== "usage_limit_interrupted" && createdTaskId === null
+        && (mode === "recover" || clientTaskId !== null)) {
       const expectedCreatedTaskId = createdTaskId;
       const expectedHostId = hostId;
       createdTaskId = null;

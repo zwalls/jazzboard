@@ -497,7 +497,7 @@ async function writeSidecarReadReceipt(privateRoot: string, state: ReturnType<ty
 describe("EXP-0001A qualification-v2 task runner", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("derives a completed receipt from retained create/list/wait/read results and a complete multi-call WebMCP trace", async () => {
+  it("derives a completed receipt directly from retained ready-create/wait/read results", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);
     const adapter = adapterFor(state.pendingAction!.arguments.title);
@@ -511,14 +511,13 @@ describe("EXP-0001A qualification-v2 task runner", () => {
       privateApiAccess: false,
     });
     expect(adapter.createThread).toHaveBeenCalledTimes(1);
-    expect(adapter.listThreads).toHaveBeenCalledTimes(1);
-    expect(adapter.listThreads).toHaveBeenCalledWith({ limit: 50 });
+    expect(adapter.listThreads).not.toHaveBeenCalled();
     expect(adapter.waitThreads).toHaveBeenCalledTimes(1);
     expect(adapter.readThread).toHaveBeenCalledWith(expect.objectContaining({
       includeOutputs: true,
       maxOutputCharsPerItem: 1_000_000,
     }));
-    for (const fileName of ["create-result.json", "list-result.json", "wait-001.json", "read-001.json"]) {
+    for (const fileName of ["create-result.json", "wait-001.json", "read-001.json"]) {
       const observation = qualificationV2RawToolObservationSchema.parse(JSON.parse(
         await readFile(join(result.actionRoot, fileName), "utf8"),
       ));
@@ -639,17 +638,34 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     expect(result.receipt.repositoryAccess).toBe("unobservable");
   });
 
-  it.each([
-    ["duplicate exact titles", (title: string) => listResult(title, [{ id: TASK_ID, hostId: HOST_ID }, { id: "second-task", hostId: HOST_ID }])],
-    ["a ready-result/list identity mismatch", (title: string) => listResult(title, [{ id: "different-task", hostId: HOST_ID }])],
-  ])("derives invalid_setup for %s", async (_label, makeList) => {
+  it("derives invalid_setup for duplicate exact-title client-setup reconciliation", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);
     const title = state.pendingAction!.arguments.title;
-    const adapter = adapterFor(title, { listThreads: vi.fn(async () => makeList(title)) });
+    const adapter = adapterFor(title, {
+      createThread: vi.fn(async () => appResult({ clientThreadId: "pending-client-task" })),
+      listThreads: vi.fn(async () => listResult(title, [
+        { id: TASK_ID, hostId: HOST_ID },
+        { id: "second-task", hostId: HOST_ID },
+      ])),
+    });
     const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
     expect(result.receipt).toMatchObject({ terminalStatus: "invalid_setup", createdTaskId: null, hostId: null });
     expect(adapter.waitThreads).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a direct-ready task merely because list_threads would omit it", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const adapter = adapterFor(state.pendingAction!.arguments.title, {
+      listThreads: vi.fn(async () => listResult("different-title", [])),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({ terminalStatus: "completed", createdTaskId: TASK_ID, hostId: HOST_ID });
+    expect(adapter.listThreads).not.toHaveBeenCalled();
+    expect(adapter.waitThreads).toHaveBeenCalledWith(expect.objectContaining({
+      targets: [expect.objectContaining({ threadId: TASK_ID, hostId: HOST_ID })],
+    }));
   });
 
   it("recovers a journaled ambiguous create without ever invoking create_thread", async () => {
@@ -750,7 +766,9 @@ describe("EXP-0001A qualification-v2 task runner", () => {
   it("reuses retained create and list observations after a crash and never recreates the task", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);
-    const adapter = adapterFor(state.pendingAction!.arguments.title);
+    const adapter = adapterFor(state.pendingAction!.arguments.title, {
+      createThread: vi.fn(async () => appResult({ clientThreadId: "pending-client-task" })),
+    });
     await expect(runQualificationV2PendingActionForTesting(paths, {
       ...runnerDependencies(adapter),
       crashAfterRetained: "list_observation",

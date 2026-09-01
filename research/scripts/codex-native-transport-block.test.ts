@@ -70,6 +70,20 @@ describe("removed direct-provider experiment transport", () => {
     }
   });
 
+  it("keeps ephemeral qualification runtimes outside the attested evidence root", async () => {
+    for (const scriptName of [
+      "run-exp0001a-model-role-qualification-v2.mjs",
+      "run-exp0001a-model-role-qualification-v2-task-runner.mjs",
+      "run-exp0001a-model-role-qualification-v2-room-controller.mjs",
+    ]) {
+      const text = await readFile(path.join(process.cwd(), "research/scripts", scriptName), "utf8");
+      expect(text, scriptName).toContain('"exp0001a-qualification-v2-runtime"');
+      expect(text, scriptName).not.toMatch(
+        /PRIVATE_RUNTIME_ROOT\s*=.*["']exp0001a-qualification-v2["']\s*\)/,
+      );
+    }
+  });
+
   it("blocks direct evaluator release and recovery before parsing provider configuration", async () => {
     await expect(runBlindedEvaluation({ malicious: "config" }, {
       fetch: () => { throw new Error("must not be reached"); },

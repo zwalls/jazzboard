@@ -389,7 +389,6 @@ export const qualificationV2ExternalTaskReceiptSchema = z.object({
   if ((receipt.createdTaskId === null) !== (receipt.hostId === null)
       || ((receipt.terminalStatus === "completed" || receipt.terminalStatus === "failed") && !hasCreatedTask)
       || (receipt.terminalStatus === "invalid_setup" && hasCreatedTask)
-      || (hasCreatedTask && receipt.listThreadsObservationDigest === null)
       || (receipt.clientTaskId !== null && receipt.listThreadsObservationDigest === null)) {
     context.addIssue({ code: "custom", path: ["createdTaskId"], message: "Task identity is inconsistent with the derived terminal outcome." });
   }

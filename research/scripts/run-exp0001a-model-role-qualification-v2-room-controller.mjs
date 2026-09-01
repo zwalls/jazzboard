@@ -16,7 +16,7 @@ const ENTRY_PATH = path.join(
   REPOSITORY_ROOT,
   "src/lib/research/exp0001a-model-role-qualification-v2-room-controller.ts",
 );
-const PRIVATE_RUNTIME_ROOT = path.join(REPOSITORY_ROOT, ".research-private", "exp0001a-qualification-v2");
+const PRIVATE_RUNTIME_ROOT = path.join(REPOSITORY_ROOT, ".research-private", "exp0001a-qualification-v2-runtime");
 const DEPENDENCY_LOCK_PATH = path.join(REPOSITORY_ROOT, "package-lock.json");
 const execFileAsync = promisify(execFile);
 
