@@ -1749,6 +1749,7 @@ describe("transactional semantic mutations", () => {
       },
     });
     const detailedData = (detailed as { ok: true; data: Record<string, unknown> }).data;
+    expect(detailedData).not.toHaveProperty("positions");
     expect(detailedData).not.toHaveProperty("recommendedInspection");
     expect(detailedData).not.toHaveProperty("validation");
   });

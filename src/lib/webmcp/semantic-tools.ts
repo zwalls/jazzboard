@@ -2406,7 +2406,7 @@ export function createJazzboardSemanticWebMcpTools(
           changedObjectIds: response.changedObjectIds,
           changedDiagramIds: response.changedDiagramIds,
           membershipObjectIds: response.membershipObjectIds,
-          positions: response.positions,
+          ...(response.positions === undefined ? {} : { positions: response.positions }),
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
           visualQuality: quality.reports,
@@ -2448,7 +2448,7 @@ export function createJazzboardSemanticWebMcpTools(
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
-          positions: response.positions,
+          ...(response.positions === undefined ? {} : { positions: response.positions }),
           changedObjectIds: response.changedObjectIds,
           changedDiagramIds: response.changedDiagramIds,
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
