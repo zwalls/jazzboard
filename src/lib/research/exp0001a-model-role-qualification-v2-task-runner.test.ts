@@ -515,7 +515,7 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     expect(adapter.waitThreads).toHaveBeenCalledTimes(1);
     expect(adapter.readThread).toHaveBeenCalledWith(expect.objectContaining({
       includeOutputs: true,
-      maxOutputCharsPerItem: 1_000_000,
+      maxOutputCharsPerItem: 20_000,
     }));
     for (const fileName of ["create-result.json", "wait-001.json", "read-001.json"]) {
       const observation = qualificationV2RawToolObservationSchema.parse(JSON.parse(

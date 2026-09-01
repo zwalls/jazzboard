@@ -32,7 +32,8 @@ import { validateQualificationV2NodeReplIsolation } from "./exp0001a-model-role-
 
 const digest = z.string().regex(SHA256_DIGEST_PATTERN);
 const timestamp = z.string().datetime({ offset: true });
-const QUALIFICATION_V2_READ_THREAD_MAX_OUTPUT_CHARS_PER_ITEM = 1_000_000 as const;
+/** Live Codex read_thread rejects values above 20,000. */
+const QUALIFICATION_V2_READ_THREAD_MAX_OUTPUT_CHARS_PER_ITEM = 20_000 as const;
 /** Live Codex list_threads rejects values above 50. */
 const QUALIFICATION_V2_LIST_THREADS_LIMIT = 50 as const;
 const jsonValue = z.custom<JsonValue>((value) => {
