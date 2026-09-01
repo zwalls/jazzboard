@@ -141,6 +141,12 @@ async function readPrivateJson(filePath: string) {
         await new Promise((resolve) => setTimeout(resolve, 2));
         continue;
       }
+      // The publisher may have removed its temporary hard link between the
+      // first lstat and the directory scan. Re-read once before classifying a
+      // second link as foreign; only the now-single-link state is accepted.
+      const refreshed = await lstat(filePath);
+      if (refreshed.isFile() && !refreshed.isSymbolicLink() && refreshed.nlink === 1
+          && (refreshed.mode & 0o777) === 0o600) continue;
     }
     throw new Error("QUALIFICATION_V2_BRIDGE_FILE_UNSAFE");
   }
