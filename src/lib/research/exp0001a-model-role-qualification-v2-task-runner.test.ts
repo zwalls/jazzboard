@@ -1195,7 +1195,7 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     const decision = {
       artifactAccepted: true,
       criterionPasses: Object.fromEntries(criteria.map((criterion) => [criterion, true])),
-      evidenceRoot: digest("d"),
+      evidenceRoot: state.pendingAction!.inputEnvelopeDigest,
       blindness: {
         authorTranscriptSeen: false,
         authorIdentitySeen: false,
@@ -1227,6 +1227,45 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     });
     expect(result.receipt).toMatchObject({ terminalStatus: "completed", reviewDecision: decision });
     expect(result.state.tasks[0].primaryReviews).toHaveLength(1);
+  });
+
+  it("rejects a reviewer decision that substitutes an unbound evidence root", async () => {
+    const state = preparedReviewState();
+    const paths = await persistState(state as ReturnType<typeof preparedAuthorState>);
+    const receiptPath = await writeSidecarReadReceipt(paths.privateRoot, state);
+    const criteria = state.tasks[0].acceptanceCriterionIds;
+    const decision = {
+      artifactAccepted: true,
+      criterionPasses: Object.fromEntries(criteria.map((criterion) => [criterion, true])),
+      evidenceRoot: digest("d"),
+      blindness: {
+        authorTranscriptSeen: false,
+        authorIdentitySeen: false,
+        conditionLabelSeen: false,
+        pairedArtifactSeen: false,
+        repositoryAccessed: false,
+        otherReviewerDecisionSeen: false,
+      },
+    };
+    const title = state.pendingAction!.arguments.title;
+    const items = [
+      {
+        type: "mcpToolCall", id: "review-mcp", server: "node_repl", tool: "js",
+        arguments: { code: browserBootstrapCode(REVIEWER_EVIDENCE_URL) },
+        status: "completed",
+        output: { text: "image read", originalChars: 10, truncated: false },
+      },
+      { type: "agentMessage", phase: "final_answer", text: JSON.stringify(decision) },
+    ];
+    const adapter = adapterFor(title, { readThread: vi.fn(async () => (
+      readResult(title, items, state.pendingAction!.arguments.prompt)
+    )) });
+    const result = await runQualificationV2PendingActionForTesting(paths, {
+      ...runnerDependencies(adapter),
+      reviewEvidenceReadReceiptPath: receiptPath,
+    });
+    expect(result.receipt.terminalStatus).toBe("failed");
+    expect(result.receipt.reviewDecision).toBeNull();
   });
 
   it("rejects reviewer prose wrapped around otherwise valid JSON", async () => {

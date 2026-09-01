@@ -812,17 +812,22 @@ function reviewerPrompt(input: Readonly<{
   frozenRubric: unknown;
   sanitizedSemanticState: unknown;
   exactRevisionPngUrl: string;
+  evidenceRoot: string;
 }>) {
   return [
     "You are a fresh blinded reviewer for one Jazzboard qualification artifact.",
     "Use only the public requirement, frozen rubric, sanitized semantic state, and exact-revision PNG supplied below.",
+    "Before browser work, satisfy the platform skill requirement by passing exactly this command text to the terminal tool once and running no other command: `sed -n '1,220p' ~/.codex/plugins/cache/openai-bundled/browser/26.825.51511/skills/control-in-app-browser/SKILL.md`. Copy only the text inside the backticks; the terminal tool supplies its own shell wrapper, so do not add `/bin/zsh -lc`, another shell, or alternate path probing.",
+    "That single browser-skill read is the only permitted terminal or filesystem access. Do not use curl, shell networking, downloads, files, repositories, hashing utilities, private APIs, or any other terminal command.",
+    "Follow the browser skill's required selected-browser documentation read. Open the exact-revision PNG URL once in a fresh browser tab, wait for it to load, take one screenshot, and inspect that image. Use no page evaluation, capability inspection, additional navigation, digest computation, or other browser operation. The evidence sidecar permits exactly one successful image read.",
     "Do not access repositories, author transcripts, author identity, condition labels, paired artifacts, or any other reviewer's decision.",
     "Independently return one binary artifactAccepted decision plus a boolean decision for every frozen criterion, grounded only in the supplied evidence.",
-    "Return exactly one JSON object and no prose with keys artifactAccepted, criterionPasses, evidenceRoot, and blindness. criterionPasses must contain every and only frozen criterion ID. blindness must set authorTranscriptSeen, authorIdentitySeen, conditionLabelSeen, pairedArtifactSeen, repositoryAccessed, and otherReviewerDecisionSeen to false. evidenceRoot must be a sha256: digest of the evidence basis you actually reviewed.",
+    "Return exactly one JSON object and no prose with keys artifactAccepted, criterionPasses, evidenceRoot, and blindness. criterionPasses must contain every and only frozen criterion ID. blindness must set authorTranscriptSeen, authorIdentitySeen, conditionLabelSeen, pairedArtifactSeen, repositoryAccessed, and otherReviewerDecisionSeen to false. Copy the exact EVIDENCE_ROOT value below into evidenceRoot; it already binds the complete evidence basis, so do not recompute or substitute it.",
     `PUBLIC_REQUIREMENT=${canonicalJson(input.publicRequirement)}`,
     `FROZEN_RUBRIC=${canonicalJson(input.frozenRubric)}`,
     `SANITIZED_SEMANTIC_STATE=${canonicalJson(input.sanitizedSemanticState)}`,
     `EXACT_REVISION_PNG_URL=${input.exactRevisionPngUrl}`,
+    `EVIDENCE_ROOT=${input.evidenceRoot}`,
   ].join("\n");
 }
 
@@ -1252,6 +1257,7 @@ export function prepareQualificationV2ReviewAction(input: Readonly<{
     evidenceSidecarManifestDigest: reviewEnvelope.evidenceSidecar.manifestDigest,
     evidenceSidecarReceiptDigest: reviewEnvelope.evidenceSidecar.sidecarReceiptDigest,
   };
+  const evidenceRoot = hashCanonicalJson(envelope as unknown as JsonValue);
   const action = buildAction({
     state,
     taskId: task.taskId,
@@ -1259,12 +1265,13 @@ export function prepareQualificationV2ReviewAction(input: Readonly<{
     roleOrdinal,
     preparedAt: input.preparedAt,
     authReceiptDigest: auth.receiptSha256,
-    inputEnvelopeDigest: hashCanonicalJson(envelope as unknown as JsonValue),
+    inputEnvelopeDigest: evidenceRoot,
     prompt: reviewerPrompt({
       publicRequirement: envelope.publicRequirement,
       frozenRubric,
       sanitizedSemanticState: reviewEnvelope.sanitizedSemanticState,
       exactRevisionPngUrl: reviewEnvelope.evidenceSidecar.exactRevisionPngUrl,
+      evidenceRoot,
     }),
     reviewEvidenceSidecar: {
       exactRevisionPngUrl: reviewEnvelope.evidenceSidecar.exactRevisionPngUrl,
@@ -1419,6 +1426,10 @@ export function ingestQualificationV2ExternalTaskReceipt(
       && canonicalJson(Object.keys(receipt.reviewDecision.criterionPasses).sort())
         !== canonicalJson([...task.acceptanceCriterionIds].sort())) {
     throw new Error("QUALIFICATION_V2_REVIEW_CRITERIA_INCOMPLETE");
+  }
+  if (receipt.reviewDecision !== null
+      && receipt.reviewDecision.evidenceRoot !== action.inputEnvelopeDigest) {
+    throw new Error("QUALIFICATION_V2_REVIEW_EVIDENCE_ROOT_MISMATCH");
   }
   if (receipt.terminalStatus === "usage_limit_interrupted" && receipt.createdTaskId === null) {
     // The provider refused creation before a reviewer task existed. Retain the

@@ -251,6 +251,7 @@ function taskReceipt(state: ReturnType<typeof initialize>, input: {
   terminalStatus?: "completed" | "failed" | "usage_limit_interrupted" | "invalid_setup";
   accepted?: boolean;
   createdTask?: boolean;
+  evidenceRoot?: string;
 }) {
   const action = state.pendingAction!;
   const dispatch = state.pendingDispatchReceipt!;
@@ -284,7 +285,7 @@ function taskReceipt(state: ReturnType<typeof initialize>, input: {
       criterionPasses: Object.fromEntries(
         publicTasks.find((task) => task.taskId === action.taskId)!.acceptanceCriteria.map((criterion) => [criterion.id, input.accepted ?? true]),
       ),
-      evidenceRoot: digest("d"),
+      evidenceRoot: input.evidenceRoot ?? action.inputEnvelopeDigest,
       blindness: {
         authorTranscriptSeen: false,
         authorIdentitySeen: false,
@@ -617,6 +618,9 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
         state = prepareReview(state, `2026-08-31T20:${minute}:${String(second).padStart(2, "0")}.000Z`);
         expect(state.pendingAction).toMatchObject({ role: "primary_reviewer", roleOrdinal: reviewer + 1 });
         expect(state.pendingAction!.arguments.prompt).not.toContain("PRIVATE_ROOM_INVITE_URL");
+        expect(state.pendingAction!.arguments.prompt).toContain("running no other command");
+        expect(state.pendingAction!.arguments.prompt).toContain("do not recompute or substitute it");
+        expect(state.pendingAction!.arguments.prompt).toContain(`EVIDENCE_ROOT=${state.pendingAction!.inputEnvelopeDigest}`);
         state = dispatch(state, `2026-08-31T20:${minute}:${String(second + 1).padStart(2, "0")}.000Z`);
         state = ingestQualificationV2ExternalTaskReceipt(state, taskReceipt(state, { accepted: true }), `2026-08-31T20:${minute}:${String(second + 1).padStart(2, "0")}.500Z`);
       }
@@ -636,6 +640,43 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     expect(result.aaExecutionStatus).toBe("eligible_for_successor_freeze");
     expect(JSON.stringify(result)).not.toMatch(/costUsd|OPENAI_API_KEY|api\.openai\.com/);
     expect(result.metrics.every((metric) => metric.exactTokens === "unobservable")).toBe(true);
+  });
+
+  it("rejects a sealed reviewer receipt whose evidence root is not action-bound", () => {
+    let state = initialize();
+    state = retainQualificationV2Room(
+      state,
+      roomReceipt(0),
+      digest("c"),
+      digest("d"),
+      "2026-08-31T20:00:01.000Z",
+      HARNESS_RUNTIME_PROVENANCE,
+    );
+    state = prepareQualificationV2AuthorAction({
+      state,
+      publicTask: publicTasks[0],
+      authReceipt: authReceipt("2026-08-31T20:00:02.000Z"),
+      preparedAt: "2026-08-31T20:00:02.000Z",
+    });
+    state = dispatch(state, "2026-08-31T20:00:03.000Z");
+    state = ingestQualificationV2ExternalTaskReceipt(
+      state,
+      taskReceipt(state, {}),
+      "2026-08-31T20:00:04.000Z",
+    );
+    state = retainSuccessfulCapture(state, "2026-08-31T20:00:04.500Z");
+    state = retainQualificationV2AuthorEvidence(
+      state,
+      authorEvidence(state),
+      "2026-08-31T20:00:05.000Z",
+    );
+    state = prepareReview(state, "2026-08-31T20:00:06.000Z");
+    state = dispatch(state, "2026-08-31T20:00:07.000Z");
+    expect(() => ingestQualificationV2ExternalTaskReceipt(
+      state,
+      taskReceipt(state, { accepted: true, evidenceRoot: digest("f") }),
+      "2026-08-31T20:00:07.500Z",
+    )).toThrow("QUALIFICATION_V2_REVIEW_EVIDENCE_ROOT_MISMATCH");
   });
 
   it("seals an incomplete stopped run from a full terminal attestation", () => {

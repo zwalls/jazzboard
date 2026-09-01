@@ -1082,7 +1082,13 @@ async function runWithAdapter(input: Readonly<{
 
     let reviewDecision: z.infer<typeof reviewerDecisionInput> | null = null;
     if (action.role !== "author" && terminalStatus === "completed" && terminalText !== null) {
-      try { reviewDecision = reviewerDecisionInput.parse(JSON.parse(terminalText)); } catch { terminalStatus = "failed"; }
+      try {
+        reviewDecision = reviewerDecisionInput.parse(JSON.parse(terminalText));
+        if (reviewDecision.evidenceRoot !== action.inputEnvelopeDigest) {
+          reviewDecision = null;
+          terminalStatus = "failed";
+        }
+      } catch { terminalStatus = "failed"; }
     }
     let evidenceReadReceiptDigest: string | null = null;
     if (action.role !== "author" && terminalStatus === "completed") {
