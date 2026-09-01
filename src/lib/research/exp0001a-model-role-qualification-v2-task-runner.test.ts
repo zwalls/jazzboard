@@ -553,6 +553,24 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     });
   });
 
+  it("accepts the exact portable home-relative browser-skill bootstrap", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const command = payload.turns[0]!.items.find((item) => item.type === "commandExecution")!;
+        command.command = "/bin/zsh -lc \"sed -n '1,220p' ~/.codex/plugins/cache/openai-bundled/browser/26.825.51511/skills/control-in-app-browser/SKILL.md\"";
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "completed",
+      repositoryAccess: false,
+      privateApiAccess: false,
+    });
+  });
+
   it("validates documented browser discovery across real per-invocation lexical scopes", async () => {
     const state = preparedAuthorState();
     const paths = await persistState(state);

@@ -359,12 +359,18 @@ function validateRetainedTaskIsolation(input: Readonly<{
   if (commands.length !== 1) return false;
   const bootstrap = commands[0]!;
   const bootstrapOutput = bootstrap.output;
-  const bootstrapCommandMatch = typeof bootstrap.command === "string"
+  const absoluteBootstrapCommandMatch = typeof bootstrap.command === "string"
     ? /^\/bin\/zsh -lc "sed -n '1,(\d+)p' \/Users\/[^/]+\/\.codex\/plugins\/cache\/openai-bundled\/browser\/26\.825\.51511\/skills\/control-in-app-browser\/SKILL\.md"$/.exec(bootstrap.command)
     : null;
-  const bootstrapLastLine = bootstrapCommandMatch === null
+  const portableBootstrapCommandMatch = typeof bootstrap.command === "string"
+    ? /^\/bin\/zsh -lc "sed -n '1,(\d+)p' ~\/\.codex\/plugins\/cache\/openai-bundled\/browser\/26\.825\.51511\/skills\/control-in-app-browser\/SKILL\.md"$/.exec(bootstrap.command)
+    : null;
+  const bootstrapLastLineText = absoluteBootstrapCommandMatch?.[1]
+    ?? portableBootstrapCommandMatch?.[1]
+    ?? null;
+  const bootstrapLastLine = bootstrapLastLineText === null
     ? null
-    : Number.parseInt(bootstrapCommandMatch[1]!, 10);
+    : Number.parseInt(bootstrapLastLineText, 10);
   if (typeof bootstrap.cwd !== "string" || retainedProjectlessCwd === null
       || path.resolve(bootstrap.cwd) !== retainedProjectlessCwd
       || path.resolve(bootstrap.cwd) === path.resolve(input.repositoryRoot)
