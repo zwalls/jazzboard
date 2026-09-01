@@ -54,6 +54,22 @@ describe("removed direct-provider experiment transport", () => {
     });
   });
 
+  it("loads the bundled qualification coordinator and task runner wrappers", async () => {
+    const wrappers = [
+      ["run-exp0001a-model-role-qualification-v2.mjs", "QUALIFICATION_V2_COORDINATOR_OPERATION_FAILED"],
+      ["run-exp0001a-model-role-qualification-v2-task-runner.mjs", "QUALIFICATION_V2_TASK_RUNNER_OPERATION_FAILED"],
+    ] as const;
+    for (const [scriptName, expectedError] of wrappers) {
+      const script = path.join(process.cwd(), "research/scripts", scriptName);
+      await expect(execFileAsync(process.execPath, [script], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      })).rejects.toMatchObject({
+        stderr: expect.stringContaining(expectedError),
+      });
+    }
+  });
+
   it("blocks direct evaluator release and recovery before parsing provider configuration", async () => {
     await expect(runBlindedEvaluation({ malicious: "config" }, {
       fetch: () => { throw new Error("must not be reached"); },

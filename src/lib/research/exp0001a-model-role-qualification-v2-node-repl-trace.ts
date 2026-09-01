@@ -1,5 +1,5 @@
 import { parse as parseJavaScript } from "acorn";
-import { Linter } from "eslint";
+import { Linter } from "eslint/universal";
 
 type AstNode = Readonly<{ type: string; [key: string]: unknown }>;
 
