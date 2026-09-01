@@ -426,13 +426,25 @@ The complete request is:
 The derivation binds every wait/read observation to the dispatched action and
 task/host IDs, recomputes the terminal chain, parses successful join and agent
 session identity, and proves all post-fixture object/diagram mutations are
-attributable to that agent with no extra participant contamination. Successful
-mutation result markers must exactly cover the attributed changed IDs. Its
-visual marker binds a successful post-mutation room read, scene-context-v2
+attributable to that agent with no extra participant contamination. When the
+host retains them, successful mutation result markers must exactly cover the
+attributed changed IDs. A retained visual marker binds a successful post-mutation room read, scene-context-v2
 inspection, exact production room URL, and screenshot in one completed browser
 invocation. The independently captured canonical canvas projection and
 exact-revision PNG must agree. Attribution and identity stay private; the
 reviewer semantic projection strips them recursively.
+
+Current Codex hosts may omit every nested `node_repl` `output`/`result` field
+from `read_thread` even when `includeOutputs:true`; this is an observed host
+transport limitation, not permission to invent results. When—and only when—the
+retained item has no such field, derivation records nested results as
+`unobservable` and substitutes independent proofs: the exact completed static
+mutation/inspection program, the sole new participant delta, server-side
+creator/last-editor attribution, the authoritative revision delta, and the
+controller's revision-matched inspection and PNG. If the host exposes a nested
+result field, exact marker validation remains mandatory and a missing or
+malformed marker fails closed.
+
 `author-evidence.json` is an exclusive mode-`0600` copy of the independently
 derived evidence, written before coordinator state advances. It is required by
 terminal result attestation; a caller-authored or merely self-hashed evidence

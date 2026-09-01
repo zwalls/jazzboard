@@ -380,6 +380,13 @@ function deriveTrace(input: Readonly<{
   const sessionMarkers: AuthorSessionMarker[] = [];
   const visualMarkers: Array<AuthorVisualMarker & { eventIndex: number }> = [];
   const mutationProofs: Array<AuthorMutationProof & { eventIndex: number }> = [];
+  const mutationProgramEvents: number[] = [];
+  const visualProgramEvents: number[] = [];
+  const unobservableMutationProgramEvents: number[] = [];
+  const unobservableVisualProgramEvents: number[] = [];
+  let sessionResultOutputOmitted = false;
+  let nestedResultOutputObserved = false;
+  let nestedResultOutputOmitted = false;
   let nodeCallCount = 0;
   let eventIndex = 0;
   let lastMutationEventIndex = -1;
@@ -463,6 +470,10 @@ function deriveTrace(input: Readonly<{
           }
         }
         if (item.status === "completed") {
+          const hasRetainedNestedResult = Object.prototype.hasOwnProperty.call(item, "output")
+            || Object.prototype.hasOwnProperty.call(item, "result");
+          if (hasRetainedNestedResult) nestedResultOutputObserved = true;
+          else nestedResultOutputOmitted = true;
           const outputTexts = [
             ...retainedOutputTexts(item.output),
             ...retainedOutputTexts(item.result),
@@ -471,6 +482,7 @@ function deriveTrace(input: Readonly<{
           const sessionProtocolBound = sessionBinding !== null
             && persistedToolResultBindings.get(sessionBinding.join) === "join_room"
             && persistedToolResultBindings.get(sessionBinding.collaboration) === "read_collaboration_state";
+          if (sessionProtocolBound && !hasRetainedNestedResult) sessionResultOutputOmitted = true;
           for (const text of outputTexts) {
             const marker = parseMarkerText(text);
             if (marker !== null) {
@@ -481,16 +493,22 @@ function deriveTrace(input: Readonly<{
             }
           }
           if (mutationCallNames.length === 1) {
+            mutationProgramEvents.push(eventIndex);
+            if (!hasRetainedNestedResult) unobservableMutationProgramEvents.push(eventIndex);
             const proofs = outputTexts.flatMap((text) => {
               const proof = parseAuthorMutationMarkerText(text, mutationCallNames[0]!);
               return proof === null ? [] : [proof];
             });
-            if (proofs.length !== 1) {
+            if (hasRetainedNestedResult && proofs.length !== 1) {
               throw new Error("QUALIFICATION_V2_AUTHOR_MUTATION_RESULT_PROOF_MISSING");
             }
-            mutationProofs.push({ ...proofs[0]!, eventIndex });
+            if (proofs.length === 1) mutationProofs.push({ ...proofs[0]!, eventIndex });
           }
-          if (programAnalysis.visualProofBound
+          if (programAnalysis.visualProofBound) {
+            visualProgramEvents.push(eventIndex);
+            if (!hasRetainedNestedResult) unobservableVisualProgramEvents.push(eventIndex);
+          }
+          if (programAnalysis.visualProofBound && hasRetainedNestedResult
               && retainedItemContainsPngImage(item as unknown as JsonValue)) {
             for (const text of [
               ...retainedOutputTexts(item.output),
@@ -509,7 +527,7 @@ function deriveTrace(input: Readonly<{
   const unique = [...new Set(toolNames)].sort();
   if (nodeCallCount === 0 || !unique.includes("join_room")
       || !unique.includes("read_collaboration_state") || !unique.includes("read_room_state")
-      || sessionMarkers.length !== 1) {
+      || sessionMarkers.length > 1) {
     throw new Error("QUALIFICATION_V2_AUTHOR_TRACE_WEBMCP_DISCOVERY_INVALID");
   }
   const inspectionTools = new Set(["inspect_canvas_scope", "render_canvas_preview", "export_canvas_png"]);
@@ -524,9 +542,16 @@ function deriveTrace(input: Readonly<{
     mutationToolMentioned: toolNames.some((name) => mutationTools.has(name)),
     inspectionToolMentioned: toolNames.some((name) => inspectionTools.has(name)),
     visualMarkers,
+    visualProgramEvents,
+    unobservableVisualProgramEvents,
     mutationProofs,
+    mutationProgramEvents,
+    unobservableMutationProgramEvents,
+    sessionResultOutputOmitted,
+    nestedWebMcpResultObservation:
+      nestedResultOutputOmitted || !nestedResultOutputObserved ? "unobservable" as const : "observed" as const,
     lastMutationEventIndex,
-    authorSessionMarker: sessionMarkers[0]!,
+    authorSessionMarker: sessionMarkers[0] ?? null,
     webMcpTraceDigest: hashCanonicalJson({
       waitThreadCallResults: input.waitThreadCallResults.map((result) => clone(result)),
       readThreadCallResults: input.readThreadCallResults.map((result) => clone(result)),
@@ -719,11 +744,37 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
     expectedHostId: task.authorReceipt.hostId!,
     expectedRawTerminalToolResultDigest: task.authorReceipt.rawTerminalToolResultDigest,
   });
-  const authorSession = trace.authorSessionMarker;
   const initialParticipantIds = preAuthorState.participants
     .map((participant) => String(participant.participantId)).sort();
   const closingParticipantIds = closingState.participants
     .map((participant) => String(participant.participantId)).sort();
+  const addedParticipants = closingState.participants.filter(
+    (participant) => !initialParticipantIds.includes(String(participant.participantId)),
+  );
+  const retainedAuthorSession = trace.authorSessionMarker;
+  const authoritativeSessionCandidate = retainedAuthorSession === null
+    && trace.sessionResultOutputOmitted && addedParticipants.length === 1
+    && addedParticipants[0]!.displayName === EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME
+    && addedParticipants[0]!.role === "participant" && addedParticipants[0]!.agent === true
+    && addedParticipants[0]!.human === false
+    ? addedParticipants[0]!
+    : null;
+  if (retainedAuthorSession === null && authoritativeSessionCandidate === null) {
+    throw new Error("QUALIFICATION_V2_AUTHOR_SESSION_RESULT_UNOBSERVABLE_WITHOUT_AUTHORITY_DELTA");
+  }
+  const authorSession = retainedAuthorSession ?? {
+    participantId: String(authoritativeSessionCandidate!.participantId),
+    displayName: EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME,
+    role: "participant" as const,
+    roomId: String(closingState.room.id),
+    roomCode: String(closingState.room.code),
+    participantIds: Object.freeze([...closingParticipantIds]),
+    joinResultDigest: null,
+    collaborationResultDigest: null,
+  };
+  const sessionBindingMethod = retainedAuthorSession === null
+    ? "authoritative_participant_delta" as const
+    : "retained_result_marker" as const;
   const expectedClosingParticipantIds = [...initialParticipantIds, authorSession.participantId].sort();
   const closingAuthor = closingState.participants.find(
     (participant) => participant.participantId === authorSession.participantId,
@@ -735,14 +786,27 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
       || preAuthorState.objects.length !== task.room.initialObjectCount
       || preAuthorState.room.selfParticipantId !== closingState.room.selfParticipantId
       || initialParticipantIds.includes(authorSession.participantId)
-      || canonicalJson(authorSession.participantIds as unknown as JsonValue)
-        !== canonicalJson(expectedClosingParticipantIds as unknown as JsonValue)
+      || (retainedAuthorSession !== null
+        && canonicalJson(authorSession.participantIds as unknown as JsonValue)
+          !== canonicalJson(expectedClosingParticipantIds as unknown as JsonValue))
       || canonicalJson(closingParticipantIds as unknown as JsonValue)
         !== canonicalJson(expectedClosingParticipantIds as unknown as JsonValue)
       || closingAuthor?.displayName !== EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME
-      || closingAuthor.role !== "participant") {
+      || closingAuthor.role !== "participant"
+      || (retainedAuthorSession === null
+        && (closingAuthor.agent !== true || closingAuthor.human !== false))) {
     throw new Error("QUALIFICATION_V2_AUTHOR_SESSION_AUTHORITY_BINDING_INVALID");
   }
+  const authoritativeSessionBindingDigest = hashCanonicalJson({
+    roomId: task.room.roomId,
+    controllerParticipantId: preAuthorState.room.selfParticipantId,
+    initialParticipantIds,
+    closingParticipantIds,
+    authorParticipantId: authorSession.participantId,
+    authorDisplayName: authorSession.displayName,
+    authorRole: authorSession.role,
+    sessionBindingMethod,
+  } as unknown as JsonValue);
   const attributedMutations = deriveAttributedMutationSet(
     preAuthorState,
     closingState,
@@ -755,14 +819,19 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
     .filter((change) => change.entityKind === "object").map((change) => String(change.id)).sort();
   const attributedDiagramIds = attributedMutations
     .filter((change) => change.entityKind === "diagram").map((change) => String(change.id)).sort();
-  if (appliedMutationProofs.length < 1
-      || appliedMutationProofs.some((proof) => proof.roomRevision === null
+  const mutationProofRevisionInvalid = appliedMutationProofs.some((proof) => proof.roomRevision === null
         || proof.roomRevision <= task.room!.initialRoomRevision
-        || proof.roomRevision > Number(room.roomRevision))
+        || proof.roomRevision > Number(room.roomRevision));
+  const proofIdsAreSubset = provenObjectIds.every((id) => attributedObjectIds.includes(id))
+    && provenDiagramIds.every((id) => attributedDiagramIds.includes(id));
+  const observedMutationProofsInvalid = trace.unobservableMutationProgramEvents.length === 0
+    && (appliedMutationProofs.length < 1
       || canonicalJson(provenObjectIds as unknown as JsonValue)
         !== canonicalJson(attributedObjectIds as unknown as JsonValue)
       || canonicalJson(provenDiagramIds as unknown as JsonValue)
-        !== canonicalJson(attributedDiagramIds as unknown as JsonValue)) {
+        !== canonicalJson(attributedDiagramIds as unknown as JsonValue));
+  if (trace.mutationProgramEvents.length < 1 || mutationProofRevisionInvalid
+      || !proofIdsAreSubset || observedMutationProofsInvalid) {
     throw new Error("QUALIFICATION_V2_AUTHOR_MUTATION_PROOF_ATTRIBUTION_MISMATCH");
   }
   const expectedRoomUrl = `https://www.jazzboard.xyz/room/${encodeURIComponent(task.room.roomId)}`;
@@ -775,21 +844,38 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
     && marker.canvasStateDigest === closingCanvasStateDigest
     && marker.inspectionRevisionSetDigest === explicitCoverage.fullSetDigest
   ));
+  const qualifyingVisualPrograms = trace.unobservableVisualProgramEvents.filter(
+    (eventIndex) => eventIndex > trace.lastMutationEventIndex,
+  );
+  const visualProofMethod = qualifyingVisualInspections.length > 0
+    ? "retained_result_marker" as const
+    : "completed_bound_program_plus_controller_capture" as const;
   const authoritativeMutationConfirmed = room.roomRevision > task.room.initialRoomRevision
     && trace.mutationToolMentioned
     && (task.room.initialStateKind !== "blank" || semanticState.objects.length > 0);
-  if (!authoritativeMutationConfirmed || qualifyingVisualInspections.length < 1) {
+  if (!authoritativeMutationConfirmed
+      || (qualifyingVisualInspections.length < 1
+        && (trace.unobservableVisualProgramEvents.length < 1
+          || qualifyingVisualPrograms.length < 1))) {
     throw new Error("QUALIFICATION_V2_AUTHOR_EVIDENCE_ACTIVITY_INSUFFICIENT");
   }
-  const visualProofDigest = hashCanonicalJson(qualifyingVisualInspections.map((marker) => ({
-    eventIndex: marker.eventIndex,
-    roomId: marker.roomId,
-    roomRevision: marker.roomRevision,
-    roomUrl: marker.roomUrl,
-    canvasStateDigest: marker.canvasStateDigest,
-    inspectionResultDigest: marker.inspectionResultDigest,
-    inspectionRevisionSetDigest: marker.inspectionRevisionSetDigest,
-  })) as unknown as JsonValue);
+  const visualProofDigest = hashCanonicalJson((visualProofMethod === "retained_result_marker"
+    ? qualifyingVisualInspections.map((marker) => ({
+      eventIndex: marker.eventIndex,
+      roomId: marker.roomId,
+      roomRevision: marker.roomRevision,
+      roomUrl: marker.roomUrl,
+      canvasStateDigest: marker.canvasStateDigest,
+      inspectionResultDigest: marker.inspectionResultDigest,
+      inspectionRevisionSetDigest: marker.inspectionRevisionSetDigest,
+    }))
+    : [{
+      completedBoundProgramEventIndexes: qualifyingVisualPrograms,
+      closingCanvasStateDigest,
+      controllerInspectionDigest: inspection.rawDigest,
+      controllerPngDigest: sha256Digest(pngExport.pngBytes),
+      roomRevision: room.roomRevision,
+    }]) as unknown as JsonValue);
   const leaves = [
     trace.webMcpTraceDigest,
     hashCanonicalJson({
@@ -798,6 +884,7 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
       role: authorSession.role,
       joinResultDigest: authorSession.joinResultDigest,
       collaborationResultDigest: authorSession.collaborationResultDigest,
+      authoritativeSessionBindingDigest,
     }),
     preAuthorRoomRead.rawDigest,
     roomRead.rawDigest,
@@ -814,6 +901,7 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
     role: authorSession.role,
     joinResultDigest: authorSession.joinResultDigest,
     collaborationResultDigest: authorSession.collaborationResultDigest,
+    authoritativeSessionBindingDigest,
     bindingDigest: leaves[1],
   };
   const evidence = sealQualificationV2AuthorEvidence({
@@ -827,13 +915,20 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
     webMcpTraceDigest: leaves[0],
     webMcpCallCount: trace.webMcpCallCount,
     webMcpFailureCount: trace.webMcpFailureCount,
+    nestedWebMcpResultObservation: trace.nestedWebMcpResultObservation,
+    sessionBindingMethod,
+    visualProofMethod,
     // The independently captured authoritative revision delta proves at least
     // one committed mutation without trusting the author's final prose or the
     // outer JavaScript status. It does not claim a per-call success count.
-    successfulAuthoritativeMutationCount: appliedMutationProofs.length,
+    successfulAuthoritativeMutationCount: trace.unobservableMutationProgramEvents.length === 0
+      ? appliedMutationProofs.length
+      : 1,
     // inspect_canvas_scope truthfully says its JSON did not inspect pixels;
     // only an exact retained screenshot+emitImage result counts here.
-    visualInspectionCount: qualifyingVisualInspections.length,
+    visualInspectionCount: visualProofMethod === "retained_result_marker"
+      ? qualifyingVisualInspections.length
+      : qualifyingVisualPrograms.length,
     preAuthoritativeReadDigest: leaves[2],
     closingAuthoritativeReadDigest: leaves[3],
     finalAuthoritativeRoomRevision: room.roomRevision,

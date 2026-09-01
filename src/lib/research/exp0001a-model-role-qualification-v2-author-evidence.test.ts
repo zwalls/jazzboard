@@ -60,6 +60,8 @@ const CONTROLLER = {
   lastSeenAt: 1,
   connected: true,
   agentActive: false,
+  agent: false,
+  human: true,
 };
 const AUTHOR = {
   participantId: "participant_author_exact",
@@ -70,6 +72,8 @@ const AUTHOR = {
   lastSeenAt: 2,
   connected: true,
   agentActive: true,
+  agent: true,
+  human: false,
 };
 const AUTHOR_ACTOR = {
   participantId: AUTHOR.participantId,
@@ -540,6 +544,33 @@ describe("EXP-0001A qualification-v2 independently derived author evidence", () 
     });
     expect(derived.sanitizedSemanticState.objects).toHaveLength(1);
     expect(derived.exactRevisionPngBytes).toEqual(PNG_BYTES);
+  });
+
+  it("uses the authoritative participant delta when Codex omits every nested node-repl result", () => {
+    const outputOmittedTrace = modifyTrace(trace(), (payload) => {
+      for (const item of payload.turns.flatMap((turn) => turn.items)) {
+        if (item.type !== "mcpToolCall") continue;
+        delete item.output;
+        delete item.result;
+      }
+    });
+    const state = awaitingAuthorEvidenceState(outputOmittedTrace);
+    const derived = deriveQualificationV2AuthorEvidence(
+      evidenceInput(state, 2, true, outputOmittedTrace),
+    );
+    expect(derived.evidence).toMatchObject({
+      nestedWebMcpResultObservation: "unobservable",
+      sessionBindingMethod: "authoritative_participant_delta",
+      visualProofMethod: "completed_bound_program_plus_controller_capture",
+      successfulAuthoritativeMutationCount: 1,
+      visualInspectionCount: 1,
+      authorSessionIdentity: {
+        participantId: AUTHOR.participantId,
+        joinResultDigest: null,
+        collaborationResultDigest: null,
+      },
+    });
+    expect(derived.evidence.authorSessionIdentity.authoritativeSessionBindingDigest).toMatch(/^sha256:/);
   });
 
   it("rejects truncated retained outputs and a regex-only mutation without authoritative change", () => {
