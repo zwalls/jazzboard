@@ -127,6 +127,21 @@ export const exp0001aModelRoleQualificationV2PlanSchema = planContentSchema.exte
   }
 });
 
+export type Exp0001aModelRoleQualificationV2Plan = z.infer<
+  typeof exp0001aModelRoleQualificationV2PlanSchema
+>;
+
+/** Seal a prospective v2 plan before any author-visible brief is released. */
+export function sealExp0001aModelRoleQualificationV2Plan(
+  input: unknown,
+): Exp0001aModelRoleQualificationV2Plan {
+  const content = planContentSchema.parse(input);
+  return Object.freeze(exp0001aModelRoleQualificationV2PlanSchema.parse({
+    ...content,
+    planDigest: hashCanonicalJson(content as unknown as JsonValue),
+  }));
+}
+
 const evidenceSchema = z.object({
   webMcpDiscovered: z.boolean(),
   successfulAuthoritativeMutationCount: z.number().int().nonnegative(),

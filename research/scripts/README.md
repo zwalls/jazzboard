@@ -12,7 +12,26 @@ to the authoring session.
 Prefer machine-readable JSON or JSONL outputs with schema versions. Emit hashes
 for prompts, traces, room-state snapshots, media, and scorer configuration.
 
-## Active Codex-native transport
+## Terra/medium role qualification v2
+
+The prospective three-task compatibility qualification is operated through
+`seal-exp0001a-model-role-qualification-v2.mjs`,
+`sign-exp0001a-model-role-qualification-v2.mjs`, and
+`run-exp0001a-model-role-qualification-v2.mjs`. Its exact gates, private file
+boundary, one-action dispatch protocol, blinded-review requirements, and
+commands are documented in
+`research/protocols/exp0001a-terra-medium-qualification-v2-operator-runbook.md`.
+
+The coordinator does not call Codex tools itself. The room controller provisions
+and captures authoritative browser/WebMCP evidence; the task runner journals a
+private exact action before invocation and exchanges exact Codex-app
+`CallToolResult` values through a mode-`0600` file bridge; the review-sidecar
+runner serves one digest-bound opaque loopback PNG read. The coordinator derives
+receipts from those retained raw values rather than accepting operator-authored
+task receipts. Do not use the historical v1 qualification or the active
+48-attempt batch command to run this prerequisite.
+
+## Frozen successor transport (execution blocked)
 
 EXP-0001A model work is performed only by fresh projectless Codex tasks backed
 by ChatGPT sign-in. Run the authentication preflight before preparing work and
@@ -22,75 +41,28 @@ again immediately before invoking task creation:
 node research/scripts/codex-auth-preflight.mjs
 ```
 
-The active deterministic runtime is built from
+The prospective deterministic successor runtime is built from
 `src/lib/research/exp0001a-runtime-composition.ts`:
 
 ```sh
 node research/scripts/build-exp0001a-runtime.mjs --check
 ```
 
-The transport emits exact, receipt-bound commands for task creation, waiting,
-terminal reads, and uncertain-create reconciliation. The outer Codex
-coordinator invokes the corresponding Codex app tools and feeds their retained
-results back into the state machine. Authors, primary reviewers, adjudicators,
-and pairwise judges always receive distinct fresh task IDs and neutral
-projectless workspaces.
-
-The production-shaped coordinator command is deliberately a one-action state
-machine. Dry-run is the default:
+Its dry-run validation remains available for historical evidence:
 
 ```sh
 node research/scripts/exp0001a-batch-command.mjs \
   --config /absolute/path/to/codex-runtime-config.json
 ```
 
-After the frozen runtime, fixed authority, fresh ChatGPT authentication,
-append-only coordinator state, and signed checkpoint all verify, `--execute`
-retains an outbox receipt and returns exactly one action:
-
-```sh
-node research/scripts/exp0001a-batch-command.mjs --execute \
-  --config /absolute/path/to/codex-runtime-config.json
-```
-
-The command performs only deterministic local transitions and the local
-artifact-packet sidecar itself. For a returned Codex-app or Jazzboard WebMCP
-action, it reports `externalToolInvokedByCli: false`; an outer coordinator must
-first acknowledge receipt of that prepared handoff:
-
-```sh
-node research/scripts/exp0001a-batch-command.mjs \
-  --ack-dispatch sha256:<action-digest> \
-  --config /absolute/path/to/codex-runtime-config.json
-```
-
-Only after the durable acknowledgement may the retained action be invoked
-exactly once. Its unmodified result is then advanced through the committed
-ingest binding with the same action identity:
-
-```sh
-node research/scripts/exp0001a-batch-command.mjs \
-  --ingest-result /absolute/path/to/raw-tool-result.json \
-  --dispatch-action sha256:<action-digest> \
-  --config /absolute/path/to/codex-runtime-config.json
-```
-
-Ingest requires the matching durable outbox receipt, appends the full result to
-the private authority journal, and atomically advances provisioning,
-coordinator, scheduler, and accounting state. Before acknowledgement an
-unchanged signed checkpoint may safely redeliver the non-invocable handoff.
-After acknowledgement it never re-emits a mutating action and returns an exact
-reconciliation instruction if the raw result was lost. After every local
-transition or ingest, a new signed checkpoint is required before the next
-action.
-
-Usage-limit recovery follows the same boundary. While paused, the only legal
-action is a neutral projectless subscription-availability probe with no
-experiment brief. Its full result is retained separately, fixed-key signed,
-and counted as `subscription_probe`; only a valid signed observation resumes
-the next genuinely unstarted work item. Reviewer evidence is served one task at
-a time by the GET/HEAD-only loopback packet sidecar, whose start, probe, and stop
-receipts are part of the coordinator chain.
+Every mutation mode (`--execute`, acknowledgement, ingest, resume, or sidecar
+mutation) is hard-disabled at the CLI entry point with
+`EXP0001A_LEGACY_MUTATION_PATH_DISABLED_REQUIRES_SIGNED_QUALIFICATION_V2_AND_SUCCESSOR_V3`.
+Do not import the retained historical implementation as a release workaround.
+The 48-attempt A/A experiment remains blocked until the v2 three-task
+qualification produces a signed pass and a separately reviewed successor-v3
+runner is frozen. Authors, reviewers, adjudicators, and pairwise judges in that
+future runner will still require distinct fresh projectless task IDs.
 
 No active EXP-0001A command reads an API key, contacts a provider endpoint, or
 accepts a price/spend authorization. Do not add those fields to a v2 config.

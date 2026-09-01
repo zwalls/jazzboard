@@ -1,7 +1,9 @@
 // @vitest-environment node
 
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +15,7 @@ const { runExp0001aBatchCommand } = await import(batchModulePath);
 const { recoverBlindedEvaluation, runBlindedEvaluation } = await import(evaluatorModulePath);
 const { runCleanRoomAttempt } = await import(authorModulePath);
 const { rejectRetiredExp0001aProviderLaunchSigner } = await import(retiredLaunchSignerModulePath);
+const execFileAsync = promisify(execFile);
 
 const activeTransportSources = [
   "research/scripts/clean-room-live-runner.mjs",
@@ -36,6 +39,19 @@ describe("removed direct-provider experiment transport", () => {
       .rejects.toThrow(/CODEX_NATIVE_RUNTIME_REACHED/);
     await expect(runExp0001aBatchCommand(["--config", missingConfig], dependencies))
       .rejects.toThrow(/CODEX_NATIVE_RUNTIME_REACHED/);
+  });
+
+  it("hard-disables the advertised legacy mutation CLI until successor-v3 owns release", async () => {
+    const script = path.join(process.cwd(), "research/scripts/exp0001a-batch-command.mjs");
+    const missingConfig = path.join(process.cwd(), "research", "results", "never-created-successor-v3-test.json");
+    await expect(execFileAsync(process.execPath, [script, "--execute", "--config", missingConfig], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    })).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "EXP0001A_LEGACY_MUTATION_PATH_DISABLED_REQUIRES_SIGNED_QUALIFICATION_V2_AND_SUCCESSOR_V3",
+      ),
+    });
   });
 
   it("blocks direct evaluator release and recovery before parsing provider configuration", async () => {

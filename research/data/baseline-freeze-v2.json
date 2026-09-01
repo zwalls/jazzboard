@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "baseline-freeze/v2",
+  "receiptId": "EXP-0001A-production-baseline-v2",
+  "frozenAt": "2026-08-31T19:31:25.468Z",
+  "supersedes": {
+    "receiptPath": "research/data/baseline-freeze-v1.json",
+    "receiptFileDigest": "sha256:399c72b595b8d06bc11a03f0d44fb99938e5e5de8dcb8f3e708700b01579d165",
+    "receiptDigest": "sha256:32fddd038f6ec696f633bc5ee28ec587540282dbbd1e451e5d2debeb67069b23"
+  },
+  "product": {
+    "gitCommit": "66a546aaef9e006891a4cf619ed310fd9fc1c4cc",
+    "gitTree": "071a751beadbcefc002f42d1be75a0e717bc3e4b",
+    "nodeVersion": "24.x",
+    "humanArtifactRouteDigest": "sha256:6a3476b2e5e822216d2f299dc9f98699184c68afa146d1bc5f8ffaf8802f9907",
+    "agentArtifactRouteDigest": "sha256:0fcd0460d9fe2ba293546a4f8db8b4b2fb1bcea1d5a83ebdc191341e26c18387",
+    "vercelIgnoreDigest": "sha256:74b4bbad890403917074ccc02d90c21036586876d06928c8cbd385f1ebb23c6b"
+  },
+  "deployment": {
+    "deploymentId": "dpl_46pyqWtLXGfzeU1JsqXEWQjTBfd8",
+    "buildId": "bld_3t0eopcj7",
+    "immutableUrl": "https://jazzboard-7d7k0x6pl-zwalls-projects.vercel.app",
+    "productionUrl": "https://www.jazzboard.xyz",
+    "state": "READY",
+    "createdAt": 1788201331765,
+    "buildIdentityDigest": "sha256:a2c456842e46021ef65f299f6c816d5c0f60e545619ea4a5e62112e0f342c96a"
+  },
+  "capture": {
+    "scriptPath": "research/scripts/capture-baseline-v2.mjs",
+    "scriptDigest": "sha256:102ac23118d91d8a8782bf303885065f7afdef7fe208afe22bb6c85baf54b601",
+    "publicInventory": {
+      "fileDigest": "sha256:0023a4729045292fff22a314d75bb2ec8e3e4b87d3e973eddb180942b84d15a8",
+      "canonicalDigest": "sha256:5865f441d456a83e9e7606e8909dca709fb536d7b6f716a71b0fb39cf3184907",
+      "path": "research/data/baseline-webmcp-inventory-v2.json"
+    },
+    "publicEvidence": {
+      "fileDigest": "sha256:05dae0fc61193b577d5e3a5d77bf339c708744d0e4ee050504cf65f524e27d84",
+      "canonicalDigest": "sha256:9a9cc7590ccc5d39770719af95f4bcc523ec554c1ce557ec3f07e5c5118c8740",
+      "path": "research/data/baseline-production-evidence-v2.json"
+    },
+    "privateInventory": {
+      "filename": "baseline-webmcp-inventory-private-v2.json",
+      "fileDigest": "sha256:fb800894edbddd8a9c4ac076d82314110e8426c4a12dedebb1f60c72a8a91a04",
+      "canonicalDigest": "sha256:b6c2559fc8b007a75f66002b622e81d011a43c867773dad6ed187ad4575ac952"
+    },
+    "semanticArtifact": {
+      "filename": "baseline-semantic-artifact-redacted-v2.json",
+      "fileDigest": "sha256:0239af151ae423d9d0575c68f70641003c413fd6a114752015f8e270877966e6",
+      "canonicalDigest": "sha256:d92eb6fe5c3a2770f5513ce42e199d6d1d8b87271414ea0af4e428bf6e2f240e"
+    },
+    "semanticHandler": {
+      "filename": "baseline-semantic-handler-redacted-v2.json",
+      "fileDigest": "sha256:631fa3c48ee52ec2551c9ce34b60c7595f556d6184391702dd49f409d132849f",
+      "canonicalDigest": "sha256:5cb0befa0007368ccb59652ca873637d6cfeeda4813b8277b857ce1f84e41e14"
+    },
+    "authoritativeState": {
+      "filename": "baseline-authoritative-state-redacted-v2.json",
+      "fileDigest": "sha256:f2d1d9cdf7890e21002886f417855cfcfb96c96ed56dea74a2d19dc2bc71bd57",
+      "canonicalDigest": "sha256:74d37494c88e95943f7e192f51d2d6dd2a710ad6b53a76139a1af7162b79e0d5"
+    },
+    "captureHistory": {
+      "filename": "exp0001a-baseline-v2-capture-history-run5.json",
+      "fileDigest": "sha256:5d9b00a5aafe3f1b0381b71abe30a4158c6b25bea15bb73d8b8e6928bb074802",
+      "canonicalDigest": "sha256:d2136a3bf6e78251287cb6f7b98804fcc8e3ac260bb31f19ae67934b3392d0cc"
+    },
+    "exactRevisionPng": {
+      "filename": "baseline-exact-revision-v2.png",
+      "fileDigest": "sha256:70f76c0141549a033da69f14d449c8dfe781f90aeb0554174b55d8783ed004b9",
+      "byteLength": 35039,
+      "width": 848,
+      "height": 488
+    },
+    "transport": "browser-webmcp",
+    "codexNativeOnly": true
+  },
+  "authority": {
+    "signaturePath": "research/data/baseline-freeze-v2-authority-signature.json",
+    "signatureSchema": "baseline-freeze-v2-authority-signature/v1",
+    "keyPurpose": "baseline_freeze_v2",
+    "keyId": "exp0001a-launch-authority-2026-08-30",
+    "publicKeyPath": "research/data/exp0001a-execution-authority-public.pem",
+    "publicKeyDigest": "sha256:6fdb285e74644254c72c0e58b098bb1f7d9f8091dc861f830750e89464e503de"
+  },
+  "sensitiveMaterialRedacted": true,
+  "receiptDigest": "sha256:e5568148fa6175bfb59692422da3785920b2beebc127bbab4da804e1362cbd68"
+}

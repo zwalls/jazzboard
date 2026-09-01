@@ -1086,7 +1086,14 @@ export async function runExp0001aBatchCommand(argv, dependencies = {}) {
 }
 
 async function main() {
-  const result = await runExp0001aBatchCommand(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const parsed = parseArguments(argv);
+  if (parsed.mode !== "dry-run") {
+    throw new Error(
+      "EXP0001A_LEGACY_MUTATION_PATH_DISABLED_REQUIRES_SIGNED_QUALIFICATION_V2_AND_SUCCESSOR_V3",
+    );
+  }
+  const result = await runExp0001aBatchCommand(argv);
   process.stdout.write(`${canonicalJson(result)}\n`);
 }
 
