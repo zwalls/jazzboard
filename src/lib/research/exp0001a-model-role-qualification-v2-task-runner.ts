@@ -41,6 +41,9 @@ const QUALIFICATION_V2_LIST_THREADS_LIMIT = 50 as const;
  * even when a conforming agent chooses 240 or 260 as the harmless bound. */
 const QUALIFICATION_V2_BROWSER_SKILL_COMPLETE_LINE_COUNT = 150 as const;
 const QUALIFICATION_V2_BROWSER_SKILL_MAXIMUM_READ_LINE = 1_000 as const;
+/** The live Codex host retains at most 47 Unicode code points in a requested
+ * task title: the first 46 plus one ellipsis. */
+const QUALIFICATION_V2_LIVE_TITLE_LENGTH = 47 as const;
 const jsonValue = z.custom<JsonValue>((value) => {
   try { canonicalJson(value); return true; } catch { return false; }
 });
@@ -249,6 +252,20 @@ function usageLimit(payload: Record<string, JsonValue> | null) {
   return ["usage_limit", "subscription_usage_limit", "subscription_limit", "codex_usage_limit"].includes(code);
 }
 
+function liveCodexThreadTitle(requestedTitle: string): string {
+  const characters = Array.from(requestedTitle.trim().replace(/\s+/g, " "));
+  return characters.length <= QUALIFICATION_V2_LIVE_TITLE_LENGTH
+    ? characters.join("")
+    : `${characters.slice(0, QUALIFICATION_V2_LIVE_TITLE_LENGTH - 1).join("")}…`;
+}
+
+function codexDelegationTextNode(requestedPrompt: string): string {
+  return requestedPrompt
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function terminalMessages(payloads: readonly Record<string, JsonValue>[]) {
   const messages: string[] = [];
   for (const payload of payloads) {
@@ -280,7 +297,7 @@ function validateRetainedTaskIsolation(input: Readonly<{
     const threadValue = payload.thread;
     if (threadValue === null || Array.isArray(threadValue) || typeof threadValue !== "object") return false;
     const thread = threadValue as Record<string, JsonValue>;
-    if (thread.title !== input.action.arguments.title || typeof thread.cwd !== "string"
+    if (thread.title !== liveCodexThreadTitle(input.action.arguments.title) || typeof thread.cwd !== "string"
         || path.resolve(thread.cwd).startsWith(`${path.resolve(input.repositoryRoot)}${path.sep}`)
         || path.resolve(thread.cwd) === path.resolve(input.repositoryRoot)) return false;
     const expectedDirectoryName = input.action.arguments.target.directoryName;
@@ -316,7 +333,8 @@ function validateRetainedTaskIsolation(input: Readonly<{
       || typeof (promptOutput as Record<string, JsonValue>).text !== "string") return false;
   const delegated = (promptOutput as Record<string, JsonValue>).text as string;
   const delegatedMatch = /^<codex_delegation>\n  <source_thread_id>[A-Za-z0-9-]+<\/source_thread_id>\n  <input>([\s\S]*)<\/input>\n<\/codex_delegation>\n?$/.exec(delegated);
-  if (delegatedMatch === null || delegatedMatch[1] !== input.action.arguments.prompt) return false;
+  if (delegatedMatch === null
+      || delegatedMatch[1] !== codexDelegationTextNode(input.action.arguments.prompt)) return false;
   const commands = items.filter((item) => item.type === "commandExecution");
   if (commands.length !== 1) return false;
   const bootstrap = commands[0]!;
@@ -837,7 +855,7 @@ async function runWithAdapter(input: Readonly<{
             ...(Array.isArray(list.payload?.threads) ? list.payload!.threads as JsonValue[] : [])];
           const matches = entries.filter((entry) => entry !== null && !Array.isArray(entry) && typeof entry === "object"
             && (entry as Record<string, JsonValue>).kind === "codex"
-            && (entry as Record<string, JsonValue>).title === action.arguments.title);
+            && (entry as Record<string, JsonValue>).title === liveCodexThreadTitle(action.arguments.title));
           if (matches.length === 1) {
             const match = matches[0] as Record<string, JsonValue>;
             const matchTaskId = string(match.id);

@@ -183,10 +183,19 @@ function appResult(payload: unknown, isError = false) {
   return { isError, content: [{ type: "text", text: JSON.stringify(payload) }] };
 }
 
+function liveThreadTitle(requestedTitle: string) {
+  const characters = Array.from(requestedTitle.trim().replace(/\s+/g, " "));
+  return characters.length <= 47 ? characters.join("") : `${characters.slice(0, 46).join("")}…`;
+}
+
+function delegationTextNode(requestedPrompt: string) {
+  return requestedPrompt.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function listResult(title: string, matches: Array<{ id: string; hostId: string }> = [{ id: TASK_ID, hostId: HOST_ID }]) {
   return appResult({
     pinnedThreads: [],
-    threads: matches.map((match) => ({ kind: "codex", title, ...match })),
+    threads: matches.map((match) => ({ kind: "codex", title: liveThreadTitle(title), ...match })),
   });
 }
 
@@ -252,7 +261,7 @@ function readResult(
   if (titleMatch === null) throw new Error("test title does not encode projectless directory");
   const projectlessCwd = `/private/tmp/qual-${titleMatch[1]}-${titleMatch[2]}`;
   return appResult({
-    thread: { id: TASK_ID, hostId: HOST_ID, title, cwd: projectlessCwd },
+    thread: { id: TASK_ID, hostId: HOST_ID, title: liveThreadTitle(title), cwd: projectlessCwd },
     page: { order: "newest_first", limit: 10, hasMore: false, nextCursor: null },
     turns: [{ id: "turn-1", status: "completed", items: [
       {
@@ -261,7 +270,7 @@ function readResult(
         name: "create_thread",
         namespace: "codex_app",
         output: {
-          text: `<codex_delegation>\n  <source_thread_id>01a03ca8-9508-7581-bcdc-cb7e73c7adde</source_thread_id>\n  <input>${delegatedPrompt}</input>\n</codex_delegation>`,
+          text: `<codex_delegation>\n  <source_thread_id>01a03ca8-9508-7581-bcdc-cb7e73c7adde</source_thread_id>\n  <input>${delegationTextNode(delegatedPrompt)}</input>\n</codex_delegation>`,
           truncated: false,
         },
       },
@@ -706,6 +715,26 @@ describe("EXP-0001A qualification-v2 task runner", () => {
     const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
     expect(result.receipt.terminalStatus).toBe("failed");
     expect(result.receipt.repositoryAccess).toBe("unobservable");
+  });
+
+  it("fails closed when the retained live-normalized title differs", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => {
+        const result = readResult(title);
+        const payload = JSON.parse(String(result.content[0]!.text)) as { thread: { title: string } };
+        payload.thread.title = `${payload.thread.title.slice(0, -1)}?`;
+        return appResult(payload);
+      }),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "failed",
+      repositoryAccess: "unobservable",
+      privateApiAccess: "unobservable",
+    });
   });
 
   it("rejects explicit output truncation metadata", async () => {
