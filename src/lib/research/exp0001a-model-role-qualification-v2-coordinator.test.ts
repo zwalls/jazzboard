@@ -621,6 +621,11 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
         expect(state.pendingAction!.arguments.prompt).toContain("running no other command");
         expect(state.pendingAction!.arguments.prompt).toContain("do not recompute or substitute it");
         expect(state.pendingAction!.arguments.prompt).toContain(`EVIDENCE_ROOT=${state.pendingAction!.inputEnvelopeDigest}`);
+        expect(state.pendingAction!.arguments.prompt).toContain("BROWSER_SETUP_JS=const { setupBrowserRuntime }");
+        expect(state.pendingAction!.arguments.prompt).toContain("const browser = await browserAgent.browsers.getForUrl(");
+        expect(state.pendingAction!.arguments.prompt).toContain("IMAGE_INSPECTION_JS=const tab = await browser.tabs.new()");
+        expect(state.pendingAction!.arguments.prompt).toContain("await nodeRepl.emitImage(evidencePixels)");
+        expect(state.pendingAction!.arguments.prompt).toContain("no other node_repl invocation");
         state = dispatch(state, `2026-08-31T20:${minute}:${String(second + 1).padStart(2, "0")}.000Z`);
         state = ingestQualificationV2ExternalTaskReceipt(state, taskReceipt(state, { accepted: true }), `2026-08-31T20:${minute}:${String(second + 1).padStart(2, "0")}.500Z`);
       }
