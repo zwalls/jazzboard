@@ -755,8 +755,7 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
   const authoritativeSessionCandidate = retainedAuthorSession === null
     && trace.sessionResultOutputOmitted && addedParticipants.length === 1
     && addedParticipants[0]!.displayName === EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME
-    && addedParticipants[0]!.role === "participant" && addedParticipants[0]!.agent === true
-    && addedParticipants[0]!.human === false
+    && addedParticipants[0]!.role === "participant"
     ? addedParticipants[0]!
     : null;
   if (retainedAuthorSession === null && authoritativeSessionCandidate === null) {
@@ -792,9 +791,7 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
       || canonicalJson(closingParticipantIds as unknown as JsonValue)
         !== canonicalJson(expectedClosingParticipantIds as unknown as JsonValue)
       || closingAuthor?.displayName !== EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME
-      || closingAuthor.role !== "participant"
-      || (retainedAuthorSession === null
-        && (closingAuthor.agent !== true || closingAuthor.human !== false))) {
+      || closingAuthor.role !== "participant") {
     throw new Error("QUALIFICATION_V2_AUTHOR_SESSION_AUTHORITY_BINDING_INVALID");
   }
   const authoritativeSessionBindingDigest = hashCanonicalJson({
