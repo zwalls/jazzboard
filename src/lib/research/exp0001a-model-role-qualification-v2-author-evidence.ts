@@ -753,7 +753,7 @@ export function deriveQualificationV2AuthorEvidence(input: Readonly<{
   );
   const retainedAuthorSession = trace.authorSessionMarker;
   const authoritativeSessionCandidate = retainedAuthorSession === null
-    && trace.sessionResultOutputOmitted && addedParticipants.length === 1
+    && addedParticipants.length === 1
     && addedParticipants[0]!.displayName === EXP0001A_QUALIFICATION_V2_AUTHOR_DISPLAY_NAME
     && addedParticipants[0]!.role === "participant"
     ? addedParticipants[0]!

@@ -573,6 +573,57 @@ describe("EXP-0001A qualification-v2 independently derived author evidence", () 
     expect(derived.evidence.authorSessionIdentity.authoritativeSessionBindingDigest).toMatch(/^sha256:/);
   });
 
+  it("uses the authoritative participant delta when the host splits a successful join from its completed session marker", () => {
+    const splitSessionTrace = modifyTrace(trace(), (payload) => {
+      payload.turns[0]!.items.splice(0, 3,
+        {
+          type: "mcpToolCall",
+          server: "node_repl",
+          tool: "js",
+          status: "failed",
+          arguments: {
+            code: "var qualificationMutationResult = await tools.call('join_room', {code:'ABC234',displayName:'EXP-0001A Qualification Author',role:'participant'}); var joinResult = qualificationMutationResult; const collaborationResult = await tools.call('read_collaboration_state', {}); nodeRepl.write(JSON.stringify({schemaVersion:'exp-0001a-qualification-author-session-marker/v2',join:joinResult,collaboration:collaborationResult}));",
+          },
+        },
+        {
+          type: "mcpToolCall",
+          server: "node_repl",
+          tool: "js",
+          status: "completed",
+          arguments: {
+            code: "nodeRepl.write(JSON.stringify({schemaVersion:'exp-0001a-qualification-author-session-marker/v2',join:joinResult,collaboration:collaborationResult}));",
+          },
+        },
+        {
+          type: "mcpToolCall",
+          server: "node_repl",
+          tool: "js",
+          status: "completed",
+          arguments: { code: "const room = await tools.call('read_room_state', {});" },
+        },
+      );
+      const retainedSessionMarker = payload.turns[0]!.items.findIndex((item, index) =>
+        index >= 3
+        && item.type === "mcpToolCall"
+        && String((item.arguments as { code?: string } | undefined)?.code ?? "").includes(
+          "qualification-author-session-marker/v2",
+        ));
+      if (retainedSessionMarker >= 0) payload.turns[0]!.items.splice(retainedSessionMarker, 1);
+    });
+    const state = awaitingAuthorEvidenceState(splitSessionTrace);
+    const derived = deriveQualificationV2AuthorEvidence(
+      evidenceInput(state, 2, true, splitSessionTrace),
+    );
+    expect(derived.evidence).toMatchObject({
+      sessionBindingMethod: "authoritative_participant_delta",
+      authorSessionIdentity: {
+        participantId: AUTHOR.participantId,
+        joinResultDigest: null,
+        collaborationResultDigest: null,
+      },
+    });
+  });
+
   it("rejects truncated retained outputs and a regex-only mutation without authoritative change", () => {
     const truncatedTrace = trace(true);
     const truncatedState = awaitingAuthorEvidenceState(truncatedTrace);
