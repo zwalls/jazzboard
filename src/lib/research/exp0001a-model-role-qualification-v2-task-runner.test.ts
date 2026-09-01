@@ -312,7 +312,7 @@ function readResult(
 ) {
   const titleMatch = /^Q ([a-f0-9]{12}) (author|primary_reviewer|adjudicator) [12]$/.exec(title);
   if (titleMatch === null) throw new Error("test title does not encode projectless directory");
-  const projectlessCwd = `/private/tmp/qual-${titleMatch[2]}-${titleMatch[1]}`;
+  const projectlessCwd = `/private/tmp/qual-${titleMatch[2].replaceAll("_", "-")}-${titleMatch[1]}`;
   return appResult({
     thread: { id: TASK_ID, hostId: HOST_ID, title: liveThreadTitle(title), cwd: projectlessCwd },
     page: { order: "newest_first", limit: 10, hasMore: false, nextCursor: null },

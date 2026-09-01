@@ -617,6 +617,8 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
         const second = 6 + reviewer * 2;
         state = prepareReview(state, `2026-08-31T20:${minute}:${String(second).padStart(2, "0")}.000Z`);
         expect(state.pendingAction).toMatchObject({ role: "primary_reviewer", roleOrdinal: reviewer + 1 });
+        expect(state.pendingAction!.arguments.target.directoryName).toMatch(/^qual-primary-reviewer-/);
+        expect(state.pendingAction!.arguments.target.directoryName).not.toContain("_");
         expect(state.pendingAction!.arguments.prompt).not.toContain("PRIVATE_ROOM_INVITE_URL");
         expect(state.pendingAction!.arguments.prompt).toContain("running no other command");
         expect(state.pendingAction!.arguments.prompt).toContain("do not recompute or substitute it");

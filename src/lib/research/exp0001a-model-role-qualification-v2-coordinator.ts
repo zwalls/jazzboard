@@ -988,7 +988,7 @@ function buildAction(input: Readonly<{
     toolName: "mcp__codex_app__create_thread" as const,
     arguments: {
       prompt: input.prompt,
-      target: { type: "projectless" as const, directoryName: `qual-${input.role}-${suffix}` },
+      target: { type: "projectless" as const, directoryName: `qual-${input.role.replaceAll("_", "-")}-${suffix}` },
       model: input.role === "author" ? "gpt-5.6-terra" as const : "gpt-5.6-sol" as const,
       thinking: input.role === "author" ? "medium" as const : "high" as const,
       title: `Q ${suffix} ${input.role} ${input.roleOrdinal}`,
