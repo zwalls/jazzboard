@@ -61,6 +61,13 @@ Start with these persisted documents after any handoff or context reset:
 - [`protocols/exp-0001a-model-policy-amendment-v1.md`](protocols/exp-0001a-model-policy-amendment-v1.md)
   freezes the three-task Terra/medium author qualification and keeps the
   existing 48-attempt A/A blocked and unmodified until that gate passes.
+- [`reports/exp0001a-browser-attached-transport-spike-v1.md`](reports/exp0001a-browser-attached-transport-spike-v1.md)
+  records the direct-origin Terra/medium production transport pass. A fresh
+  browser-attached author self-provisioned a private room and produced an
+  independently re-read WebMCP artifact with no confirmation prompt or DOM
+  product automation. The result validates the transport family but does not
+  release the 48-attempt A/A: immutable task-ID export, progressive-draft
+  reliability, and the frozen three-task qualification remain open.
 - [`protocols/public-gold-rater-validation-v1.md`](protocols/public-gold-rater-validation-v1.md)
   separates reviewer validity from A/A reliability. A later A/B claim remains
   blocked until a preregistered public gold corpus passes that gate.

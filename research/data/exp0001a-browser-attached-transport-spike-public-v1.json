@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "exp-0001a-browser-attached-transport-spike-public/v1",
+  "executedAt": "2026-09-01T16:24:02.798Z",
+  "terminalObservedBefore": "2026-09-01T16:28:51.000Z",
+  "disposition": "pass",
+  "scope": "transport_only",
+  "author": {
+    "taskCount": 1,
+    "taskIdentifier": "retained_by_app_orchestrator_unexported",
+    "model": "gpt-5.6-terra",
+    "reasoning": "medium",
+    "resolvedModel": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "wallTimeSeconds": "unobservable",
+    "wallTimeUpperBoundSeconds": 289,
+    "usageLimitInterrupted": false,
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "domAutomationForProductActions": false,
+    "confirmationPrompted": false
+  },
+  "transport": {
+    "browserAttached": true,
+    "productionWebMcpOnly": true,
+    "privateRoomSelfProvisioned": true,
+    "webMcpCallCount": 24,
+    "webMcpFailureCount": 1,
+    "failureClassification": "initial_schema_validation_recovered",
+    "toolsUsed": [
+      "create_room",
+      "get_canvas_capabilities",
+      "apply_canvas_transaction",
+      "read_canvas_drafts",
+      "read_room_state",
+      "read_diagram",
+      "inspect_canvas_scope"
+    ],
+    "explicitAgentSessionLifecycleToolExposed": false,
+    "progressiveDraftCommitted": false,
+    "progressiveDraftDisposition": "expired_before_committable_completion",
+    "authoritativeFallback": "direct_atomic_transaction"
+  },
+  "artifact": {
+    "authoritativelyVerified": true,
+    "independentlyReRead": true,
+    "roomRevision": 2,
+    "diagramRevision": 1,
+    "objectCount": 10,
+    "classifiedNodeCount": 5,
+    "semanticConnectorCount": 5,
+    "diagramCount": 1,
+    "diagramMemberCount": 5,
+    "diagramConnectorCount": 5,
+    "diagramMetadataComplete": true,
+    "authorVisualSelfCheckPassed": true,
+    "independentBoundedInspectionSucceeded": true,
+    "privateRoomUrlDigest": "sha256:8817f3852fa84f6ebe3a50f739e379ef97ee8d0cd35bfa40acf954b5ad9689f4",
+    "semanticStateDigest": "sha256:6a0adc9142b4768593413d721504bafbc280cfb30c5d9543a9ad6b6207ff6b6e",
+    "diagramReadDigest": "sha256:27b0d86d15fddc4df40c24d7873f5afd31e2e8beef6151909f375757804d1415",
+    "inspectionDigest": "sha256:93d3399c48419ae9e72131fac90fcadb5f56d62680f310bcbf0828d67b2c9694"
+  },
+  "privacy": {
+    "roomUrlPublished": false,
+    "roomCodePublished": false,
+    "roomIdPublished": false,
+    "participantIdPublished": false,
+    "rawToolPayloadPublished": false
+  },
+  "releaseEffect": {
+    "browserAttachedTransportSpikePassed": true,
+    "directCliTransportRejected": true,
+    "fullBatchRunnerReleased": false,
+    "reason": "The interactive transport is proven, but reproducible task-ID export, progressive-draft reliability, and the frozen multi-task qualification remain unresolved."
+  }
+}
