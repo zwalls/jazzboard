@@ -511,6 +511,9 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     expect(state.pendingAction!.arguments.prompt).toContain("Use sed from line 1 through at least line 150");
     expect(state.pendingAction!.arguments.prompt).toContain("do not guess or probe any alternate path");
     expect(state.pendingAction!.arguments.prompt).toContain("only permitted terminal or filesystem access");
+    expect(state.pendingAction!.arguments.prompt).toContain("required selected-browser documentation read");
+    expect(state.pendingAction!.arguments.prompt).toContain("let tools = await webmcp.fetchTools()");
+    expect(state.pendingAction!.arguments.prompt).toContain("do not redeclare it or introduce a roomTools");
     expect(state.pendingAction!.arguments.prompt).not.toContain("room-private-0");
     expect(state.pendingAction!.arguments.prompt).not.toContain("FROZEN_RUBRIC");
     expect(state.pendingAction!.arguments.prompt).not.toContain("api.openai.com");

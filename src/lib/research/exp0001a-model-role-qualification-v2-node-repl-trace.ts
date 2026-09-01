@@ -105,6 +105,49 @@ function programStatements(root: AstNode): AstNode[] {
     : [];
 }
 
+function collectPatternBindings(value: unknown, bindings: Set<string>): void {
+  const candidate = node(value);
+  if (candidate === null) return;
+  if (candidate.type === "Identifier" && typeof candidate.name === "string") {
+    bindings.add(candidate.name);
+    return;
+  }
+  if (candidate.type === "RestElement") {
+    collectPatternBindings(candidate.argument, bindings);
+    return;
+  }
+  if (candidate.type === "AssignmentPattern") {
+    collectPatternBindings(candidate.left, bindings);
+    return;
+  }
+  if (candidate.type === "ObjectPattern" && Array.isArray(candidate.properties)) {
+    for (const propertyValue of candidate.properties) {
+      const property = node(propertyValue);
+      if (property?.type === "Property") collectPatternBindings(property.value, bindings);
+      else if (property?.type === "RestElement") collectPatternBindings(property.argument, bindings);
+    }
+    return;
+  }
+  if (candidate.type === "ArrayPattern" && Array.isArray(candidate.elements)) {
+    for (const element of candidate.elements) collectPatternBindings(element, bindings);
+  }
+}
+
+function topLevelBindings(root: AstNode): Set<string> {
+  const bindings = new Set<string>();
+  for (const statement of programStatements(root)) {
+    if (statement.type === "VariableDeclaration" && Array.isArray(statement.declarations)) {
+      for (const declarationValue of statement.declarations) {
+        const declaration = node(declarationValue);
+        collectPatternBindings(declaration?.id, bindings);
+      }
+    } else if (["FunctionDeclaration", "ClassDeclaration"].includes(statement.type)) {
+      collectPatternBindings(statement.id, bindings);
+    }
+  }
+  return bindings;
+}
+
 function expressionFromStatement(statement: AstNode): AstNode | null {
   return statement.type === "ExpressionStatement" ? node(statement.expression) : null;
 }
@@ -292,51 +335,46 @@ export function validateQualificationV2NodeReplIsolation(input: Readonly<{
   exactRevisionPngUrl?: string;
 }>): boolean {
   if (input.codeBlocks.length === 0) return false;
-  const combined = input.codeBlocks.join("\n;\n");
   const linter = new Linter({ configType: "flat" });
-  const lintMessages = linter.verify(combined, [{
-    languageOptions: {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      globals: {
-        nodeRepl: "readonly",
-        JSON: "readonly",
-        Object: "readonly",
-        Array: "readonly",
-        Math: "readonly",
-        Number: "readonly",
-        String: "readonly",
-        Boolean: "readonly",
-        Error: "readonly",
-        Promise: "readonly",
-        URL: "readonly",
-        Date: "readonly",
-        RegExp: "readonly",
-        Map: "readonly",
-        Set: "readonly",
-        undefined: "readonly",
-        NaN: "readonly",
-        Infinity: "readonly",
+  const stableGlobals: Record<string, "readonly"> = {
+    nodeRepl: "readonly", JSON: "readonly", Object: "readonly", Array: "readonly",
+    Math: "readonly", Number: "readonly", String: "readonly", Boolean: "readonly",
+    Error: "readonly", Promise: "readonly", URL: "readonly", Date: "readonly",
+    RegExp: "readonly", Map: "readonly", Set: "readonly", undefined: "readonly",
+    NaN: "readonly", Infinity: "readonly",
+  };
+  const retainedBindings = new Set<string>();
+  const roots: AstNode[] = [];
+  for (const code of input.codeBlocks) {
+    let root: AstNode;
+    try {
+      root = parseJavaScript(code, {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        allowAwaitOutsideFunction: true,
+      }) as unknown as AstNode;
+    } catch {
+      return false;
+    }
+    const retainedGlobals = Object.fromEntries(
+      [...retainedBindings].map((binding) => [binding, "readonly" as const]),
+    );
+    const lintMessages = linter.verify(code, [{
+      languageOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        globals: { ...stableGlobals, ...retainedGlobals },
       },
-    },
-    rules: {
-      "no-undef": "error",
-      "no-eval": "error",
-      "no-implied-eval": "error",
-      "no-new-func": "error",
-    },
-  }]);
-  if (lintMessages.some((message) => message.severity === 2 || message.fatal)) return false;
-
-  let root: AstNode;
-  try {
-    root = parseJavaScript(combined, {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      allowAwaitOutsideFunction: true,
-    }) as unknown as AstNode;
-  } catch {
-    return false;
+      rules: {
+        "no-undef": "error",
+        "no-eval": "error",
+        "no-implied-eval": "error",
+        "no-new-func": "error",
+      },
+    }]);
+    if (lintMessages.some((message) => message.severity === 2 || message.fatal)) return false;
+    roots.push(root);
+    for (const binding of topLevelBindings(root)) retainedBindings.add(binding);
   }
   const allowedUrls = new Set<string>();
   if (input.role === "author" && input.privateInviteUrl !== undefined) {
@@ -350,10 +388,11 @@ export function validateQualificationV2NodeReplIsolation(input: Readonly<{
   }
   const callableMemberAliases = new Set<string>();
   let bootstrapImportCount = 0;
+  let browserDocumentationCount = 0;
   let freshTabCount = 0;
   let navigationCount = 0;
   let rejected = false;
-  walk(root, (candidate) => {
+  for (const root of roots) walk(root, (candidate) => {
     if (candidate.type === "Identifier" && forbiddenIdentifiers.has(String(candidate.name))) rejected = true;
     if (candidate.type === "ThisExpression" || candidate.type === "TaggedTemplateExpression"
         || ["ImportDeclaration", "ExportAllDeclaration", "ExportNamedDeclaration"].includes(candidate.type)) {
@@ -400,16 +439,25 @@ export function validateQualificationV2NodeReplIsolation(input: Readonly<{
     const args = Array.isArray(candidate.arguments) ? candidate.arguments : [];
     if (rootName === "browserAgent"
         && !(method === "getForUrl" && memberProperty(callee.object) === "browsers")) rejected = true;
-    if (rootName === "browser"
-        && !(method === "new" && memberProperty(callee.object) === "tabs")) rejected = true;
+    if (rootName === "browser") {
+      const allowedBrowserCall = (method === "new" && memberProperty(callee.object) === "tabs")
+        || (method === "documentation" && args.length === 0);
+      if (!allowedBrowserCall) rejected = true;
+      if (method === "documentation" && args.length === 0) browserDocumentationCount += 1;
+    }
     if (rootName === "tab") {
       const allowedTabCall = method === "goto" || method === "url" || method === "screenshot"
         || (method === "get" && memberProperty(callee.object) === "capabilities"
-          && staticString(args[0]) === "webmcp");
+          && staticString(args[0]) === "webmcp")
+        || (method === "waitForLoadState" && memberProperty(callee.object) === "playwright");
       if (!allowedTabCall) rejected = true;
     }
     if (rootName === "webmcp" && method !== "fetchTools") rejected = true;
-    if (rootName === "tools" && (method !== "call" || staticString(args[0]) === null)) rejected = true;
+    if (rootName === "tools") {
+      const allowedToolsCall = (method === "call" && staticString(args[0]) !== null)
+        || (method === "description" && args.length === 0);
+      if (!allowedToolsCall) rejected = true;
+    }
     if (rootName === "nodeRepl" && method !== "write" && method !== "emitImage") rejected = true;
     if (method === "new" && memberProperty(callee.object) === "tabs") {
       if (args.length !== 0) rejected = true;
@@ -426,7 +474,8 @@ export function validateQualificationV2NodeReplIsolation(input: Readonly<{
     }
     if (["user", "history", "openTabs", "claimTab"].includes(method ?? "")) rejected = true;
   });
-  if (rejected || bootstrapImportCount !== 1 || freshTabCount !== 1 || navigationCount < 1) return false;
+  if (rejected || bootstrapImportCount !== 1 || browserDocumentationCount !== 1
+      || freshTabCount !== 1 || navigationCount < 1) return false;
   const analyses = input.codeBlocks.map((code) => analyzeQualificationV2NodeReplProgram(code));
   const toolNames = analyses.flatMap((analysis) => analysis.toolCalls.map((toolCall) => toolCall.toolName));
   return input.role === "author"

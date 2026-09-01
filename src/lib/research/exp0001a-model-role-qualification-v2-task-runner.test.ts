@@ -203,6 +203,7 @@ function browserBootstrapCode(targetUrl: string, suffix = "") {
     `const { setupBrowserRuntime } = await import('${BROWSER_CLIENT_PATH}')`,
     "const browserAgent = await setupBrowserRuntime()",
     `const browser = await browserAgent.browsers.getForUrl('${origin}')`,
+    "nodeRepl.write(await browser.documentation())",
     "const tab = await browser.tabs.new()",
     `await tab.goto('${targetUrl}')`,
     suffix,
@@ -540,6 +541,66 @@ describe("EXP-0001A qualification-v2 task runner", () => {
       terminalStatus: "completed",
       repositoryAccess: false,
       privateApiAccess: false,
+    });
+  });
+
+  it("validates documented browser discovery across real per-invocation lexical scopes", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const items = [
+      {
+        type: "mcpToolCall", id: "browser-setup", server: "node_repl", tool: "js", status: "completed",
+        arguments: { code: browserBootstrapCode(AUTHOR_INVITE_URL, [
+          "await tab.playwright.waitForLoadState({state:'domcontentloaded',timeoutMs:30000})",
+          "const webmcp = await tab.capabilities.get('webmcp')",
+          "const tools = await webmcp.fetchTools()",
+          "nodeRepl.write(await tools.description())",
+        ].join("; ")) },
+        output: { text: "browser tools", truncated: false },
+      },
+      {
+        type: "mcpToolCall", id: "room-tools", server: "node_repl", tool: "js", status: "completed",
+        arguments: { code: [
+          "await tab.playwright.waitForLoadState({state:'domcontentloaded',timeoutMs:30000})",
+          "const roomWebmcp = await tab.capabilities.get('webmcp')",
+          "const tools = await roomWebmcp.fetchTools()",
+          "const joined = await tools.call('join_room', {code:'ABC234'})",
+        ].join("; ") },
+        output: { text: "joined", truncated: false },
+      },
+      {
+        type: "mcpToolCall", id: "mutation", server: "node_repl", tool: "js", status: "completed",
+        arguments: { code: "const transaction = await tools.call('apply_canvas_transaction', {operations: []});" },
+        output: { text: "mutated", truncated: false },
+      },
+      { type: "agentMessage", phase: "final_answer", text: "completed" },
+    ];
+    const adapter = adapterFor(title, { readThread: vi.fn(async () => readResult(title, items)) });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "completed",
+      repositoryAccess: false,
+      privateApiAccess: false,
+    });
+  });
+
+  it("fails closed when the selected browser documentation is never read", async () => {
+    const state = preparedAuthorState();
+    const paths = await persistState(state);
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => modifyReadResult(readResult(title), (payload) => {
+        const call = payload.turns[0]!.items.find((item) => item.type === "mcpToolCall")!;
+        const args = call.arguments as { code: string };
+        args.code = args.code.replace("nodeRepl.write(await browser.documentation()); ", "");
+      })),
+    });
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+    expect(result.receipt).toMatchObject({
+      terminalStatus: "failed",
+      repositoryAccess: "unobservable",
+      privateApiAccess: "unobservable",
     });
   });
 
