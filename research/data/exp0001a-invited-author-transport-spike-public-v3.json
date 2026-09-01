@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "exp-0001a-invited-author-transport-spike-public/v3",
+  "protocolId": "EXP-0001A-MODEL-ROLE-QUALIFICATION-V2",
+  "kind": "invited_author_transport_spike",
+  "evaluatedAt": "2026-09-01T22:32:00.000Z",
+  "decision": "pass",
+  "qualificationEligible": false,
+  "attemptOrdinal": 7,
+  "priorInvalidHarnessAttemptCount": 6,
+  "harness": {
+    "gitCommit": "d6369dbdd6b474fbe0a78074ac56037afa4252bf",
+    "worktreeClean": true
+  },
+  "author": {
+    "requestedModel": "gpt-5.6-terra",
+    "requestedReasoningEffort": "medium",
+    "workspace": "projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "sharedHistory": false,
+    "sourceTaskId": null,
+    "forkedFromTaskId": null,
+    "authorReceiptDigest": "sha256:589a1e1c56674907f4343c5e8fc33e0807be6d2ed10aac693324d24a74e09b41",
+    "wallTimeMs": 269107,
+    "subscriptionUsage": "unobservable",
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable"
+  },
+  "transport": {
+    "authMethod": "chatgpt",
+    "surface": "browser-exposed-webmcp",
+    "webMcpDiscovered": true,
+    "nestedWebMcpResultObservation": "unobservable",
+    "webMcpCallCount": "unobservable",
+    "webMcpFailureCount": "unobservable",
+    "sessionBindingMethod": "authoritative_participant_delta",
+    "visualProofMethod": "completed_bound_program_plus_controller_capture"
+  },
+  "authoritativeEvidence": {
+    "finalRoomRevision": 5,
+    "successfulAuthoritativeMutationCount": 1,
+    "visualInspectionCount": 1,
+    "objectCount": 8,
+    "diagramCount": 1,
+    "evidenceRoot": "sha256:b19db1f9b2b16e96c92e9e5a5c006982f4c7ad9f81ba1e854c37dd3e4d07ccf9",
+    "semanticStateDigest": "sha256:03bde3ea1b45752bd024849610cf379072c80c9d5962f933900c895f33c876d0",
+    "revisionMatchedPngDigest": "sha256:d863e739c75b10331e09f48127cff597daae5cc37d22e5816678a1bd5f408077",
+    "attributedMutationSetDigest": "sha256:32be6a79e2f34193a0136f3018f99d834c6fc8bf25527d105c8c70e91ef9a113",
+    "controllerInspectionDigest": "sha256:dc97c9aedaa00e3eaeeaa334b1b914d35b2385cdad0a7dd095100aa8db532397"
+  },
+  "privacy": {
+    "roomIdentityPublished": false,
+    "invitePublished": false,
+    "participantIdentityPublished": false,
+    "rawTranscriptPublished": false,
+    "rawEvidenceRetainedPrivately": true
+  },
+  "transportSpikePassed": true,
+  "fullQualificationReleased": true,
+  "fortyEightAttemptExperimentReleased": false
+}
