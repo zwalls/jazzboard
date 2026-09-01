@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 3,
+  "kind": "production-browser-webmcp-baseline-evidence",
+  "capturedAt": "2026-09-01T21:01:17.124Z",
+  "captureCompletedAt": "2026-09-01T21:01:32.232Z",
+  "deploymentId": "dpl_CePet5gs1u52rMvQUGye92qByJAQ",
+  "origin": "https://www.jazzboard.xyz",
+  "runtime": {
+    "node": "v22.22.0",
+    "browser": {
+      "engine": "chromium",
+      "version": "151.0.7922.34"
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "deviceScaleFactor": 1
+    },
+    "transport": "browser-webmcp",
+    "codexNativeOnly": true
+  },
+  "captureHistory": {
+    "currentRunSequence": 5,
+    "priorStoppedRunCount": 3,
+    "priorCompletedSupersededCount": 1,
+    "privateCaptureHistoryByteDigest": "sha256:5d9b00a5aafe3f1b0381b71abe30a4158c6b25bea15bb73d8b8e6928bb074802",
+    "privateCaptureHistoryCanonicalDigest": "sha256:d2136a3bf6e78251287cb6f7b98804fcc8e3ac260bb31f19ae67934b3392d0cc",
+    "supersededRunInventoryDigest": "sha256:2ef8493b2a145e127a6d75b58a179620ae8073a68434bc31a1fa6dcad6cd3947",
+    "supersededRunEvidenceDigest": "sha256:445c22d9c01ca1c6e2f4075689da77c35049f74b377df63b09d503f5a776ae7b",
+    "supersededRunPngDigest": "sha256:70f76c0141549a033da69f14d449c8dfe781f90aeb0554174b55d8783ed004b9"
+  },
+  "health": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "mediaType": "application/json",
+    "cacheControl": "no-store",
+    "matchedPath": "/api/health",
+    "byteLength": 850,
+    "bodyDigest": "sha256:0532489fa0f7531ab300e69f92a50cc7caeecb2f9e28b16c279d871105344c17",
+    "canonicalBodyDigest": "sha256:865fdd40a151c3f9e95d675d2d10b20b211e2734bae94f20b7b1dcfc4a91cc61",
+    "body": {
+      "ok": true,
+      "environment": "production",
+      "realtime": "vercel-websocket+redis-streams",
+      "assets": "vercel-blob",
+      "assetPrivacy": "private-authenticated-room-proxy",
+      "synchronization": {
+        "storage": "redis-three-plane-v3",
+        "documentRevision": "roomRevision",
+        "aggregateRevision": "stateRevision",
+        "mutationIdempotency": "participant-scoped-24h-receipts"
+      },
+      "capacity": {
+        "mode": "enforce",
+        "limits": {
+          "durableDocumentBytes": 3145728,
+          "awarenessBytes": 393216,
+          "coordinationBytes": 131072,
+          "persistedRoomBytes": 3932160,
+          "retainedProposalBytes": 786432,
+          "activityBytes": 1048576,
+          "objects": 5000,
+          "diagrams": 500,
+          "participants": 128,
+          "drawingPoints": 250000
+        }
+      },
+      "canvasRenderer": {
+        "id": "jazzboard-semantic-v1",
+        "ownership": "first-party"
+      },
+      "checks": {
+        "redis": true,
+        "blob": true,
+        "blobConfigured": true,
+        "blobPrivate": true,
+        "sessionSecret": true,
+        "cronSecret": true,
+        "assetStorage": true
+      },
+      "missing": [],
+      "warnings": []
+    }
+  },
+  "artifactHandlers": {
+    "human": {
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "mediaType": "application/json",
+      "cacheControl": "no-store",
+      "matchedPath": "/api/rooms/[roomId]/artifacts",
+      "byteLength": 86,
+      "bodyDigest": "sha256:2b82ba777b7f2d8c46e71e293c999ce349e85a37be4bc1da960b191c10997e18",
+      "canonicalBodyDigest": "sha256:4c5da693280eb956df9d6b4c74c83a17da3aadec2944b67f903e1db6e686f28c",
+      "body": {
+        "ok": false,
+        "error": {
+          "code": "AUTH_REQUIRED",
+          "message": "A guest session is required."
+        }
+      }
+    },
+    "agent": {
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "mediaType": "application/json",
+      "cacheControl": "no-store",
+      "matchedPath": "/api/rooms/[roomId]/agent/artifacts",
+      "byteLength": 86,
+      "bodyDigest": "sha256:2b82ba777b7f2d8c46e71e293c999ce349e85a37be4bc1da960b191c10997e18",
+      "canonicalBodyDigest": "sha256:4c5da693280eb956df9d6b4c74c83a17da3aadec2944b67f903e1db6e686f28c",
+      "body": {
+        "ok": false,
+        "error": {
+          "code": "AUTH_REQUIRED",
+          "message": "A guest session is required."
+        }
+      }
+    }
+  },
+  "semanticExport": {
+    "expectedRoomRevision": 2,
+    "authoritativeState": {
+      "filename": "baseline-authoritative-state-redacted-v2.json",
+      "byteLength": 2537,
+      "fileDigest": "sha256:ba1d9cc4e52211c9231e71ad7649eb98985229d5b766e791e344d42fd487b64d",
+      "canonicalDigest": "sha256:3a6fa2fdfc829364bd109e2c6e5db94b33ae4e3d870b579af3c984f3c9569f24"
+    },
+    "response": {
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "mediaType": "application/json",
+      "cacheControl": "no-store",
+      "filename": "baseline-semantic-handler-redacted-v2.json",
+      "byteLength": 1388,
+      "bodyDigest": "sha256:44903df92f67acc22725bc3e530b3f020ec456da05d7f5fc7662d663c007102f",
+      "canonicalBodyDigest": "sha256:08f94a105ab27db83f1c6e4d0d51b3d34eedf5c954bcbd62ed80337359f8f1cd"
+    },
+    "tool": {
+      "name": "export_canvas_artifact",
+      "format": "semantic_json",
+      "declaredMediaType": "application/vnd.jazzboard.semantic+json; charset=utf-8",
+      "sourceRoomRevision": 2,
+      "artifactSourceRoomRevision": 2,
+      "artifactFilename": "baseline-semantic-artifact-redacted-v2.json",
+      "artifactByteLength": 1303,
+      "artifactFileDigest": "sha256:85bd4524adb61ad8f42fdc40f718bf19105b447915efc7186024681a30c67853",
+      "artifactDigest": "sha256:4df0386ca450de03b05cc0d7b0fa080dbfa2fa50a6721ceb056bfe413caa0786",
+      "objectCount": 1,
+      "diagramCount": 0
+    }
+  },
+  "pngExport": {
+    "expectedRoomRevision": 2,
+    "expectedObjectRevision": 1,
+    "targetCount": 1,
+    "tool": {
+      "name": "export_canvas_png",
+      "filename": "exp-0001a-baseline-v2.png",
+      "declaredMimeType": "image/png",
+      "width": 848,
+      "height": 488,
+      "declaredByteLength": 35039,
+      "sourceRoomRevision": 2,
+      "sourceObjectRevisions": [
+        1
+      ],
+      "visualContributorCount": 1,
+      "persistedByJazzboard": false
+    },
+    "download": {
+      "filename": "exp-0001a-baseline-v2.png",
+      "observedMimeType": "image/png",
+      "byteLength": 35039,
+      "sha256": "sha256:70f76c0141549a033da69f14d449c8dfe781f90aeb0554174b55d8783ed004b9",
+      "width": 848,
+      "height": 488,
+      "pngStructureValidated": true
+    }
+  },
+  "progressiveDraftFinish": {
+    "stageTool": "apply_canvas_transaction",
+    "finishTool": "finish_canvas_draft",
+    "stageOutcome": "drafted",
+    "finishOutcome": "applied",
+    "stageCallResultDigest": "sha256:4bd4d7df715bc11092903ce63b6d404189c0e4057882506101d33c152b819e0e",
+    "finishCallResultDigest": "sha256:29ab575d78b71b5f3dae3a2493ad4c79dc2c09b4a1c16efca0fcc2b9118cdc45",
+    "directFallbackUsed": false,
+    "finishInvocationCount": 1
+  },
+  "roleIsolation": {
+    "participantCanMutate": true,
+    "spectatorCanMutate": false,
+    "spectatorObservedRoomRevision": 3,
+    "artifactRoomRevision": 2
+  },
+  "privacy": {
+    "roomIdentifiersPersisted": false,
+    "roomCodesPersisted": false,
+    "participantIdentifiersPersisted": false,
+    "sessionCredentialsPersisted": false,
+    "imageBytesIncludedInPublicReceipt": false,
+    "privatePngBytesRetained": true,
+    "privateFullDescriptorsRetained": true,
+    "privateRedactedSemanticBytesRetained": true
+  }
+}

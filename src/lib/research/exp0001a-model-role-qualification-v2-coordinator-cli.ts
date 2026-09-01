@@ -15,6 +15,7 @@ import {
   prepareQualificationV2ReviewAction,
   qualificationV2BlindedReviewEnvelopeSchema,
   qualificationV2CoordinatorStateSchema,
+  qualificationProductionBindingSchema,
   qualificationV2ProductionBindingSchema,
   qualificationV2RoomReceiptSchema,
   recordQualificationV2CaptureIndeterminate,
@@ -36,6 +37,11 @@ import {
   baselineFreezeV2AuthoritySignatureSchema,
   verifyBaselineFreezeV2AuthoritySignature,
 } from "./baseline-freeze-v2-authority";
+import {
+  baselineFreezeReceiptV3Schema,
+  baselineFreezeV3AuthoritySignatureSchema,
+  verifyBaselineV3ExecutionReady,
+} from "./baseline-freeze-v3";
 import { canonicalJson, hashCanonicalJson, sha256Digest, type JsonValue } from "./provenance-crypto";
 import { deriveQualificationV2AuthorEvidence } from "./exp0001a-model-role-qualification-v2-author-evidence";
 import {
@@ -65,6 +71,8 @@ const requestSchema = z.discriminatedUnion("operation", [
     planSignaturePath: absolutePathSchema,
     productionBindingPath: absolutePathSchema,
     productionBindingSignaturePath: absolutePathSchema,
+    predecessorProductionBindingPath: absolutePathSchema.optional(),
+    predecessorProductionBindingSignaturePath: absolutePathSchema.optional(),
     baselineReceiptPath: absolutePathSchema,
     baselineSignaturePath: absolutePathSchema,
     baselineArtifacts: z.object({
@@ -77,6 +85,11 @@ const requestSchema = z.discriminatedUnion("operation", [
       authoritativeStatePath: absolutePathSchema,
       captureHistoryPath: absolutePathSchema,
       exactRevisionPngPath: absolutePathSchema,
+      progressiveDraftStagePath: absolutePathSchema.optional(),
+      progressiveDraftFinishPath: absolutePathSchema.optional(),
+      predecessorReceiptPath: absolutePathSchema.optional(),
+      predecessorAuthoritySignaturePath: absolutePathSchema.optional(),
+      transportSpikePath: absolutePathSchema.optional(),
       authorityPublicKeyPath: absolutePathSchema,
     }).strict(),
     benchmarkPath: absolutePathSchema,
@@ -182,15 +195,29 @@ function roomStateEvidence(result: ReturnType<typeof parseRetainedWebMcpTextCall
   return data;
 }
 
-async function assertPrivateStatePath(repositoryRoot: string, statePath: string) {
-  const privateRoot = path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2");
+async function assertPrivateStatePath(
+  repositoryRoot: string,
+  statePath: string,
+  expectedPrivateRoot?: string,
+) {
+  const allowedRoots = [
+    path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2"),
+    path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v3"),
+  ];
+  const absolute = path.resolve(statePath);
+  const privateRoot = expectedPrivateRoot ?? allowedRoots.find((candidate) => {
+    const relative = path.relative(candidate, absolute);
+    return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+  if (privateRoot === undefined || !allowedRoots.includes(privateRoot)) {
+    throw new Error("QUALIFICATION_V2_STATE_MUST_BE_PRIVATE");
+  }
   const rootMetadata = await lstat(privateRoot);
   const resolvedPrivateRoot = await realpath(privateRoot);
   if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()
       || (rootMetadata.mode & 0o777) !== 0o700) {
     throw new Error("QUALIFICATION_V2_PRIVATE_ROOT_UNSAFE");
   }
-  const absolute = path.resolve(statePath);
   const relative = path.relative(privateRoot, absolute);
   if (relative.startsWith("..") || path.isAbsolute(relative) || relative.length === 0) {
     throw new Error("QUALIFICATION_V2_STATE_MUST_BE_PRIVATE");
@@ -216,6 +243,7 @@ async function assertPrivateStatePath(repositoryRoot: string, statePath: string)
     throw error;
   });
   if (leaf !== null && leaf.isSymbolicLink()) throw new Error("QUALIFICATION_V2_PRIVATE_LEAF_SYMLINK_FORBIDDEN");
+  return privateRoot;
 }
 
 async function writeAtomic(filePath: string, value: unknown, replace: boolean) {
@@ -330,10 +358,10 @@ export async function runQualificationV2CoordinatorCli(
   try {
     if (argv.length !== 2 || argv[0] !== "--request") throw new Error("Usage: --request /absolute/private-request.json");
     const requestPath = absolutePathSchema.parse(argv[1]);
-    await assertPrivateStatePath(repositoryRoot, requestPath);
+    const qualificationPrivateRoot = await assertPrivateStatePath(repositoryRoot, requestPath);
     const { value: requestRaw } = await readJson(requestPath, "Qualification-v2 coordinator request", 0o600);
     const request = requestSchema.parse(requestRaw);
-    await assertPrivateStatePath(repositoryRoot, request.statePath);
+    await assertPrivateStatePath(repositoryRoot, request.statePath, qualificationPrivateRoot);
     incidentStatePath = request.statePath;
     incidentOperation = request.operation;
     let state;
@@ -364,43 +392,137 @@ export async function runQualificationV2CoordinatorCli(
         readPlainFile(request.baselineArtifacts.authorityPublicKeyPath, "Baseline-v2 authority public key"),
       ]);
       const plan = exp0001aModelRoleQualificationV2PlanSchema.parse(planRaw.value);
-      const binding = qualificationV2ProductionBindingSchema.parse(bindingRaw.value);
-      const baselineReceipt = baselineFreezeReceiptV2Schema.parse(baselineRaw.value);
-      const baselineSignature = baselineFreezeV2AuthoritySignatureSchema.parse(baselineSignatureRaw.value);
-      verifyBaselineFreezeV2AuthoritySignature({
-        receipt: baselineReceipt as unknown as JsonValue,
-        signature: baselineSignature,
-        notBefore: baselineReceipt.frozenAt,
-      });
-      const baselineVerification = verifyBaselineV2ExecutionReady(
-        baselineReceipt,
-        inventoryRaw.value,
-        evidenceRaw.value,
-        {
-          receiptFileBytes: baselineRaw.bytes,
-          inventoryFileBytes: inventoryRaw.bytes,
-          evidenceFileBytes: evidenceRaw.bytes,
-          captureScriptBytes,
-          privateInventoryFileBytes: privateInventoryBytes,
-          semanticArtifactFileBytes: semanticArtifactBytes,
-          semanticHandlerFileBytes: semanticHandlerBytes,
-          authoritativeStateFileBytes: authoritativeStateBytes,
-          captureHistoryFileBytes: captureHistoryBytes,
-          exactRevisionPngBytes: pngBytes,
-          authoritySignature: baselineSignature,
-          authoritySignatureFileBytes: baselineSignatureRaw.bytes,
-          authorityPublicKeyFileBytes: publicKeyBytes,
-        },
-      );
+      const binding = qualificationProductionBindingSchema.parse(bindingRaw.value);
+      const expectedPrivateRootName = binding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+        ? "exp0001a-qualification-v3" : "exp0001a-qualification-v2";
+      if (path.basename(qualificationPrivateRoot) !== expectedPrivateRootName) {
+        throw new Error("QUALIFICATION_V2_BINDING_PRIVATE_ROOT_MISMATCH");
+      }
+      let baselineReceipt: z.infer<typeof baselineFreezeReceiptV2Schema>
+        | z.infer<typeof baselineFreezeReceiptV3Schema>;
+      let baselineSignature: z.infer<typeof baselineFreezeV2AuthoritySignatureSchema>
+        | z.infer<typeof baselineFreezeV3AuthoritySignatureSchema>;
+      let predecessorBinding: z.infer<typeof qualificationV2ProductionBindingSchema> | undefined;
+      let predecessorBindingSignature: z.infer<typeof exp0001aQualificationV2AuthoritySignatureSchema> | undefined;
+      let baselineVerification: ReturnType<typeof verifyBaselineV2ExecutionReady>
+        | ReturnType<typeof verifyBaselineV3ExecutionReady>;
+      if (binding.schemaVersion === "exp-0001a-qualification-production-binding/v2") {
+        baselineReceipt = baselineFreezeReceiptV2Schema.parse(baselineRaw.value);
+        baselineSignature = baselineFreezeV2AuthoritySignatureSchema.parse(baselineSignatureRaw.value);
+        verifyBaselineFreezeV2AuthoritySignature({
+          receipt: baselineReceipt as unknown as JsonValue,
+          signature: baselineSignature,
+          notBefore: baselineReceipt.frozenAt,
+        });
+        baselineVerification = verifyBaselineV2ExecutionReady(
+          baselineReceipt,
+          inventoryRaw.value,
+          evidenceRaw.value,
+          {
+            receiptFileBytes: baselineRaw.bytes,
+            inventoryFileBytes: inventoryRaw.bytes,
+            evidenceFileBytes: evidenceRaw.bytes,
+            captureScriptBytes,
+            privateInventoryFileBytes: privateInventoryBytes,
+            semanticArtifactFileBytes: semanticArtifactBytes,
+            semanticHandlerFileBytes: semanticHandlerBytes,
+            authoritativeStateFileBytes: authoritativeStateBytes,
+            captureHistoryFileBytes: captureHistoryBytes,
+            exactRevisionPngBytes: pngBytes,
+            authoritySignature: baselineSignature,
+            authoritySignatureFileBytes: baselineSignatureRaw.bytes,
+            authorityPublicKeyFileBytes: publicKeyBytes,
+          },
+        );
+      } else {
+        const requiredPaths = {
+          predecessorProductionBindingPath: request.predecessorProductionBindingPath,
+          predecessorProductionBindingSignaturePath: request.predecessorProductionBindingSignaturePath,
+          progressiveDraftStagePath: request.baselineArtifacts.progressiveDraftStagePath,
+          progressiveDraftFinishPath: request.baselineArtifacts.progressiveDraftFinishPath,
+          predecessorReceiptPath: request.baselineArtifacts.predecessorReceiptPath,
+          predecessorAuthoritySignaturePath: request.baselineArtifacts.predecessorAuthoritySignaturePath,
+          transportSpikePath: request.baselineArtifacts.transportSpikePath,
+        };
+        if (Object.values(requiredPaths).some((value) => value === undefined)) {
+          throw new Error("QUALIFICATION_V3_BASELINE_ARTIFACT_PATHS_REQUIRED");
+        }
+        const exactPublicPaths = {
+          productionBindingPath: path.join(repositoryRoot, "research/data/exp0001a-model-role-qualification-launch-binding-v3.json"),
+          productionBindingSignaturePath: path.join(repositoryRoot, "research/data/exp0001a-model-role-qualification-launch-binding-signature-v3.json"),
+          predecessorProductionBindingPath: path.join(repositoryRoot, "research/data/exp0001a-model-role-qualification-launch-binding-v2.json"),
+          predecessorProductionBindingSignaturePath: path.join(repositoryRoot, "research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json"),
+          baselineReceiptPath: path.join(repositoryRoot, "research/data/baseline-freeze-v3.json"),
+          baselineSignaturePath: path.join(repositoryRoot, "research/data/baseline-freeze-v3-authority-signature.json"),
+          inventoryPath: path.join(repositoryRoot, "research/data/baseline-webmcp-inventory-v3.json"),
+          evidencePath: path.join(repositoryRoot, "research/data/baseline-production-evidence-v3.json"),
+          captureScriptPath: path.join(repositoryRoot, "research/scripts/capture-baseline-v3.mjs"),
+        };
+        if (Object.entries(exactPublicPaths).some(([key, value]) => (
+          key in request
+            ? request[key as keyof typeof request] !== value
+            : request.baselineArtifacts[key as keyof typeof request.baselineArtifacts] !== value
+        ))) {
+          throw new Error("QUALIFICATION_V3_PUBLIC_ARTIFACT_PATH_INVALID");
+        }
+        const [predecessorBindingRaw, predecessorBindingSignatureRaw, progressiveDraftStageBytes,
+          progressiveDraftFinishBytes, predecessorReceiptBytes, predecessorSignatureBytes,
+          transportSpikeBytes] = await Promise.all([
+          readJson(requiredPaths.predecessorProductionBindingPath!, "Qualification-v2 predecessor binding"),
+          readJson(requiredPaths.predecessorProductionBindingSignaturePath!, "Qualification-v2 predecessor binding signature"),
+          readPlainFile(requiredPaths.progressiveDraftStagePath!, "Baseline-v3 progressive draft stage"),
+          readPlainFile(requiredPaths.progressiveDraftFinishPath!, "Baseline-v3 progressive draft finish"),
+          readPlainFile(requiredPaths.predecessorReceiptPath!, "Baseline-v3 predecessor receipt"),
+          readPlainFile(requiredPaths.predecessorAuthoritySignaturePath!, "Baseline-v3 predecessor signature"),
+          readPlainFile(requiredPaths.transportSpikePath!, "Baseline-v3 transport spike"),
+        ]);
+        predecessorBinding = qualificationV2ProductionBindingSchema.parse(predecessorBindingRaw.value);
+        predecessorBindingSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(
+          predecessorBindingSignatureRaw.value,
+        );
+        baselineReceipt = baselineFreezeReceiptV3Schema.parse(baselineRaw.value);
+        baselineSignature = baselineFreezeV3AuthoritySignatureSchema.parse(baselineSignatureRaw.value);
+        baselineVerification = verifyBaselineV3ExecutionReady(
+          baselineReceipt,
+          inventoryRaw.value,
+          evidenceRaw.value,
+          {
+            receiptFileBytes: baselineRaw.bytes,
+            inventoryFileBytes: inventoryRaw.bytes,
+            evidenceFileBytes: evidenceRaw.bytes,
+            captureScriptBytes,
+            privateInventoryFileBytes: privateInventoryBytes,
+            semanticArtifactFileBytes: semanticArtifactBytes,
+            semanticHandlerFileBytes: semanticHandlerBytes,
+            authoritativeStateFileBytes: authoritativeStateBytes,
+            captureHistoryFileBytes: captureHistoryBytes,
+            exactRevisionPngBytes: pngBytes,
+            progressiveDraftStageFileBytes: progressiveDraftStageBytes,
+            progressiveDraftFinishFileBytes: progressiveDraftFinishBytes,
+            authoritySignature: baselineSignature,
+            authoritySignatureFileBytes: baselineSignatureRaw.bytes,
+            authorityPublicKeyFileBytes: publicKeyBytes,
+            predecessorReceiptFileBytes: predecessorReceiptBytes,
+            predecessorAuthoritySignatureFileBytes: predecessorSignatureBytes,
+            transportSpikeFileBytes: transportSpikeBytes,
+          },
+        );
+      }
       if (!baselineVerification.ok) {
         throw new Error(`QUALIFICATION_V2_BASELINE_NOT_EXECUTION_READY:${baselineVerification.errors.join("|")}`);
       }
       const baselineInventory = z.object({
+        landing: z.object({ contractDigest: digestSchema }).passthrough(),
         participant: z.object({ contractDigest: digestSchema }).passthrough(),
+        spectator: z.object({ contractDigest: digestSchema }).passthrough(),
       }).passthrough().parse(inventoryRaw.value);
       if (baselineReceipt.receiptDigest !== binding.baselineFreezeDigest
           || hashCanonicalJson(baselineSignature as unknown as JsonValue) !== binding.baselineAuthoritySignatureDigest
-          || Date.parse(binding.verifiedAt) < Date.parse(baselineSignature.signedAt)) {
+          || Date.parse(binding.verifiedAt) < Date.parse(baselineSignature.signedAt)
+          || (binding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+            && (binding.toolContractDigests.landing !== baselineInventory.landing.contractDigest
+              || binding.toolContractDigests.participant !== baselineInventory.participant.contractDigest
+              || binding.toolContractDigests.spectator !== baselineInventory.spectator.contractDigest))) {
         throw new Error("QUALIFICATION_V2_BASELINE_BINDING_INVALID");
       }
       const executionBundle = compileQualificationV2PublicTasksFromExecutionBundle(
@@ -414,6 +536,8 @@ export async function runQualificationV2CoordinatorCli(
         planAuthoritySignature: exp0001aQualificationV2AuthoritySignatureSchema.parse(planSignatureRaw.value),
         productionBinding: binding,
         productionBindingAuthoritySignature: exp0001aQualificationV2AuthoritySignatureSchema.parse(bindingSignatureRaw.value),
+        predecessorProductionBinding: predecessorBinding,
+        predecessorProductionBindingAuthoritySignature: predecessorBindingSignature,
         publicTasks: executionBundle.publicTasks,
         benchmark: benchmarkRaw.value,
         rubrics: rubricsRaw.value,
@@ -423,8 +547,8 @@ export async function runQualificationV2CoordinatorCli(
       await writeAtomic(request.statePath, state, false);
     } else if (request.operation === "seal_result") {
       const current = await readState(request.statePath);
-      await assertPrivateStatePath(repositoryRoot, request.outputPath);
-      await assertPrivateStatePath(repositoryRoot, request.attestationOutputPath);
+      await assertPrivateStatePath(repositoryRoot, request.outputPath, qualificationPrivateRoot);
+      await assertPrivateStatePath(repositoryRoot, request.attestationOutputPath, qualificationPrivateRoot);
       const attestation = await createQualificationV2TerminalEvidenceAttestation({
         repositoryRoot,
         statePath: request.statePath,
@@ -451,7 +575,7 @@ export async function runQualificationV2CoordinatorCli(
           ...(request.fixtureTransactionCallResultPath === undefined ? [] : [request.fixtureTransactionCallResultPath]),
           request.preAuthorReadRoomStateCallResultPath,
           request.authorizedStorageStatePath,
-        ]) await assertPrivateStatePath(repositoryRoot, privatePath);
+        ]) await assertPrivateStatePath(repositoryRoot, privatePath, qualificationPrivateRoot);
         const [roomReceiptRaw, provisionControllerReceiptRaw, createRoomRaw, blankReadRaw, preAuthorReadRaw,
           storageStateRaw] = await Promise.all([
           readJson(request.receiptPath, "Private room receipt", 0o600),
@@ -487,6 +611,15 @@ export async function runQualificationV2CoordinatorCli(
             || provisionControllerReceipt.taskId !== task.taskId
             || provisionControllerReceipt.roomReceiptDigest !== roomReceipt.receiptDigest
             || provisionControllerReceipt.deploymentId !== current.productionBinding.deploymentId
+            || (current.productionBinding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+              ? (provisionControllerReceipt.schemaVersion
+                  !== "exp-0001a-qualification-room-controller-provision/v3"
+                || provisionControllerReceipt.productionBindingDigest
+                  !== current.productionBinding.bindingDigest
+                || provisionControllerReceipt.baselineFreezeDigest
+                  !== current.productionBinding.baselineFreezeDigest)
+              : provisionControllerReceipt.schemaVersion
+                !== "exp-0001a-qualification-room-controller-provision/v2")
             || provisionControllerReceipt.participantToolContractDigest
               !== current.baselineParticipantToolContractDigest
             || provisionControllerReceipt.createRoomCallResultDigest
@@ -556,7 +689,7 @@ export async function runQualificationV2CoordinatorCli(
           request.provisionControllerReceiptPath,
           request.storageStatePath,
           request.outputDirectory,
-        ]) await assertPrivateStatePath(repositoryRoot, privatePath);
+        ]) await assertPrivateStatePath(repositoryRoot, privatePath, qualificationPrivateRoot);
         const prepared = prepareQualificationV2CaptureAction({
           state: current,
           preparedAt: request.at,
@@ -571,7 +704,7 @@ export async function runQualificationV2CoordinatorCli(
         });
         state = prepared.state;
       } else if (request.operation === "ack_capture_dispatch") {
-        await assertPrivateStatePath(repositoryRoot, request.controllerRequestOutputPath);
+        await assertPrivateStatePath(repositoryRoot, request.controllerRequestOutputPath, qualificationPrivateRoot);
         const acknowledged = acknowledgeQualificationV2CaptureDispatch(current, request.at);
         state = acknowledged.state;
         deferredControllerRequest = {
@@ -579,9 +712,9 @@ export async function runQualificationV2CoordinatorCli(
           value: acknowledged.controllerRequest,
         };
       } else if (request.operation === "retain_capture_terminal") {
-        await assertPrivateStatePath(repositoryRoot, request.terminalReceiptPath);
+        await assertPrivateStatePath(repositoryRoot, request.terminalReceiptPath, qualificationPrivateRoot);
         if (request.captureControllerReceiptPath !== undefined) {
-          await assertPrivateStatePath(repositoryRoot, request.captureControllerReceiptPath);
+          await assertPrivateStatePath(repositoryRoot, request.captureControllerReceiptPath, qualificationPrivateRoot);
         }
         const terminalReceipt = parseQualificationV2CaptureTerminalReceipt(
           (await readJson(request.terminalReceiptPath, "Capture terminal receipt", 0o600)).value,
@@ -601,7 +734,7 @@ export async function runQualificationV2CoordinatorCli(
       } else if (request.operation === "record_capture_indeterminate") {
         state = recordQualificationV2CaptureIndeterminate(current, request.at);
       } else if (request.operation === "prepare_review") {
-        await assertPrivateStatePath(repositoryRoot, request.reviewEnvelopePath);
+        await assertPrivateStatePath(repositoryRoot, request.reviewEnvelopePath, qualificationPrivateRoot);
         const envelope = qualificationV2BlindedReviewEnvelopeSchema.parse(
           (await readJson(request.reviewEnvelopePath, "Blinded review envelope", 0o600)).value,
         );
@@ -642,7 +775,7 @@ export async function runQualificationV2CoordinatorCli(
           request.authorEvidenceOutputPath,
           request.sanitizedSemanticStateOutputPath,
           request.exactRevisionPngOutputPath,
-        ]) await assertPrivateStatePath(repositoryRoot, privatePath);
+        ]) await assertPrivateStatePath(repositoryRoot, privatePath, qualificationPrivateRoot);
         const [waitThreadResults, readThreadResults, provisionControllerReceiptRaw, captureControllerReceiptRaw,
           preAuthorRoomRead, roomRead, inspection, pngExport] = await Promise.all([
           Promise.all(request.waitThreadResultPaths.map(async (filePath) => (
@@ -688,6 +821,15 @@ export async function runQualificationV2CoordinatorCli(
               !== currentTask.roomProvisionControllerReceiptDigest
             || captureControllerReceipt.storageStateDigest !== currentTask.roomAuthorizedStorageStateDigest
             || captureControllerReceipt.deploymentId !== current.productionBinding.deploymentId
+            || (current.productionBinding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+              ? (captureControllerReceipt.schemaVersion
+                  !== "exp-0001a-qualification-room-controller-capture/v3"
+                || captureControllerReceipt.productionBindingDigest
+                  !== current.productionBinding.bindingDigest
+                || captureControllerReceipt.baselineFreezeDigest
+                  !== current.productionBinding.baselineFreezeDigest)
+              : captureControllerReceipt.schemaVersion
+                !== "exp-0001a-qualification-room-controller-capture/v2")
             || captureControllerReceipt.participantToolContractDigest
               !== current.baselineParticipantToolContractDigest
             || current.controllerHarnessRuntimeProvenance === null

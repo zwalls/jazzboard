@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "exp-0001a-browser-attached-transport-spike-public/v2",
+  "protocolId": "EXP-0001A",
+  "evaluatedAt": "2026-09-01T20:45:00.000Z",
+  "outcome": "pass",
+  "supersedes": {
+    "path": "research/data/exp0001a-browser-attached-transport-spike-public-v1.json",
+    "reason": "progressive_draft_lifetime_fix_verified"
+  },
+  "production": {
+    "commit": "4eb6d9862cd1e805906a338d524529b6b7019639",
+    "tree": "100447743f672f103d9cbe7c8c3d6d48e2bca4eb",
+    "deploymentId": "dpl_CePet5gs1u52rMvQUGye92qByJAQ",
+    "origin": "https://www.jazzboard.xyz"
+  },
+  "authorTask": {
+    "transport": "codex_app",
+    "authentication": "chatgpt_subscription",
+    "workspace": "projectless",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "taskIdentity": "retained_privately",
+    "wallTimeMs": 152752,
+    "exactTokens": "unobservable",
+    "resolvedModelSnapshot": "unobservable",
+    "subscriptionUsage": "unobservable"
+  },
+  "isolation": {
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "sharedHistory": false,
+    "evaluatorContext": false
+  },
+  "webMcp": {
+    "browserExposedOnly": true,
+    "confirmationRequired": false,
+    "directCreationFallbackUsed": false,
+    "taskCallCount": 9,
+    "taskCallFailureCount": 1,
+    "recoverableFailure": "unsupported nodeMetadata.kind values",
+    "progressiveDraft": {
+      "staged": true,
+      "revision": 1,
+      "finishCalledOnce": true,
+      "finishOutcome": "applied",
+      "remainingDraftCountAfterCommit": 0
+    }
+  },
+  "artifact": {
+    "diagramTitle": "Resilient Delivery Architecture",
+    "diagramRevision": 2,
+    "classifiedNodeCount": 6,
+    "semanticConnectorCount": 6,
+    "authorFinalRoomRevision": 3,
+    "independentAuditRoomRevision": 4,
+    "agentAttributedActivityCount": 2
+  },
+  "independentAudit": {
+    "role": "spectator",
+    "mutationToolsExposed": false,
+    "authoritativeSemanticStateVerified": true,
+    "diagramMembershipVerified": true,
+    "finalPixelsReviewed": true,
+    "roomIdentity": "retained_privately",
+    "inviteCode": "retained_privately"
+  },
+  "decision": {
+    "browserAttachedTransportEligibleForQualification": true,
+    "progressiveDraftReliabilityGatePassed": true,
+    "aaBatchReleaseAuthorized": false,
+    "nextGate": "signed_three_task_terra_medium_qualification"
+  }
+}

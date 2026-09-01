@@ -61,9 +61,13 @@ const cliDependencies = {
   runAuthPreflightForTesting: async () => authReceipt(),
 };
 
-async function fixture(createBridge = true) {
+async function fixture(createBridge = true, privateRootVersion: "v2" | "v3" = "v2") {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), "qualification-v2-bridge-repo-"));
-  const privateRoot = path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2");
+  const privateRoot = path.join(
+    repositoryRoot,
+    ".research-private",
+    `exp0001a-qualification-${privateRootVersion}`,
+  );
   const bridgeRoot = path.join(privateRoot, "bridge");
   if (createBridge) await mkdir(bridgeRoot, { recursive: true, mode: 0o700 });
   else await mkdir(privateRoot, { recursive: true, mode: 0o700 });
@@ -105,6 +109,53 @@ function oneChunk(value: Buffer | string): AsyncIterable<Buffer | string> {
 }
 
 describe("EXP-0001A qualification-v2 Codex-app file bridge", () => {
+  it("accepts a v3 bridge request wholly confined to the checkout-local v3 private root", async () => {
+    const item = await fixture(true, "v3");
+    const requestPath = path.join(item.privateRoot, "v3-status-request.json");
+    await writeRequest(requestPath, { operation: "status", bridgeRoot: item.bridgeRoot });
+    const output = streams();
+
+    expect(await runQualificationV2TaskRunnerCli(
+      ["--request", requestPath],
+      output.io,
+      item.repositoryRoot,
+      cliDependencies,
+    )).toBe(0);
+    expect(JSON.parse(output.stdout())).toEqual({ status: "idle" });
+  });
+
+  it("rejects cross-root bridge requests and symlinked v3 bridge components", async () => {
+    const crossRoot = await fixture();
+    const v3Root = path.join(crossRoot.repositoryRoot, ".research-private", "exp0001a-qualification-v3");
+    const v3Bridge = path.join(v3Root, "bridge");
+    await mkdir(v3Bridge, { recursive: true, mode: 0o700 });
+    await chmod(v3Root, 0o700);
+    await chmod(v3Bridge, 0o700);
+    const crossRootRequest = path.join(crossRoot.privateRoot, "cross-root-status.json");
+    await writeRequest(crossRootRequest, { operation: "status", bridgeRoot: v3Bridge });
+    const crossRootOutput = streams();
+    expect(await runQualificationV2TaskRunnerCli(
+      ["--request", crossRootRequest],
+      crossRootOutput.io,
+      crossRoot.repositoryRoot,
+      cliDependencies,
+    )).toBe(1);
+
+    const linked = await fixture(false, "v3");
+    const realBridge = path.join(linked.privateRoot, "real-bridge");
+    await mkdir(realBridge, { mode: 0o700 });
+    await symlink(realBridge, linked.bridgeRoot);
+    const linkedRequest = path.join(linked.privateRoot, "linked-status.json");
+    await writeRequest(linkedRequest, { operation: "status", bridgeRoot: linked.bridgeRoot });
+    const linkedOutput = streams();
+    expect(await runQualificationV2TaskRunnerCli(
+      ["--request", linkedRequest],
+      linkedOutput.io,
+      linked.repositoryRoot,
+      cliDependencies,
+    )).toBe(1);
+  });
+
   it("redacts normal status, privately exports the exact request, and binds an exact stdin result", async () => {
     const item = await fixture();
     const adapter = createQualificationV2FileBridgeAdapter({

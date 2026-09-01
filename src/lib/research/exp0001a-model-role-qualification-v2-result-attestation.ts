@@ -336,7 +336,8 @@ function evidenceArtifactReferences(parsed: unknown): Readonly<{
       require("webmcp_result", receipt.roomCreationReceiptDigest);
       break;
     }
-    case "exp-0001a-qualification-room-controller-provision/v2": {
+    case "exp-0001a-qualification-room-controller-provision/v2":
+    case "exp-0001a-qualification-room-controller-provision/v3": {
       const receipt = parseQualificationV2ProvisionControllerReceipt(parsed);
       bind("provision_controller_receipt", receipt.receiptDigest);
       bind(
@@ -373,7 +374,8 @@ function evidenceArtifactReferences(parsed: unknown): Readonly<{
       require("capture_controller_receipt", receipt.captureControllerReceiptDigest);
       break;
     }
-    case "exp-0001a-qualification-room-controller-capture/v2": {
+    case "exp-0001a-qualification-room-controller-capture/v2":
+    case "exp-0001a-qualification-room-controller-capture/v3": {
       const receipt = parseQualificationV2CaptureControllerReceipt(parsed);
       bind("capture_controller_receipt", receipt.receiptDigest);
       require("room_receipt", receipt.roomReceiptDigest);
@@ -697,7 +699,18 @@ async function resolvePrivateInputs(input: Readonly<{
   excludedPaths: readonly string[];
 }>) {
   const resolvedRepositoryRoot = await realpath(input.repositoryRoot);
-  const privateRoot = path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v2");
+  const allowedRoots = [
+    path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v2"),
+    path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v3"),
+  ];
+  const absoluteStatePath = await realpath(input.statePath);
+  const privateRoot = allowedRoots.find((candidate) => {
+    const relative = path.relative(candidate, absoluteStatePath);
+    return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+  if (privateRoot === undefined) {
+    throw new Error("QUALIFICATION_V2_ATTESTATION_PATH_NOT_PRIVATE");
+  }
   const resolvedPrivateRoot = await realpath(privateRoot);
   if (resolvedPrivateRoot !== privateRoot) throw new Error("QUALIFICATION_V2_ATTESTATION_PRIVATE_ROOT_INVALID");
   await assertSafeDirectory(resolvedPrivateRoot);

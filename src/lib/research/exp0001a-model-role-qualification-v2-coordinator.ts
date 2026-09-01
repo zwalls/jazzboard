@@ -18,6 +18,10 @@ import {
   type JsonValue,
 } from "./provenance-crypto";
 import {
+  qualificationV3ProductionBindingSchema,
+  sealQualificationV3ProductionBinding,
+} from "./exp0001a-model-role-qualification-v3-binding";
+import {
   benchmarkCommitments,
   compileBenchmarkTaskExecution,
   parseBenchmarkExecutionBundle,
@@ -133,6 +137,18 @@ export function sealQualificationV2ProductionBinding(input: unknown) {
     ...content,
     bindingDigest: hashCanonicalJson(content as unknown as JsonValue),
   }));
+}
+
+export const qualificationProductionBindingSchema = z.union([
+  qualificationV2ProductionBindingSchema,
+  qualificationV3ProductionBindingSchema,
+]);
+
+export function sealQualificationProductionBinding(input: unknown) {
+  const candidate = z.object({ schemaVersion: z.string() }).passthrough().parse(input);
+  return candidate.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+    ? sealQualificationV3ProductionBinding(input)
+    : sealQualificationV2ProductionBinding(input);
 }
 
 export const qualificationV2PublicTaskInputSchema = z.object({
@@ -530,7 +546,7 @@ const coordinatorContentSchema = z.object({
   baselineParticipantToolContractDigest: digestSchema,
   controllerHarnessRuntimeProvenance: qualificationV2HarnessRuntimeProvenanceSchema.nullable(),
   planAuthoritySignature: exp0001aQualificationV2AuthoritySignatureSchema,
-  productionBinding: qualificationV2ProductionBindingSchema,
+  productionBinding: qualificationProductionBindingSchema,
   productionBindingAuthoritySignature: exp0001aQualificationV2AuthoritySignatureSchema,
   currentTaskIndex: z.number().int().min(0).max(3),
   tasks: z.tuple([taskStateSchema, taskStateSchema, taskStateSchema]),
@@ -609,6 +625,8 @@ export function initializeQualificationV2Coordinator(input: Readonly<{
   planAuthoritySignature: unknown;
   productionBinding: unknown;
   productionBindingAuthoritySignature: unknown;
+  predecessorProductionBinding?: unknown;
+  predecessorProductionBindingAuthoritySignature?: unknown;
   publicTasks: readonly unknown[];
   benchmark: unknown;
   rubrics: unknown;
@@ -623,7 +641,7 @@ export function initializeQualificationV2Coordinator(input: Readonly<{
     purpose: "qualification_plan",
     notBefore: plan.frozenAt,
   });
-  const binding = qualificationV2ProductionBindingSchema.parse(input.productionBinding);
+  const binding = qualificationProductionBindingSchema.parse(input.productionBinding);
   if (binding.planDigest !== plan.planDigest) throw new Error("QUALIFICATION_V2_PRODUCTION_BINDING_PLAN_INVALID");
   const bindingSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(
     input.productionBindingAuthoritySignature,
@@ -634,6 +652,27 @@ export function initializeQualificationV2Coordinator(input: Readonly<{
     purpose: "qualification_launch_binding",
     notBefore: binding.verifiedAt,
   });
+  if (binding.schemaVersion === "exp-0001a-qualification-production-binding/v3") {
+    const predecessorBinding = qualificationV2ProductionBindingSchema.parse(
+      input.predecessorProductionBinding,
+    );
+    const predecessorSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(
+      input.predecessorProductionBindingAuthoritySignature,
+    );
+    verifyExp0001aQualificationV2AuthoritySignature({
+      payload: predecessorBinding as unknown as JsonValue,
+      signature: predecessorSignature,
+      purpose: "qualification_launch_binding",
+      notBefore: predecessorBinding.verifiedAt,
+    });
+    if (predecessorBinding.planDigest !== plan.planDigest
+        || predecessorBinding.bindingDigest
+          !== binding.predecessorProductionBinding.bindingDigest
+        || hashCanonicalJson(predecessorSignature as unknown as JsonValue)
+          !== binding.predecessorProductionBinding.authoritySignatureDigest) {
+      throw new Error("QUALIFICATION_V3_PREDECESSOR_PRODUCTION_BINDING_INVALID");
+    }
+  }
   const publicTasks = input.publicTasks.map((task) => qualificationV2PublicTaskInputSchema.parse(task));
   const benchmarkExecutionBundle = compileQualificationV2PublicTasksFromExecutionBundle(
     input.benchmark,

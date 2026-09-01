@@ -9,7 +9,7 @@ import {
 import {
   sealQualificationV2AuthorEvidence,
   sealQualificationV2ExternalTaskReceipt,
-  sealQualificationV2ProductionBinding,
+  sealQualificationProductionBinding,
   sealQualificationV2RoomReceipt,
 } from "./exp0001a-model-role-qualification-v2-coordinator";
 import { canonicalJson, hashCanonicalJson, type JsonValue } from "./provenance-crypto";
@@ -69,7 +69,7 @@ export async function runQualificationV2SealerCli(
     const sealed = args.kind === "plan"
       ? sealExp0001aModelRoleQualificationV2Plan(raw)
       : args.kind === "launch-binding"
-        ? sealQualificationV2ProductionBinding(raw)
+        ? sealQualificationProductionBinding(raw)
         : args.kind === "room"
           ? sealQualificationV2RoomReceipt(raw)
           : args.kind === "task-receipt"

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -46,6 +46,22 @@ const planSignature = JSON.parse(readFileSync(
 const benchmark = JSON.parse(readFileSync("research/benchmarks/development-v2.json", "utf8"));
 const rubricBundle = JSON.parse(readFileSync("research/benchmarks/development-evaluator-rubrics-v2.json", "utf8"));
 const fixtureSpecs = JSON.parse(readFileSync("research/benchmarks/development-fixture-specs-v2.json", "utf8"));
+const productionBindingV2 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-v2.json",
+  "utf8",
+));
+const productionBindingSignatureV2 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json",
+  "utf8",
+));
+const productionBindingV3 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-v3.json",
+  "utf8",
+));
+const productionBindingSignatureV3 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-signature-v3.json",
+  "utf8",
+));
 const executionBundle = compileQualificationV2PublicTasksFromExecutionBundle(benchmark, rubricBundle, fixtureSpecs);
 const publicTasks = executionBundle.publicTasks;
 const NOW = "2026-08-31T20:00:30.000Z";
@@ -139,6 +155,23 @@ function initialize() {
   });
 }
 
+function initializeV3() {
+  return initializeQualificationV2Coordinator({
+    createdAt: "2026-08-31T20:00:00.000Z",
+    plan,
+    planAuthoritySignature: planSignature,
+    productionBinding: productionBindingV3,
+    productionBindingAuthoritySignature: productionBindingSignatureV3,
+    predecessorProductionBinding: productionBindingV2,
+    predecessorProductionBindingAuthoritySignature: productionBindingSignatureV2,
+    publicTasks,
+    benchmark,
+    rubrics: rubricBundle,
+    fixtureSpecs,
+    baselineParticipantToolContractDigest: productionBindingV3.toolContractDigests.participant,
+  });
+}
+
 function roomReceipt() {
   const privateRoomInviteUrl = "https://www.jazzboard.xyz/#join=ABC234";
   const content = {
@@ -169,9 +202,29 @@ function preparedAuthorState() {
   });
 }
 
-async function persistState(state: ReturnType<typeof preparedAuthorState>) {
+function preparedAuthorStateV3() {
+  const room = retainQualificationV2Room(
+    initializeV3(),
+    roomReceipt(),
+    digest("c"),
+    digest("d"),
+    "2026-08-31T20:00:01.000Z",
+    HARNESS_RUNTIME_PROVENANCE,
+  );
+  return prepareQualificationV2AuthorAction({
+    state: room,
+    publicTask: publicTasks[0],
+    authReceipt: authReceipt(),
+    preparedAt: "2026-08-31T20:00:02.000Z",
+  });
+}
+
+async function persistState(
+  state: ReturnType<typeof preparedAuthorState>,
+  privateRootVersion: "v2" | "v3" = "v2",
+) {
   const repositoryRoot = await mkdtemp(join(tmpdir(), "qualification-v2-runner-"));
-  const privateRoot = join(repositoryRoot, ".research-private", "exp0001a-qualification-v2");
+  const privateRoot = join(repositoryRoot, ".research-private", `exp0001a-qualification-${privateRootVersion}`);
   await mkdir(privateRoot, { recursive: true, mode: 0o700 });
   const statePath = join(privateRoot, "state.json");
   await writeFile(statePath, `${canonicalJson(state)}\n`, { mode: 0o600 });
@@ -506,6 +559,62 @@ async function writeSidecarReadReceipt(privateRoot: string, state: ReturnType<ty
 
 describe("EXP-0001A qualification-v2 task runner", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("dispatches an exact v3-bound state from the checkout-local v3 private root", async () => {
+    const state = preparedAuthorStateV3();
+    const paths = await persistState(state, "v3");
+    const title = state.pendingAction!.arguments.title;
+    const adapter = adapterFor(title, {
+      readThread: vi.fn(async () => readResult(
+        title,
+        authorItems(),
+        state.pendingAction!.arguments.prompt,
+      )),
+    });
+
+    const result = await runQualificationV2PendingActionForTesting(paths, runnerDependencies(adapter));
+
+    expect(result.receipt).toMatchObject({ terminalStatus: "completed", role: "author" });
+    expect(paths.privateRoot).toContain("exp0001a-qualification-v3");
+    expect(result.actionRoot.startsWith(`${await realpath(paths.privateRoot)}/`)).toBe(true);
+  });
+
+  it("rejects v2/v3 production-binding and private-root mixing before dispatch", async () => {
+    const v3StateInV2Root = await persistState(preparedAuthorStateV3(), "v2");
+    const v3Adapter = adapterFor(preparedAuthorStateV3().pendingAction!.arguments.title);
+    await expect(runQualificationV2PendingActionForTesting(
+      v3StateInV2Root,
+      runnerDependencies(v3Adapter),
+    )).rejects.toThrow("QUALIFICATION_V2_RUNNER_STATE_ROOT_MISMATCH");
+    expect(v3Adapter.createThread).not.toHaveBeenCalled();
+
+    const v2StateInV3Root = await persistState(preparedAuthorState(), "v3");
+    const v2Adapter = adapterFor(preparedAuthorState().pendingAction!.arguments.title);
+    await expect(runQualificationV2PendingActionForTesting(
+      v2StateInV3Root,
+      runnerDependencies(v2Adapter),
+    )).rejects.toThrow("QUALIFICATION_V2_RUNNER_STATE_ROOT_MISMATCH");
+    expect(v2Adapter.createThread).not.toHaveBeenCalled();
+  });
+
+  it("rejects a coordinator state reached through a symlink inside the selected v3 root", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "qualification-v3-runner-symlink-"));
+    const privateRoot = join(repositoryRoot, ".research-private", "exp0001a-qualification-v3");
+    const realStateDirectory = join(privateRoot, "real-state");
+    const linkedStateDirectory = join(privateRoot, "linked-state");
+    await mkdir(realStateDirectory, { recursive: true, mode: 0o700 });
+    await chmod(privateRoot, 0o700);
+    const state = preparedAuthorStateV3();
+    await writeFile(join(realStateDirectory, "state.json"), `${canonicalJson(state)}\n`, { mode: 0o600 });
+    await symlink(realStateDirectory, linkedStateDirectory);
+    const adapter = adapterFor(state.pendingAction!.arguments.title);
+
+    await expect(runQualificationV2PendingActionForTesting({
+      repositoryRoot,
+      statePath: join(linkedStateDirectory, "state.json"),
+    }, runnerDependencies(adapter))).rejects.toThrow("QUALIFICATION_V2_TASK_RUNNER_PATH_SYMLINK_FORBIDDEN");
+    expect(adapter.createThread).not.toHaveBeenCalled();
+  });
 
   it("derives a completed receipt directly from retained ready-create/wait/read results", async () => {
     const state = preparedAuthorState();

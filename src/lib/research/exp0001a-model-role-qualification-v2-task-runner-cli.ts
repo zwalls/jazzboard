@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, open, realpath } from "node:fs/promises";
+import { lstat, mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -16,6 +16,7 @@ import {
 import { qualificationV2CoordinatorStateSchema } from "./exp0001a-model-role-qualification-v2-coordinator";
 import {
   recoverQualificationV2PendingAction,
+  resolveQualificationTaskRunnerPrivatePath,
   runQualificationV2PendingAction,
 } from "./exp0001a-model-role-qualification-v2-task-runner";
 import { canonicalJson, hashCanonicalJson, sha256Digest, type JsonValue } from "./provenance-crypto";
@@ -81,27 +82,12 @@ async function readPrivateJson(filePath: string, label: string) {
   try { return JSON.parse((await handle.readFile()).toString("utf8")) as unknown; } finally { await handle.close(); }
 }
 
-async function assertPrivatePath(repositoryRoot: string, candidate: string) {
-  const root = await realpath(path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2"));
-  let existing = path.resolve(candidate);
-  while (true) {
-    try {
-      await lstat(existing);
-      break;
-    } catch (error) {
-      if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const parent = path.dirname(existing);
-      if (parent === existing) throw new Error("QUALIFICATION_V2_TASK_RUNNER_PATH_NOT_PRIVATE");
-      existing = parent;
-    }
-  }
-  const existingReal = await realpath(existing);
-  const suffix = path.relative(existing, path.resolve(candidate));
-  const resolved = path.resolve(existingReal, suffix);
-  const relative = path.relative(root, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative) || relative.length === 0) {
-    throw new Error("QUALIFICATION_V2_TASK_RUNNER_PATH_NOT_PRIVATE");
-  }
+async function assertPrivatePath(repositoryRoot: string, candidate: string, expectedRoot?: string) {
+  return resolveQualificationTaskRunnerPrivatePath({
+    repositoryRoot,
+    candidatePath: candidate,
+    expectedPrivateRoot: expectedRoot,
+  });
 }
 
 async function writePrivateExclusive(filePath: string, value: unknown) {
@@ -154,13 +140,31 @@ export async function runQualificationV2TaskRunnerCli(
   try {
     if (argv.length !== 2 || argv[0] !== "--request") throw new Error("Usage: --request /absolute/private-request.json");
     const requestPath = absolutePath.parse(argv[1]);
-    await assertPrivatePath(repositoryRoot, requestPath);
+    const requestPathResolution = await assertPrivatePath(repositoryRoot, requestPath);
+    const qualificationPrivateRoot = requestPathResolution.privateRoot;
     const request = requestSchema.parse(await readPrivateJson(requestPath, "Qualification-v2 task-runner request"));
-    await assertPrivatePath(repositoryRoot, request.bridgeRoot);
-    const privateRoot = path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2");
+    const bridgePathResolution = await assertPrivatePath(
+      repositoryRoot,
+      request.bridgeRoot,
+      qualificationPrivateRoot,
+    );
+    if (request.operation === "run_pending_action" || request.operation === "recover_pending_action") {
+      await assertPrivatePath(repositoryRoot, request.statePath, qualificationPrivateRoot);
+      const state = qualificationV2CoordinatorStateSchema.parse(
+        await readPrivateJson(request.statePath, "Qualification-v2 coordinator state"),
+      );
+      const expectedRootName = state.productionBinding.schemaVersion
+        === "exp-0001a-qualification-production-binding/v3"
+        ? "exp0001a-qualification-v3"
+        : "exp0001a-qualification-v2";
+      if (path.basename(qualificationPrivateRoot) !== expectedRootName) {
+        throw new Error("QUALIFICATION_V2_RUNNER_STATE_ROOT_MISMATCH");
+      }
+    }
+    const privateRoot = qualificationPrivateRoot;
     const bridgeRoot = await ensureQualificationV2FileBridgeRoot({
       privateRoot,
-      bridgeRoot: request.bridgeRoot,
+      bridgeRoot: bridgePathResolution.candidatePath,
     });
     incidentBridgeRoot = bridgeRoot;
     incidentOperation = request.operation;
@@ -179,7 +183,7 @@ export async function runQualificationV2TaskRunnerCli(
       return 0;
     }
     if (request.operation === "export_exact_request") {
-      await assertPrivatePath(repositoryRoot, request.outputPath);
+      await assertPrivatePath(repositoryRoot, request.outputPath, qualificationPrivateRoot);
       const status = await readQualificationV2FileBridgeStatus(bridgeRoot);
       if (status.status !== "awaiting_raw_result") throw new Error("QUALIFICATION_V2_BRIDGE_NO_PENDING_REQUEST");
       const exactRequest = qualificationV2BridgeRequestSchema.parse(status.request);
@@ -204,9 +208,9 @@ export async function runQualificationV2TaskRunnerCli(
       return 0;
     }
     if (request.operation === "run_pending_action" || request.operation === "recover_pending_action") {
-      await assertPrivatePath(repositoryRoot, request.statePath);
+      await assertPrivatePath(repositoryRoot, request.statePath, qualificationPrivateRoot);
       if (request.reviewEvidenceReadReceiptPath !== undefined) {
-        await assertPrivatePath(repositoryRoot, request.reviewEvidenceReadReceiptPath);
+        await assertPrivatePath(repositoryRoot, request.reviewEvidenceReadReceiptPath, qualificationPrivateRoot);
       }
       const adapter = createQualificationV2FileBridgeAdapter({
         privateRoot,
@@ -245,7 +249,9 @@ export async function runQualificationV2TaskRunnerCli(
     if ((request.rawResultPath === undefined) === (request.rawResultSource === undefined)) {
       throw new Error("QUALIFICATION_V2_RAW_RESULT_SOURCE_EXACTLY_ONE_REQUIRED");
     }
-    if (request.rawResultPath !== undefined) await assertPrivatePath(repositoryRoot, request.rawResultPath);
+    if (request.rawResultPath !== undefined) {
+      await assertPrivatePath(repositoryRoot, request.rawResultPath, qualificationPrivateRoot);
+    }
     const tool = request.operation === "record_raw_create_thread_result"
       ? "mcp__codex_app__create_thread" as const
       : request.operation === "record_raw_list_threads_result"

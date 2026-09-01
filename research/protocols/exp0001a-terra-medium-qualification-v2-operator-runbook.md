@@ -13,25 +13,31 @@ invocation is a fresh projectless Codex task backed by ChatGPT sign-in.
 - plan: `research/data/exp0001a-model-role-qualification-plan-v2.json`
 - plan signature:
   `research/data/exp0001a-model-role-qualification-plan-signature-v2.json`
-- launch binding:
-  `research/data/exp0001a-model-role-qualification-launch-binding-v2.json`
+- current launch binding:
+  `research/data/exp0001a-model-role-qualification-launch-binding-v3.json`
 - launch-binding signature:
+  `research/data/exp0001a-model-role-qualification-launch-binding-signature-v3.json`
+- immutable predecessor launch binding:
+  `research/data/exp0001a-model-role-qualification-launch-binding-v2.json`
+- predecessor launch-binding signature:
   `research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json`
 - benchmark: `research/benchmarks/development-v2.json`
 - rubrics: `research/benchmarks/development-evaluator-rubrics-v2.json`
 - fixtures: `research/benchmarks/development-fixture-specs-v2.json`
-- baseline: `research/data/baseline-freeze-v2.json`
+- baseline: `research/data/baseline-freeze-v3.json`
 - baseline signature:
-  `research/data/baseline-freeze-v2-authority-signature.json`
-- product commit: `66a546aaef9e006891a4cf619ed310fd9fc1c4cc`
-- product tree: `071a751beadbcefc002f42d1be75a0e717bc3e4b`
-- deployment: `dpl_46pyqWtLXGfzeU1JsqXEWQjTBfd8`
-- build: `bld_3t0eopcj7`
+  `research/data/baseline-freeze-v3-authority-signature.json`
+- product commit: `4eb6d9862cd1e805906a338d524529b6b7019639`
+- product tree: `100447743f672f103d9cbe7c8c3d6d48e2bca4eb`
+- deployment: `dpl_CePet5gs1u52rMvQUGye92qByJAQ`
+- build: `bld_nuf9lecj0`
 - production alias: `https://www.jazzboard.xyz`
 
 The historical plan names the pre-hotfix successor. Its bytes must not change.
-The signed launch binding supersedes only that production identity while
-retaining `predecessorPlanBytesMutated: false`.
+The signed v3 launch binding supersedes only the production identity, retains
+`predecessorPlanBytesMutated: false`, and cryptographically names the exact
+signed v2 launch binding. Initialization and terminal signing independently
+replay plan → v2 binding → v3 binding; never delete or rewrite either v2 file.
 
 ## Private boundary and prerequisites
 
@@ -40,7 +46,7 @@ Codex-app results, author evidence, reviewer envelopes, and the unredacted
 result must be strict descendants of:
 
 ```text
-.research-private/exp0001a-qualification-v2/
+.research-private/exp0001a-qualification-v3/
 ```
 
 Directories are mode `0700`; JSON and evidence files are singly linked,
@@ -69,24 +75,31 @@ actual retained path):
 ```json
 {
   "operation": "initialize",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:00:00.000Z",
   "planPath": "/ABS/research/data/exp0001a-model-role-qualification-plan-v2.json",
   "planSignaturePath": "/ABS/research/data/exp0001a-model-role-qualification-plan-signature-v2.json",
-  "productionBindingPath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-v2.json",
-  "productionBindingSignaturePath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json",
-  "baselineReceiptPath": "/ABS/research/data/baseline-freeze-v2.json",
-  "baselineSignaturePath": "/ABS/research/data/baseline-freeze-v2-authority-signature.json",
+  "productionBindingPath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-v3.json",
+  "productionBindingSignaturePath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-signature-v3.json",
+  "predecessorProductionBindingPath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-v2.json",
+  "predecessorProductionBindingSignaturePath": "/ABS/research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json",
+  "baselineReceiptPath": "/ABS/research/data/baseline-freeze-v3.json",
+  "baselineSignaturePath": "/ABS/research/data/baseline-freeze-v3-authority-signature.json",
   "baselineArtifacts": {
-    "inventoryPath": "/ABS/research/data/baseline-webmcp-inventory-v2.json",
-    "evidencePath": "/ABS/research/data/baseline-production-evidence-v2.json",
-    "captureScriptPath": "/ABS/research/scripts/capture-baseline-v2.mjs",
+    "inventoryPath": "/ABS/research/data/baseline-webmcp-inventory-v3.json",
+    "evidencePath": "/ABS/research/data/baseline-production-evidence-v3.json",
+    "captureScriptPath": "/ABS/research/scripts/capture-baseline-v3.mjs",
     "privateInventoryPath": "/ABS/.research-private/BASELINE/baseline-webmcp-inventory-private-v2.json",
     "semanticArtifactPath": "/ABS/.research-private/BASELINE/baseline-semantic-artifact-redacted-v2.json",
     "semanticHandlerPath": "/ABS/.research-private/BASELINE/baseline-semantic-handler-redacted-v2.json",
     "authoritativeStatePath": "/ABS/.research-private/BASELINE/baseline-authoritative-state-redacted-v2.json",
     "captureHistoryPath": "/ABS/.research-private/BASELINE/exp0001a-baseline-v2-capture-history-run5.json",
     "exactRevisionPngPath": "/ABS/.research-private/BASELINE/baseline-exact-revision-v2.png",
+    "progressiveDraftStagePath": "/ABS/.research-private/BASELINE/baseline-progressive-draft-stage-call-result-v3.json",
+    "progressiveDraftFinishPath": "/ABS/.research-private/BASELINE/baseline-progressive-draft-finish-call-result-v3.json",
+    "predecessorReceiptPath": "/ABS/research/data/baseline-freeze-v2.json",
+    "predecessorAuthoritySignaturePath": "/ABS/research/data/baseline-freeze-v2-authority-signature.json",
+    "transportSpikePath": "/ABS/research/data/exp0001a-browser-attached-transport-spike-public-v1.json",
     "authorityPublicKeyPath": "/ABS/research/data/exp0001a-execution-authority-public.pem"
   },
   "benchmarkPath": "/ABS/research/benchmarks/development-v2.json",
@@ -99,11 +112,12 @@ Run every coordinator request with:
 
 ```sh
 node research/scripts/run-exp0001a-model-role-qualification-v2.mjs \
-  --request /ABS/.research-private/exp0001a-qualification-v2/REQUEST.json
+  --request /ABS/.research-private/exp0001a-qualification-v3/REQUEST.json
 ```
 
-Initialization runs the cryptographic baseline-v2 execution-ready verifier,
-verifies both Ed25519 authority chains and timestamp ordering, parses the exact
+Initialization runs the cryptographic baseline-v3 execution-ready verifier,
+verifies the plan, predecessor-v2, current-v3, and baseline Ed25519 authority
+chains and timestamp ordering, parses the exact
 signed benchmark/rubric/fixture execution bundle, and binds the baseline
 participant WebMCP contract. Failure is terminal; there is no operator override.
 
@@ -126,7 +140,7 @@ Create a mode-`0600` room-controller request:
 {
   "operation": "provision_room",
   "taskId": "dev-architecture-create-checkout",
-  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v2/TASK/provision",
+  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v3/TASK/provision",
   "at": "2026-08-31T20:01:00.000Z"
 }
 ```
@@ -135,7 +149,7 @@ The output directory must not exist. Run exactly once:
 
 ```sh
 node research/scripts/run-exp0001a-model-role-qualification-v2-room-controller.mjs \
-  --request /ABS/.research-private/exp0001a-qualification-v2/TASK/provision-request.json
+  --request /ABS/.research-private/exp0001a-qualification-v3/TASK/provision-request.json
 ```
 
 The controller creates a fresh production room, verifies the exact landing and
@@ -163,7 +177,7 @@ Retain the controller output with coordinator operation `retain_room`:
 ```json
 {
   "operation": "retain_room",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:02:00.000Z",
   "receiptPath": "/ABS/.../TASK/provision/room-receipt.json",
   "provisionControllerReceiptPath": "/ABS/.../TASK/provision/provision-controller-receipt.json",
@@ -187,7 +201,7 @@ initialization:
 ```json
 {
   "operation": "prepare_author",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:02:30.000Z",
   "benchmarkPath": "/ABS/research/benchmarks/development-v2.json",
   "rubricsPath": "/ABS/research/benchmarks/development-evaluator-rubrics-v2.json",
@@ -216,14 +230,14 @@ a Codex task:
    ```json
    {
      "operation": "run_pending_action",
-     "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
-     "bridgeRoot": "/ABS/.research-private/exp0001a-qualification-v2/TASK/author-bridge"
+     "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
+     "bridgeRoot": "/ABS/.research-private/exp0001a-qualification-v3/TASK/author-bridge"
    }
    ```
 
    ```sh
    node research/scripts/run-exp0001a-model-role-qualification-v2-task-runner.mjs \
-     --request /ABS/.research-private/exp0001a-qualification-v2/TASK/run-author.json
+     --request /ABS/.research-private/exp0001a-qualification-v3/TASK/run-author.json
    ```
 
    The runner first retains the immutable release journal and CAS-updates state,
@@ -251,7 +265,7 @@ a Codex task:
    ```json
    {
      "operation": "record_raw_create_thread_result",
-     "bridgeRoot": "/ABS/.research-private/exp0001a-qualification-v2/TASK/author-bridge",
+     "bridgeRoot": "/ABS/.research-private/exp0001a-qualification-v3/TASK/author-bridge",
      "sequence": 1,
      "rawResultSource": "stdin"
    }
@@ -269,7 +283,7 @@ a Codex task:
    supplied timestamp. An expired authorization or a switch to API-key auth
    leaves the raw result unaccepted; never invoke `create_thread` again.
 5. Repeat until the runner seals `external-task-receipt.json` under
-   `.research-private/exp0001a-qualification-v2/external-actions/<actionId>/`
+   `.research-private/exp0001a-qualification-v3/external-actions/<actionId>/`
    and atomically ingests it into coordinator state.
 
 Node cannot directly invoke Codex-app MCP. The exact raw-result bridge is the
@@ -318,12 +332,12 @@ Only after an author task has a completed/evaluable receipt, run
 ```json
 {
   "operation": "prepare_capture",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:10:00.000Z",
   "roomReceiptPath": "/ABS/.../TASK/provision/room-receipt.json",
   "provisionControllerReceiptPath": "/ABS/.../TASK/provision/provision-controller-receipt.json",
   "storageStatePath": "/ABS/.../TASK/provision/authorized-storage-state.json",
-  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v2/TASK/capture"
+  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v3/TASK/capture"
 }
 ```
 
@@ -336,9 +350,9 @@ controller request containing that authorization and journal:
 ```json
 {
   "operation": "ack_capture_dispatch",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:10:01.000Z",
-  "controllerRequestOutputPath": "/ABS/.research-private/exp0001a-qualification-v2/TASK/capture-controller-request.json"
+  "controllerRequestOutputPath": "/ABS/.research-private/exp0001a-qualification-v3/TASK/capture-controller-request.json"
 }
 ```
 
@@ -346,6 +360,11 @@ Invoke the room controller exactly once with that generated request. The
 controller validates rather than mints the release journal, opens the exact
 authorized room, independently calls `read_room_state`,
 `inspect_canvas_scope`, and local `export_canvas_png`, and retains:
+
+```sh
+node research/scripts/run-exp0001a-model-role-qualification-v2-room-controller.mjs \
+  --request /ABS/.research-private/exp0001a-qualification-v3/TASK/capture-controller-request.json
+```
 
 ```text
 capture-release-journal.json
@@ -380,7 +399,7 @@ The complete request is:
 ```json
 {
   "operation": "derive_author_evidence",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:11:00.000Z",
   "waitThreadResultPaths": ["/ABS/.../external-actions/ACTION/wait-001.json"],
   "readThreadResultPaths": ["/ABS/.../external-actions/ACTION/read-001.json"],
@@ -423,17 +442,17 @@ own process before preparing the review:
 ```json
 {
   "operation": "serve_review_evidence",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "sanitizedSemanticStatePath": "/ABS/.../TASK/sanitized-semantic-state.json",
   "exactRevisionPngPath": "/ABS/.../TASK/exact-revision.png",
-  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v2/TASK/reviewer-1-sidecar",
+  "outputDirectory": "/ABS/.research-private/exp0001a-qualification-v3/TASK/reviewer-1-sidecar",
   "at": "2026-08-31T20:12:00.000Z"
 }
 ```
 
 ```sh
 node research/scripts/run-exp0001a-model-role-qualification-v2-review-sidecar.mjs \
-  --request /ABS/.research-private/exp0001a-qualification-v2/TASK/reviewer-1-sidecar-request.json
+  --request /ABS/.research-private/exp0001a-qualification-v3/TASK/reviewer-1-sidecar-request.json
 ```
 
 Wait only for private `ready-receipt.json`; do not probe the URL. The sidecar
@@ -448,7 +467,7 @@ private `review-envelope.json`:
 ```json
 {
   "operation": "prepare_review",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T20:12:01.000Z",
   "reviewEnvelopePath": "/ABS/.../reviewer-1-sidecar/review-envelope.json"
 }
@@ -492,10 +511,10 @@ and retained evidence graph before emitting either file:
 ```json
 {
   "operation": "seal_result",
-  "statePath": "/ABS/.research-private/exp0001a-qualification-v2/state.json",
+  "statePath": "/ABS/.research-private/exp0001a-qualification-v3/state.json",
   "at": "2026-08-31T21:00:00.000Z",
-  "outputPath": "/ABS/.research-private/exp0001a-qualification-v2/qualification-result-v2.json",
-  "attestationOutputPath": "/ABS/.research-private/exp0001a-qualification-v2/qualification-terminal-attestation-v2.json"
+  "outputPath": "/ABS/.research-private/exp0001a-qualification-v3/qualification-result-v2.json",
+  "attestationOutputPath": "/ABS/.research-private/exp0001a-qualification-v3/qualification-terminal-attestation-v2.json"
 }
 ```
 
@@ -504,10 +523,10 @@ Then sign the exact result only against that terminal state and attestation:
 ```sh
 node research/scripts/sign-exp0001a-model-role-qualification-v2.mjs \
   --purpose result \
-  --input /ABS/.research-private/exp0001a-qualification-v2/qualification-result-v2.json \
-  --state /ABS/.research-private/exp0001a-qualification-v2/state.json \
-  --attestation /ABS/.research-private/exp0001a-qualification-v2/qualification-terminal-attestation-v2.json \
-  --output /ABS/.research-private/exp0001a-qualification-v2/qualification-result-signed-v2.json
+  --input /ABS/.research-private/exp0001a-qualification-v3/qualification-result-v2.json \
+  --state /ABS/.research-private/exp0001a-qualification-v3/state.json \
+  --attestation /ABS/.research-private/exp0001a-qualification-v3/qualification-terminal-attestation-v2.json \
+  --output /ABS/.research-private/exp0001a-qualification-v3/qualification-result-signed-v2.json
 ```
 
 The signed result records task count, exact requested model/reasoning, wall
@@ -528,10 +547,14 @@ From the clean checkout used for launch:
 npx vitest run \
   src/lib/research/baseline-freeze-v2-authority.test.ts \
   src/lib/research/baseline-freeze-v2.test.ts \
+  src/lib/research/baseline-freeze-v3-authority.test.ts \
+  src/lib/research/baseline-freeze-v3.test.ts \
+  src/lib/research/exp0001a-model-role-qualification-v3-binding.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-authority.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-signer.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-semantic-projection.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-png-sidecar.test.ts \
+  src/lib/research/exp0001a-model-role-qualification-v2-review-sidecar-runner.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-file-bridge.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-room-controller-receipts.test.ts \
   src/lib/research/exp0001a-model-role-qualification-v2-room-controller.test.ts \
@@ -542,14 +565,20 @@ npx vitest run \
   src/lib/research/exp0001a-model-role-qualification-v2.test.ts \
   src/lib/research/exp0001a-successor-runtime-v3.test.ts \
   research/scripts/capture-baseline-v2.test.ts \
+  research/scripts/capture-baseline-v3.test.ts \
   research/scripts/codex-native-transport-block.test.ts
 
 npx tsc --noEmit
 npx eslint 'src/lib/research/exp0001a-model-role-qualification-v2*.ts' \
   'src/lib/research/baseline-freeze-v2*.ts' \
+  'src/lib/research/baseline-freeze-v3*.ts' \
+  src/lib/research/exp0001a-model-role-qualification-v3-binding.ts \
+  src/lib/research/exp0001a-model-role-qualification-v3-binding.test.ts \
   'src/lib/research/exp0001a-successor-runtime-v3*.ts' \
   research/scripts/capture-baseline-v2.mjs \
   research/scripts/capture-baseline-v2.test.ts \
+  research/scripts/capture-baseline-v3.mjs \
+  research/scripts/capture-baseline-v3.test.ts \
   research/scripts/run-exp0001a-model-role-qualification-v2-review-sidecar.mjs \
   research/scripts/run-exp0001a-model-role-qualification-v2-room-controller.mjs \
   research/scripts/run-exp0001a-model-role-qualification-v2-task-runner.mjs \

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import developmentBenchmarkJson from "../../../research/benchmarks/development-v2.json";
 import developmentFixtureSpecsJson from "../../../research/benchmarks/development-fixture-specs-v2.json";
 import developmentRubricsJson from "../../../research/benchmarks/development-evaluator-rubrics-v2.json";
+import baselineReceiptV3Json from "../../../research/data/baseline-freeze-v3.json";
+import productionBindingV3Json from "../../../research/data/exp0001a-model-role-qualification-launch-binding-v3.json";
 import {
   compileBenchmarkTaskExecution,
   parseBenchmarkExecutionBundle,
@@ -56,9 +58,12 @@ describe("EXP-0001A qualification-v2 room controller", () => {
       worktreeClean: true as const,
     };
     const provision = {
+      schemaVersion: "exp-0001a-qualification-room-controller-provision/v3",
       taskId: "dev-architecture-create-checkout",
       roomReceiptDigest: `sha256:${"6".repeat(64)}`,
       storageStateDigest: `sha256:${"7".repeat(64)}`,
+      productionBindingDigest: productionBindingV3Json.bindingDigest,
+      baselineFreezeDigest: baselineReceiptV3Json.receiptDigest,
       harnessRuntimeProvenance: provenance,
     };
     const room = {

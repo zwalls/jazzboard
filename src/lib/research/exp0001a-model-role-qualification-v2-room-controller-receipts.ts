@@ -3,6 +3,9 @@ import path from "node:path";
 
 import baselineReceiptJson from "../../../research/data/baseline-freeze-v2.json";
 import baselineInventoryJson from "../../../research/data/baseline-webmcp-inventory-v2.json";
+import baselineReceiptV3Json from "../../../research/data/baseline-freeze-v3.json";
+import baselineInventoryV3Json from "../../../research/data/baseline-webmcp-inventory-v3.json";
+import productionBindingV3Json from "../../../research/data/exp0001a-model-role-qualification-launch-binding-v3.json";
 import {
   hashCanonicalJson,
   SHA256_DIGEST_PATTERN,
@@ -167,6 +170,80 @@ export const qualificationV2CaptureControllerReceiptContentSchema = z.object({
 export const qualificationV2CaptureControllerReceiptSchema =
   qualificationV2CaptureControllerReceiptContentSchema.extend({ receiptDigest: digestSchema }).strict();
 
+const deploymentObservationsV3Schema = z.tuple([
+  z.literal(baselineReceiptV3Json.deployment.deploymentId),
+  z.literal(baselineReceiptV3Json.deployment.deploymentId),
+]);
+
+export const qualificationV3ProvisionControllerReceiptContentSchema = z.object({
+  schemaVersion: z.literal("exp-0001a-qualification-room-controller-provision/v3"),
+  taskId: taskIdSchema,
+  roomReceiptDigest: digestSchema,
+  storageStateDigest: digestSchema,
+  productionBindingDigest: z.literal(productionBindingV3Json.bindingDigest),
+  baselineFreezeDigest: z.literal(baselineReceiptV3Json.receiptDigest),
+  deploymentId: z.literal(baselineReceiptV3Json.deployment.deploymentId),
+  deploymentObservations: deploymentObservationsV3Schema,
+  landingToolContractDigest: z.literal(baselineInventoryV3Json.landing.contractDigest),
+  participantToolContractDigest: z.literal(baselineInventoryV3Json.participant.contractDigest),
+  playwrightVersion: z.string().min(1),
+  chromiumVersion: z.string().min(1),
+  runtime: runtimeIdentitySchema,
+  harnessRuntimeProvenance: qualificationV2HarnessRuntimeProvenanceSchema,
+  createRoomCallResultDigest: digestSchema,
+  blankReadCallResultDigest: digestSchema,
+  fixtureTransactionCallResultDigest: digestSchema.nullable(),
+  preAuthorReadCallResultDigest: digestSchema,
+  frozenFixtureDeclarationDigest: digestSchema.nullable(),
+  authoritativeInitialStateDigest: digestSchema,
+  initialRoomRevision: z.number().int().nonnegative(),
+  initialObjectCount: z.number().int().nonnegative(),
+  retainedAt: timestampSchema,
+}).strict();
+
+export const qualificationV3ProvisionControllerReceiptSchema =
+  qualificationV3ProvisionControllerReceiptContentSchema.extend({ receiptDigest: digestSchema }).strict();
+
+export const qualificationV3CaptureControllerReceiptContentSchema = z.object({
+  schemaVersion: z.literal("exp-0001a-qualification-room-controller-capture/v3"),
+  taskId: taskIdSchema,
+  roomReceiptDigest: digestSchema,
+  provisionControllerReceiptDigest: digestSchema,
+  storageStateDigest: digestSchema,
+  productionBindingDigest: z.literal(productionBindingV3Json.bindingDigest),
+  baselineFreezeDigest: z.literal(baselineReceiptV3Json.receiptDigest),
+  deploymentId: z.literal(baselineReceiptV3Json.deployment.deploymentId),
+  deploymentObservations: deploymentObservationsV3Schema,
+  participantToolContractDigest: z.literal(baselineInventoryV3Json.participant.contractDigest),
+  playwrightVersion: z.string().min(1),
+  chromiumVersion: z.string().min(1),
+  runtime: runtimeIdentitySchema,
+  harnessRuntimeProvenance: qualificationV2HarnessRuntimeProvenanceSchema,
+  roomRevision: z.number().int().positive(),
+  objectCount: z.number().int().positive(),
+  diagramCount: z.number().int().nonnegative(),
+  closingReadCallResultDigest: digestSchema,
+  inspectionCallResultDigest: digestSchema,
+  pngCallResultDigest: digestSchema,
+  pngByteDigest: digestSchema,
+  pngByteLength: z.number().int().positive(),
+  persistedByJazzboard: z.literal(false),
+  retainedAt: timestampSchema,
+}).strict();
+
+export const qualificationV3CaptureControllerReceiptSchema =
+  qualificationV3CaptureControllerReceiptContentSchema.extend({ receiptDigest: digestSchema }).strict();
+
+export const qualificationProvisionControllerReceiptSchema = z.union([
+  qualificationV2ProvisionControllerReceiptSchema,
+  qualificationV3ProvisionControllerReceiptSchema,
+]);
+
+export const qualificationCaptureControllerReceiptSchema = z.union([
+  qualificationV2CaptureControllerReceiptSchema,
+  qualificationV3CaptureControllerReceiptSchema,
+]);
+
 function sealControllerReceipt<T extends Record<string, unknown>>(content: T) {
   return Object.freeze({ ...content, receiptDigest: hashCanonicalJson(content as unknown as JsonValue) });
 }
@@ -243,8 +320,22 @@ export function sealQualificationV2CaptureControllerReceipt(
   return qualificationV2CaptureControllerReceiptSchema.parse(sealControllerReceipt(parsed));
 }
 
+export function sealQualificationV3ProvisionControllerReceipt(
+  content: z.input<typeof qualificationV3ProvisionControllerReceiptContentSchema>,
+) {
+  const parsed = qualificationV3ProvisionControllerReceiptContentSchema.parse(content);
+  return qualificationV3ProvisionControllerReceiptSchema.parse(sealControllerReceipt(parsed));
+}
+
+export function sealQualificationV3CaptureControllerReceipt(
+  content: z.input<typeof qualificationV3CaptureControllerReceiptContentSchema>,
+) {
+  const parsed = qualificationV3CaptureControllerReceiptContentSchema.parse(content);
+  return qualificationV3CaptureControllerReceiptSchema.parse(sealControllerReceipt(parsed));
+}
+
 export function parseQualificationV2ProvisionControllerReceipt(value: unknown) {
-  const parsed = qualificationV2ProvisionControllerReceiptSchema.parse(value);
+  const parsed = qualificationProvisionControllerReceiptSchema.parse(value);
   const { receiptDigest, ...content } = parsed;
   if (hashCanonicalJson(content as unknown as JsonValue) !== receiptDigest) {
     throw new Error("QUALIFICATION_V2_PROVISION_CONTROLLER_RECEIPT_DIGEST_INVALID");
@@ -253,7 +344,7 @@ export function parseQualificationV2ProvisionControllerReceipt(value: unknown) {
 }
 
 export function parseQualificationV2CaptureControllerReceipt(value: unknown) {
-  const parsed = qualificationV2CaptureControllerReceiptSchema.parse(value);
+  const parsed = qualificationCaptureControllerReceiptSchema.parse(value);
   const { receiptDigest, ...content } = parsed;
   if (hashCanonicalJson(content as unknown as JsonValue) !== receiptDigest) {
     throw new Error("QUALIFICATION_V2_CAPTURE_CONTROLLER_RECEIPT_DIGEST_INVALID");

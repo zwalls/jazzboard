@@ -59,6 +59,23 @@ const benchmark = JSON.parse(readFileSync("research/benchmarks/development-v2.js
 const rubricBundle = JSON.parse(readFileSync("research/benchmarks/development-evaluator-rubrics-v2.json", "utf8"));
 const fixtureSpecs = JSON.parse(readFileSync("research/benchmarks/development-fixture-specs-v2.json", "utf8"));
 const baselineInventory = JSON.parse(readFileSync("research/data/baseline-webmcp-inventory-v2.json", "utf8"));
+const baselineInventoryV3 = JSON.parse(readFileSync("research/data/baseline-webmcp-inventory-v3.json", "utf8"));
+const productionBindingV3 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-v3.json",
+  "utf8",
+));
+const productionBindingSignatureV3 = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-signature-v3.json",
+  "utf8",
+));
+const predecessorProductionBinding = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-v2.json",
+  "utf8",
+));
+const predecessorProductionBindingSignature = JSON.parse(readFileSync(
+  "research/data/exp0001a-model-role-qualification-launch-binding-signature-v2.json",
+  "utf8",
+));
 
 function fakeAuthoritySignature(purpose: "qualification_launch_binding") {
   return {
@@ -484,6 +501,35 @@ describe("EXP-0001A qualification-v2 coordinator", () => {
     void _receiptDigest;
     expect(sealQualificationV2ProductionBinding(bindingDraft)).toEqual(sealedBinding);
     expect(sealQualificationV2RoomReceipt(roomDraft)).toEqual(sealedRoom);
+  });
+
+  it("initializes an additive v3 state only through the signed v2 predecessor chain", () => {
+    const input = {
+      createdAt: "2026-09-01T21:20:00.000Z",
+      plan,
+      planAuthoritySignature: planSignature,
+      productionBinding: productionBindingV3,
+      productionBindingAuthoritySignature: productionBindingSignatureV3,
+      predecessorProductionBinding,
+      predecessorProductionBindingAuthoritySignature: predecessorProductionBindingSignature,
+      publicTasks,
+      benchmark,
+      rubrics: rubricBundle,
+      fixtureSpecs,
+      baselineParticipantToolContractDigest: baselineInventoryV3.participant.contractDigest,
+    };
+    const state = initializeQualificationV2Coordinator(input);
+    expect(state.productionBinding).toEqual(productionBindingV3);
+    expect(state.baselineParticipantToolContractDigest).toBe(
+      baselineInventoryV3.participant.contractDigest,
+    );
+    expect(() => initializeQualificationV2Coordinator({
+      ...input,
+      predecessorProductionBindingAuthoritySignature: {
+        ...predecessorProductionBindingSignature,
+        signedAt: "2026-09-01T21:20:01.000Z",
+      },
+    })).toThrow("QUALIFICATION_V3_PREDECESSOR_PRODUCTION_BINDING_INVALID");
   });
 
   it("releases only an invite-based fresh Terra/medium author action after signed gates", () => {

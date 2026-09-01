@@ -9,8 +9,9 @@ import type { Browser, BrowserContext, Download, Page, Response } from "playwrig
 import developmentBenchmarkJson from "../../../research/benchmarks/development-v2.json";
 import developmentFixtureSpecsJson from "../../../research/benchmarks/development-fixture-specs-v2.json";
 import developmentRubricsJson from "../../../research/benchmarks/development-evaluator-rubrics-v2.json";
-import baselineReceiptJson from "../../../research/data/baseline-freeze-v2.json";
-import baselineInventoryJson from "../../../research/data/baseline-webmcp-inventory-v2.json";
+import baselineReceiptJson from "../../../research/data/baseline-freeze-v3.json";
+import baselineInventoryJson from "../../../research/data/baseline-webmcp-inventory-v3.json";
+import productionBindingJson from "../../../research/data/exp0001a-model-role-qualification-launch-binding-v3.json";
 import {
   compileBenchmarkTaskExecution,
   parseBenchmarkExecutionBundle,
@@ -31,12 +32,12 @@ import {
   parseQualificationV2ProvisionControllerReceipt,
   parseQualificationV2CaptureAuthorization,
   parseQualificationV2CaptureReleaseJournal,
-  qualificationV2CaptureControllerReceiptContentSchema,
+  qualificationV3CaptureControllerReceiptContentSchema,
   qualificationV2HarnessRuntimeProvenanceSchema,
-  qualificationV2ProvisionControllerReceiptContentSchema,
+  qualificationV3ProvisionControllerReceiptContentSchema,
   sealQualificationV2CaptureTerminalReceipt,
-  sealQualificationV2CaptureControllerReceipt,
-  sealQualificationV2ProvisionControllerReceipt,
+  sealQualificationV3CaptureControllerReceipt,
+  sealQualificationV3ProvisionControllerReceipt,
 } from "./exp0001a-model-role-qualification-v2-room-controller-receipts";
 
 const BASE_URL = "https://www.jazzboard.xyz" as const;
@@ -104,8 +105,30 @@ function isStrictDescendant(root: string, candidate: string): boolean {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-async function assertPrivatePath(repositoryRoot: string, candidate: string, allowMissingLeaf = false) {
-  const privateRoot = await realpath(path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2"));
+async function assertPrivatePath(
+  repositoryRoot: string,
+  candidate: string,
+  allowMissingLeaf = false,
+  expectedPrivateRoot?: string,
+) {
+  const allowedRoots = [
+    path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2"),
+    path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v3"),
+  ];
+  const absolute = path.resolve(candidate);
+  const selectedRoot = expectedPrivateRoot ?? allowedRoots.find((root) => isStrictDescendant(root, absolute));
+  if (selectedRoot === undefined || !allowedRoots.includes(selectedRoot)) {
+    throw new Error("QUALIFICATION_V2_ROOM_CONTROLLER_PATH_NOT_PRIVATE");
+  }
+  const privateRoot = await realpath(selectedRoot);
+  if (privateRoot !== selectedRoot) {
+    throw new Error("QUALIFICATION_V2_ROOM_CONTROLLER_PRIVATE_ROOT_INVALID");
+  }
+  const rootMetadata = await lstat(privateRoot);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()
+      || (rootMetadata.mode & 0o777) !== 0o700) {
+    throw new Error("QUALIFICATION_V2_ROOM_CONTROLLER_PRIVATE_ROOT_INVALID");
+  }
   const resolved = allowMissingLeaf
     ? path.join(await realpath(path.dirname(candidate)), path.basename(candidate))
     : await realpath(candidate);
@@ -801,11 +824,13 @@ async function provisionRoom(
     await writeExclusiveJson(path.join(request.outputDirectory, "pre-author-read-room-state-call-result.json"), preAuthorCallResult);
     await writeExclusiveJson(path.join(request.outputDirectory, "room-receipt.json"), receipt);
     await writeExclusiveJson(path.join(request.outputDirectory, "authorized-storage-state.json"), storageState);
-    const controllerReceiptContent = qualificationV2ProvisionControllerReceiptContentSchema.parse({
-      schemaVersion: "exp-0001a-qualification-room-controller-provision/v2",
+    const controllerReceiptContent = qualificationV3ProvisionControllerReceiptContentSchema.parse({
+      schemaVersion: "exp-0001a-qualification-room-controller-provision/v3",
       taskId: request.taskId,
       roomReceiptDigest: receipt.receiptDigest,
       storageStateDigest: hashCanonicalJson(storageState as unknown as JsonValue),
+      productionBindingDigest: productionBindingJson.bindingDigest,
+      baselineFreezeDigest: baselineReceiptJson.receiptDigest,
       deploymentId,
       deploymentObservations: [deploymentId, closingDeploymentId],
       landingToolContractDigest: landingTools.contractDigest,
@@ -828,7 +853,7 @@ async function provisionRoom(
       initialObjectCount: receipt.initialObjectCount,
       retainedAt: request.at,
     });
-    const controllerReceipt = sealQualificationV2ProvisionControllerReceipt(controllerReceiptContent);
+    const controllerReceipt = sealQualificationV3ProvisionControllerReceipt(controllerReceiptContent);
     await writeExclusiveJson(path.join(request.outputDirectory, "provision-controller-receipt.json"), controllerReceipt);
     return { receipt, controllerReceipt };
   } finally {
@@ -839,16 +864,22 @@ async function provisionRoom(
 
 function assertCaptureProvisionBinding(
   provisionControllerReceipt: Readonly<{
+    schemaVersion: string;
     taskId: string;
     roomReceiptDigest: string;
     storageStateDigest: string;
     harnessRuntimeProvenance: z.infer<typeof qualificationV2HarnessRuntimeProvenanceSchema>;
+    productionBindingDigest?: string;
+    baselineFreezeDigest?: string;
   }>,
   roomReceipt: Readonly<{ taskId: string; receiptDigest: string }>,
   storageStateDigest: string,
   harnessRuntimeProvenance: z.infer<typeof qualificationV2HarnessRuntimeProvenanceSchema>,
 ): void {
-  if (provisionControllerReceipt.taskId !== roomReceipt.taskId
+  if (provisionControllerReceipt.schemaVersion !== "exp-0001a-qualification-room-controller-provision/v3"
+      || provisionControllerReceipt.productionBindingDigest !== productionBindingJson.bindingDigest
+      || provisionControllerReceipt.baselineFreezeDigest !== baselineReceiptJson.receiptDigest
+      || provisionControllerReceipt.taskId !== roomReceipt.taskId
       || provisionControllerReceipt.roomReceiptDigest !== roomReceipt.receiptDigest
       || provisionControllerReceipt.storageStateDigest !== storageStateDigest
       || hashCanonicalJson(provisionControllerReceipt.harnessRuntimeProvenance as unknown as JsonValue)
@@ -959,12 +990,14 @@ async function captureAuthorEvidence(
     await writeExclusiveJson(path.join(request.outputDirectory, "closing-inspect-canvas-scope-call-result.json"), inspectionCallResult);
     await writeExclusiveJson(path.join(request.outputDirectory, "closing-export-canvas-png-call-result.json"), pngCallResult);
     await writeExclusive(path.join(request.outputDirectory, "closing-exact-revision.png"), pngBytes);
-    const content = qualificationV2CaptureControllerReceiptContentSchema.parse({
-      schemaVersion: "exp-0001a-qualification-room-controller-capture/v2",
+    const content = qualificationV3CaptureControllerReceiptContentSchema.parse({
+      schemaVersion: "exp-0001a-qualification-room-controller-capture/v3",
       taskId: roomReceipt.taskId,
       roomReceiptDigest: roomReceipt.receiptDigest,
       provisionControllerReceiptDigest: provisionControllerReceipt.receiptDigest,
       storageStateDigest,
+      productionBindingDigest: productionBindingJson.bindingDigest,
+      baselineFreezeDigest: baselineReceiptJson.receiptDigest,
       deploymentId,
       deploymentObservations: [deploymentId, closingDeploymentId],
       participantToolContractDigest: participantTools.contractDigest,
@@ -983,7 +1016,7 @@ async function captureAuthorEvidence(
       persistedByJazzboard: false,
       retainedAt: request.at,
     });
-    const controllerReceipt = sealQualificationV2CaptureControllerReceipt(content);
+    const controllerReceipt = sealQualificationV3CaptureControllerReceipt(content);
     await writeExclusiveJson(path.join(request.outputDirectory, "capture-controller-receipt.json"), controllerReceipt);
     return { controllerReceipt };
   } finally {
@@ -1026,7 +1059,10 @@ export async function runQualificationV2RoomControllerCli(
     }
     const requestPath = absolutePathSchema.parse(argv[1]);
     const harnessRuntimeProvenance = qualificationV2HarnessRuntimeProvenanceSchema.parse(rawHarnessRuntimeProvenance);
-    await assertPrivatePath(repositoryRoot, requestPath);
+    const qualificationPrivateRoot = (await assertPrivatePath(repositoryRoot, requestPath)).privateRoot;
+    if (path.basename(qualificationPrivateRoot) !== "exp0001a-qualification-v3") {
+      throw new Error("QUALIFICATION_V3_ROOM_CONTROLLER_PRIVATE_ROOT_REQUIRED");
+    }
     const request = controllerRequestSchema.parse(await readPrivateJson(requestPath, "Room-controller request"));
     incidentOperation = request.operation;
     if (request.operation === "capture_author_evidence") {
@@ -1042,7 +1078,7 @@ export async function runQualificationV2RoomControllerCli(
       assertCaptureDispatchBinding(captureAuthorization, captureReleaseJournal, requestBasis);
       captureRetainedAt = captureReleaseJournal.invokedAt;
     }
-    await assertPrivatePath(repositoryRoot, request.outputDirectory, true);
+    await assertPrivatePath(repositoryRoot, request.outputDirectory, true, qualificationPrivateRoot);
     const existing = await lstat(request.outputDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return null;
       throw error;
@@ -1073,9 +1109,9 @@ export async function runQualificationV2RoomControllerCli(
         controllerReceiptDigest: result.controllerReceipt.receiptDigest,
       })}\n`);
     } else {
-      await assertPrivatePath(repositoryRoot, request.roomReceiptPath);
-      await assertPrivatePath(repositoryRoot, request.provisionControllerReceiptPath);
-      await assertPrivatePath(repositoryRoot, request.storageStatePath);
+      await assertPrivatePath(repositoryRoot, request.roomReceiptPath, false, qualificationPrivateRoot);
+      await assertPrivatePath(repositoryRoot, request.provisionControllerReceiptPath, false, qualificationPrivateRoot);
+      await assertPrivatePath(repositoryRoot, request.storageStatePath, false, qualificationPrivateRoot);
       const result = await captureAuthorEvidence(request, harnessRuntimeProvenance);
       if (captureAuthorization === null || captureReleaseJournal === null) {
         throw new Error("QUALIFICATION_V2_CAPTURE_RELEASE_JOURNAL_MISSING");

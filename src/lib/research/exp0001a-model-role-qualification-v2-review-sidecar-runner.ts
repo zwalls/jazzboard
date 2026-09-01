@@ -59,8 +59,46 @@ async function readPrivateJson(filePath: string, label: string) {
   }
 }
 
-async function assertPrivatePath(repositoryRoot: string, candidate: string, allowMissingLeaf = false) {
-  const root = await realpath(path.join(repositoryRoot, ".research-private", "exp0001a-qualification-v2"));
+const qualificationPrivateRoots = Object.freeze({
+  v2: "exp0001a-qualification-v2",
+  v3: "exp0001a-qualification-v3",
+} as const);
+
+type QualificationPrivateRootVersion = keyof typeof qualificationPrivateRoots;
+
+function isStrictDescendant(root: string, candidate: string) {
+  const relative = path.relative(root, candidate);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+async function resolvePrivateRoot(repositoryRoot: string, version: QualificationPrivateRootVersion) {
+  const expected = path.join(repositoryRoot, ".research-private", qualificationPrivateRoots[version]);
+  const resolved = await realpath(expected);
+  if (resolved !== expected) throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_PRIVATE_ROOT_INVALID");
+  const metadata = await lstat(resolved);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()
+      || (metadata.mode & 0o777) !== 0o700) {
+    throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_PRIVATE_ROOT_INVALID");
+  }
+  return resolved;
+}
+
+async function selectPrivateRoot(repositoryRoot: string, requestPath: string) {
+  const absolute = path.resolve(requestPath);
+  for (const version of ["v2", "v3"] as const) {
+    const lexicalRoot = path.join(repositoryRoot, ".research-private", qualificationPrivateRoots[version]);
+    if (!isStrictDescendant(lexicalRoot, absolute)) continue;
+    const root = await resolvePrivateRoot(repositoryRoot, version);
+    const requestRealPath = await realpath(absolute);
+    if (!isStrictDescendant(root, requestRealPath)) {
+      throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_PATH_NOT_PRIVATE");
+    }
+    return { version, root, requestPath: requestRealPath };
+  }
+  throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_PATH_NOT_PRIVATE");
+}
+
+async function assertPrivatePath(root: string, candidate: string, allowMissingLeaf = false) {
   let existing = path.resolve(candidate);
   while (true) {
     try { await lstat(existing); break; } catch (error) {
@@ -71,12 +109,47 @@ async function assertPrivatePath(repositoryRoot: string, candidate: string, allo
       existing = parent;
     }
   }
-  const resolved = path.resolve(await realpath(existing), path.relative(existing, path.resolve(candidate)));
-  const relative = path.relative(root, resolved);
-  if (relative.length === 0 || relative.startsWith("..") || path.isAbsolute(relative)) {
+  const resolvedExisting = await realpath(existing);
+  const resolved = path.resolve(resolvedExisting, path.relative(existing, path.resolve(candidate)));
+  if (!isStrictDescendant(root, resolved)) {
     throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_PATH_NOT_PRIVATE");
   }
   return resolved;
+}
+
+export async function resolveQualificationV2ReviewSidecarPrivatePaths(input: Readonly<{
+  repositoryRoot: string;
+  requestPath: string;
+  request: z.infer<typeof requestSchema>;
+}>) {
+  const selected = await selectPrivateRoot(input.repositoryRoot, input.requestPath);
+  const [statePath, semanticPath, pngPath, outputDirectory] = await Promise.all([
+    assertPrivatePath(selected.root, input.request.statePath),
+    assertPrivatePath(selected.root, input.request.sanitizedSemanticStatePath),
+    assertPrivatePath(selected.root, input.request.exactRevisionPngPath),
+    assertPrivatePath(selected.root, input.request.outputDirectory, true),
+  ]);
+  return Object.freeze({
+    privateRootVersion: selected.version,
+    privateRoot: selected.root,
+    requestPath: selected.requestPath,
+    statePath,
+    semanticPath,
+    pngPath,
+    outputDirectory,
+  });
+}
+
+export function assertQualificationV2ReviewSidecarStateRoot(
+  state: z.infer<typeof qualificationV2CoordinatorStateSchema>,
+  privateRootVersion: QualificationPrivateRootVersion,
+) {
+  const expected = state.productionBinding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+    ? "v3"
+    : "v2";
+  if (expected !== privateRootVersion) {
+    throw new Error("QUALIFICATION_V2_REVIEW_SIDECAR_STATE_ROOT_MISMATCH");
+  }
 }
 
 async function syncDirectory(directory: string) {
@@ -262,21 +335,24 @@ export async function runQualificationV2ReviewSidecarCli(
   try {
     if (argv.length !== 2 || argv[0] !== "--request") throw new Error("Usage: --request /absolute/private-request.json");
     const requestPath = absolutePath.parse(argv[1]);
-    await assertPrivatePath(repositoryRoot, requestPath);
-    const request = requestSchema.parse(await readPrivateJson(requestPath, "Qualification-v2 review-sidecar request"));
-    incidentDirectory = path.dirname(requestPath);
+    const selected = await selectPrivateRoot(repositoryRoot, requestPath);
+    const request = requestSchema.parse(await readPrivateJson(selected.requestPath, "Qualification-v2 review-sidecar request"));
+    incidentDirectory = path.dirname(selected.requestPath);
     incidentOperation = request.operation;
-    const [statePath, semanticPath, pngPath, outputDirectory] = await Promise.all([
-      assertPrivatePath(repositoryRoot, request.statePath),
-      assertPrivatePath(repositoryRoot, request.sanitizedSemanticStatePath),
-      assertPrivatePath(repositoryRoot, request.exactRevisionPngPath),
-      assertPrivatePath(repositoryRoot, request.outputDirectory, true),
-    ]);
+    const resolved = await resolveQualificationV2ReviewSidecarPrivatePaths({
+      repositoryRoot,
+      requestPath: selected.requestPath,
+      request,
+    });
+    const state = qualificationV2CoordinatorStateSchema.parse(
+      await readPrivateJson(resolved.statePath, "Qualification-v2 coordinator state"),
+    );
+    assertQualificationV2ReviewSidecarStateRoot(state, resolved.privateRootVersion);
     const result = await serveQualificationV2ReviewerEvidence({
-      state: await readPrivateJson(statePath, "Qualification-v2 coordinator state"),
-      sanitizedSemanticState: await readPrivateJson(semanticPath, "Qualification-v2 sanitized semantic state"),
-      pngBytes: await readPrivate(pngPath, "Qualification-v2 exact-revision PNG"),
-      outputDirectory,
+      state,
+      sanitizedSemanticState: await readPrivateJson(resolved.semanticPath, "Qualification-v2 sanitized semantic state"),
+      pngBytes: await readPrivate(resolved.pngPath, "Qualification-v2 exact-revision PNG"),
+      outputDirectory: resolved.outputDirectory,
       at: request.at,
     });
     io.stdout.write(`${canonicalJson({

@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 3,
+  "capturedAt": "2026-09-01T21:01:17.124Z",
+  "deploymentId": "dpl_CePet5gs1u52rMvQUGye92qByJAQ",
+  "origin": "https://www.jazzboard.xyz",
+  "captureMethod": "browser-exposed-webmcp-registry",
+  "landing": {
+    "toolCount": 5,
+    "inventoryDigest": "sha256:4f15492bc61acfaf99397c6309ea932bbfe186752f947c2812889231072fd79b",
+    "contractDigest": "sha256:e994599e5ba4f51e578a1557bf62c9c17f98e1fe205ce99e6093e254377bb9e5",
+    "tools": [
+      {
+        "name": "create_room",
+        "definitionDigest": "sha256:ef306ba8d4f0a54fd416edfb11b6a2930a4b5e096e94c71280fb67822938fd74"
+      },
+      {
+        "name": "join_room",
+        "definitionDigest": "sha256:28b632765af3436fd2b4f41176bba592945ea2759cf30f20374648f6c462ce2e"
+      },
+      {
+        "name": "list_recent_rooms",
+        "definitionDigest": "sha256:5fe440a946b64992f56e5018e12e9dfaf99da21da2cbfff1419d315e02b2b93e"
+      },
+      {
+        "name": "open_recent_room",
+        "definitionDigest": "sha256:8ea47e4c57734858efa5bde0508dba815f721f419709f1b5896906b990732222"
+      },
+      {
+        "name": "remove_recent_room",
+        "definitionDigest": "sha256:dd0832ad13fbe2b6519a15e54fe1ebe36e6128966c3e534138dc489229810ce8"
+      }
+    ]
+  },
+  "participant": {
+    "toolCount": 54,
+    "inventoryDigest": "sha256:cbbb144c9b5499cc963a827b65bed6feda4f3bb7ff5830c54ed0a64cfeb1d2a2",
+    "contractDigest": "sha256:a59aa6014d85fda5e2492de38a39abded9fdbde909aff890e178bd6d9cc8e873",
+    "tools": [
+      {
+        "name": "add_image",
+        "definitionDigest": "sha256:52852c0aed8a666469013678cedd3f8249647de5bbc5ae90c885d058153a9234"
+      },
+      {
+        "name": "analyze_diagram_layout",
+        "definitionDigest": "sha256:420bcf68c4816d32f6298c650753914219734d9fbabac94c174e0dffd1393bb4"
+      },
+      {
+        "name": "apply_canvas_transaction",
+        "definitionDigest": "sha256:dfcf4a192d9f936e0adf90eeac7ad25b0ce0b7386c26beb21d5001ef3501f632"
+      },
+      {
+        "name": "approve_spotlight_handoff",
+        "definitionDigest": "sha256:070498a718f6e40e1a581edd675f604675a63a285aebc280a9631b9cd20cd1ab"
+      },
+      {
+        "name": "claim_agent_message",
+        "definitionDigest": "sha256:e5477e1f75446ff3f379ecbe981109ff3e161d9377ebd13644a5fe03cee04379"
+      },
+      {
+        "name": "create_diagram",
+        "definitionDigest": "sha256:6d315bd82dd291d29bac3d7a9429756e028b2d9f02114d86c25e7a482cc18473"
+      },
+      {
+        "name": "create_diagram_template",
+        "definitionDigest": "sha256:a782f66f54f25c07a9a7faecf5d630af25d681df24da16939d5af7967112c271"
+      },
+      {
+        "name": "create_drawing",
+        "definitionDigest": "sha256:950a1b78cdab3a681b45604c5141d09a22753df8df21020d4e6d53e15f7d97eb"
+      },
+      {
+        "name": "create_node",
+        "definitionDigest": "sha256:cc1a114438bcc990352ea7fb113d43c26ee190b59f745a20178a1a2b1e54f053"
+      },
+      {
+        "name": "create_path",
+        "definitionDigest": "sha256:f501ba8be311165ccd9b6b52cfbf2d1d5a95c2caac6d5cd89bb2bf3f8de08764"
+      },
+      {
+        "name": "create_polygon",
+        "definitionDigest": "sha256:95fecd4172a9542aca60856344a47daba7cc1263687257a5ddd78ec4fdb2578f"
+      },
+      {
+        "name": "create_shape",
+        "definitionDigest": "sha256:984bb9796dd7bee76e5e22c3d31ba3fde3d2a8e2c7d756b80b90b70f38eb9d02"
+      },
+      {
+        "name": "create_text",
+        "definitionDigest": "sha256:8533ad811f08a42116c1b1507c5923c7adb673bbfdecf51477140f7832df1806"
+      },
+      {
+        "name": "delete_objects",
+        "definitionDigest": "sha256:bab16525ee4c48ab9c4b1511023978205c90a32806e362595dc7f6359ec8cc23"
+      },
+      {
+        "name": "describe_diagram",
+        "definitionDigest": "sha256:e7adf273742930693a60898dc2bd60b2b36324983e802f3bf0374217d92c788a"
+      },
+      {
+        "name": "dismiss_spotlight_request",
+        "definitionDigest": "sha256:25e1986db62b8cd1c99b1e80b60c748354d5441a12c57905f46d1d2c5db96e25"
+      },
+      {
+        "name": "draw_connection",
+        "definitionDigest": "sha256:70d88ec5d4f22e18f12cf8dee63b9b4b054ace10dc7d99a243303536221c9f67"
+      },
+      {
+        "name": "edit_diagram",
+        "definitionDigest": "sha256:436d7e28ef42feccb61acfd90e5a737cce910682f75ef0369548d720c17107f6"
+      },
+      {
+        "name": "enable_agent_review",
+        "definitionDigest": "sha256:e4d2527a4fe923ffee0accc817a5a949b016478c535a9ff38d0af2e36c0c66f5"
+      },
+      {
+        "name": "export_canvas_artifact",
+        "definitionDigest": "sha256:6a2522115026a9ce6cf697fca3087d990eef47e4e516a2167467f9d6c1177ea3"
+      },
+      {
+        "name": "export_canvas_png",
+        "definitionDigest": "sha256:9ea6a159a940cda3eef27f3956356f0d6a42f7bf85c1c356eb3c3880e4ce336f"
+      },
+      {
+        "name": "find_diagrams",
+        "definitionDigest": "sha256:a088df10f178b81b9144c6b6c286fba6aff216a39be3b1edc58a06a802799ffa"
+      },
+      {
+        "name": "finish_canvas_draft",
+        "definitionDigest": "sha256:56b96f0f8cc0d9781c555dedc7874196c8400049baab6b93f6f7aa8397fb6988"
+      },
+      {
+        "name": "focus_viewport",
+        "definitionDigest": "sha256:a1a27d5a1e77e11fc19a7abf2a933738db9dd80c6e245182e1a7d939d529e3a4"
+      },
+      {
+        "name": "follow_participant",
+        "definitionDigest": "sha256:37789550bca0fd5e1eaba7903e68237879da7607a5798d6516b81ec6cceb6e84"
+      },
+      {
+        "name": "get_canvas_capabilities",
+        "definitionDigest": "sha256:c8a3bd1b69e683c156901d96cdf2f4be28bef62ec2fdd22dfaa3650d121d8d83"
+      },
+      {
+        "name": "group_objects",
+        "definitionDigest": "sha256:c2fed1d49b2dafd3a8c9421b48e73c554a8bbc9dd7ed2e427843e655e7561fe7"
+      },
+      {
+        "name": "inspect_canvas_scope",
+        "definitionDigest": "sha256:2adbc3f72bef382b562cfbaec8c9fcf5232b03841e6879fc6f0d79a6b966dd7d"
+      },
+      {
+        "name": "instantiate_diagram_template",
+        "definitionDigest": "sha256:95e25a384418c43ec9033ac6bb1341b180790b1436ddf7069fd04f30e0e5d93d"
+      },
+      {
+        "name": "join_spotlight",
+        "definitionDigest": "sha256:813380bc37e884623bb3106686534c8f8edb86038ab7123a9d78139be5d2a3c8"
+      },
+      {
+        "name": "layout_objects",
+        "definitionDigest": "sha256:b83e0362279dfb68b609562faf6aeb665cd88246313cff6ed505cdb49c2ae287"
+      },
+      {
+        "name": "leave_room",
+        "definitionDigest": "sha256:d0520ace4e1c56e939164057d1455129c6354d04676c3bcf775591eb804bda7b"
+      },
+      {
+        "name": "leave_spotlight",
+        "definitionDigest": "sha256:262ff18312a4af451a19f6858a5f5cfabd53ec7e6fe37b6835f1c0f9969ec6ca"
+      },
+      {
+        "name": "list_activity",
+        "definitionDigest": "sha256:fbdc6c84c8f9fca870cdff0867e899b1a2f4317b34c9a99f7f3a00aa4a0f207b"
+      },
+      {
+        "name": "list_agent_edit_proposals",
+        "definitionDigest": "sha256:c28b8c7f6a247a8150052bfa1a7d4435f4c87fb03b578033ac5bafb7363e8cb2"
+      },
+      {
+        "name": "list_agent_messages",
+        "definitionDigest": "sha256:17d54649a0a80e199b54de6243ffa1290f5471c77141729923cef98d6e59d506"
+      },
+      {
+        "name": "move_objects",
+        "definitionDigest": "sha256:54d6c952dcc509b3df05b5c363004a2fa07535a32266c97906f5b9e6d6130bda"
+      },
+      {
+        "name": "query_objects",
+        "definitionDigest": "sha256:7c5a9f48bdb466679b14c0ee1a94733bcf5567f686e1b0337d473431bd2a0bee"
+      },
+      {
+        "name": "read_activity",
+        "definitionDigest": "sha256:9b31745d13f569e02d43166e70c6745955e20d4065459cf971bb20e847224120"
+      },
+      {
+        "name": "read_agent_edit_proposal",
+        "definitionDigest": "sha256:c55f4c22ea00f131f343b17696cb7734c29d2fe095ec1a00a30f1857b876627c"
+      },
+      {
+        "name": "read_canvas_drafts",
+        "definitionDigest": "sha256:7ee2ac2e9c040e1b1d04db89cad7aa9bc01c362ca14e5ee23f1727bc772fa409"
+      },
+      {
+        "name": "read_collaboration_state",
+        "definitionDigest": "sha256:b13a070821df1f94b3438ab3f3a0f2fa6ca6b4a5a6665f3bc6eeaa37950f95d2"
+      },
+      {
+        "name": "read_diagram",
+        "definitionDigest": "sha256:5783a557f426db756a5169a0a38a8d64a4caa9ef6e7592b64dbe069e2a817562"
+      },
+      {
+        "name": "read_neighborhood",
+        "definitionDigest": "sha256:a653bd0cff6f5e9adf4ce917463372f52b6aca9ac798df3b8d616d4172455ba6"
+      },
+      {
+        "name": "read_room_state",
+        "definitionDigest": "sha256:36136fc0bb2997d1abd0a5bea4db4a1d3466c65b46f58c5921c9fbf6540f2cfb"
+      },
+      {
+        "name": "read_selection",
+        "definitionDigest": "sha256:ecc148623ae77ed1513834bb76d479c8ac33a22fe977a6554e9f2217f746b9b8"
+      },
+      {
+        "name": "render_canvas_preview",
+        "definitionDigest": "sha256:f48aa1c1dcd113650182a770c61c53959e1d13f646c23f519a4f60eed175fa6d"
+      },
+      {
+        "name": "reply_to_agent_message",
+        "definitionDigest": "sha256:0d0e4dd479898b94b42ad2d326e72b4b59780cc5ba1359fab394ee87e597884e"
+      },
+      {
+        "name": "request_spotlight",
+        "definitionDigest": "sha256:5e717b78191a74d830885b3a7e1d4a2e8a03902a9bc02e69ecd865bbd4576fd1"
+      },
+      {
+        "name": "revert_activity",
+        "definitionDigest": "sha256:ef6f8f2d107e0cad7cebb0769bd75150f88f6e6c26c9bdc55b8e486c64e0d813"
+      },
+      {
+        "name": "start_spotlight",
+        "definitionDigest": "sha256:1c9a4065a2f773b6b71afa0764ba52d45b17e6f09390975bb230b4580869a3da"
+      },
+      {
+        "name": "stop_following",
+        "definitionDigest": "sha256:7899ce693674dc511d2d109b88d67db969579b68d3f3fff1fe79f3ac73c3db25"
+      },
+      {
+        "name": "stop_spotlight",
+        "definitionDigest": "sha256:0b17a1fb6a85003ed0f7716252891fa353f21003842ab65114e071e3327b48f4"
+      },
+      {
+        "name": "update_object",
+        "definitionDigest": "sha256:1a05048a81e720c7fba6e8a5aceab1535a98a513212605e8b6008a0041d3d5ba"
+      }
+    ]
+  },
+  "spectator": {
+    "toolCount": 18,
+    "inventoryDigest": "sha256:b79a9c6ab4654b8128075942725a8be280c0d4a1f1943755d30f6bdd3f8acfd9",
+    "contractDigest": "sha256:1760c6b1ec8cc4d8814b3de6a8f4516b3f4c215da69069c50072f23128541be2",
+    "tools": [
+      {
+        "name": "analyze_diagram_layout",
+        "definitionDigest": "sha256:420bcf68c4816d32f6298c650753914219734d9fbabac94c174e0dffd1393bb4"
+      },
+      {
+        "name": "describe_diagram",
+        "definitionDigest": "sha256:e7adf273742930693a60898dc2bd60b2b36324983e802f3bf0374217d92c788a"
+      },
+      {
+        "name": "export_canvas_artifact",
+        "definitionDigest": "sha256:6a2522115026a9ce6cf697fca3087d990eef47e4e516a2167467f9d6c1177ea3"
+      },
+      {
+        "name": "export_canvas_png",
+        "definitionDigest": "sha256:9ea6a159a940cda3eef27f3956356f0d6a42f7bf85c1c356eb3c3880e4ce336f"
+      },
+      {
+        "name": "find_diagrams",
+        "definitionDigest": "sha256:a088df10f178b81b9144c6b6c286fba6aff216a39be3b1edc58a06a802799ffa"
+      },
+      {
+        "name": "get_canvas_capabilities",
+        "definitionDigest": "sha256:c8a3bd1b69e683c156901d96cdf2f4be28bef62ec2fdd22dfaa3650d121d8d83"
+      },
+      {
+        "name": "inspect_canvas_scope",
+        "definitionDigest": "sha256:2adbc3f72bef382b562cfbaec8c9fcf5232b03841e6879fc6f0d79a6b966dd7d"
+      },
+      {
+        "name": "list_activity",
+        "definitionDigest": "sha256:fbdc6c84c8f9fca870cdff0867e899b1a2f4317b34c9a99f7f3a00aa4a0f207b"
+      },
+      {
+        "name": "list_agent_edit_proposals",
+        "definitionDigest": "sha256:c28b8c7f6a247a8150052bfa1a7d4435f4c87fb03b578033ac5bafb7363e8cb2"
+      },
+      {
+        "name": "query_objects",
+        "definitionDigest": "sha256:7c5a9f48bdb466679b14c0ee1a94733bcf5567f686e1b0337d473431bd2a0bee"
+      },
+      {
+        "name": "read_activity",
+        "definitionDigest": "sha256:9b31745d13f569e02d43166e70c6745955e20d4065459cf971bb20e847224120"
+      },
+      {
+        "name": "read_agent_edit_proposal",
+        "definitionDigest": "sha256:c55f4c22ea00f131f343b17696cb7734c29d2fe095ec1a00a30f1857b876627c"
+      },
+      {
+        "name": "read_canvas_drafts",
+        "definitionDigest": "sha256:7ee2ac2e9c040e1b1d04db89cad7aa9bc01c362ca14e5ee23f1727bc772fa409"
+      },
+      {
+        "name": "read_collaboration_state",
+        "definitionDigest": "sha256:b13a070821df1f94b3438ab3f3a0f2fa6ca6b4a5a6665f3bc6eeaa37950f95d2"
+      },
+      {
+        "name": "read_diagram",
+        "definitionDigest": "sha256:5783a557f426db756a5169a0a38a8d64a4caa9ef6e7592b64dbe069e2a817562"
+      },
+      {
+        "name": "read_neighborhood",
+        "definitionDigest": "sha256:a653bd0cff6f5e9adf4ce917463372f52b6aca9ac798df3b8d616d4172455ba6"
+      },
+      {
+        "name": "read_room_state",
+        "definitionDigest": "sha256:36136fc0bb2997d1abd0a5bea4db4a1d3466c65b46f58c5921c9fbf6540f2cfb"
+      },
+      {
+        "name": "read_selection",
+        "definitionDigest": "sha256:ecc148623ae77ed1513834bb76d479c8ac33a22fe977a6554e9f2217f746b9b8"
+      }
+    ]
+  }
+}

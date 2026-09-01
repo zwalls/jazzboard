@@ -25,11 +25,15 @@ import {
 } from "./exp0001a-model-role-qualification-v2-authority";
 import {
   qualificationV2CoordinatorStateSchema,
+  qualificationProductionBindingSchema,
   qualificationV2ProductionBindingSchema,
   qualificationV2ResultSchema,
   sealQualificationV2Result,
   signedQualificationV2ResultEnvelopeSchema,
 } from "./exp0001a-model-role-qualification-v2-coordinator";
+import {
+  qualificationV3ProductionBindingSchema,
+} from "./exp0001a-model-role-qualification-v3-binding";
 import {
   qualificationV2TerminalEvidenceAttestationSchema,
   verifyQualificationV2TerminalEvidenceAttestation,
@@ -143,7 +147,7 @@ async function verifyTerminalStateAuthorities(
   state: z.infer<typeof qualificationV2CoordinatorStateSchema>,
 ) {
   const dataRoot = path.join(repositoryRoot, "research", "data");
-  const [planRaw, planSignatureRaw, bindingRaw, bindingSignatureRaw] = await Promise.all([
+  const [planRaw, planSignatureRaw, predecessorBindingRaw, predecessorBindingSignatureRaw] = await Promise.all([
     readJson(path.join(dataRoot, "exp0001a-model-role-qualification-plan-v2.json"), "Qualification plan"),
     readJson(path.join(dataRoot, "exp0001a-model-role-qualification-plan-signature-v2.json"), "Qualification plan signature"),
     readJson(path.join(dataRoot, "exp0001a-model-role-qualification-launch-binding-v2.json"), "Qualification production binding"),
@@ -151,8 +155,10 @@ async function verifyTerminalStateAuthorities(
   ]);
   const plan = exp0001aModelRoleQualificationV2PlanSchema.parse(planRaw);
   const planSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(planSignatureRaw);
-  const binding = qualificationV2ProductionBindingSchema.parse(bindingRaw);
-  const bindingSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(bindingSignatureRaw);
+  const predecessorBinding = qualificationV2ProductionBindingSchema.parse(predecessorBindingRaw);
+  const predecessorBindingSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(
+    predecessorBindingSignatureRaw,
+  );
   verifyExp0001aQualificationV2AuthoritySignature({
     payload: plan as unknown as JsonValue,
     signature: planSignature,
@@ -160,19 +166,51 @@ async function verifyTerminalStateAuthorities(
     notBefore: plan.frozenAt,
   });
   verifyExp0001aQualificationV2AuthoritySignature({
+    payload: predecessorBinding as unknown as JsonValue,
+    signature: predecessorBindingSignature,
+    purpose: "qualification_launch_binding",
+    notBefore: predecessorBinding.verifiedAt,
+  });
+  if (state.planDigest !== plan.planDigest
+      || canonicalJson(state.planAuthoritySignature as unknown as JsonValue)
+        !== canonicalJson(planSignature as unknown as JsonValue)) {
+    throw new Error("QUALIFICATION_V2_TERMINAL_STATE_AUTHORITY_BINDING_INVALID");
+  }
+  if (state.productionBinding.schemaVersion === "exp-0001a-qualification-production-binding/v2") {
+    if (canonicalJson(state.productionBinding as unknown as JsonValue)
+          !== canonicalJson(predecessorBinding as unknown as JsonValue)
+        || canonicalJson(state.productionBindingAuthoritySignature as unknown as JsonValue)
+          !== canonicalJson(predecessorBindingSignature as unknown as JsonValue)) {
+      throw new Error("QUALIFICATION_V2_TERMINAL_STATE_AUTHORITY_BINDING_INVALID");
+    }
+    return;
+  }
+  const [bindingRaw, bindingSignatureRaw] = await Promise.all([
+    readJson(
+      path.join(dataRoot, "exp0001a-model-role-qualification-launch-binding-v3.json"),
+      "Qualification-v3 production binding",
+    ),
+    readJson(
+      path.join(dataRoot, "exp0001a-model-role-qualification-launch-binding-signature-v3.json"),
+      "Qualification-v3 binding signature",
+    ),
+  ]);
+  const binding = qualificationV3ProductionBindingSchema.parse(bindingRaw);
+  const bindingSignature = exp0001aQualificationV2AuthoritySignatureSchema.parse(bindingSignatureRaw);
+  verifyExp0001aQualificationV2AuthoritySignature({
     payload: binding as unknown as JsonValue,
     signature: bindingSignature,
     purpose: "qualification_launch_binding",
     notBefore: binding.verifiedAt,
   });
-  if (state.planDigest !== plan.planDigest
-      || canonicalJson(state.planAuthoritySignature as unknown as JsonValue)
-        !== canonicalJson(planSignature as unknown as JsonValue)
+  if (binding.predecessorProductionBinding.bindingDigest !== predecessorBinding.bindingDigest
+      || binding.predecessorProductionBinding.authoritySignatureDigest
+        !== hashCanonicalJson(predecessorBindingSignature as unknown as JsonValue)
       || canonicalJson(state.productionBinding as unknown as JsonValue)
         !== canonicalJson(binding as unknown as JsonValue)
       || canonicalJson(state.productionBindingAuthoritySignature as unknown as JsonValue)
         !== canonicalJson(bindingSignature as unknown as JsonValue)) {
-    throw new Error("QUALIFICATION_V2_TERMINAL_STATE_AUTHORITY_BINDING_INVALID");
+    throw new Error("QUALIFICATION_V3_TERMINAL_STATE_AUTHORITY_CHAIN_INVALID");
   }
 }
 
@@ -202,11 +240,34 @@ export function parseQualificationV2SignerArgs(argv: readonly string[]) {
   return Object.freeze({ purpose, inputPath, statePath, attestationPath, outputPath });
 }
 
-async function assertQualificationPrivatePath(repositoryRoot: string, candidate: string, mustExist: boolean) {
+async function assertQualificationPrivatePath(
+  repositoryRoot: string,
+  candidate: string,
+  mustExist: boolean,
+  expectedRoot?: string,
+) {
   const resolvedRepositoryRoot = await realpath(repositoryRoot);
-  const root = path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v2");
+  const allowedRoots = [
+    path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v2"),
+    path.join(resolvedRepositoryRoot, ".research-private", "exp0001a-qualification-v3"),
+  ];
+  const absolute = expectedRoot === undefined && mustExist
+    ? await realpath(candidate)
+    : path.resolve(candidate);
+  const root = expectedRoot ?? allowedRoots.find((allowedRoot) => {
+    const relative = path.relative(allowedRoot, absolute);
+    return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+  if (root === undefined || !allowedRoots.includes(root)) {
+    throw new Error("QUALIFICATION_V2_SIGNER_PATH_NOT_PRIVATE");
+  }
   const resolvedRoot = await realpath(root);
   if (resolvedRoot !== root) throw new Error("QUALIFICATION_V2_SIGNER_PRIVATE_ROOT_INVALID");
+  const rootMetadata = await lstat(resolvedRoot);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()
+      || (rootMetadata.mode & 0o777) !== 0o700) {
+    throw new Error("QUALIFICATION_V2_SIGNER_PRIVATE_ROOT_INVALID");
+  }
   let existing = path.resolve(candidate);
   while (true) {
     try {
@@ -226,6 +287,7 @@ async function assertQualificationPrivatePath(repositoryRoot: string, candidate:
   if (relative.length === 0 || relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("QUALIFICATION_V2_SIGNER_PATH_NOT_PRIVATE");
   }
+  return resolvedRoot;
 }
 
 export async function runQualificationV2SignerCli(
@@ -243,17 +305,21 @@ export async function runQualificationV2SignerCli(
     let payload = args.purpose === "qualification_plan"
       ? exp0001aModelRoleQualificationV2PlanSchema.parse(raw)
       : args.purpose === "qualification_launch_binding"
-        ? qualificationV2ProductionBindingSchema.parse(raw)
+        ? qualificationProductionBindingSchema.parse(raw)
         : qualificationV2ResultSchema.parse(raw);
     if (args.purpose === "qualification_result") {
       if (args.statePath === null || args.attestationPath === null) {
         throw new Error("QUALIFICATION_V2_RESULT_SIGNER_EVIDENCE_PATHS_REQUIRED");
       }
+      const qualificationPrivateRoot = await assertQualificationPrivatePath(
+        repositoryRoot,
+        args.statePath,
+        true,
+      );
       await Promise.all([
-        assertQualificationPrivatePath(repositoryRoot, args.inputPath, true),
-        assertQualificationPrivatePath(repositoryRoot, args.statePath, true),
-        assertQualificationPrivatePath(repositoryRoot, args.attestationPath, true),
-        assertQualificationPrivatePath(repositoryRoot, args.outputPath, false),
+        assertQualificationPrivatePath(repositoryRoot, args.inputPath, true, qualificationPrivateRoot),
+        assertQualificationPrivatePath(repositoryRoot, args.attestationPath, true, qualificationPrivateRoot),
+        assertQualificationPrivatePath(repositoryRoot, args.outputPath, false, qualificationPrivateRoot),
       ]);
       const [stateRaw, attestationRaw] = await Promise.all([
         readJson(args.statePath, "Qualification terminal coordinator state", 0o600),
@@ -282,7 +348,7 @@ export async function runQualificationV2SignerCli(
     const notBefore = args.purpose === "qualification_plan"
       ? exp0001aModelRoleQualificationV2PlanSchema.parse(payload).frozenAt
       : args.purpose === "qualification_launch_binding"
-        ? qualificationV2ProductionBindingSchema.parse(payload).verifiedAt
+        ? qualificationProductionBindingSchema.parse(payload).verifiedAt
         : qualificationV2ResultSchema.parse(payload).completedAt;
     const signedAt = new Date().toISOString();
     const authority = await loadFixedAuthority(repositoryRoot);

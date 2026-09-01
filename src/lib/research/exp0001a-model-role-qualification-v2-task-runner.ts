@@ -43,9 +43,92 @@ const QUALIFICATION_V2_BROWSER_SKILL_COMPLETE_LINE_COUNT = 150 as const;
 const QUALIFICATION_V2_BROWSER_SKILL_MAXIMUM_READ_LINE = 1_000 as const;
 /** Qualification titles are kept below this observed live-host display bound. */
 const QUALIFICATION_V2_LIVE_TITLE_LENGTH = 60 as const;
+const QUALIFICATION_PRIVATE_ROOT_NAMES = [
+  "exp0001a-qualification-v2",
+  "exp0001a-qualification-v3",
+] as const;
 const jsonValue = z.custom<JsonValue>((value) => {
   try { canonicalJson(value); return true; } catch { return false; }
 });
+
+type QualificationPrivateRootName = typeof QUALIFICATION_PRIVATE_ROOT_NAMES[number];
+
+function pathIsStrictlyWithin(root: string, candidate: string) {
+  const relative = path.relative(root, candidate);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+/**
+ * Resolve one task-runner path against the only two versioned private roots.
+ * The candidate may have a missing leaf (for a bridge/output that is about to
+ * be created), but every existing component must be a non-symlink whose
+ * realpath is identical to its lexical path. This keeps v2 and v3 evidence in
+ * separate, checkout-local trust domains.
+ */
+export async function resolveQualificationTaskRunnerPrivatePath(input: Readonly<{
+  repositoryRoot: string;
+  candidatePath: string;
+  expectedPrivateRoot?: string;
+}>) {
+  const lexicalRepositoryRoot = path.resolve(input.repositoryRoot);
+  const resolvedRepositoryRoot = await realpath(input.repositoryRoot);
+  const allowedRoots = QUALIFICATION_PRIVATE_ROOT_NAMES.map((name) => (
+    path.join(resolvedRepositoryRoot, ".research-private", name)
+  ));
+  const lexicalCandidate = path.resolve(input.candidatePath);
+  const repositoryRelativeCandidate = path.relative(lexicalRepositoryRoot, lexicalCandidate);
+  const absoluteCandidate = repositoryRelativeCandidate.length > 0
+      && !repositoryRelativeCandidate.startsWith("..")
+      && !path.isAbsolute(repositoryRelativeCandidate)
+    ? path.join(resolvedRepositoryRoot, repositoryRelativeCandidate)
+    : lexicalCandidate;
+  const selectedRoot = input.expectedPrivateRoot === undefined
+    ? allowedRoots.find((root) => pathIsStrictlyWithin(root, absoluteCandidate))
+    : input.expectedPrivateRoot;
+  if (selectedRoot === undefined
+      || !allowedRoots.includes(selectedRoot as typeof allowedRoots[number])
+      || !pathIsStrictlyWithin(selectedRoot, absoluteCandidate)) {
+    throw new Error("QUALIFICATION_V2_TASK_RUNNER_PATH_NOT_PRIVATE");
+  }
+
+  const rootMetadata = await lstat(selectedRoot).catch(() => null);
+  if (rootMetadata === null || !rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()
+      || (rootMetadata.mode & 0o777) !== 0o700
+      || await realpath(selectedRoot) !== selectedRoot) {
+    throw new Error("QUALIFICATION_V2_TASK_RUNNER_PRIVATE_ROOT_INVALID");
+  }
+
+  const relative = path.relative(selectedRoot, absoluteCandidate);
+  const components = relative.split(path.sep);
+  let cursor = selectedRoot;
+  for (let index = 0; index < components.length; index += 1) {
+    cursor = path.join(cursor, components[index]!);
+    let metadata;
+    try {
+      metadata = await lstat(cursor);
+    } catch (error) {
+      if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") break;
+      throw error;
+    }
+    if (metadata.isSymbolicLink()
+        || (index < components.length - 1 && !metadata.isDirectory())
+        || await realpath(cursor) !== cursor) {
+      throw new Error("QUALIFICATION_V2_TASK_RUNNER_PATH_SYMLINK_FORBIDDEN");
+    }
+  }
+
+  return Object.freeze({
+    privateRoot: selectedRoot,
+    privateRootName: path.basename(selectedRoot) as QualificationPrivateRootName,
+    candidatePath: absoluteCandidate,
+  });
+}
+
+function expectedPrivateRootNameForState(state: QualificationV2CoordinatorState): QualificationPrivateRootName {
+  return state.productionBinding.schemaVersion === "exp-0001a-qualification-production-binding/v3"
+    ? "exp0001a-qualification-v3"
+    : "exp0001a-qualification-v2";
+}
 
 export const qualificationV2ReleaseJournalSchema = z.object({
   schemaVersion: z.literal("exp-0001a-qualification-release-journal/v2"),
@@ -626,18 +709,21 @@ async function runWithAdapter(input: Readonly<{
   statePath: string;
 }>, dependencies: RunnerDependencies, mode: RunnerMode) {
   const now = dependencies.now ?? (() => new Date().toISOString());
-  const privateRoot = path.join(input.repositoryRoot, ".research-private", "exp0001a-qualification-v2");
-  const [resolvedPrivateRoot, resolvedState] = await Promise.all([realpath(privateRoot), realpath(input.statePath)]);
-  const relative = path.relative(resolvedPrivateRoot, resolvedState);
-  if (relative.startsWith("..") || path.isAbsolute(relative) || relative.length === 0) {
-    throw new Error("QUALIFICATION_V2_RUNNER_STATE_NOT_PRIVATE");
+  const resolvedPath = await resolveQualificationTaskRunnerPrivatePath({
+    repositoryRoot: input.repositoryRoot,
+    candidatePath: input.statePath,
+  });
+  const resolvedPrivateRoot = resolvedPath.privateRoot;
+  const resolvedState = resolvedPath.candidatePath;
+  const initialBytes = await readPrivate(resolvedState, "Qualification-v2 pre-lock state");
+  const state = qualificationV2CoordinatorStateSchema.parse(JSON.parse(initialBytes.toString("utf8")));
+  if (resolvedPath.privateRootName !== expectedPrivateRootNameForState(state)) {
+    throw new Error("QUALIFICATION_V2_RUNNER_STATE_ROOT_MISMATCH");
   }
   const lockPath = `${resolvedState}.dispatch.lock`;
   const authReceipt = assertCodexNativeExperimentAuthorized(
     await (dependencies.runAuthPreflight ?? runCodexAuthPreflight)(),
   );
-  const initialBytes = await readPrivate(resolvedState, "Qualification-v2 pre-lock state");
-  const state = qualificationV2CoordinatorStateSchema.parse(JSON.parse(initialBytes.toString("utf8")));
   const action = state.pendingAction;
   if (mode === "dispatch") {
     await retireTerminalPriorDispatchLock({
