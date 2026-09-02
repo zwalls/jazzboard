@@ -260,6 +260,69 @@ export type CanvasInspectionEvidence = {
       representativeObjectIds: string[];
     }>;
   };
+  composition: {
+    basis: "axis_aligned_renderer_bounds";
+    interpretation: "descriptive_relative_geometry_not_quality_judgment";
+    framing: {
+      scopeKind: CanvasPreviewSource["kind"];
+      fullRoomContext: boolean;
+      scopeBounds: { x: number; y: number; width: number; height: number };
+      framedBounds: { x: number; y: number; width: number; height: number };
+      padding: number;
+      aspectRatio: number;
+    };
+    scale: {
+      measurement: "positive_area_non_connector_bounds";
+      measuredObjectCount: number;
+      medianBoundsArea: number | null;
+      totalBoundsArea: number;
+      scopeBoundsArea: number;
+      summedBoundsAreaToScopeAreaRatio: number;
+      largestObjects: Array<{
+        objectId: string;
+        kind: CanvasObject["kind"];
+        boundsArea: number;
+        areaToMedianRatio: number | null;
+        widthToScopeRatio: number;
+        heightToScopeRatio: number;
+      }>;
+      largestObjectCoverage: {
+        returnedCount: number;
+        omittedCount: number;
+        limit: number;
+        truncated: boolean;
+      };
+      caveat: "summed_bounds_area_can_exceed_scope_area_when_objects_overlap";
+      heterogeneityCaveat: "median_area_is_selection_sensitive_for_mixed_decorative_and_structural_parts";
+    };
+    distribution: {
+      objectCenterAverageNormalized: { x: number; y: number } | null;
+      areaWeightedCenterNormalized: { x: number; y: number } | null;
+      quadrantObjectCounts: {
+        topLeft: number;
+        topRight: number;
+        bottomLeft: number;
+        bottomRight: number;
+      };
+      nearestNeighbor: {
+        normalization: "scope_diagonal";
+        medianNormalizedDistance: number | null;
+        farthestObjects: Array<{
+          objectId: string;
+          nearestObjectId: string;
+          normalizedDistance: number;
+        }>;
+        farthestObjectCoverage: {
+          returnedCount: number;
+          omittedCount: number;
+          limit: number;
+          truncated: boolean;
+        };
+        caveat: "center_distance_is_not_edge_clearance_or_integration_quality";
+      };
+      caveat: "centers_and_quadrants_do_not_measure_visual_weight_or_user_intent";
+    };
+  };
   workingSet: CanvasCompactObjectRecord[];
   focused: CanvasFocusedObjectRecord[];
   routes: Array<{
@@ -586,6 +649,7 @@ const MAX_INSPECTION_RELATIONS = 128;
 const MAX_UNSUPPORTED_DISCLOSURES = 128;
 const MAX_INSPECTION_TEXT_LENGTH = 256;
 const MAX_INSPECTION_POINT_SAMPLE = 16;
+const MAX_COMPOSITION_SAMPLES = 8;
 
 function intersects(
   left: { x: number; y: number; width: number; height: number },
@@ -865,6 +929,166 @@ function spatialClusters(
     }));
 }
 
+function roundedEvidence(value: number, fractionDigits = 4): number {
+  const factor = 10 ** fractionDigits;
+  return Math.round(value * factor) / factor;
+}
+
+function median(values: readonly number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function compositionEvidence(
+  objects: readonly CanvasObject[],
+  scopeKind: CanvasPreviewSource["kind"],
+  scopeBounds: { x: number; y: number; width: number; height: number },
+  framedBounds: { x: number; y: number; width: number; height: number },
+  padding: number,
+  boundsByObjectId: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
+): CanvasInspectionEvidence["composition"] {
+  const records = objects
+    .filter((object) => object.kind !== "connector")
+    .flatMap((object) => {
+      const bounds = boundsByObjectId.get(object.id);
+      const area = bounds ? bounds.width * bounds.height : 0;
+      return bounds && area > 0 ? [{ object, bounds, area }] : [];
+    });
+  const medianArea = median(records.map((record) => record.area));
+  const scopeWidth = Math.max(scopeBounds.width, Number.EPSILON);
+  const scopeHeight = Math.max(scopeBounds.height, Number.EPSILON);
+  const scopeDiagonal = Math.max(Math.hypot(scopeBounds.width, scopeBounds.height), Number.EPSILON);
+  const normalizedCenter = (bounds: { x: number; y: number; width: number; height: number }) => ({
+    x: (bounds.x + bounds.width / 2 - scopeBounds.x) / scopeWidth,
+    y: (bounds.y + bounds.height / 2 - scopeBounds.y) / scopeHeight,
+  });
+  const centers = records.map((record) => ({ ...record, center: normalizedCenter(record.bounds) }));
+  const centerAverage = centers.length
+    ? {
+        x: roundedEvidence(centers.reduce((sum, record) => sum + record.center.x, 0) / centers.length),
+        y: roundedEvidence(centers.reduce((sum, record) => sum + record.center.y, 0) / centers.length),
+      }
+    : null;
+  const totalArea = records.reduce((sum, record) => sum + record.area, 0);
+  const scopeArea = scopeBounds.width * scopeBounds.height;
+  const areaWeightedCenter = totalArea > 0
+    ? {
+        x: roundedEvidence(centers.reduce((sum, record) => sum + record.center.x * record.area, 0) / totalArea),
+        y: roundedEvidence(centers.reduce((sum, record) => sum + record.center.y * record.area, 0) / totalArea),
+      }
+    : null;
+  const quadrantObjectCounts = {
+    topLeft: 0,
+    topRight: 0,
+    bottomLeft: 0,
+    bottomRight: 0,
+  };
+  for (const record of centers) {
+    const vertical = record.center.y < 0.5 ? "top" : "bottom";
+    const horizontal = record.center.x < 0.5 ? "Left" : "Right";
+    quadrantObjectCounts[`${vertical}${horizontal}` as keyof typeof quadrantObjectCounts] += 1;
+  }
+  const nearestNeighborRecords = centers.flatMap((record) => {
+    const leftCenterX = record.bounds.x + record.bounds.width / 2;
+    const leftCenterY = record.bounds.y + record.bounds.height / 2;
+    let nearest: { objectId: string; distance: number } | null = null;
+    for (const candidate of centers) {
+      if (candidate.object.id === record.object.id) continue;
+      const rightCenterX = candidate.bounds.x + candidate.bounds.width / 2;
+      const rightCenterY = candidate.bounds.y + candidate.bounds.height / 2;
+      const distance = Math.hypot(rightCenterX - leftCenterX, rightCenterY - leftCenterY);
+      if (
+        !nearest
+        || distance < nearest.distance
+        || (distance === nearest.distance && candidate.object.id.localeCompare(nearest.objectId) < 0)
+      ) nearest = { objectId: candidate.object.id, distance };
+    }
+    return nearest ? [{
+      objectId: record.object.id,
+      nearestObjectId: nearest.objectId,
+      normalizedDistance: nearest.distance / scopeDiagonal,
+    }] : [];
+  });
+  const medianNearestDistance = median(
+    nearestNeighborRecords.map((record) => record.normalizedDistance),
+  );
+  const largestObjects = [...records]
+    .sort((left, right) => right.area - left.area || left.object.id.localeCompare(right.object.id))
+    .slice(0, MAX_COMPOSITION_SAMPLES)
+    .map((record) => ({
+      objectId: record.object.id,
+      kind: record.object.kind,
+      boundsArea: roundedEvidence(record.area, 2),
+      areaToMedianRatio: medianArea && medianArea > 0
+        ? roundedEvidence(record.area / medianArea)
+        : null,
+      widthToScopeRatio: roundedEvidence(record.bounds.width / scopeWidth),
+      heightToScopeRatio: roundedEvidence(record.bounds.height / scopeHeight),
+    }));
+  const farthestObjects = [...nearestNeighborRecords]
+    .sort((left, right) => right.normalizedDistance - left.normalizedDistance
+      || left.objectId.localeCompare(right.objectId))
+    .slice(0, MAX_COMPOSITION_SAMPLES)
+    .map((record) => ({ ...record, normalizedDistance: roundedEvidence(record.normalizedDistance) }));
+
+  return {
+    basis: "axis_aligned_renderer_bounds",
+    interpretation: "descriptive_relative_geometry_not_quality_judgment",
+    framing: {
+      scopeKind,
+      fullRoomContext: scopeKind === "room",
+      scopeBounds,
+      framedBounds,
+      padding,
+      aspectRatio: roundedEvidence(scopeBounds.width / scopeHeight),
+    },
+    scale: {
+      measurement: "positive_area_non_connector_bounds",
+      measuredObjectCount: records.length,
+      medianBoundsArea: medianArea === null ? null : roundedEvidence(medianArea, 2),
+      totalBoundsArea: roundedEvidence(totalArea, 2),
+      scopeBoundsArea: roundedEvidence(scopeArea, 2),
+      summedBoundsAreaToScopeAreaRatio: scopeArea > 0
+        ? roundedEvidence(totalArea / scopeArea)
+        : 0,
+      largestObjects,
+      largestObjectCoverage: {
+        returnedCount: largestObjects.length,
+        omittedCount: Math.max(0, records.length - largestObjects.length),
+        limit: MAX_COMPOSITION_SAMPLES,
+        truncated: largestObjects.length < records.length,
+      },
+      caveat: "summed_bounds_area_can_exceed_scope_area_when_objects_overlap",
+      heterogeneityCaveat:
+        "median_area_is_selection_sensitive_for_mixed_decorative_and_structural_parts",
+    },
+    distribution: {
+      objectCenterAverageNormalized: centerAverage,
+      areaWeightedCenterNormalized: areaWeightedCenter,
+      quadrantObjectCounts,
+      nearestNeighbor: {
+        normalization: "scope_diagonal",
+        medianNormalizedDistance: medianNearestDistance === null
+          ? null
+          : roundedEvidence(medianNearestDistance),
+        farthestObjects,
+        farthestObjectCoverage: {
+          returnedCount: farthestObjects.length,
+          omittedCount: Math.max(0, nearestNeighborRecords.length - farthestObjects.length),
+          limit: MAX_COMPOSITION_SAMPLES,
+          truncated: farthestObjects.length < nearestNeighborRecords.length,
+        },
+        caveat: "center_distance_is_not_edge_clearance_or_integration_quality",
+      },
+      caveat: "centers_and_quadrants_do_not_measure_visual_weight_or_user_intent",
+    },
+  };
+}
+
 function focusWorkingSetObjects(
   candidates: readonly CanvasObject[],
   focusObjectIds: readonly string[],
@@ -984,6 +1208,7 @@ function buildInspectionEvidence(
   room: RoomState,
   request: CanvasPreviewRenderRequest,
   scopeBounds: { x: number; y: number; width: number; height: number },
+  renderedBounds: { x: number; y: number; width: number; height: number },
   contributors: readonly CanvasObject[],
   boundsByObjectId: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
   visualQuality: DiagramVisualQualityReport | null,
@@ -1322,6 +1547,14 @@ function buildInspectionEvidence(
       kinds: kindCounts(request.objects),
       spatialClusters: spatialClusters(request.objects, scopeBounds, boundsByObjectId),
     },
+    composition: compositionEvidence(
+      request.objects,
+      request.source.kind,
+      scopeBounds,
+      renderedBounds,
+      request.options.padding,
+      boundsByObjectId,
+    ),
     workingSet,
     focused,
     routes,
@@ -1428,6 +1661,7 @@ function inspectionMetadata(
       room,
       request,
       scopeBounds,
+      renderedBounds,
       contributors,
       boundsByObjectId,
       visualQuality,

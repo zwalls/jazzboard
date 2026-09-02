@@ -58,7 +58,10 @@ import type {
   WebMcpRequest,
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
-import { CANVAS_PREVIEW_LIMITS } from "./preview-contract";
+import {
+  recommendedCanvasInspection,
+  recommendedRoomCompositionInspection,
+} from "./inspection-recommendation";
 
 const id = z.string().min(1).max(128);
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
@@ -1199,7 +1202,6 @@ const COMPACT_DIAGRAM_SUMMARY_LIMIT = 32;
 const COMPACT_DIAGRAM_OMITTED_ID_LIMIT = 64;
 const COMPACT_OBJECT_DIAGRAM_ID_LIMIT = 16;
 const COMPACT_OBJECT_DIAGRAM_OMITTED_ID_LIMIT = 16;
-const INSPECTION_PADDING = 24;
 
 function boundsForObject(object: CanvasObject) {
   return { x: object.x, y: object.y, width: object.width, height: object.height };
@@ -1385,45 +1387,6 @@ function compactValidation(
   };
 }
 
-function recommendedInspection(
-  room: RoomState,
-  changedObjectIds: readonly string[],
-  changedDiagramIds: readonly string[],
-) {
-  const diagram = changedDiagramIds
-    .map((diagramId) => room.diagrams?.[diagramId])
-    .find((candidate) => candidate && candidate.memberObjectIds.length + candidate.connectorIds.length > 0);
-  if (diagram) {
-    const targetCount = uniqueStrings([...diagram.memberObjectIds, ...diagram.connectorIds]).length;
-    return {
-      tool: "inspect_canvas_scope" as const,
-      input: {
-        scope: { kind: "diagram" as const, diagramId: diagram.id, expectedRevision: diagram.revision },
-        padding: INSPECTION_PADDING,
-        representation: targetCount > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
-          ? "overview" as const
-          : "working_set" as const,
-      },
-    };
-  }
-  const targets = uniqueStrings(changedObjectIds)
-    .flatMap((objectId) => room.objects[objectId] ?? [])
-    .slice(0, CANVAS_PREVIEW_LIMITS.maxTargets)
-    .map((object) => ({ objectId: object.id, expectedRevision: object.revision }));
-  return targets.length
-    ? {
-        tool: "inspect_canvas_scope" as const,
-        input: {
-          scope: { kind: "objects" as const, targets },
-          padding: INSPECTION_PADDING,
-          representation: targets.length > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
-            ? "overview" as const
-            : "working_set" as const,
-        },
-      }
-    : null;
-}
-
 function conciseMutationReceipt(
   response: SemanticResponse,
   temporaryReferences: Record<string, string> | undefined,
@@ -1445,7 +1408,10 @@ function conciseMutationReceipt(
     validation: compactValidation(quality, response.changedDiagramIds.length),
     visualInspectionStatus: "not_performed" as const,
     recommendedInspection: response.outcome === "applied"
-      ? recommendedInspection(response.room, response.changedObjectIds, response.changedDiagramIds)
+      ? recommendedCanvasInspection(response.room, response.changedObjectIds, response.changedDiagramIds)
+      : null,
+    recommendedCompositionInspection: response.outcome === "applied"
+      ? recommendedRoomCompositionInspection(response.room, response.changedObjectIds)
       : null,
     activity: response.activity,
     proposal: response.proposal,

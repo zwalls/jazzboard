@@ -291,6 +291,80 @@ describe("canvas draft WebMCP tools", () => {
     expect(getPresentation).toHaveBeenCalledOnce();
   });
 
+  it("returns exact artifact and whole-room inspections after an applied progressive commit", async () => {
+    const state = fixture();
+    state.binding.context.getAgentDraftPresentation = () => ({
+      source: "client-local",
+      draftId: "draft_architecture",
+      requestedRevision: 2,
+      observedRevision: 2,
+      state: "complete",
+      complete: true,
+      objectCount: 1,
+      completedObjectCount: 1,
+    });
+    const createdObject = { id: "node_stable", revision: 1, zIndex: 2 };
+    const surroundingObject = { id: "existing_note", revision: 3, zIndex: 1 };
+    const authoritativeRoom = {
+      id: "room/a b",
+      roomRevision: 8,
+      objects: {
+        node_stable: createdObject,
+        existing_note: surroundingObject,
+      },
+      diagrams: {
+        diagram_architecture: {
+          id: "diagram_architecture",
+          revision: 1,
+          memberObjectIds: ["node_stable"],
+          connectorIds: [],
+        },
+      },
+    } as unknown as RoomState;
+    const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+      ? { ok: true, draft: draft({ expiresAt: 300_000 }), serverTime: 100 }
+      : {
+          ok: true,
+          outcome: "applied",
+          room: authoritativeRoom,
+          changedObjectIds: ["node_stable"],
+          changedDiagramIds: ["diagram_architecture"],
+          membershipObjectIds: ["node_stable"],
+        }) as unknown as WebMcpRequest;
+
+    const result = await execute(
+      tool(createJazzboardDraftWebMcpTools(state.binding, { request }), "finish_canvas_draft"),
+      { draftId: "draft_architecture", expectedDraftRevision: 2, action: "commit" },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: {
+              kind: "diagram",
+              diagramId: "diagram_architecture",
+              expectedRevision: 1,
+            },
+          },
+        },
+        recommendedCompositionInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "room", expectedRevision: 8 },
+            representation: "overview",
+          },
+        },
+        nextStep: expect.stringMatching(
+          /recommendedInspection.*recommendedCompositionInspection.*direct revision-checked.*only then report completion/i,
+        ),
+      },
+    });
+  });
+
   it("keeps the draft alive and waits inside one finish call for exact presentation completion", async () => {
     const state = fixture();
     const completedPresentation = {

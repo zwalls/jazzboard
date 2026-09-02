@@ -230,6 +230,44 @@ function inspectionArtifact(): CanvasInspectionArtifact {
       kinds: { text: 0, shape: 1, connector: 0, image: 0, draw: 0, path: 0 },
       spatialClusters: [],
     },
+    composition: {
+      basis: "axis_aligned_renderer_bounds",
+      interpretation: "descriptive_relative_geometry_not_quality_judgment",
+      framing: {
+        scopeKind: "objects",
+        fullRoomContext: false,
+        scopeBounds: preview.renderedBounds,
+        framedBounds: preview.renderedBounds,
+        padding: preview.padding,
+        aspectRatio: 1.7778,
+      },
+      scale: {
+        measurement: "positive_area_non_connector_bounds",
+        measuredObjectCount: 1,
+        medianBoundsArea: 57_600,
+        totalBoundsArea: 57_600,
+        scopeBoundsArea: 57_600,
+        summedBoundsAreaToScopeAreaRatio: 1,
+        largestObjects: [],
+        largestObjectCoverage: { returnedCount: 0, omittedCount: 0, limit: 8, truncated: false },
+        caveat: "summed_bounds_area_can_exceed_scope_area_when_objects_overlap",
+        heterogeneityCaveat:
+          "median_area_is_selection_sensitive_for_mixed_decorative_and_structural_parts",
+      },
+      distribution: {
+        objectCenterAverageNormalized: { x: 0.5, y: 0.5 },
+        areaWeightedCenterNormalized: { x: 0.5, y: 0.5 },
+        quadrantObjectCounts: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 1 },
+        nearestNeighbor: {
+          normalization: "scope_diagonal",
+          medianNormalizedDistance: null,
+          farthestObjects: [],
+          farthestObjectCoverage: { returnedCount: 0, omittedCount: 0, limit: 8, truncated: false },
+          caveat: "center_distance_is_not_edge_clearance_or_integration_quality",
+        },
+        caveat: "centers_and_quadrants_do_not_measure_visual_weight_or_user_intent",
+      },
+    },
     workingSet: [],
     focused: [],
     routes: [],
@@ -551,7 +589,30 @@ describe("render_canvas_preview WebMCP tool", () => {
     ).toEqual(["inspect_canvas_scope"]);
   });
 
-  it("advertises and validates only scope and padding for live inspection", async () => {
+  it("allows a spectator to read exact whole-room composition without gaining legacy rendering", async () => {
+    const state = fixture({ role: "spectator", withRenderer: false });
+    const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
+      request: requestMock(room()),
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+
+    const result = await execute(inspect, {
+      scope: { kind: "room", expectedRevision: 12 },
+      representation: "overview",
+    });
+
+    expect(result).toMatchObject({ ok: true, tool: "inspect_canvas_scope" });
+    expect(state.inspectCanvasScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: { kind: "room", expectedRevision: 12 },
+        inspection: expect.objectContaining({ representation: "overview" }),
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(state.renderCanvasPreview).not.toHaveBeenCalled();
+  });
+
+  it("advertises exact whole-room inspection without adding room scope to legacy rendering", async () => {
     const state = fixture({ withRenderer: false });
     const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
       request: requestMock(room()),
@@ -570,12 +631,16 @@ describe("render_canvas_preview WebMCP tool", () => {
     const registeredScope = inputSchema.properties.scope as {
       oneOf: Array<{ properties: Record<string, unknown>; additionalProperties: boolean }>;
     };
-    expect(registeredScope.oneOf).toHaveLength(2);
+    expect(registeredScope.oneOf).toHaveLength(3);
     expect(registeredScope.oneOf[0]).toMatchObject({
-      properties: { kind: { const: "objects" }, targets: { type: "array", minItems: 1, maxItems: 1_000 } },
+      properties: { kind: { const: "room" }, expectedRevision: { minimum: 1 } },
       additionalProperties: false,
     });
     expect(registeredScope.oneOf[1]).toMatchObject({
+      properties: { kind: { const: "objects" }, targets: { type: "array", minItems: 1, maxItems: 1_000 } },
+      additionalProperties: false,
+    });
+    expect(registeredScope.oneOf[2]).toMatchObject({
       properties: { kind: { const: "diagram" }, diagramId: { type: "string" }, expectedRevision: { minimum: 1 } },
       additionalProperties: false,
     });
@@ -588,6 +653,38 @@ describe("render_canvas_preview WebMCP tool", () => {
     }).find((tool) => tool.name === "render_canvas_preview")!;
     expect(Object.keys((render.inputSchema as { properties: Record<string, unknown> }).properties))
       .toEqual(["scope", "padding", "maxWidth", "maxHeight", "pixelRatio", "maxBytes"]);
+    const renderScope = (render.inputSchema as { properties: { scope: { oneOf: unknown[] } } })
+      .properties.scope;
+    expect(renderScope.oneOf).toHaveLength(2);
+
+    const roomInspection = await execute(inspect, {
+      scope: { kind: "room", expectedRevision: 12 },
+      representation: "overview",
+    });
+    expect(roomInspection).toMatchObject({ ok: true, tool: "inspect_canvas_scope" });
+    expect(state.inspectCanvasScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: { kind: "room", expectedRevision: 12 },
+        objects: expect.arrayContaining([
+          expect.objectContaining({ id: "object-a" }),
+          expect.objectContaining({ id: "connector-a" }),
+        ]),
+        inspection: expect.objectContaining({ representation: "overview" }),
+      }),
+      expect.any(AbortSignal),
+    );
+    state.inspectCanvasScope.mockClear();
+
+    const staleRoomInspection = await execute(inspect, {
+      scope: { kind: "room", expectedRevision: 11 },
+      representation: "overview",
+    });
+    expect(staleRoomInspection).toMatchObject({
+      ok: false,
+      error: { code: "ROOM_REVISION_CONFLICT" },
+    });
+    expect(state.inspectCanvasScope).not.toHaveBeenCalled();
+
     const result = await execute(inspect, {
       scope: { kind: "objects", targets: [{ objectId: "object-a", expectedRevision: 3 }] },
       maxWidth: 1024,

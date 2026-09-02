@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.9.0");
+    expect(AGENT_DOC_VERSION).toBe("1.10.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -389,6 +389,9 @@ describe("agent-readable content", () => {
       expect(body, `${name} omits recommended inspection`).toContain(
         "`recommendedInspection`",
       );
+      expect(body, `${name} omits whole-room composition inspection`).toContain(
+        "`recommendedCompositionInspection`",
+      );
       expect(body, `${name} omits bounded loop termination`).toContain(
         "bounded stagnation",
       );
@@ -411,11 +414,17 @@ describe("agent-readable content", () => {
         "`findingKeys`",
         "`previousFindingKeys`",
         "`boundsOverlaps`",
+        "`composition`",
       ]) {
         expect(body).toContain(phrase);
       }
       expect(body).toMatch(/(?:request|opt into) `full` only/i);
       expect(body).toMatch(/overlap[^\n]*(?:not proof|never proof)/i);
+      expect(body).toMatch(/exact room/i);
+      expect(body).toMatch(/center distance is not edge clearance/i);
+      expect(body).toMatch(
+        /never a defect verdict|not proof of a defect|never automatic defects|never proof[^\n]*defect/i,
+      );
     }
 
     for (const phrase of [

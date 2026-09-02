@@ -117,6 +117,11 @@ const CORE_CAPABILITIES = {
     visualInspectionRequiresPixelCapture: true,
     framingOrGeometryAloneIsVisualInspection: false,
     recommendedPixelCapture: "full-viewport-then-crop-screenshotClip",
+    exactScopes: ["room", "diagram", "objects"],
+    roomScopePurpose:
+      "Use an exact room revision after adding to an existing board to judge relative scale, whitespace, spatial distribution, and integration with surrounding content.",
+    compositionEvidenceAuthority:
+      "Relative geometry is descriptive evidence only; it never makes cropping, overlap, isolation, scale, or asymmetry a defect.",
   },
 } as const;
 
@@ -274,7 +279,7 @@ const ARCHITECTURE_BUNDLE = {
     "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
     "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
-    "Read the live draft only when semantic inspection helps, then autonomously finish the latest exact revision once without asking for confirmation. Progressive delivery is animation, not review. Jazzboard waits for visible construction internally; after finish returns applied, inspect exact authoritative semantics and pixels and patch only identified defects. If finish returns proposed, report the true room review boundary without claiming publication.",
+    "Read the live draft only when semantic inspection helps, then autonomously finish the latest exact revision once without asking for confirmation. Progressive delivery is animation, not review. Jazzboard waits for visible construction internally; after finish returns applied, run its recommended exact artifact inspection and, when present, its exact whole-room composition inspection. Judge the screenshot crop plus descriptive scale, whitespace, distribution, and surrounding-content facts against user intent, then patch only identified defects. If finish returns proposed, report the true room review boundary without claiming publication.",
   ],
   toolChoices: {
     coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
@@ -364,7 +369,7 @@ const ILLUSTRATION_BUNDLE = {
     "Build each user-visible new layer as a progressive create-only draft with native paths and shapes; use a direct transaction only for revision-checked corrections or an explicitly instant result.",
     "Submit coherent layers and rapid cumulative refinements without animation-driven pauses; the client queues visible construction independently of the agent's reasoning pace.",
     "Use exact coordinates, groupId, opacity, and zIndex; omit architecture layout unless the user explicitly requests it.",
-    "Autonomously finish the latest exact draft revision without asking for confirmation; progressive delivery is animation, not review. Then inspect actual committed pixels for likeness, silhouette, expression, balance, color, and unintended occlusion, and patch locally.",
+    "Autonomously finish the latest exact draft revision without asking for confirmation; progressive delivery is animation, not review. Then run its recommended exact artifact inspection and, when present, exact whole-room composition inspection. Inspect actual committed pixels plus descriptive relative scale, whitespace, distribution, and surrounding-content facts for likeness, silhouette, expression, balance, color, and unintended occlusion, then patch locally.",
   ],
   compositionConvention: {
     container: "custom-Diagram",
@@ -454,6 +459,7 @@ const INSPECTION_BUNDLE = {
     "Frame the exact revision with inspect_canvas_scope when registered.",
     "While validation is active, capture the full clean viewport and crop to screenshotClip.",
     "Inspect the cropped pixels against the visual contract and identify defects by stable object ID.",
+    "When work was added to an existing board, inspect the exact room revision at overview once and compare relative scale, whitespace, spatial distribution, and surrounding-content integration against the requested intent.",
     "Patch only the affected region, re-render, and stop after success or bounded stagnation.",
   ],
   coverage: {
@@ -461,6 +467,18 @@ const INSPECTION_BUNDLE = {
     vectorPathGeometry: "partial",
     actualPixelsRequiredFor:
       "likeness-hierarchy-readability-color-context-occlusion-and-aesthetic-judgment",
+  },
+  compositionEvidence: {
+    fields: ["framing", "scale", "distribution"],
+    scope: "exact-requested-scope-only",
+    wholeRoomRequires: "scope.kind=room-with-exact-room-revision",
+    authority:
+      "descriptive-axis-aligned-bounds-context-only-never-an-automatic-quality-verdict-or-layout-trigger",
+    caveats: [
+      "median-area-ratios-are-selection-sensitive-in-heterogeneous-scenes",
+      "nearest-neighbor-center-distance-is-not-edge-clearance",
+      "centers-and-quadrants-do-not-measure-visual-weight-or-intent",
+    ],
   },
   canonicalExamples: {
     diagramScope: {
@@ -486,6 +504,16 @@ const INSPECTION_BUNDLE = {
         },
         padding: 24,
       },
+    },
+    roomCompositionScope: {
+      tool: "inspect_canvas_scope",
+      input: {
+        scope: { kind: "room", expectedRevision: 12 },
+        padding: 24,
+        representation: "overview",
+      },
+      useWhen:
+        "An artifact was added to an existing board and final relative scale or integration needs judgment.",
     },
     pixelCapture:
       "Capture the full clean viewport while validation.activeSelector exists, crop to screenshotClip in viewport CSS pixels, and inspect the resulting image. The JSON result alone is not visual QA.",

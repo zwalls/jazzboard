@@ -174,6 +174,7 @@ describe("exact canvas preview renderer", () => {
       rendererId: "jazzboard-semantic-v1",
       representation: "working_set",
       overview: { objectCount: 2, kinds: { shape: 2 } },
+      composition: { framing: { scopeKind: "objects", fullRoomContext: false } },
       workingSet: [
         expect.objectContaining({
           objectId: "a",
@@ -187,6 +188,171 @@ describe("exact canvas preview renderer", () => {
       focused: [],
     });
     expect(result.metadata.inspectionEvidence?.workingSet[0]).not.toHaveProperty("semantic");
+  });
+
+  it("reports whole-room scale and spatial context as neutral composition facts", async () => {
+    const objects = [
+      { ...object("small-a"), x: 0, y: 0, width: 100, height: 100 },
+      { ...object("small-b"), x: 160, y: 0, width: 100, height: 100 },
+      { ...object("small-c"), x: 320, y: 0, width: 100, height: 100 },
+      { ...object("large-isolated"), x: 1_200, y: 0, width: 800, height: 600 },
+    ];
+    const bounds = Object.fromEntries(objects.map((item) => [item.id, {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+    }]));
+    const currentRoom = room(objects);
+    const { canvas } = canvasFor(objects, undefined, [], bounds);
+    const roomRequest: CanvasPreviewRenderRequest = {
+      ...request(objects, {}, inspection("overview")),
+      source: { kind: "room", expectedRevision: currentRoom.roomRevision },
+    };
+
+    const result = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      roomRequest,
+      new AbortController().signal,
+    );
+    const context = result.metadata.inspectionEvidence!;
+
+    expect(context.scope).toMatchObject({ kind: "room", diagramId: null });
+    expect(context.composition).toMatchObject({
+      basis: "axis_aligned_renderer_bounds",
+      interpretation: "descriptive_relative_geometry_not_quality_judgment",
+      framing: {
+        scopeKind: "room",
+        fullRoomContext: true,
+        scopeBounds: { x: 0, y: 0, width: 2_000, height: 600 },
+        framedBounds: { x: -10, y: -10, width: 2_020, height: 620 },
+        padding: 10,
+      },
+      scale: {
+        measuredObjectCount: 4,
+        medianBoundsArea: 10_000,
+        largestObjects: expect.arrayContaining([expect.objectContaining({
+          objectId: "large-isolated",
+          boundsArea: 480_000,
+          areaToMedianRatio: 48,
+          widthToScopeRatio: 0.4,
+          heightToScopeRatio: 1,
+        })]),
+      },
+      distribution: {
+        nearestNeighbor: {
+          normalization: "scope_diagonal",
+          farthestObjects: expect.arrayContaining([expect.objectContaining({
+            objectId: "large-isolated",
+            nearestObjectId: "small-c",
+          })]),
+        },
+      },
+    });
+    expect(context.findingKeys).toEqual([]);
+    expect(JSON.stringify(context.composition)).not.toMatch(/defect|warning|fail/i);
+  });
+
+  it("keeps heterogeneous freeform composition evidence bounded and independent of creative intent", async () => {
+    const background = { ...object("background"), x: 0, y: 0, width: 1_000, height: 800 };
+    const subject = { ...object("subject"), x: 380, y: 220, width: 240, height: 320 };
+    const decorations = Array.from({ length: 12 }, (_, index) => ({
+      ...object(`star-${index}`),
+      x: 60 + index * 70,
+      y: index % 2 ? 80 : 690,
+      width: 10,
+      height: 10,
+      groupId: "portrait:stars",
+    }));
+    const objects = [background, subject, ...decorations];
+    const bounds = Object.fromEntries(objects.map((item) => [item.id, {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+    }]));
+    const currentRoom = room(objects);
+    const { canvas } = canvasFor(objects, undefined, [], bounds);
+    const baseRequest = request(objects, {}, inspection("overview"));
+    const intentionalRequest: CanvasPreviewRenderRequest = {
+      ...baseRequest,
+      inspection: {
+        ...inspection("overview"),
+        visualContract: {
+          intent: "A layered portrait with an intentionally oversized background and tiny stars.",
+          criteria: ["Keep the decorative scale contrast"],
+          preserveObjectIds: ["background", "subject"],
+        },
+      },
+    };
+
+    const base = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      baseRequest,
+      new AbortController().signal,
+    );
+    const intentional = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      intentionalRequest,
+      new AbortController().signal,
+    );
+    const baseContext = base.metadata.inspectionEvidence!;
+    const intentionalContext = intentional.metadata.inspectionEvidence!;
+
+    expect(intentionalContext.composition).toEqual(baseContext.composition);
+    expect(intentionalContext.composition.scale).toMatchObject({
+      measuredObjectCount: 14,
+      medianBoundsArea: 100,
+      largestObjectCoverage: { returnedCount: 8, omittedCount: 6, limit: 8, truncated: true },
+      heterogeneityCaveat:
+        "median_area_is_selection_sensitive_for_mixed_decorative_and_structural_parts",
+    });
+    expect(intentionalContext.composition.distribution.nearestNeighbor).toMatchObject({
+      farthestObjectCoverage: { returnedCount: 8, omittedCount: 6, limit: 8, truncated: true },
+      caveat: "center_distance_is_not_edge_clearance_or_integration_quality",
+    });
+    expect(intentionalContext.findingKeys).toEqual([]);
+    expect(intentionalContext.composition).not.toHaveProperty("status");
+    expect(intentionalContext.composition).not.toHaveProperty("recommendation");
+  });
+
+  it("returns truthful null scale and distribution summaries for connector-only scope", async () => {
+    const connector: CanvasObject = {
+      ...object("route-only"),
+      kind: "connector",
+      start: { x: 0, y: 0, objectId: null },
+      end: { x: 300, y: 120, objectId: null },
+      routing: { mode: "straight", kind: "straight", bend: 0, elbowMidPoint: 0.5, labelPosition: 0.5 },
+      direction: "end",
+      label: "",
+      color: "black",
+    };
+    const currentRoom = room([connector]);
+    const { canvas } = canvasFor([connector], undefined, [], {
+      "route-only": { x: 0, y: 0, width: 300, height: 120 },
+    });
+
+    const result = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      request([connector]),
+      new AbortController().signal,
+    );
+
+    expect(result.metadata.inspectionEvidence!.composition).toMatchObject({
+      scale: {
+        measuredObjectCount: 0,
+        medianBoundsArea: null,
+        totalBoundsArea: 0,
+        summedBoundsAreaToScopeAreaRatio: 0,
+        largestObjects: [],
+      },
+      distribution: {
+        objectCenterAverageNormalized: null,
+        areaWeightedCenterNormalized: null,
+        quadrantObjectCounts: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        nearestNeighbor: { medianNormalizedDistance: null, farthestObjects: [] },
+      },
+    });
   });
 
   it("bounds compact Diagram membership while reporting exact full-set coverage and a digest", async () => {
