@@ -1,0 +1,153 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0008",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-validation",
+  "productChange": {
+    "description": "Tolerate inert per-operation activity metadata, advance transaction-local omitted z-indexes beyond explicit candidates, and recognize endpoint-proven semantic-container crossings.",
+    "commit": "69798824fb114c4e1fbf8fd8f5e978c889b0d3ae"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0644b-6272-7382-bf36-84e5d34914ee",
+    "turnId": "01a0644b-6446-7833-9949-bc5dd4e1a115",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 145615,
+      "accountedWallMs": 146000,
+      "hostExecutionMs": 31265,
+      "modelAndCoordinationMs": 114735,
+      "hostExecutionShare": 0.21414383561643835
+    },
+    "calls": {
+      "hostCallCount": 14,
+      "failedHostCallCount": 2,
+      "webMcpCallCount": 7,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 2,
+      "acceptedDraftTransactionCallCount": 2,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 2,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 1,
+        "export_canvas_png": 1
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 2,
+      "objectCount": 8,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 5,
+      "declaredDiagramConnectorCount": 3,
+      "deterministicGeometryStatus": "pass",
+      "deterministicFindingCount": 0,
+      "authorPixelCapture": "unavailable_after_bounded_blank_capture_recovery"
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a0644f-1042-7280-bafa-2b74f66684ec",
+    "turnId": "01a0644f-1203-76a0-a9a7-59964e75235e",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 27154,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "fail",
+      "blockingGeometryViolations": 1,
+      "duplicateSemanticCredit": false,
+      "overall": "fail",
+      "materialDefects": [
+        "The Commerce trust boundary label is almost completely obscured by the order-created event label, leaving only its final character visible."
+      ]
+    }
+  },
+  "mechanismEvidence": {
+    "schemaBusinessFailuresObserved": 0,
+    "transactionPaintOrder": {
+      "boundaryZIndex": 0,
+      "nodeZIndexes": [2, 2, 2, 2],
+      "connectorZIndexes": [3, 4, 5],
+      "documentedDefaultObserved": true
+    },
+    "initialDraft": {
+      "failCount": 5,
+      "warningCount": 0,
+      "findingCodes": ["CONNECTOR_LABEL_OBJECT_COLLISION"]
+    },
+    "secondDraft": {
+      "failCount": 0,
+      "warningCount": 0
+    },
+    "newBlindSpot": {
+      "description": "The semantic-container exception correctly removed generic fill and boundary-crossing collisions but also suppressed a connector-label collision with the container's own rendered label. Deterministic status therefore passed an artifact that failed exact-pixel review."
+    }
+  },
+  "comparison": {
+    "exp0007": {
+      "totalWallMs": 228378,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 3,
+      "blindedReview": "pass"
+    },
+    "priorAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "draftTransactionCallCount": 3,
+      "blindedReview": "pass"
+    },
+    "current": {
+      "totalWallMs": 145615,
+      "draftTransactionCallCount": 2,
+      "acceptedDraftTransactionCallCount": 2,
+      "blindedReview": "fail"
+    },
+    "descriptiveDeltaFromExp0007Ms": -82763,
+    "descriptiveDeltaFromPriorAcceptedCandidateMs": -26326,
+    "interpretation": "The raw run was faster and used fewer draft transactions, but the artifact failed the frozen quality gate. It has no accepted-completion time and cannot be counted as a speed improvement."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "bc5f0b66502b7b070c4a6777c948ae979a0f80f2ba327b3d6387a02ab60d1ced",
+    "cleanPngBytes": 28579,
+    "sanitizedStateSha256": "5079ed018c232d605acd760e75e3e62dc46f5c5e2de7c7b908ea6ab1493ade71",
+    "rawAuthorSessionSha256": "ad713f5782483d57404a00d067f8968e93b508925acb4427568fdecff18d5fd2",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "transportMechanismObserved": true,
+    "qualityGatePassed": false,
+    "acceptedCompletionTimeMs": null,
+    "speedImprovementObserved": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Preserve semantic-container fill/crossing exceptions while separately comparing connector labels with the shared renderer estimate of the container's own label bounds. A collision there must remain blocking."
+  }
+}
