@@ -21,10 +21,12 @@ product decision.
 
 ## Frozen conditions
 
-- `A0`: `https://jazzboard-iqwpad8gn-zwalls-projects.vercel.app`
+- `A0` build: `https://jazzboard-iqwpad8gn-zwalls-projects.vercel.app`
+  - author origin: `https://exp0005-previous.jazzboard.xyz`
   - deployment `dpl_B2QMi4VXcv8cA1hnMoUXUNrVC9xP`
   - preceding production surface
-- `A1`: `https://jazzboard-qjjv1qq8q-zwalls-projects.vercel.app`
+- `A1` build: `https://jazzboard-qjjv1qq8q-zwalls-projects.vercel.app`
+  - author origin: `https://exp0005-current.jazzboard.xyz`
   - deployment `dpl_BKMmpJ4t3Yiy9axtDXkFtLGSR2Uy`
   - main commit `6af0784815de4961597f1f1a638c5cef34b9d6b4`
   - includes `update_draft_connector` and exact
@@ -133,3 +135,12 @@ The mechanism warrants broader replication when:
   consistent with lower transport churn.
 
 Any broader speed percentage remains forbidden after this eight-attempt study.
+
+## Pre-release transport amendment
+
+Before attempt 1 received a brief, direct navigation to the immutable `A0`
+deployment hostname encountered Vercel deployment protection. No author task or
+room was created. The two exact frozen builds were therefore assigned the
+public, condition-neutral author origins listed above. Aliasing does not rebuild
+or alter either deployment. Both origins must pass health and live WebMCP
+discovery checks before release.
