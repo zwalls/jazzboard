@@ -564,6 +564,25 @@ function evidenceArtifactReferences(parsed: unknown): Readonly<{
       break;
     }
     default: {
+      // The capture controller request intentionally carries the authorization
+      // and release journal inline so the controller can receive one exact,
+      // self-contained dispatch packet. Treat those nested, schema-validated
+      // objects as first-class evidence bindings. Otherwise a completely
+      // retained successful capture can fail the terminal evidence replay
+      // merely because the operator did not duplicate the authorization into
+      // a second standalone file.
+      if (record.operation === "capture_author_evidence"
+          && record.captureAuthorization !== undefined
+          && record.captureReleaseJournal !== undefined) {
+        const authorization = parseQualificationV2CaptureAuthorization(record.captureAuthorization);
+        const journal = parseQualificationV2CaptureReleaseJournal(record.captureReleaseJournal);
+        bind("capture_authorization", authorization.actionDigest);
+        require("room_receipt", authorization.roomReceiptDigest);
+        require("provision_controller_receipt", authorization.provisionControllerReceiptDigest);
+        require("canonical_json", authorization.storageStateDigest);
+        bind("capture_release_journal", journal.journalDigest);
+        require("capture_authorization", journal.captureActionDigest);
+      }
       const provenance = qualificationV2HarnessRuntimeProvenanceSchema.safeParse(parsed);
       if (provenance.success) {
         bind("harness_runtime_provenance", hashCanonicalJson(provenance.data as unknown as JsonValue));
@@ -591,6 +610,12 @@ function evidenceArtifactReferences(parsed: unknown): Readonly<{
     bindings: sortedArtifactReferences(bindings),
     requirements: sortedArtifactReferences(requirements),
   };
+}
+
+/** Exposes the schema-aware binding projection for focused evidence-graph
+ * regression tests without exposing any file-system attestation authority. */
+export function qualificationV2EvidenceArtifactReferences(input: unknown) {
+  return evidenceArtifactReferences(input);
 }
 
 async function fileEntry(privateRoot: string, filePath: string) {

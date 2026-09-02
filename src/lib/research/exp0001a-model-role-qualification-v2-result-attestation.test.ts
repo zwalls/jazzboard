@@ -17,6 +17,7 @@ import {
 } from "./exp0001a-model-role-qualification-v2-coordinator";
 import {
   createQualificationV2TerminalEvidenceAttestation,
+  qualificationV2EvidenceArtifactReferences,
   verifyQualificationV2TerminalEvidenceAttestation,
 } from "./exp0001a-model-role-qualification-v2-result-attestation";
 import { canonicalJson, hashCanonicalJson, type JsonValue } from "./provenance-crypto";
@@ -410,6 +411,62 @@ afterEach(async () => {
 });
 
 describe("qualification v2 terminal evidence attestation", () => {
+  it("binds inline capture authorization and release evidence from the exact controller request", () => {
+    const request = {
+      operation: "capture_author_evidence" as const,
+      at: "2026-08-31T20:05:00.000Z",
+      roomReceiptPath: "/tmp/room-receipt.json",
+      provisionControllerReceiptPath: "/tmp/provision-controller-receipt.json",
+      storageStatePath: "/tmp/authorized-storage-state.json",
+      outputDirectory: "/tmp/capture",
+    };
+    const authorizationContent = {
+      schemaVersion: "exp-0001a-qualification-capture-authorization/v2" as const,
+      taskId: "dev-architecture-create-checkout" as const,
+      preparedAt: "2026-08-31T20:05:00.000Z",
+      captureNonce: digest("1"),
+      roomReceiptDigest: digest("4"),
+      provisionControllerReceiptDigest: digest("5"),
+      storageStateDigest: digest("6"),
+      request,
+      requestBindingDigest: hashCanonicalJson(request as unknown as JsonValue),
+    };
+    const authorization = {
+      ...authorizationContent,
+      actionDigest: hashCanonicalJson(authorizationContent as unknown as JsonValue),
+    };
+    const releaseContent = {
+      schemaVersion: "exp-0001a-qualification-capture-release-journal/v2" as const,
+      captureActionDigest: authorization.actionDigest,
+      captureNonce: authorization.captureNonce,
+      requestBindingDigest: authorization.requestBindingDigest,
+      invocationOrdinal: 1 as const,
+      invokedAt: "2026-08-31T20:05:01.000Z",
+      retryPermitted: false as const,
+    };
+    const releaseJournal = {
+      ...releaseContent,
+      journalDigest: hashCanonicalJson(releaseContent as unknown as JsonValue),
+    };
+
+    expect(qualificationV2EvidenceArtifactReferences({
+      operation: "capture_author_evidence",
+      captureAuthorization: authorization,
+      captureReleaseJournal: releaseJournal,
+    })).toEqual({
+      bindings: [
+        { kind: "capture_authorization", digest: authorization.actionDigest },
+        { kind: "capture_release_journal", digest: releaseJournal.journalDigest },
+      ],
+      requirements: [
+        { kind: "canonical_json", digest: authorization.storageStateDigest },
+        { kind: "capture_authorization", digest: authorization.actionDigest },
+        { kind: "provision_controller_receipt", digest: authorization.provisionControllerReceiptDigest },
+        { kind: "room_receipt", digest: authorization.roomReceiptDigest },
+      ],
+    });
+  });
+
   it("creates and exactly replays a complete private evidence inventory in a clean ignored repository", async () => {
     const item = await fixture();
     const attestation = await createQualificationV2TerminalEvidenceAttestation({
