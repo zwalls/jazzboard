@@ -57,6 +57,7 @@ import type {
   JazzboardWebMcpBinding,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 import { CANVAS_PREVIEW_LIMITS } from "./preview-contract";
 
 const id = z.string().min(1).max(128);
@@ -1027,7 +1028,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
         const signal = options?.signal ?? new AbortController().signal;
         return { ok: true, tool: input.name, data: await input.execute(parsed, signal) };
       } catch (error) {
-        return toolFailure(input.name, error);
+        return withActionableRecovery(toolFailure(input.name, error));
       }
     },
   };
@@ -1469,8 +1470,16 @@ function conciseDraftReceipt(
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
+    completion: {
+      requiredTool: "finish_canvas_draft" as const,
+      action: "commit" as const,
+      expectedDraftRevision: draft.revision,
+      userConfirmationRequired: false,
+      authorityBoundary:
+        "Progressive draft delivery is a visible construction transport, not human review. Finish autonomously unless the user explicitly requested a preview-only pause. A true review-policy proposal is reported only after finish returns outcome=proposed.",
+    },
     nextStep:
-      "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, call finish_canvas_draft once; Jazzboard keeps the draft alive, waits for this exact revision's visible construction to finish, then commits atomically. Discard remains immediate.",
+      "Submit complete cumulative operations with this draftId and expectedDraftRevision only when the candidate needs refinement. Otherwise call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard keeps the draft alive and waits for this exact revision's visible construction, then returns applied or the room's true review-policy outcome.",
   };
 }
 
@@ -1928,7 +1937,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "For a user-visible new multi-object composition, set delivery.mode=draft so collaborators see bot-traced construction before one atomic finish. Omit delivery only for revision-checked corrections, explicitly instant work, or no live audience. Draft replacements require complete cumulative operations and the exact draft revision.",
+        "Atomically create or update semantic canvas objects. For visible new multi-object work, set delivery.mode=draft, then call finish_canvas_draft with action=commit yourself. A draft is bot-traced delivery, not review; do not ask for confirmation. Only outcome=proposed requires human review. Omit delivery for existing-object corrections or explicit instant work. Replacements send complete cumulative operations with the exact draft ID and revision.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2381,8 +2390,16 @@ export function createJazzboardSemanticWebMcpTools(
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
             ...(presentation ? { presentation } : {}),
+            completion: {
+              requiredTool: "finish_canvas_draft",
+              action: "commit",
+              expectedDraftRevision: response.draft.revision,
+              userConfirmationRequired: false,
+              authorityBoundary:
+                "Progressive draft delivery is a visible construction transport, not human review. Finish autonomously unless the user explicitly requested a preview-only pause. A true review-policy proposal is reported only after finish returns outcome=proposed.",
+            },
             nextStep:
-              "Submit complete cumulative operations with this draftId and expectedDraftRevision to refine the candidate. For the final candidate, call finish_canvas_draft once; Jazzboard keeps the draft alive, waits for this exact revision's visible construction to finish, then commits atomically. Discard remains immediate.",
+              "Submit complete cumulative operations with this draftId and expectedDraftRevision only when the candidate needs refinement. Otherwise call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard keeps the draft alive and waits for this exact revision's visible construction, then returns applied or the room's true review-policy outcome.",
           };
         }
         const response = await mutate(

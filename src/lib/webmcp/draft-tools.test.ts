@@ -102,11 +102,57 @@ describe("canvas draft WebMCP tools", () => {
       untrustedContentHint: true,
     });
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
-      /keeps the owned draft alive.*waits inside this single call/i,
+      /keeps the draft alive.*waits inside this call/i,
     );
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
       /no authoritative canvas mutation is sent.*recoverable/i,
     );
+    expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
+      /commit is autonomous.*needs no extra user confirmation/i,
+    );
+  });
+
+  it("surfaces authoritative success when draft-sidecar cleanup remains pending", async () => {
+    const state = fixture();
+    state.binding.context.getAgentDraftPresentation = () => ({
+      source: "client-local",
+      draftId: "draft_architecture",
+      requestedRevision: 2,
+      observedRevision: 2,
+      state: "complete",
+      complete: true,
+      objectCount: 1,
+      completedObjectCount: 1,
+    });
+    const authoritativeRoom = { id: "room/a b", roomRevision: 8 } as RoomState;
+    const request = vi.fn(async (url: string) => url.endsWith("/keepalive")
+      ? { ok: true, draft: draft({ expiresAt: 300_000 }), serverTime: 100 }
+      : {
+          ok: true,
+          outcome: "applied",
+          sidecarStatus: "cleanup_pending",
+          mutation: {
+            outcome: "applied",
+            room: authoritativeRoom,
+            changedObjectIds: ["node_stable"],
+            changedDiagramIds: [],
+            membershipObjectIds: [],
+            activity: null,
+            proposal: null,
+          },
+        }) as unknown as WebMcpRequest;
+    const result = await execute(
+      tool(createJazzboardDraftWebMcpTools(state.binding, { request }), "finish_canvas_draft"),
+      { draftId: "draft_architecture", expectedDraftRevision: 2, action: "commit" },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        sidecarStatus: "cleanup_pending",
+        nextStep: expect.stringMatching(/authoritative canvas mutation applied.*do not replay/i),
+      },
+    });
   });
 
   it("reads the bounded room collection or one exact draft through signed-session GETs", async () => {

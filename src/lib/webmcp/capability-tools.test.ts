@@ -179,6 +179,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               "existing-object-corrections-explicitly-instant-work-or-no-live-audience",
             authoringPace: "full-speed-no-animation-driven-chunking-or-pauses",
             presentationPace: "client-local-queued-from-rapid-cumulative-revisions",
+            progressiveDraftAuthority: expect.stringMatching(
+              /not human review.*finish_canvas_draft.*without requesting user confirmation/i,
+            ),
           },
           canonicalExamples: {
             structuredPath: {
@@ -216,6 +219,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             progressiveSystemDiagram: {
               tool: "apply_canvas_transaction",
               input: { delivery: { mode: "draft" } },
+              semantics: expect.stringMatching(/call finish_canvas_draft.*no user confirmation/i),
             },
             optionalHierarchyLayout: {
               useOnlyWhen: expect.stringMatching(/user's requested architecture/i),

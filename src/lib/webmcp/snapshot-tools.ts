@@ -14,6 +14,7 @@ import {
 import type { PublicReadonlySnapshot } from "@/lib/server/snapshot-service";
 
 import type { JazzboardToolFailure, JazzboardToolResult } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const EMPTY_OBJECT_SCHEMA = {
   type: "object",
@@ -164,7 +165,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
         if (signal.aborted) throw new DOMException("Tool call aborted.", "AbortError");
         return { ok: true, tool: input.name, data: await input.execute(parsed, signal) };
       } catch (error) {
-        return failure(input.name, error);
+        return withActionableRecovery(failure(input.name, error));
       }
     },
   };

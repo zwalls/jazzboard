@@ -11,6 +11,11 @@ export type ApiFailure = {
   code: string;
   message: string;
   details?: Record<string, unknown> | null;
+  recovery?: {
+    retry: "after_correction" | "after_refresh" | "after_wait" | "verify_before_retry" | "do_not_retry";
+    instructions: string;
+    suggestedTools?: string[];
+  };
 };
 
 export class JazzboardApiError extends Error {

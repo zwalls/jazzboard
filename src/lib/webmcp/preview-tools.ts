@@ -21,6 +21,7 @@ import type {
   JazzboardWebMcpDependencies,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const idSchema = z.string().min(1).max(128);
 const revisionSchema = z.number().int().positive();
@@ -521,7 +522,7 @@ export function createJazzboardPreviewWebMcpTools(
             toolName,
           );
         } catch (error) {
-          return failure(error, toolName);
+          return withActionableRecovery(failure(error, toolName));
         }
       },
     });

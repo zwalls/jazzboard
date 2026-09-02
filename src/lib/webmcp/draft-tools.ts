@@ -14,6 +14,7 @@ import type {
   JazzboardWebMcpDependencies,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
 const readDraftsInput = z.object({ draftId: draftId.optional() }).strict();
@@ -70,6 +71,7 @@ type DraftCommitMutation = {
 type FinishDraftResponse = {
   ok: true;
   outcome?: "applied" | "proposed";
+  sidecarStatus?: "settled" | "cleanup_pending";
   room?: RoomState;
   draft?: AgentCanvasDraftSnapshot | null;
   mutation?: DraftCommitMutation;
@@ -226,7 +228,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
           ),
         };
       } catch (error) {
-        return failure(input.name, error);
+        return withActionableRecovery(failure(input.name, error));
       }
     },
   };
@@ -293,7 +295,7 @@ export function createJazzboardDraftWebMcpTools(
       name: "finish_canvas_draft",
       title: "Finish a canvas draft",
       description:
-        "Finish one exact draft. Commit keeps the owned draft alive, waits inside this single call for the latest exact revision's visible construction and closing inspection motion, then applies it atomically. If presentation cannot complete, no authoritative canvas mutation is sent and the draft remains recoverable. Discard remains immediate. A review-mode commit may return proposed instead of applied.",
+        "Complete one exact progressive draft. Commit is autonomous and needs no extra user confirmation: draft delivery is visible construction, not review. It keeps the draft alive, waits inside this call for the exact revision's presentation, then applies atomically. If presentation cannot complete, no authoritative canvas mutation is sent and the draft remains recoverable. Discard only for intentional cancellation. outcome=proposed means actual room review and is not applied.",
       schema: finishDraftInput,
       inputSchema: FINISH_DRAFT_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -371,6 +373,7 @@ export function createJazzboardDraftWebMcpTools(
           draftId: response.draftId ?? input.draftId,
           action: input.action,
           outcome,
+          sidecarStatus: response.sidecarStatus,
           discarded: response.discarded,
           draft: response.draft,
           roomRevision: authoritativeRoom?.roomRevision,
@@ -384,9 +387,13 @@ export function createJazzboardDraftWebMcpTools(
           nextStep:
             input.action === "discard"
               ? "The draft is removed; no canvas mutation was applied."
+              : response.sidecarStatus === "cleanup_pending"
+                ? outcome === "proposed"
+                  ? "The room's review policy created the proposal, but draft-sidecar cleanup is pending. Report awaiting human review and do not replay or discard; authorized reads will reconcile cleanup."
+                  : "The authoritative canvas mutation applied, but non-authoritative draft-sidecar cleanup is pending. Treat the canvas result as committed, continue inspection, and do not replay; authorized reads will reconcile cleanup."
               : outcome === "proposed"
-                ? "The draft became a review proposal and is not yet applied to the canvas."
-                : "The draft was applied atomically to the authoritative canvas.",
+                ? "The room's true review policy converted the commit into a proposal. It is not applied; report it as awaiting human review and do not claim publication or ask for a second agent-side commit."
+                : "The draft was applied atomically to the authoritative canvas. Continue with exact-revision semantic and pixel inspection; no user confirmation was required.",
         };
       },
     }),
