@@ -1,6 +1,6 @@
 # EXP-0004 — Draft correction transport micro-pilot
 
-- Status: **candidate implementation; author not released**
+- Status: **development micro-pilot passed; randomized replication required**
 - Date: 2026-09-02
 - Branch: `research/speed-quality-replication`
 - Author profile: fresh projectless `gpt-5.6-terra`, reasoning `medium`
@@ -88,3 +88,26 @@ diagnostic only. If the mechanism behaves correctly, the next stage is a small
 randomized interleaved replication across multiple architecture and drawing
 tasks, with time-to-blinded-acceptance as the primary speed outcome and quality
 non-inferiority as a hard gate.
+
+## Completed micro-pilot
+
+- Frozen candidate commit: `cc6508b4601981b3842bc5f3210b62d6a5a75bb6`
+- Production deployment: `dpl_dkMwMkUsV9At8JHBVWkvp4JDWqPS`
+- Fresh author task: `01a063d1-9627-71e2-a748-7082052a498c`
+- Fresh blinded reviewer task: `01a063d8-af37-7751-9fef-965b0cbb5d21`
+
+The author completed in 270,038 ms. The matched retained reference completed in
+335,809 ms, an observed single-task difference of -65,771 ms (-19.6%). Draft
+transaction calls fell from 11 to 6. Four candidate calls used
+`update_draft_connector`; no unsupported draft-correction form was attempted.
+The author still selected every position, route, port, label, and correction.
+
+The final authoritative room contained exactly nine nodes, nine labeled
+directed connectors, and one complete first-class Diagram. The author performed
+exact clean-pixel inspection. A separate fresh Sol-high reviewer received only
+the frozen public requirement/rubric, sanitized semantic state, and clean PNG;
+all three criteria passed with no material defect.
+
+This result supports keeping the product mechanism and advancing to randomized,
+interleaved multi-task replication. It does not establish a general 19.6%
+speed improvement.

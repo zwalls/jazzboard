@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "experimentId": "exp-0004-draft-correction-transport",
   "createdAt": "2026-09-02T20:20:00Z",
-  "status": "candidate_implementation_pre_release",
+  "status": "development_micro_pilot_passed_replication_required",
   "sourceEvidence": [
     {
       "condition": "historical_production_baseline",
@@ -69,5 +69,72 @@
   "timingAttribution": {
     "method": "Time before each host call is assigned to the phase of that next call; the post-call tail is terminal.",
     "warning": "modelAndCoordinationMs includes all between-call latency and is not pure model reasoning time. Whole-second task clocks cause the separately reported sub-second clock delta."
+  },
+  "candidateEvaluation": {
+    "sourceCommit": "cc6508b4601981b3842bc5f3210b62d6a5a75bb6",
+    "deploymentId": "dpl_dkMwMkUsV9At8JHBVWkvp4JDWqPS",
+    "productionOrigin": "https://www.jazzboard.xyz",
+    "author": {
+      "threadId": "01a063d1-9627-71e2-a748-7082052a498c",
+      "turnId": "01a063d1-9783-7f11-bb82-d7e690f0fcec",
+      "model": "gpt-5.6-terra",
+      "reasoning": "medium",
+      "sessionSha256": "a67cd1556dbf5f727dfdd0b1932b268b2e797f017c7ddf582918101472ea4f26",
+      "wallMs": 270038,
+      "accountedWallMs": 270000,
+      "clockDeltaMs": 38,
+      "hostExecutionMs": 56214,
+      "modelAndCoordinationMs": 213786,
+      "hostCalls": 18,
+      "failedHostCalls": 1,
+      "webMcpCalls": 10,
+      "draftTransactionCalls": 6,
+      "draftConnectorPatchCalls": 4,
+      "unsupportedDraftCorrectionCalls": 0,
+      "phases": {
+        "capability_discovery": { "segmentWallMs": 34359, "hostCalls": 5, "webMcpCalls": 1 },
+        "initial_authoring": { "segmentWallMs": 192827, "hostCalls": 6, "webMcpCalls": 6 },
+        "draft_finish": { "segmentWallMs": 10947, "hostCalls": 1, "webMcpCalls": 1 },
+        "inspection": { "segmentWallMs": 10429, "hostCalls": 2, "webMcpCalls": 1 },
+        "state_read": { "segmentWallMs": 8632, "hostCalls": 1, "webMcpCalls": 1 },
+        "other": { "segmentWallMs": 11363, "hostCalls": 3, "webMcpCalls": 0 },
+        "terminal": { "segmentWallMs": 1443, "hostCalls": 0, "webMcpCalls": 0 }
+      }
+    },
+    "artifact": {
+      "roomRevision": 2,
+      "objectCount": 18,
+      "nodeCount": 9,
+      "connectorCount": 9,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "sanitizedSemanticFileSha256": "0aa244015b65344ccacaad5a785c0455cd1ea642927d5eb6fd31d91de7e58792",
+      "cleanPixelSha256": "743fc6800acdfa03cdd69aa76f2e3844058fda23286d9dcd267a5d867b693c5c"
+    },
+    "reviewer": {
+      "threadId": "01a063d8-af37-7751-9fef-965b0cbb5d21",
+      "turnId": "01a063d8-b0b7-7740-a7a2-1fd88750918e",
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "sessionSha256": "23a58bbef2bc53f00091998f23f9a2b27d5c5a98488f38f80b6ee6724de291b1",
+      "wallMs": 28527,
+      "criterionDenseFacts": "pass",
+      "criterionDenseRouting": "pass",
+      "criterionDenseAntigaming": "pass",
+      "overall": "pass",
+      "materialDefects": []
+    },
+    "matchedDiagnosticComparison": {
+      "referenceWallMs": 335809,
+      "candidateWallMs": 270038,
+      "wallDifferenceMs": -65771,
+      "observedWallDifferenceFraction": -0.1959,
+      "referenceDraftTransactionCalls": 11,
+      "candidateDraftTransactionCalls": 6,
+      "draftTransactionCallDifference": -5,
+      "referenceUnsupportedDraftCorrectionCalls": 3,
+      "candidateUnsupportedDraftCorrectionCalls": 0,
+      "interpretation": "One matched development task supports the mechanism and next-stage replication; it is not a population estimate."
+    }
   }
 }
