@@ -15,6 +15,10 @@ import type {
   WebMcpRequest,
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
+import {
+  recommendedCanvasInspection,
+  recommendedRoomCompositionInspection,
+} from "./inspection-recommendation";
 
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
 const readDraftsInput = z.object({ draftId: draftId.optional() }).strict();
@@ -347,6 +351,8 @@ export function createJazzboardDraftWebMcpTools(
         );
         const authoritativeRoom = response.room ?? response.mutation?.room;
         const outcome = response.outcome ?? response.mutation?.outcome;
+        const changedObjectIds = response.changedObjectIds ?? response.mutation?.changedObjectIds ?? [];
+        const changedDiagramIds = response.changedDiagramIds ?? response.mutation?.changedDiagramIds ?? [];
         if (authoritativeRoom) binding.context.acceptRoom(authoritativeRoom);
         const removedRevision = typeof response.revision === "number"
           ? response.revision
@@ -377,13 +383,20 @@ export function createJazzboardDraftWebMcpTools(
           discarded: response.discarded,
           draft: response.draft,
           roomRevision: authoritativeRoom?.roomRevision,
-          changedObjectIds: response.changedObjectIds ?? response.mutation?.changedObjectIds,
-          changedDiagramIds: response.changedDiagramIds ?? response.mutation?.changedDiagramIds,
+          changedObjectIds,
+          changedDiagramIds,
           membershipObjectIds:
             response.membershipObjectIds ?? response.mutation?.membershipObjectIds,
           positions: response.positions ?? response.mutation?.positions,
           activity: response.activity ?? response.mutation?.activity,
           proposal: response.proposal ?? response.mutation?.proposal,
+          recommendedInspection: input.action === "commit" && outcome === "applied" && authoritativeRoom
+            ? recommendedCanvasInspection(authoritativeRoom, changedObjectIds, changedDiagramIds)
+            : null,
+          recommendedCompositionInspection:
+            input.action === "commit" && outcome === "applied" && authoritativeRoom
+              ? recommendedRoomCompositionInspection(authoritativeRoom, changedObjectIds)
+              : null,
           nextStep:
             input.action === "discard"
               ? "The draft is removed; no canvas mutation was applied."
@@ -393,7 +406,7 @@ export function createJazzboardDraftWebMcpTools(
                   : "The authoritative canvas mutation applied, but non-authoritative draft-sidecar cleanup is pending. Treat the canvas result as committed, continue inspection, and do not replay; authorized reads will reconcile cleanup."
               : outcome === "proposed"
                 ? "The room's true review policy converted the commit into a proposal. It is not applied; report it as awaiting human review and do not claim publication or ask for a second agent-side commit."
-                : "The draft was applied atomically to the authoritative canvas. Continue with exact-revision semantic and pixel inspection; no user confirmation was required.",
+                : "The draft was applied atomically to the authoritative canvas. Run recommendedInspection for exact artifact semantics and pixels, then run recommendedCompositionInspection when present to judge relative scale, whitespace, and integration with surrounding room content. Make any correction through the direct revision-checked path, re-inspect, and only then report completion; no user confirmation was required.",
         };
       },
     }),

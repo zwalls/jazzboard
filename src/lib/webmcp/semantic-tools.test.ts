@@ -1850,6 +1850,60 @@ describe("transactional semantic mutations", () => {
     expect(conciseBytes * 2).toBeLessThan(detailedBytes);
   });
 
+  it("recommends exact whole-room composition context when new work joins existing content", async () => {
+    const baseline = room([node("existing", "Existing board content", "component", 40)]);
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(baseline, "alice", "agent", body.transaction, NOW + 20);
+      return {
+        ok: true,
+        outcome: "applied",
+        ...result,
+        activity: null,
+        proposal: null,
+      };
+    }) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId: () => "text_new",
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{
+        op: "create_text",
+        tempRef: "new_caption",
+        content: "New composition",
+        x: 900,
+        y: 120,
+      }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: {
+              kind: "objects",
+              targets: [{ objectId: "text_new", expectedRevision: 1 }],
+            },
+          },
+        },
+        recommendedCompositionInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "room", expectedRevision: 8 },
+            padding: 24,
+            representation: "overview",
+          },
+        },
+      },
+    });
+  });
+
   it("recommends an overview for an exact Diagram scope above the working-set ceiling", async () => {
     const memberObjectIds = Array.from({ length: 121 }, (_, index) =>
       `node-${String(index).padStart(3, "0")}`);

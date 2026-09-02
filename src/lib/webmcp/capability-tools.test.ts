@@ -130,6 +130,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             preferredTool: "inspect_canvas_scope",
             visualInspectionRequiresPixelCapture: true,
             framingOrGeometryAloneIsVisualInspection: false,
+            exactScopes: ["room", "diagram", "objects"],
+            roomScopePurpose: expect.stringMatching(/relative scale.*surrounding content/i),
+            compositionEvidenceAuthority: expect.stringMatching(/descriptive evidence only/i),
           },
         },
       },
@@ -269,11 +272,28 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           correctionLoop: expect.arrayContaining([
             expect.stringMatching(/exact revision/i),
             expect.stringMatching(/crop.*screenshotClip/i),
+            expect.stringMatching(/exact room revision.*relative scale.*surrounding-content integration/i),
             expect.stringMatching(/patch only/i),
           ]),
+          compositionEvidence: {
+            fields: ["framing", "scale", "distribution"],
+            wholeRoomRequires: "scope.kind=room-with-exact-room-revision",
+            authority: expect.stringMatching(/never-an-automatic-quality-verdict-or-layout-trigger/i),
+            caveats: expect.arrayContaining([
+              "median-area-ratios-are-selection-sensitive-in-heterogeneous-scenes",
+              "nearest-neighbor-center-distance-is-not-edge-clearance",
+            ]),
+          },
           canonicalExamples: {
             diagramScope: { tool: "inspect_canvas_scope" },
             objectScope: { tool: "inspect_canvas_scope" },
+            roomCompositionScope: {
+              tool: "inspect_canvas_scope",
+              input: {
+                scope: { kind: "room", expectedRevision: 12 },
+                representation: "overview",
+              },
+            },
             pixelCapture: expect.stringMatching(
               /JSON result alone is not visual QA/i,
             ),

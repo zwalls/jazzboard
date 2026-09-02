@@ -57,6 +57,13 @@ const diagramScopeSchema = z
   })
   .strict();
 
+const roomScopeSchema = z
+  .object({
+    kind: z.literal("room"),
+    expectedRevision: revisionSchema,
+  })
+  .strict();
+
 function uniqueBoundedIds(max: number, label: string) {
   return z.array(idSchema).max(max).superRefine((values, context) => {
     const seen = new Set<string>();
@@ -88,14 +95,19 @@ const visualContractSchema = z
   })
   .strict();
 
-const scopeInputShape = {
+const previewScopeInputShape = {
   scope: z.discriminatedUnion("kind", [objectScopeSchema, diagramScopeSchema]),
+  padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
+};
+
+const inspectionScopeInputShape = {
+  scope: z.discriminatedUnion("kind", [roomScopeSchema, objectScopeSchema, diagramScopeSchema]),
   padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
 };
 
 const inspectionInputSchema = z
   .object({
-    ...scopeInputShape,
+    ...inspectionScopeInputShape,
     representation: representationSchema,
     focusObjectIds: uniqueBoundedIds(CANVAS_PREVIEW_LIMITS.maxFocusedRecords, "focusObjectIds").optional(),
     visualContract: visualContractSchema.optional(),
@@ -108,7 +120,7 @@ const inspectionInputSchema = z
 
 const previewInputSchema = z
   .object({
-    ...scopeInputShape,
+    ...previewScopeInputShape,
     maxWidth: z
       .number()
       .int()
@@ -155,7 +167,9 @@ function failure(
       tool,
       error: {
         code: "INVALID_TOOL_INPUT",
-        message: "The preview input must identify one exact object or diagram revision scope.",
+        message: tool === "inspect_canvas_scope"
+          ? "The inspection input must identify one exact room, object, or Diagram revision scope."
+          : "The preview input must identify one exact object or Diagram revision scope.",
         details: {
           issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
         },
@@ -287,6 +301,32 @@ function resolveDiagramScope(
   };
 }
 
+function resolveRoomScope(
+  room: RoomState,
+  scope: z.output<typeof roomScopeSchema>,
+): { source: CanvasPreviewSource; objects: CanvasObject[]; diagram: null } {
+  if (room.roomRevision !== scope.expectedRevision) {
+    throw new CanvasPreviewError(
+      "ROOM_REVISION_CONFLICT",
+      "The Jazzboard room is not at the requested revision.",
+      {
+        expectedRevision: scope.expectedRevision,
+        actualRevision: room.roomRevision,
+      },
+    );
+  }
+  const objects = Object.values(room.objects)
+    .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id));
+  if (objects.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_TOO_LARGE",
+      "The room exceeds the bounded inspection target count; inspect a Diagram or exact object scope.",
+      { targetCount: objects.length, maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets },
+    );
+  }
+  return { source: scope, objects, diagram: null };
+}
+
 function inspectionRequest(
   input: z.output<typeof inspectionInputSchema>,
   resolved: { objects: CanvasObject[] },
@@ -335,7 +375,7 @@ function inspectionRequest(
   };
 }
 
-const scopeInputJsonSchema = {
+const previewScopeInputJsonSchema = {
   oneOf: [
     {
       type: "object",
@@ -373,6 +413,21 @@ const scopeInputJsonSchema = {
   ],
 };
 
+const inspectionScopeInputJsonSchema = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "room" },
+        expectedRevision: { type: "integer", minimum: 1 },
+      },
+      required: ["kind", "expectedRevision"],
+      additionalProperties: false,
+    },
+    ...previewScopeInputJsonSchema.oneOf,
+  ],
+};
+
 export function createJazzboardPreviewWebMcpTools(
   binding: JazzboardWebMcpBinding,
   dependencies: JazzboardWebMcpDependencies = {},
@@ -391,18 +446,21 @@ export function createJazzboardPreviewWebMcpTools(
         ? "Inspect exact canvas evidence"
         : "Inspect an exact Jazzboard canvas region",
       description: toolName === "inspect_canvas_scope"
-        ? "Return bounded exact evidence and a live inspection clip; prior finding keys are unverified caller comparison input."
+        ? "Return bounded exact room, Diagram, or object evidence plus a live inspection clip. Exact room scope exposes descriptive whole-board scale and distribution context; it never makes composition choices or quality verdicts. Prior finding keys are unverified caller comparison input."
         : "Frame an exact live canvas inspection scope.",
       inputSchema: {
         type: "object",
         properties: {
-          scope: scopeInputJsonSchema,
+          scope: toolName === "inspect_canvas_scope"
+            ? inspectionScopeInputJsonSchema
+            : previewScopeInputJsonSchema,
           padding: { type: "number", minimum: 0, maximum: CANVAS_PREVIEW_LIMITS.maxPadding },
           ...(toolName === "inspect_canvas_scope" ? {
             representation: {
               enum: ["overview", "working_set", "focus"],
               default: "working_set",
-              description: "overview, working_set, or focusObjectIds.",
+              description:
+                "overview, working_set, or focusObjectIds. Use room + overview after adding to existing content so relative composition is visible.",
             },
             focusObjectIds: {
               type: "array",
@@ -487,8 +545,9 @@ export function createJazzboardPreviewWebMcpTools(
             method: "GET",
             signal,
           });
-          const resolved =
-            input.scope.kind === "objects"
+          const resolved = input.scope.kind === "room"
+            ? resolveRoomScope(response.room, input.scope)
+            : input.scope.kind === "objects"
               ? resolveObjectScope(response.room, input.scope)
               : resolveDiagramScope(response.room, input.scope);
           binding.context.acceptRoom(response.room);
