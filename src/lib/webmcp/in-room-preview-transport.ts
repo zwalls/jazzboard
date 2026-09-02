@@ -74,11 +74,26 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
       ? unsupportedGeometry.join(" and/or ")
       : "unsupported geometry";
     const pixelCaptureProtocol = {
-      schemaVersion: 2 as const,
-      capture: "full_viewport_while_validation_selector_is_active" as const,
-      crop: "crop_the_captured_pixels_to_screenshotClip_in_viewport_css_pixels" as const,
-      reason: "Direct clipped browser captures can transiently perturb viewport geometry; full-viewport capture preserves the exact framed camera.",
+      schemaVersion: 3 as const,
+      capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active" as const,
+      crop: "use_screenshotClip_in_viewport_css_pixels" as const,
+      reason: "A documented non-mutating browser clip is the fastest exact capture. Full-viewport capture plus in-memory crop remains the compatibility fallback.",
       copyReady: {
+        preferredPath: "directClip" as const,
+        directClip: {
+          precondition: "browser_screenshot_clip_is_documented_as_non_mutating" as const,
+          action: "browser_screenshot" as const,
+          arguments: {
+            clip: {
+              x: presentation.clip.x,
+              y: presentation.clip.y,
+              width: presentation.clip.width,
+              height: presentation.clip.height,
+            },
+          },
+          resultReference: "inspectionPixels" as const,
+        },
+        fallbackPath: "fullViewportCrop" as const,
         browserCapture: {
           action: "browser_screenshot" as const,
           arguments: { fullPage: false as const },
@@ -120,8 +135,8 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
     const nextStep = geometryCoverageStatus === "partial"
       ? visualQuality?.status === "fail"
         ? `Supported deterministic geometry already has a known failure and ${unsupportedGeometryLabel} coverage is partial. Fix every finding, rerun exact-revision analysis, then frame the live canvas again and inspect all pixels including unsupported geometry; framing itself is not visual QA.`
-        : `Deterministic geometry coverage is partial because ${unsupportedGeometryLabel} require pixel inspection; report.status is not a complete geometry certification. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: capture the full clean viewport while validation.activeSelector exists, crop in memory to its exact screenshotClip rectangle, and inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport. Revise and repeat when needed.`
-      : "Framing is not visual QA. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: capture the full clean viewport while validation.activeSelector exists, crop in memory to its exact screenshotClip rectangle, and inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport. Do not report visual QA as passed from this JSON result alone. If cropping is unavailable, report pixel inspection unavailable.";
+        : `Deterministic geometry coverage is partial because ${unsupportedGeometryLabel} require pixel inspection; report.status is not a complete geometry certification. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: prefer directClip when the browser documents a non-mutating clip capture, otherwise use fullViewportCrop. Inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport. Revise and repeat when needed.`
+      : "Framing is not visual QA. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: prefer directClip when the browser documents a non-mutating clip capture, otherwise use fullViewportCrop. Inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport or report visual QA as passed from JSON alone. If exact capture is unavailable, report pixel inspection unavailable.";
     const clipInvalidatedBy = [
       "viewport_change",
       "window_resize",

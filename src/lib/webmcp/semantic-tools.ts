@@ -410,6 +410,7 @@ const draftDelivery = z
     mode: z.literal("draft"),
     draftId: draftId.optional(),
     expectedDraftRevision: z.number().int().positive().optional(),
+    updateMode: z.enum(["replace", "patch"]).default("replace"),
   })
   .strict()
   .superRefine((value, context) => {
@@ -417,6 +418,13 @@ const draftDelivery = z
       context.addIssue({
         code: "custom",
         message: "draftId and expectedDraftRevision must be supplied together when replacing a draft.",
+      });
+    }
+    if (value.updateMode === "patch" && value.draftId === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["updateMode"],
+        message: "updateMode=patch is only valid with an exact draftId and expectedDraftRevision.",
       });
     }
   });
@@ -541,6 +549,7 @@ const WORLD_PATH_SEGMENT_JSON_SCHEMA = {
 // without duplicating every discriminated-union branch in the browser budget.
 const TRANSACTION_TOOL_INPUT_SCHEMA = {
   type: "object",
+  additionalProperties: false,
   required: ["operations"],
   properties: {
     operations: {
@@ -549,21 +558,33 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       maxItems: 200,
       items: {
         type: "object",
+        additionalProperties: false,
         required: ["op"],
         properties: {
           op: { enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update", "create_diagram", "edit_diagram", "auto_layout"] },
-          tempRef: { type: "string", description: "Request-local alias; reusable by later ops and cumulative draft replacements." },
+          tempRef: { type: "string", description: "Stable request-local alias." },
           objectId: { type: "string" },
           expectedRevision: { type: "integer" },
           leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
-          patch: { type: "object", description: "Object patch. Path start/segments use normalized object-local 0..1 coordinates; draw points use local canvas units." },
+          patch: { type: "object", description: "Object patch; path coordinates follow the documented conventions." },
           semanticName: { type: "string", minLength: 1, maxLength: 160 },
           semanticRole: { type: "string", minLength: 1, maxLength: 128 },
           label: { type: "string" },
           content: { type: "string" },
           nodeType: { enum: ["service", "component", "requirement", "decision", "open_question"] },
-          nodeMetadata: { type: "object" },
+          nodeMetadata: {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind"],
+            properties: {
+              kind: { enum: ["decision", "open_question"] },
+              status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
+              owner: { type: ["string", "null"] },
+              resolution: { type: ["string", "null"] },
+            },
+            description: "Decision/open-question lifecycle only; omit for ordinary nodes.",
+          },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           fill: { $ref: "#/$defs/paint" },
           stroke: { $ref: "#/$defs/paint" },
@@ -572,12 +593,12 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           align: { enum: ["start", "middle", "end"] },
           points: {
             type: "array",
-            description: "World {x,y} points for drawing/polygon create; normalized/local storage is derived.",
+            description: "World {x,y} points; local storage is derived.",
             items: { type: "object" },
           },
           segments: {
             type: "array",
-            description: "World numeric segments; line={kind,to}, quadratic adds control, cubic adds control1/control2; points are {x,y}.",
+            description: "World segments: line{to}; quadratic{to,control}; cubic{to,control1,control2}.",
             items: WORLD_PATH_SEGMENT_JSON_SCHEMA,
           },
           closed: { type: "boolean" },
@@ -588,7 +609,10 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           fillRule: { enum: ["nonzero", "evenodd"] },
           start: { type: "object", description: "World {x,y}, or connector {objectId|tempRef,port?}." },
           end: { type: "object", description: "Connector world point or object/temp reference." },
-          routing: { type: "object" },
+          routing: {
+            type: "object",
+            description: "mode auto|straight|elbow|curved; curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
+          },
           direction: { enum: ["none", "end", "both"] },
           diagramId: { type: "string" },
           title: { type: "string" },
@@ -598,14 +622,14 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           },
           category: { type: ["string", "null"] },
           tags: { type: "array", items: { type: "string" } },
-          members: { type: "array", items: { type: "object" }, description: "Exact {objectId}|{tempRef} members; omit to infer created non-connectors. [] stays empty." },
-          connectors: { type: "array", items: { type: "object" }, description: "Exact {objectId}|{tempRef} connectors; omit to infer created connectors. [] stays empty." },
-          x: { type: "number", description: "Canvas-unit x of the unrotated top-left." },
-          y: { type: "number", description: "Canvas-unit y of the unrotated top-left." },
-          width: { type: "number", description: "Unrotated canvas-unit width." },
-          height: { type: "number", description: "Unrotated canvas-unit height." },
-          rotation: { type: "number", description: "Clockwise radians; object/path center pivot, drawing local-origin pivot." },
-          zIndex: { type: "integer", description: "Higher paints in front." },
+          members: { type: "array", items: { type: "object" } },
+          connectors: { type: "array", items: { type: "object" }, description: "Exact connector refs; omit to infer, [] means empty." },
+          x: { type: "number" },
+          y: { type: "number" },
+          width: { type: "number" },
+          height: { type: "number" },
+          rotation: { type: "number" },
+          zIndex: { type: "integer" },
           groupId: { type: ["string", "null"] },
           layout: { enum: ["flow", "grid", "hierarchy"] },
           layoutDirection: { enum: ["right", "down"] },
@@ -622,17 +646,29 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
     responseDetail: { enum: ["concise", "detailed"] },
     delivery: {
       type: "object",
-      description: "Preferred for user-visible new multi-object composition. Omit only for revision-checked correction, explicitly instant work, or no live audience.",
+      description: "Use for visible new multi-object composition.",
       additionalProperties: false,
       required: ["mode"],
       properties: {
         mode: { const: "draft" },
         draftId: { type: "string" },
         expectedDraftRevision: { type: "integer" },
+        updateMode: {
+          enum: ["replace", "patch"],
+          description: "Existing draft: patch affected tempRefs; replace the full candidate. Omit initially.",
+        },
       },
       oneOf: [
         { required: ["draftId", "expectedDraftRevision"] },
-        { not: { anyOf: [{ required: ["draftId"] }, { required: ["expectedDraftRevision"] }] } },
+        {
+          not: {
+            anyOf: [
+              { required: ["draftId"] },
+              { required: ["expectedDraftRevision"] },
+              { required: ["updateMode"] },
+            ],
+          },
+        },
       ],
     },
   },
@@ -1159,16 +1195,19 @@ function diagramQualityReports(room: RoomState, diagramIds: readonly string[]) {
   };
 }
 
-function draftQualityReports(room: RoomState, draft: AgentCanvasDraftSnapshot) {
+function draftPreviewQuality(room: RoomState, draft: AgentCanvasDraftSnapshot) {
   const objects = { ...room.objects };
   for (const object of draft.previewObjects) objects[object.id] = object;
   const diagrams = { ...room.diagrams };
   for (const diagram of draft.previewDiagrams) diagrams[diagram.id] = diagram;
   const provisionalRoom: RoomState = { ...room, objects, diagrams };
-  return diagramQualityReports(
-    provisionalRoom,
-    draft.previewDiagrams.map((diagram) => diagram.id),
-  );
+  return {
+    room: provisionalRoom,
+    quality: diagramQualityReports(
+      provisionalRoom,
+      draft.previewDiagrams.map((diagram) => diagram.id),
+    ),
+  };
 }
 
 function visualVerification(
@@ -1403,6 +1442,7 @@ function compactValidation(
 function compactDraftValidation(
   quality: ReturnType<typeof diagramQualityReports>,
   totalPreviewDiagramCount: number,
+  room: RoomState,
 ) {
   const findings = quality.reports.flatMap((report) =>
     report.findings.map((finding) => ({
@@ -1417,6 +1457,12 @@ function compactDraftValidation(
     })),
   );
   const returnedFindings = findings.slice(0, DRAFT_VALIDATION_FINDING_LIMIT);
+  const referencedObjectIds = uniqueStrings(
+    returnedFindings.flatMap((finding) => finding.objectIds),
+  ).sort();
+  const referencedConnectorIds = uniqueStrings(
+    returnedFindings.flatMap((finding) => finding.connectorIds),
+  ).sort();
   return {
     ...compactValidation(quality, totalPreviewDiagramCount),
     authority:
@@ -1429,6 +1475,45 @@ function compactDraftValidation(
       truncated: returnedFindings.length < findings.length,
       omittedFindingCount: Math.max(0, findings.length - returnedFindings.length),
     },
+    reasoningContext: {
+      objects: referencedObjectIds.flatMap((objectId) => {
+        const object = room.objects[objectId];
+        if (!object) return [];
+        return [{
+          id: object.id,
+          semanticName: object.semanticName ?? null,
+          semanticRole: object.semanticRole ?? null,
+          kind: object.kind,
+          displayText: objectVisibleText(object),
+          bounds: boundsForObject(object),
+        }];
+      }),
+      connectors: referencedConnectorIds.flatMap((connectorId) => {
+        const connector = room.objects[connectorId];
+        if (!connector || connector.kind !== "connector") return [];
+        const route = materializeConnectorRoute(connector, room);
+        const startObject = connector.start.objectId
+          ? room.objects[connector.start.objectId]
+          : null;
+        const endObject = connector.end.objectId
+          ? room.objects[connector.end.objectId]
+          : null;
+        return [{
+          id: connector.id,
+          semanticName: connector.semanticName ?? null,
+          semanticRole: connector.semanticRole ?? null,
+          label: connector.label,
+          startObjectId: connector.start.objectId,
+          startSemanticName: startObject?.semanticName ?? null,
+          endObjectId: connector.end.objectId,
+          endSemanticName: endObject?.semanticName ?? null,
+          routing: route.routing,
+          points: route.points,
+          pathBounds: route.pathBounds,
+          labelBounds: route.labelBounds,
+        }];
+      }),
+    },
   };
 }
 
@@ -1440,7 +1525,7 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `Review draftValidation findings before publication. If any are unintended, replace the complete cumulative draft using draftId=${draft.id} and expectedDraftRevision=${draft.revision}, then recheck its receipt. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    return `Review draftValidation findings before publication. If any are unintended, repair only affected stable tempRefs using delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}, then recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
   }
   return "Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.";
 }
@@ -1481,9 +1566,11 @@ function conciseDraftReceipt(
   room: RoomState,
   presentation?: ReturnType<NonNullable<JazzboardWebMcpBinding["context"]["getAgentDraftPresentation"]>>,
 ) {
+  const preview = draftPreviewQuality(room, draft);
   const draftValidation = compactDraftValidation(
-    draftQualityReports(room, draft),
+    preview.quality,
     draft.previewDiagrams.length,
+    preview.room,
   );
   return {
     outcome: "drafted" as const,
@@ -1966,7 +2053,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "Atomically create or update semantic canvas objects. For visible new multi-object work, set delivery.mode=draft, then call finish_canvas_draft with action=commit yourself. A draft is bot-traced delivery, not review; do not ask for confirmation. Only outcome=proposed requires human review. Omit delivery for existing-object corrections or explicit instant work. Replacements send complete cumulative operations with the exact draft ID and revision.",
+        "Atomic canvas create/update. Root only: operations, delivery, responseDetail, intent, summary. For visible multi-object work use delivery.mode=draft, then finish_canvas_draft yourself—no confirmation. Drafts are bot-traced, not review; only proposed needs review. Repair by exact draft ID/revision with updateMode=patch and affected stable tempRefs; replace only for removal. No expectedRoomRevision. Omit delivery for existing corrections.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2055,6 +2142,10 @@ export function createJazzboardSemanticWebMcpTools(
           rotation: number;
         }>();
         for (const object of Object.values(currentRoom?.objects ?? {})) geometry.set(object.id, object);
+        for (const object of existingDraft?.previewObjects ?? []) geometry.set(object.id, object);
+        const existingPreviewObjects = new Map(
+          (existingDraft?.previewObjects ?? []).map((object) => [object.id, object]),
+        );
         const commands: CanvasCommand[] = [];
         const diagramCommands: DiagramCommand[] = [];
         const deferredConnections: z.output<typeof connectOperation>[] = [];
@@ -2079,6 +2170,8 @@ export function createJazzboardSemanticWebMcpTools(
         );
         let createIndex = 0;
         let zIndex = nextZIndex(currentRoom);
+        const candidateZIndex = (objectId: string, requested?: number) =>
+          requested ?? existingPreviewObjects.get(objectId)?.zIndex ?? zIndex++;
 
         const idFor = (reference: z.output<typeof objectReference>): string => {
           if ("objectId" in reference) return reference.objectId;
@@ -2117,7 +2210,7 @@ export function createJazzboardSemanticWebMcpTools(
               kind: "draw",
               ...drawing,
               rotation: operation.rotation,
-              zIndex: operation.zIndex ?? zIndex++,
+              zIndex: candidateZIndex(objectId, operation.zIndex),
               groupId: operation.groupId,
               color: operation.color,
               size: operation.size,
@@ -2137,7 +2230,7 @@ export function createJazzboardSemanticWebMcpTools(
               ...path,
               closed: operation.op === "create_path" ? operation.closed : true,
               rotation: operation.rotation,
-              zIndex: operation.zIndex ?? zIndex++,
+              zIndex: candidateZIndex(objectId, operation.zIndex),
               groupId: operation.groupId,
               fill: operation.fill,
               stroke: operation.stroke,
@@ -2158,7 +2251,7 @@ export function createJazzboardSemanticWebMcpTools(
             ...transactionSemanticIdentity(operation),
             ...position,
             rotation: operation.rotation ?? 0,
-            zIndex: operation.zIndex ?? zIndex++,
+            zIndex: candidateZIndex(objectId, operation.zIndex),
             groupId: operation.groupId ?? null,
           };
           let object: CreateCanvasObject;
@@ -2259,7 +2352,7 @@ export function createJazzboardSemanticWebMcpTools(
             width: Math.max(Math.abs(end.x - start.x), 1),
             height: Math.max(Math.abs(end.y - start.y), 1),
             rotation: 0,
-            zIndex: operation.zIndex ?? zIndex++,
+            zIndex: candidateZIndex(objectId, operation.zIndex),
             groupId: null,
             start,
             end,
@@ -2390,7 +2483,10 @@ export function createJazzboardSemanticWebMcpTools(
               method: existingDraft ? "PUT" : "POST",
               body: JSON.stringify({
                 ...(existingDraft
-                  ? { expectedDraftRevision: input.delivery.expectedDraftRevision }
+                  ? {
+                      expectedDraftRevision: input.delivery.expectedDraftRevision,
+                      updateMode: input.delivery.updateMode,
+                    }
                   : { draftId: stagedDraftId }),
                 baselineRoomRevision:
                   existingDraft?.baselineRoomRevision ?? currentRoom!.roomRevision,
@@ -2409,9 +2505,11 @@ export function createJazzboardSemanticWebMcpTools(
           if (input.responseDetail === "concise") {
             return conciseDraftReceipt(response.draft, currentRoom!, presentation);
           }
+          const preview = draftPreviewQuality(currentRoom!, response.draft);
           const draftValidation = compactDraftValidation(
-            draftQualityReports(currentRoom!, response.draft),
+            preview.quality,
             response.draft.previewDiagrams.length,
+            preview.room,
           );
           return {
             outcome: "drafted",

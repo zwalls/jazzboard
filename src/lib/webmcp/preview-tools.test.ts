@@ -751,10 +751,18 @@ describe("render_canvas_preview WebMCP tool", () => {
           height: 180,
         },
         pixelCaptureProtocol: {
-          schemaVersion: 2,
-          capture: "full_viewport_while_validation_selector_is_active",
-          crop: "crop_the_captured_pixels_to_screenshotClip_in_viewport_css_pixels",
+          schemaVersion: 3,
+          capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active",
+          crop: "use_screenshotClip_in_viewport_css_pixels",
           copyReady: {
+            preferredPath: "directClip",
+            directClip: {
+              precondition: "browser_screenshot_clip_is_documented_as_non_mutating",
+              action: "browser_screenshot",
+              arguments: { clip: { x: 12, y: 24, width: 320, height: 180 } },
+              resultReference: "inspectionPixels",
+            },
+            fallbackPath: "fullViewportCrop",
             browserCapture: {
               action: "browser_screenshot",
               arguments: { fullPage: false },
@@ -782,7 +790,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
         geometryQualityStatus: "unknown",
-        nextStep: expect.stringMatching(/Framing is not visual QA.*screenshotClip.*Do not report visual QA as passed/),
+        nextStep: expect.stringMatching(/Framing is not visual QA.*directClip.*fullViewportCrop/i),
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");
@@ -854,8 +862,15 @@ describe("render_canvas_preview WebMCP tool", () => {
     const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     expect(result.data).toMatchObject({
       pixelCaptureProtocol: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         copyReady: {
+          preferredPath: "directClip",
+          directClip: {
+            action: "browser_screenshot",
+            arguments: { clip: { x: 12, y: 24, width: 320, height: 180 } },
+            resultReference: "inspectionPixels",
+          },
+          fallbackPath: "fullViewportCrop",
           browserCapture: { action: "browser_screenshot", arguments: { fullPage: false } },
           crop: {
             action: "crop_image_in_memory",

@@ -176,3 +176,26 @@ Report exact observed durations, call counts, quality decisions, and paired
 differences. Do not call an ordinal score a percentage and do not generalize
 from this micro-pilot. A later randomized multi-task replication is required
 before making a broad speed-with-quality claim.
+
+## Development addendum — candidate reopened before production J1
+
+The deployment named in the original candidate amendment required Vercel
+login, so an isolated projectless author could not access it. No production
+`J1` brief was released against that deployment. The candidate was therefore
+reopened for non-scoring local development qualifications; this does not alter
+or discard the retained `J0` baseline.
+
+Four fresh local qualifications were retained rather than selectively hidden.
+They reduced author wall time from 427,292 ms to 343,979 ms, 310,733 ms, and
+finally 253,862 ms as bounded transport and guidance defects were corrected.
+Their final blocking-geometry counts were 8, 8, 3, and 0 respectively. The
+fourth qualification preserved all nine required entities and nine required
+relationships, retained three non-blocking warnings, performed an exact pixel
+capture, and was 46.8% faster than the 477,603 ms production baseline. Full
+evidence is retained in
+`research/reports/exp-0003-qualification-4.md`.
+
+The next candidate freeze must name a public production-accessible deployment
+before releasing exactly one fresh matched production `J1`. Local
+qualifications remain mechanism-development evidence only and are not pooled
+with the production comparison.

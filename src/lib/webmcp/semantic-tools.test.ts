@@ -314,8 +314,13 @@ describe("role-scoped semantic tool registration", () => {
     }
 
     const transactionSchema = schemaFor(tools, "apply_canvas_transaction");
+    expect(transactionSchema.additionalProperties).toBe(false);
+    expect(transactionSchema.properties).not.toHaveProperty("expectedRoomRevision");
     expect(transactionSchema.properties?.responseDetail).toEqual({ enum: ["concise", "detailed"] });
-    expect(transactionSchema.properties?.operations?.items?.properties?.routing).toEqual({ type: "object" });
+    expect(transactionSchema.properties?.operations?.items?.properties?.routing).toMatchObject({
+      type: "object",
+      description: expect.stringMatching(/curved needs.*bend.*elbowMidPoint/i),
+    });
     expect(transactionSchema.properties?.operations?.items?.properties?.semanticName).toMatchObject({
       type: "string",
       maxLength: 160,
@@ -331,7 +336,11 @@ describe("role-scoped semantic tool registration", () => {
       .toMatch(/objectId\|tempRef/);
     const createNodeSchema = operationSchema(transactionSchema, "create_node");
     expect(createNodeSchema.required).toEqual(["op"]);
-    expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toEqual({ type: "object" });
+    expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      description: expect.stringMatching(/lifecycle only.*omit for ordinary/i),
+    });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(["op"]);
     expect(batchDiagramRequired).not.toContain("diagramId");
@@ -399,10 +408,10 @@ describe("role-scoped semantic tool registration", () => {
 
     expect(patchSchema).toMatchObject({
       type: "object",
-      description: expect.stringMatching(/normalized object-local 0\.\.1/),
+      description: expect.stringMatching(/path coordinates.*documented conventions/i),
     });
     expect(transactionSchema.properties?.operations?.items?.properties?.segments?.description)
-      .toMatch(/quadratic.*control.*cubic.*control1\/control2/);
+      .toMatch(/quadratic.*control.*cubic.*control1.*control2/);
 
     const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
@@ -603,13 +612,16 @@ describe("progressive draft delivery", () => {
       type: "object",
       required: ["mode"],
       oneOf: expect.any(Array),
-      description: expect.stringMatching(/preferred.*user-visible new multi-object composition/i),
+      description: expect.stringMatching(/visible new multi-object composition/i),
     });
-    expect(transactionTool.description).toMatch(/visible new multi-object work.*delivery\.mode=draft/i);
-    expect(transactionTool.description).toMatch(/bot-traced delivery.*not review.*do not ask for confirmation/i);
-    expect(transactionTool.description).toMatch(/call finish_canvas_draft.*yourself/i);
-    expect(transactionTool.description).toMatch(/existing-object corrections.*explicit instant/i);
+    expect(transactionTool.description).toMatch(/visible multi-object work.*delivery\.mode=draft/i);
+    expect(transactionTool.description).toMatch(/bot-traced.*not review/i);
+    expect(transactionTool.description).toMatch(/finish_canvas_draft.*yourself.*no confirmation/i);
+    expect(transactionTool.description).toMatch(/existing corrections/i);
+    expect(transactionTool.description).toMatch(/root only:.*no expectedRoomRevision/i);
+    expect(transactionTool.description).toMatch(/updateMode=patch.*affected stable tempRefs/i);
     expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
+    expect(validates({ operations, expectedRoomRevision: 7 })).toBe(false);
     expect(validates({
       operations,
       delivery: {
@@ -622,6 +634,19 @@ describe("progressive draft delivery", () => {
       operations,
       delivery: { mode: "draft", draftId: "draft_architecture" },
     })).toBe(false);
+    expect(validates({
+      operations,
+      delivery: { mode: "draft", updateMode: "patch" },
+    })).toBe(false);
+    expect(validates({
+      operations,
+      delivery: {
+        mode: "draft",
+        draftId: "draft_architecture",
+        expectedDraftRevision: 2,
+        updateMode: "patch",
+      },
+    })).toBe(true);
 
     await expect(execute(transactionTool, {
       operations,
@@ -919,6 +944,30 @@ describe("progressive draft delivery", () => {
             limit: 24,
             truncated: false,
           },
+          reasoningContext: {
+            objects: expect.arrayContaining([
+              expect.objectContaining({
+                id: "api",
+                semanticName: null,
+                displayText: "Checkout API",
+                bounds: { x: 0, y: 100, width: 200, height: 100 },
+              }),
+              expect.objectContaining({
+                id: "db",
+                displayText: "Orders DB",
+              }),
+            ]),
+            connectors: expect.arrayContaining([
+              expect.objectContaining({
+                id: "api-db",
+                label: "writes",
+                startObjectId: "api",
+                endObjectId: "db",
+                points: expect.any(Array),
+                labelBounds: expect.any(Object),
+              }),
+            ]),
+          },
         },
         nextStep: expect.stringMatching(
           /review draftValidation.*if any are unintended.*replace.*deliberate geometry is valid/i,
@@ -1079,6 +1128,58 @@ describe("progressive draft delivery", () => {
       }),
     ]));
     expect(state.acceptedDrafts.map(({ revision }) => revision)).toEqual([1, 1, 2, 2, 3]);
+  });
+
+  it("sends a targeted exact-revision patch without resending unaffected draft operations", async () => {
+    const state = fixture();
+    const existing = agentDraft({
+      revision: 3,
+      temporaryReferences: { note: "text_stable", untouched: "shape_stable" },
+    });
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return { ok: true, draft: existing };
+      return {
+        ok: true,
+        draft: agentDraft({
+          revision: 4,
+          temporaryReferences: existing.temporaryReferences,
+        }),
+      };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "create_text",
+        tempRef: "note",
+        content: "Only this candidate changed",
+        x: 40,
+        y: 50,
+      }],
+      delivery: {
+        mode: "draft",
+        draftId: existing.id,
+        expectedDraftRevision: existing.revision,
+        updateMode: "patch",
+      },
+    })).resolves.toMatchObject({ ok: true, data: { draftRevision: 4 } });
+
+    const put = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(put.body));
+    expect(body).toMatchObject({
+      expectedDraftRevision: 3,
+      updateMode: "patch",
+      temporaryReferences: { note: "text_stable" },
+    });
+    expect(body.transaction.commands).toEqual([
+      expect.objectContaining({
+        type: "create",
+        object: expect.objectContaining({ id: "text_stable", content: "Only this candidate changed" }),
+      }),
+    ]);
   });
 
   it("stops after exact-read when the persisted draft revision has changed", async () => {

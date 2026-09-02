@@ -247,6 +247,72 @@ describe("agent canvas draft service", () => {
     expect((await listAgentCanvasDrafts({ roomId: room.id, participantId: "p_owner" })).drafts).toEqual([]);
   });
 
+  it("patches only affected stable candidate IDs while preserving the rest of the draft", async () => {
+    const { store, room } = await seedRoom();
+    const initial = stageRequest(room.roomRevision);
+    initial.transaction.commands.push({
+      type: "create",
+      object: {
+        id: "draft_second",
+        kind: "text",
+        x: 300,
+        y: 30,
+        width: 220,
+        height: 80,
+        rotation: 0,
+        zIndex: 1,
+        groupId: null,
+        content: "Second candidate",
+        color: "black",
+        size: "m",
+        align: "start",
+      },
+    });
+    initial.temporaryReferences.second = "draft_second";
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: initial,
+    });
+    const secondCommand = structuredClone(initial.transaction.commands[1]);
+    if (secondCommand?.type !== "create" || secondCommand.object.kind !== "text") {
+      throw new Error("Expected a text candidate to patch.");
+    }
+    secondCommand.object.content = "Second candidate repaired";
+
+    const patched = await replaceAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        updateMode: "patch",
+        baselineRoomRevision: room.roomRevision,
+        transaction: {
+          commands: [secondCommand],
+          diagramCommands: [],
+        },
+        temporaryReferences: { second: "draft_second" },
+      },
+    });
+
+    expect(patched.previewObjects).toEqual([
+      expect.objectContaining({ id: "draft_note", content: "Progressive draft" }),
+      expect.objectContaining({ id: "draft_second", content: "Second candidate repaired" }),
+    ]);
+    expect(patched.temporaryReferences).toEqual({ note: "draft_note", second: "draft_second" });
+    await commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: patched.revision },
+    });
+    expect((await store.getRoom(room.id))?.objects).toMatchObject({
+      draft_note: { content: "Progressive draft" },
+      draft_second: { content: "Second candidate repaired" },
+    });
+  });
+
   it("keeps an owner draft alive without mutating the canvas or draft revision", async () => {
     const { store, room } = await seedRoom();
     const staged = await stageAgentCanvasDraft({

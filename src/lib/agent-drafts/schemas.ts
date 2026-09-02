@@ -28,6 +28,7 @@ export const stageAgentCanvasDraftRequestSchema = z
 export const replaceAgentCanvasDraftRequestSchema = z
   .object({
     expectedDraftRevision: positiveRevision,
+    updateMode: z.enum(["replace", "patch"]).default("replace"),
     baselineRoomRevision: positiveRevision,
     transaction: semanticTransactionSchema,
     temporaryReferences: temporaryReferences.default({}),

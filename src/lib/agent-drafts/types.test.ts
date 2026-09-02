@@ -4,7 +4,10 @@ import {
   AGENT_CANVAS_DRAFT_SCHEMA_VERSION,
   isAgentCanvasDraftEvent,
 } from "./types";
-import { stageAgentCanvasDraftRequestSchema } from "./schemas";
+import {
+  replaceAgentCanvasDraftRequestSchema,
+  stageAgentCanvasDraftRequestSchema,
+} from "./schemas";
 
 describe("agent canvas draft contracts", () => {
   it("accepts compact invalidations without embedding draft contents", () => {
@@ -71,5 +74,35 @@ describe("agent canvas draft contracts", () => {
       ...request,
       temporaryReferences: { node_a: "object_a", node_b: "object_a" },
     }).success).toBe(false);
+  });
+
+  it("defaults draft replacements and accepts explicit targeted patches", () => {
+    const request = {
+      expectedDraftRevision: 2,
+      baselineRoomRevision: 1,
+      transaction: {
+        commands: [{
+          type: "create",
+          object: {
+            id: "connector_a",
+            kind: "connector",
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 1,
+            start: { x: 0, y: 0, objectId: null },
+            end: { x: 120, y: 0, objectId: null },
+          },
+        }],
+        diagramCommands: [],
+      },
+      temporaryReferences: { connector_a: "connector_a" },
+    };
+
+    expect(replaceAgentCanvasDraftRequestSchema.parse(request).updateMode).toBe("replace");
+    expect(replaceAgentCanvasDraftRequestSchema.parse({ ...request, updateMode: "patch" }).updateMode)
+      .toBe("patch");
+    expect(replaceAgentCanvasDraftRequestSchema.safeParse({ ...request, updateMode: "merge" }).success)
+      .toBe(false);
   });
 });

@@ -107,8 +107,31 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             draftPreflight: {
               field: "draftValidation",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/unintended.*replace/i),
+              correction: expect.stringMatching(/unintended.*patch.*recheck/i),
             },
+            canonicalDraftSkeleton: {
+              operations: expect.arrayContaining([
+                expect.objectContaining({
+                  op: "connect",
+                  start: {
+                    tempRef: "source",
+                    port: { side: "right", position: 0.5, exact: true },
+                  },
+                  end: {
+                    tempRef: "target",
+                    port: { side: "left", position: 0.5, exact: true },
+                  },
+                }),
+              ]),
+              delivery: { mode: "draft" },
+              responseDetail: "concise",
+            },
+            readabilityHeuristics: expect.arrayContaining([
+              expect.stringMatching(/first draft.*never supply draftId without expectedDraftRevision/i),
+              expect.stringMatching(/connector ports are objects/i),
+              expect.stringMatching(/measurable labeled corridor.*90-110/i),
+              expect.stringMatching(/do not finish.*unintended fail.*patch/i),
+            ]),
             completion: {
               tool: "finish_canvas_draft",
               action: "commit",
@@ -122,7 +145,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           },
         },
       });
-      expect(jsonBytes(result)).toBeLessThan(4_000);
+      expect(jsonBytes(result)).toBeLessThan(6_000);
     }
   });
 

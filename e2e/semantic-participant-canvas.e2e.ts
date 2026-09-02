@@ -10,7 +10,6 @@ import {
   type Route,
 } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import sharp from "sharp";
 
 import {
   connectorObject,
@@ -1192,8 +1191,16 @@ test.describe("first-party semantic participant canvas", () => {
     const preview = successData(await callWebMcpTool<{
       screenshotClip: { x: number; y: number; width: number; height: number };
       pixelCaptureProtocol: {
-        schemaVersion: 2;
+        schemaVersion: 3;
         copyReady: {
+          directClip: {
+            action: "browser_screenshot";
+            arguments: {
+              clip: { x: number; y: number; width: number; height: number };
+            };
+            precondition: "browser_screenshot_clip_is_documented_as_non_mutating";
+            resultReference: "inspectionPixels";
+          };
           browserCapture: {
             action: "browser_screenshot";
             arguments: { fullPage: false };
@@ -1246,8 +1253,21 @@ test.describe("first-party semantic participant canvas", () => {
       geometryQualityStatus: "pass",
       visualInspectionStatus: "not_performed",
       pixelCaptureProtocol: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         copyReady: {
+          directClip: {
+            action: "browser_screenshot",
+            arguments: {
+              clip: expect.objectContaining({
+                x: expect.any(Number),
+                y: expect.any(Number),
+                width: expect.any(Number),
+                height: expect.any(Number),
+              }),
+            },
+            precondition: "browser_screenshot_clip_is_documented_as_non_mutating",
+            resultReference: "inspectionPixels",
+          },
           browserCapture: {
             action: "browser_screenshot",
             arguments: { fullPage: false },
@@ -1274,18 +1294,15 @@ test.describe("first-party semantic participant canvas", () => {
       coordinateSpace: "viewport-css-pixels",
       ...preview.screenshotClip,
     });
-    const fullViewportPixels = await page.screenshot({
-      fullPage: preview.pixelCaptureProtocol.copyReady.browserCapture.arguments.fullPage,
+    expect(preview.pixelCaptureProtocol.copyReady.directClip.arguments.clip).toEqual({
+      x: preview.screenshotClip.x,
+      y: preview.screenshotClip.y,
+      width: preview.screenshotClip.width,
+      height: preview.screenshotClip.height,
     });
-    const clip = preview.pixelCaptureProtocol.copyReady.crop.rectangle;
-    const left = Math.floor(clip.x);
-    const top = Math.floor(clip.y);
-    const previewPng = await sharp(fullViewportPixels).extract({
-      left,
-      top,
-      width: Math.ceil(clip.x + clip.width) - left,
-      height: Math.ceil(clip.y + clip.height) - top,
-    }).png().toBuffer();
+    const previewPng = await page.screenshot({
+      clip: preview.pixelCaptureProtocol.copyReady.directClip.arguments.clip,
+    });
     const pixels = await renderedDiagramPixelStats(page, previewPng, {
       pageBounds: preview.pageBounds,
       routes: analysis.routes,

@@ -597,6 +597,8 @@ export type JazzboardCanvasQuickstart = Readonly<{
     authority: string;
     correction: string;
   }>;
+  canonicalDraftSkeleton: Readonly<Record<string, unknown>>;
+  readabilityHeuristics: readonly string[];
   completion: Readonly<{
     tool: "finish_canvas_draft";
     action: "commit";
@@ -608,6 +610,61 @@ export type JazzboardCanvasQuickstart = Readonly<{
     useOnlyWhen: string;
   }>;
 }>;
+
+const QUICKSTART_CANONICAL_DRAFT_SKELETON = {
+  operations: [
+    {
+      op: "create_node",
+      tempRef: "source",
+      label: "Source",
+      semanticName: "Source",
+      semanticRole: "architecture.source",
+      nodeType: "component",
+      x: 80,
+      y: 180,
+      width: 160,
+      height: 72,
+    },
+    {
+      op: "create_node",
+      tempRef: "target",
+      label: "Target",
+      semanticName: "Target",
+      semanticRole: "architecture.target",
+      nodeType: "service",
+      x: 480,
+      y: 180,
+      width: 160,
+      height: 72,
+    },
+    {
+      op: "connect",
+      tempRef: "source_to_target",
+      semanticName: "Source requests Target",
+      semanticRole: "architecture.request",
+      start: { tempRef: "source", port: { side: "right", position: 0.5, exact: true } },
+      end: { tempRef: "target", port: { side: "left", position: 0.5, exact: true } },
+      direction: "end",
+      label: "request",
+      routing: { mode: "straight", labelPosition: 0.5 },
+    },
+    {
+      op: "create_diagram",
+      tempRef: "diagram",
+      title: "System flow",
+      description: "Source-to-target request flow.",
+      diagramType: "architecture",
+      category: "system",
+      tags: ["request-flow"],
+      members: [{ tempRef: "source" }, { tempRef: "target" }],
+      connectors: [{ tempRef: "source_to_target" }],
+    },
+  ],
+  delivery: { mode: "draft" },
+  responseDetail: "concise",
+  intent: "Create the requested system flow.",
+  summary: "Two semantic nodes and one labeled directed relationship.",
+} as const;
 
 function authority(role: JazzboardWebMcpBinding["role"]): CapabilityAuthority {
   return {
@@ -672,7 +729,7 @@ function canvasQuickstart(
     fastPath: [
       "Read only the exact existing Diagram, neighborhood, or region that affects the requested work; skip a room-wide read for a clearly empty target area.",
       "Submit one full-speed coherent create-only candidate with stable tempRefs, one first-class Diagram, delivery.mode=draft, and responseDetail=concise. Do not split work to pace the visible animation.",
-      "Check draftValidation before finishing. Correct only unintended findings by replacing the complete cumulative draft with its exact ID and revision; deliberate overlap, routing, cropping, and asymmetry remain valid.",
+      "Check draftValidation before finishing. Correct only unintended findings with an exact-revision updateMode=patch containing the affected stable tempRefs, then recheck the new receipt. Use updateMode=replace only to remove or fully replace candidate content; deliberate overlap, routing, cropping, and asymmetry remain valid.",
       "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
       "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
     ],
@@ -682,7 +739,7 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "intent and summary belong at transaction top level; semanticName and semanticRole belong on supported create operations.",
+        "Root fields are only operations, delivery, responseDetail, intent, and summary; expectedRoomRevision is not accepted. intent and summary belong at transaction top level; semanticName and semanticRole belong on supported create operations. nodeMetadata is only for decision/open_question lifecycle state and must be omitted for ordinary service/component/requirement nodes.",
       schemaAuthority:
         "The registered apply_canvas_transaction input schema is authoritative. Do not invent operation fields; follow actionable recovery instead of retrying blindly.",
     },
@@ -691,8 +748,18 @@ function canvasQuickstart(
       authority:
         "Intent-unaware deterministic evidence only; it must never override the requested composition or deliberate geometry.",
       correction:
-        "When an unintended fail or warning is present, replace the unpublished cumulative draft before finish; otherwise preserve the candidate and continue.",
+        "When an unintended fail or warning is present, patch the unpublished draft and recheck the new receipt before finish; otherwise preserve the candidate and continue.",
     },
+    canonicalDraftSkeleton: QUICKSTART_CANONICAL_DRAFT_SKELETON,
+    readabilityHeuristics: [
+      "On the first draft call, use delivery={mode:draft} only. Never supply draftId without expectedDraftRevision; both are required only for an exact-revision patch or replacement.",
+      "Connector ports are objects shaped as {side:left|right|top|bottom, position:0..1, exact:boolean}; a side string alone is invalid.",
+      "A curved connector must include bend with absolute value at least 8 canvas units. Use straight or elbow when no deliberate curve is needed; elbow may include elbowMidPoint from 0..1.",
+      "Leave a measurable labeled corridor between nodes. Typical one-word labels need about 90-110 canvas units of clear gap and longer labels such as replication need roughly 135+; 40-75 unit gaps commonly put label bounds inside endpoint nodes. These are planning facts, not enforced layout.",
+      "Use distinct attachment positions or route lanes when several connectors share one side. This is evidence for agent judgment, never mandatory layout.",
+      "Do not finish while draftValidation still reports an unintended fail. Patch only the affected node or connector tempRefs with the exact draft revision, then inspect the replacement receipt.",
+      "When the user's acceptance criteria explicitly forbid collisions, corresponding draftValidation collision failures are blockers rather than deliberate geometry. This does not apply to creative work that intentionally overlaps.",
+    ],
     completion: {
       tool: "finish_canvas_draft",
       action: "commit",

@@ -1065,12 +1065,26 @@ test.describe("WebMCP browser acceptance", () => {
         exactRevisionsGuardExistingEntityEdits: true,
       },
       data: {
-        bundleIndex: [
-          { bundle: "authoring", call: { bundle: "authoring" } },
-          { bundle: "architecture", call: { bundle: "architecture" } },
-          { bundle: "illustration", call: { bundle: "illustration" } },
-          { bundle: "inspection", call: { bundle: "inspection" } },
-        ],
+        bundleIndex: expect.arrayContaining([
+          expect.objectContaining({
+            bundle: "quickstart_architecture",
+            call: { bundle: "quickstart_architecture" },
+          }),
+          expect.objectContaining({
+            bundle: "quickstart_illustration",
+            call: { bundle: "quickstart_illustration" },
+          }),
+          expect.objectContaining({ bundle: "authoring", call: { bundle: "authoring" } }),
+          expect.objectContaining({
+            bundle: "architecture",
+            call: { bundle: "architecture" },
+          }),
+          expect.objectContaining({
+            bundle: "illustration",
+            call: { bundle: "illustration" },
+          }),
+          expect.objectContaining({ bundle: "inspection", call: { bundle: "inspection" } }),
+        ]),
         universalAgentPrinciples: expect.arrayContaining([
           expect.stringMatching(/user's requested meaning/i),
           expect.stringMatching(/preserve deliberate/i),
@@ -1346,7 +1360,7 @@ test.describe("WebMCP browser acceptance", () => {
       previewId: expect.stringMatching(/^preview_/),
       visualInspectionStatus: "not_performed",
       geometryQualityStatus: "pass",
-      nextStep: expect.stringMatching(/Framing is not visual QA.*screenshotClip/),
+      nextStep: expect.stringMatching(/Framing is not visual QA.*directClip/),
       screenshotClip: {
         coordinateSpace: "viewport-css-pixels",
         x: expect.any(Number),

@@ -203,6 +203,51 @@ function sameTransaction(left: SemanticTransaction, right: SemanticTransaction):
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function patchDraftTransaction(
+  current: SemanticTransaction,
+  patch: SemanticTransaction,
+): SemanticTransaction {
+  const commands = [...current.commands];
+  for (const command of patch.commands) {
+    if (command.type !== "create") {
+      throw new DomainError(
+        "INVALID_OPERATION",
+        "Draft patches may replace or append only create candidates.",
+      );
+    }
+    const index = commands.findIndex(
+      (candidate) => candidate.type === "create" && candidate.object.id === command.object.id,
+    );
+    if (index >= 0) commands[index] = command;
+    else commands.push(command);
+  }
+
+  const diagramCommands = [...current.diagramCommands];
+  for (const command of patch.diagramCommands) {
+    if (command.type !== "diagram.create") {
+      throw new DomainError(
+        "INVALID_OPERATION",
+        "Draft patches may replace or append only Diagram create candidates.",
+      );
+    }
+    const index = diagramCommands.findIndex(
+      (candidate) => candidate.type === "diagram.create" && candidate.diagram.id === command.diagram.id,
+    );
+    if (index >= 0) diagramCommands[index] = command;
+    else diagramCommands.push(command);
+  }
+
+  return {
+    commands,
+    diagramCommands,
+    ...(patch.autoLayout !== undefined
+      ? { autoLayout: patch.autoLayout }
+      : current.autoLayout !== undefined
+        ? { autoLayout: current.autoLayout }
+        : {}),
+  };
+}
+
 function matchingProposal(room: RoomState, draft: AgentCanvasDraft): AgentEditProposal | null {
   const linkedId = draft.awaitingReview?.proposalId;
   if (linkedId) {
@@ -427,7 +472,10 @@ export async function replaceAgentCanvasDraft(input: {
   if (current.ownerParticipantId !== input.participantId) {
     throw new DomainError("FORBIDDEN", "Only the participant that owns this draft may change it.");
   }
-  const ids = validateCreateOnlyTransaction(input.request.transaction);
+  const transaction = input.request.updateMode === "patch"
+    ? patchDraftTransaction(current.transaction, input.request.transaction)
+    : input.request.transaction;
+  const ids = validateCreateOnlyTransaction(transaction);
   const temporaryReferences = mergeTemporaryReferenceReservations({
     current: current.temporaryReferences,
     requested: input.request.temporaryReferences,
@@ -436,7 +484,7 @@ export async function replaceAgentCanvasDraft(input: {
   const preview = previewDraft({
     room,
     participantId: input.participantId,
-    transaction: input.request.transaction,
+    transaction,
     ids,
     now,
   });
@@ -444,10 +492,14 @@ export async function replaceAgentCanvasDraft(input: {
     ...current,
     revision: input.request.expectedDraftRevision + 1,
     baselineRoomRevision: input.request.baselineRoomRevision,
-    transaction: structuredClone(input.request.transaction),
+    transaction: structuredClone(transaction),
     temporaryReferences,
     ...preview,
-    metadata: input.request.metadata ? structuredClone(input.request.metadata) : null,
+    metadata: input.request.metadata
+      ? structuredClone(input.request.metadata)
+      : input.request.updateMode === "patch"
+        ? structuredClone(current.metadata)
+        : null,
     updatedAt: now,
     expiresAt: now + AGENT_DRAFT_SLIDING_TTL_MS,
     hardExpiresAt: now + AGENT_DRAFT_HARD_TTL_MS,

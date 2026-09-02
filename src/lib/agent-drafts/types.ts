@@ -168,6 +168,12 @@ export type StageAgentCanvasDraftRequest = {
 
 export type ReplaceAgentCanvasDraftRequest = Omit<StageAgentCanvasDraftRequest, "draftId"> & {
   expectedDraftRevision: number;
+  /**
+   * replace keeps the historical full-candidate behavior. patch replaces or
+   * appends only candidate creates carrying the submitted stable IDs, so an
+   * author can repair a route without resending the whole composition.
+   */
+  updateMode?: "replace" | "patch";
 };
 
 export type KeepaliveAgentCanvasDraftRequest = {
