@@ -12,6 +12,23 @@ to the authoring session.
 Prefer machine-readable JSON or JSONL outputs with schema versions. Emit hashes
 for prompts, traces, room-state snapshots, media, and scorer configuration.
 
+## Speed-with-quality trace analysis
+
+`analyze-codex-author-speed.mjs` turns one retained `read_thread` JSON export
+into a prompt-free timing summary. It separates host execution from residual
+model-and-coordination wall time, counts browser-exposed WebMCP calls, and
+classifies room entry, discovery, initial authoring, draft finish, inspection,
+correction, and final reads. It does not estimate hidden reasoning time,
+tokens, authoritative completion, or presentation completion.
+
+```sh
+node research/scripts/analyze-codex-author-speed.mjs \
+  --input /absolute/path/to/read-thread.json
+```
+
+The EXP-0003 protocol defines how this diagnostic is combined with separate
+room activity and live presentation evidence.
+
 ## Terra/medium role qualification v2
 
 The prospective three-task compatibility qualification is operated through
