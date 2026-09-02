@@ -58,9 +58,14 @@ Start with these persisted documents after any handoff or context reset:
   its version-1 gate is revoked and cannot authorize A/A execution. The v2
   spike proves semantic transport and authoritative activity only; final PNG
   bytes are collected and verified independently for each real attempt.
-- [`protocols/exp-0001a-model-policy-amendment-v1.md`](protocols/exp-0001a-model-policy-amendment-v1.md)
+- [`protocols/exp-0001a-model-policy-amendment-v2.md`](protocols/exp-0001a-model-policy-amendment-v2.md)
   freezes the three-task Terra/medium author qualification and keeps the
   existing 48-attempt A/A blocked and unmodified until that gate passes.
+- [`reports/exp0001a-terra-medium-qualification-v2.md`](reports/exp0001a-terra-medium-qualification-v2.md)
+  records the signed three-task compatibility pass: three valid Terra/medium
+  authors, six accepting blinded Sol/high primary reviews, and no adjudication
+  or usage-limit interruption. The pass makes a separately signed successor
+  runtime eligible; it does not by itself release the 48-attempt A/A.
 - [`reports/exp0001a-browser-attached-transport-spike-v1.md`](reports/exp0001a-browser-attached-transport-spike-v1.md)
   records the direct-origin Terra/medium production transport pass. A fresh
   browser-attached author self-provisioned a private room and produced an
