@@ -37,34 +37,116 @@ function jsonBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
+function namedTool(tools: WebMCP.ModelContextTool[], name: string) {
+  const result = tools.find((tool) => tool.name === name);
+  if (!result) throw new Error(`Missing ${name}`);
+  return result;
+}
+
 describe("get_canvas_capabilities WebMCP tool", () => {
-  it("is one compact read-only bundle selector for participants and spectators", () => {
+  it("registers one compact read-only quickstart and bundle selector", () => {
     for (const role of ["participant", "spectator"] as const) {
       const tools = createJazzboardCanvasCapabilityWebMcpTools(binding(role));
       expect(tools.map(({ name }) => name)).toEqual(
         JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
       );
-      expect(tools[0]?.annotations).toEqual({ readOnlyHint: true });
-      expect(tools[0]?.description).toMatch(/guidance.*never grant permissions/i);
-      expect(tools[0]?.inputSchema).toEqual({
+      const capabilityTool = namedTool(tools, "get_canvas_capabilities");
+      expect(capabilityTool.annotations).toEqual({ readOnlyHint: true });
+      expect(capabilityTool.description).toMatch(/start.*one quickstart.*do not preload/i);
+      expect(capabilityTool.description).toMatch(/guidance never grants permissions/i);
+      expect(capabilityTool.inputSchema).toEqual({
         type: "object",
         properties: {
           bundle: {
             type: "string",
             enum: JAZZBOARD_CANVAS_CAPABILITY_BUNDLES,
-            description: "Defaults to core; request one task bundle only when relevant.",
+            description: "Prefer one quickstart; omission defaults to core.",
           },
         },
         additionalProperties: false,
       });
 
-      expect(jsonBytes(tools[0])).toBeLessThan(1_000);
+      expect(jsonBytes(capabilityTool)).toBeLessThan(1_000);
+    }
+  });
+
+  it("returns a self-contained fast path without taking creative control", async () => {
+    for (const role of ["participant", "spectator"] as const) {
+      const tool = namedTool(
+        createJazzboardCanvasCapabilityWebMcpTools(binding(role)),
+        "get_canvas_capabilities",
+      );
+      const result = await execute(tool, { bundle: "quickstart_architecture" });
+      expect(result).toMatchObject({
+        ok: true,
+        tool: "get_canvas_capabilities",
+        data: {
+          schemaVersion: 2,
+          bundle: "quickstart_architecture",
+          role,
+          authority: { roleCanMutateCanvas: role === "participant" },
+          data: {
+            schemaVersion: 1,
+            task: "architecture",
+            role,
+            roleCanMutateCanvas: role === "participant",
+            fastPath: expect.arrayContaining([
+              expect.stringMatching(/one full-speed coherent/i),
+              expect.stringMatching(/draftValidation/i),
+              expect.stringMatching(/finish_canvas_draft.*no user confirmation/i),
+              expect.stringMatching(/inspect_canvas_scope/i),
+            ]),
+            transactionContract: {
+              tool: "apply_canvas_transaction",
+              delivery: { mode: "draft" },
+              responseDetail: "concise",
+              operationLimit: 200,
+              metadataPlacement: expect.stringMatching(/intent and summary.*top level/i),
+              schemaAuthority: expect.stringMatching(/authoritative.*do not invent/i),
+            },
+            draftPreflight: {
+              field: "draftValidation",
+              authority: expect.stringMatching(/intent-unaware.*never override/i),
+              correction: expect.stringMatching(/unintended.*replace/i),
+            },
+            completion: {
+              tool: "finish_canvas_draft",
+              action: "commit",
+              confirmationRequired: false,
+              finalInspection: "inspect_canvas_scope",
+            },
+            escalation: {
+              capabilityTool: "get_canvas_capabilities",
+              useOnlyWhen: expect.stringMatching(/at most.*architecture.*do not preload multiple/i),
+            },
+          },
+        },
+      });
+      expect(jsonBytes(result)).toBeLessThan(4_000);
+    }
+  });
+
+  it("rejects invalid quickstart bundle names and fields", async () => {
+    const tool = namedTool(
+      createJazzboardCanvasCapabilityWebMcpTools(binding("participant")),
+      "get_canvas_capabilities",
+    );
+    for (const input of [{ bundle: "quickstart_drawing" }, { bundle: "quickstart_architecture", extra: true }, null]) {
+      await expect(execute(tool, input)).resolves.toMatchObject({
+        ok: false,
+        tool: "get_canvas_capabilities",
+        error: {
+          code: "INVALID_TOOL_INPUT",
+          message: expect.stringMatching(/listed quickstart or capability bundle/i),
+        },
+      });
     }
   });
 
   it("defaults to a compact schema-v2 core with universal authority and mechanics", async () => {
-    const [tool] = createJazzboardCanvasCapabilityWebMcpTools(
-      binding("participant"),
+    const tool = namedTool(
+      createJazzboardCanvasCapabilityWebMcpTools(binding("participant")),
+      "get_canvas_capabilities",
     );
     const result = await execute(tool!, {});
 
@@ -84,6 +166,8 @@ describe("get_canvas_capabilities WebMCP tool", () => {
         },
         data: {
           bundleIndex: [
+            { bundle: "quickstart_architecture", call: { bundle: "quickstart_architecture" } },
+            { bundle: "quickstart_illustration", call: { bundle: "quickstart_illustration" } },
             { bundle: "authoring", call: { bundle: "authoring" } },
             { bundle: "architecture", call: { bundle: "architecture" } },
             { bundle: "illustration", call: { bundle: "illustration" } },
@@ -154,8 +238,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
   });
 
   it("progressively discloses task-scoped guidance and canonical examples", async () => {
-    const [tool] = createJazzboardCanvasCapabilityWebMcpTools(
-      binding("participant"),
+    const tool = namedTool(
+      createJazzboardCanvasCapabilityWebMcpTools(binding("participant")),
+      "get_canvas_capabilities",
     );
 
     const authoring = await execute(tool!, { bundle: "authoring" });
@@ -309,7 +394,10 @@ describe("get_canvas_capabilities WebMCP tool", () => {
 
   it("keeps bundle guidance separate from role and server authority", async () => {
     for (const role of ["participant", "spectator"] as const) {
-      const [tool] = createJazzboardCanvasCapabilityWebMcpTools(binding(role));
+      const tool = namedTool(
+        createJazzboardCanvasCapabilityWebMcpTools(binding(role)),
+        "get_canvas_capabilities",
+      );
       const result = await execute(tool!, { bundle: "illustration" });
       expect(result).toMatchObject({
         ok: true,
@@ -327,8 +415,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
   });
 
   it("rejects unknown fields, invalid bundles, and non-object inputs", async () => {
-    const [tool] = createJazzboardCanvasCapabilityWebMcpTools(
-      binding("participant"),
+    const tool = namedTool(
+      createJazzboardCanvasCapabilityWebMcpTools(binding("participant")),
+      "get_canvas_capabilities",
     );
 
     for (const input of [
@@ -343,7 +432,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
         tool: "get_canvas_capabilities",
         error: {
           code: "INVALID_TOOL_INPUT",
-          message: expect.stringMatching(/optional.*bundle/i),
+          message: expect.stringMatching(/listed quickstart or capability bundle/i),
         },
       });
     }

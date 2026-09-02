@@ -786,8 +786,15 @@ describe("progressive draft delivery", () => {
           authorityBoundary: expect.stringMatching(/not human review.*finish autonomously/i),
         },
         nextStep: expect.stringMatching(
-          /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,
+          /call finish_canvas_draft once.*exact recommended inspection/i,
         ),
+        draftValidation: {
+          geometryQualityStatus: "pass",
+          totalChangedDiagramCount: 1,
+          findingCount: 0,
+          findings: [],
+          authority: expect.stringMatching(/intent-unaware.*preserve deliberate/i),
+        },
         previewObjects: [{
           id: "node_preview",
           revision: 1,
@@ -843,11 +850,93 @@ describe("progressive draft delivery", () => {
           userConfirmationRequired: false,
         },
         nextStep: expect.stringMatching(
-          /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,
+          /call finish_canvas_draft once.*exact recommended inspection/i,
         ),
+        draftValidation: {
+          geometryQualityStatus: "pass",
+          findingCount: 0,
+          findings: [],
+        },
       },
     });
     expect(getPresentation).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports bounded intent-unaware draft preflight guidance before commit", async () => {
+    const previewApi = {
+      ...node("api", "Checkout API", "service", 0),
+      authority: "draft" as const,
+    };
+    const previewDb = {
+      ...node("db", "Orders DB", "component", 100),
+      authority: "draft" as const,
+    };
+    const previewConnector = {
+      ...connector(),
+      authority: "draft" as const,
+    };
+    const previewDiagram = {
+      ...diagram(),
+      authority: "draft" as const,
+    };
+    const draft = agentDraft({
+      id: "draft_cramped",
+      revision: 1,
+      temporaryReferences: {
+        api: previewApi.id,
+        db: previewDb.id,
+        request: previewConnector.id,
+        diagram: previewDiagram.id,
+      },
+      previewObjects: [previewApi, previewDb, previewConnector],
+      previewDiagrams: [previewDiagram],
+    });
+    const state = fixture(room([]));
+    const request = vi.fn(async () => ({ ok: true, draft })) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, {
+        request,
+        createId: (prefix) => `${prefix}_generated`,
+      }),
+      "apply_canvas_transaction",
+    );
+
+    const result = await execute(transactionTool, {
+      operations: [{ op: "create_node", tempRef: "api", label: "Checkout API", nodeType: "service" }],
+      delivery: { mode: "draft" },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "drafted",
+        draftId: "draft_cramped",
+        draftValidation: {
+          geometryQualityStatus: "fail",
+          failCount: expect.any(Number),
+          authority: expect.stringMatching(/intent-unaware.*correct only unintended/i),
+          findingCoverage: {
+            limit: 24,
+            truncated: false,
+          },
+        },
+        nextStep: expect.stringMatching(
+          /review draftValidation.*if any are unintended.*replace.*deliberate geometry is valid/i,
+        ),
+      },
+    });
+    const data = (result as {
+      ok: true;
+      data: { draftValidation: { findings: Array<Record<string, unknown>> } };
+    }).data;
+    expect(data.draftValidation.findings.length).toBeLessThanOrEqual(24);
+    expect(data.draftValidation.findings.find((finding) => finding.code === "MEMBER_OBJECT_OVERLAP"))
+      .toMatchObject({
+        diagramId: "architecture",
+        status: "fail",
+        summary: expect.stringMatching(/overlap.*unintended/i),
+        objectIds: expect.arrayContaining(["api", "db"]),
+      });
   });
 
   it("keeps tempRef IDs stable when a cumulative draft omits and later reintroduces a candidate", async () => {

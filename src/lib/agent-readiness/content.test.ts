@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.11.0");
+    expect(AGENT_DOC_VERSION).toBe("1.12.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -338,7 +338,7 @@ describe("agent-readable content", () => {
     expect(skill).toContain("do not guess units");
   });
 
-  it("loads a compact core before one relevant task-scoped guidance bundle", () => {
+  it("directs new work through one compact fast path without preloading bundles", () => {
     const documents = {
       llms: makeLlmsTxt(),
       homepage: makeHomepageMarkdown(),
@@ -349,9 +349,19 @@ describe("agent-readable content", () => {
     };
 
     for (const [name, body] of Object.entries(documents)) {
-      expect(body, `${name} omits the default core call`).toContain(
-        "`get_canvas_capabilities` with `{}`",
+      expect(body, `${name} omits architecture quickstart`).toContain("quickstart_architecture");
+      expect(body, `${name} omits illustration quickstart`).toContain("quickstart_illustration");
+      expect(body, `${name} does not discourage context preloading`).toMatch(/do not preload/i);
+      expect(body, `${name} treats bundle guidance as authority`).toMatch(
+        /bundles? (?:are|guide)[^\n]*(?:not|never grant) permissions/i,
       );
+    }
+
+    for (const [name, body] of Object.entries({
+      guide: documents.guide,
+      reference: documents.reference,
+      skill: documents.skill,
+    })) {
       for (const bundle of [
         "authoring",
         "architecture",
@@ -360,13 +370,10 @@ describe("agent-readable content", () => {
       ]) {
         expect(body, `${name} omits ${bundle}`).toContain(bundle);
       }
-      expect(body, `${name} treats bundle guidance as authority`).toMatch(
-        /bundles? (?:are|guide)[^\n]*(?:not|never grant) permissions/i,
-      );
     }
 
     expect(makeAgentGuideMarkdown()).toContain(
-      '`{ "bundle": "architecture" }`',
+      '`{ "bundle": "quickstart_architecture" }`',
     );
   });
 

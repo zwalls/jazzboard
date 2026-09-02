@@ -21,7 +21,17 @@ export const JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES = [
   "get_canvas_capabilities",
 ] as const;
 
+export const JAZZBOARD_CANVAS_QUICKSTART_TASKS = [
+  "architecture",
+  "illustration",
+] as const;
+
+export type JazzboardCanvasQuickstartTask =
+  (typeof JAZZBOARD_CANVAS_QUICKSTART_TASKS)[number];
+
 export const JAZZBOARD_CANVAS_CAPABILITY_BUNDLES = [
+  "quickstart_architecture",
+  "quickstart_illustration",
   "core",
   "authoring",
   "architecture",
@@ -33,6 +43,16 @@ export type JazzboardCanvasCapabilityBundle =
   (typeof JAZZBOARD_CANVAS_CAPABILITY_BUNDLES)[number];
 
 const BUNDLE_INDEX = [
+  {
+    bundle: "quickstart_architecture",
+    useWhen: "Starting new relationship-heavy architecture or flow work.",
+    call: { bundle: "quickstart_architecture" },
+  },
+  {
+    bundle: "quickstart_illustration",
+    useWhen: "Starting new freeform illustration or visual-art work.",
+    call: { bundle: "quickstart_illustration" },
+  },
   {
     bundle: "authoring",
     useWhen:
@@ -542,6 +562,8 @@ type CapabilityEnvelope<
 }>;
 
 export type JazzboardCanvasCapabilities =
+  | CapabilityEnvelope<"quickstart_architecture", JazzboardCanvasQuickstart>
+  | CapabilityEnvelope<"quickstart_illustration", JazzboardCanvasQuickstart>
   | CapabilityEnvelope<"core", Readonly<{
       bundleIndex: typeof BUNDLE_INDEX;
       universalAgentPrinciples: typeof UNIVERSAL_AGENT_PRINCIPLES;
@@ -554,6 +576,38 @@ export type JazzboardCanvasCapabilities =
   | CapabilityEnvelope<"architecture", typeof ARCHITECTURE_BUNDLE>
   | CapabilityEnvelope<"illustration", typeof ILLUSTRATION_BUNDLE>
   | CapabilityEnvelope<"inspection", typeof INSPECTION_BUNDLE>;
+
+export type JazzboardCanvasQuickstart = Readonly<{
+  schemaVersion: 1;
+  task: JazzboardCanvasQuickstartTask;
+  role: JazzboardWebMcpBinding["role"];
+  roleCanMutateCanvas: boolean;
+  purpose: string;
+  fastPath: readonly string[];
+  transactionContract: Readonly<{
+    tool: "apply_canvas_transaction";
+    delivery: Readonly<{ mode: "draft" }>;
+    responseDetail: "concise";
+    operationLimit: 200;
+    metadataPlacement: string;
+    schemaAuthority: string;
+  }>;
+  draftPreflight: Readonly<{
+    field: "draftValidation";
+    authority: string;
+    correction: string;
+  }>;
+  completion: Readonly<{
+    tool: "finish_canvas_draft";
+    action: "commit";
+    confirmationRequired: false;
+    finalInspection: "inspect_canvas_scope";
+  }>;
+  escalation: Readonly<{
+    capabilityTool: "get_canvas_capabilities";
+    useOnlyWhen: string;
+  }>;
+}>;
 
 function authority(role: JazzboardWebMcpBinding["role"]): CapabilityAuthority {
   return {
@@ -575,6 +629,12 @@ function canvasCapabilities(
     role,
     authority: authority(role),
   };
+  if (bundle === "quickstart_architecture") {
+    return { ...envelope, bundle, data: canvasQuickstart(role, "architecture") };
+  }
+  if (bundle === "quickstart_illustration") {
+    return { ...envelope, bundle, data: canvasQuickstart(role, "illustration") };
+  }
   if (bundle === "core") {
     return {
       ...envelope,
@@ -598,6 +658,55 @@ function canvasCapabilities(
   return { ...envelope, bundle, data: INSPECTION_BUNDLE };
 }
 
+function canvasQuickstart(
+  role: JazzboardWebMcpBinding["role"],
+  task: JazzboardCanvasQuickstartTask,
+): JazzboardCanvasQuickstart {
+  return {
+    schemaVersion: 1,
+    task,
+    role,
+    roleCanMutateCanvas: role === "participant",
+    purpose:
+      `Fast complete path for new ${task} work. Use this response instead of preloading core, authoring, and inspection bundles.`,
+    fastPath: [
+      "Read only the exact existing Diagram, neighborhood, or region that affects the requested work; skip a room-wide read for a clearly empty target area.",
+      "Submit one full-speed coherent create-only candidate with stable tempRefs, one first-class Diagram, delivery.mode=draft, and responseDetail=concise. Do not split work to pace the visible animation.",
+      "Check draftValidation before finishing. Correct only unintended findings by replacing the complete cumulative draft with its exact ID and revision; deliberate overlap, routing, cropping, and asymmetry remain valid.",
+      "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
+      "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
+    ],
+    transactionContract: {
+      tool: "apply_canvas_transaction",
+      delivery: { mode: "draft" },
+      responseDetail: "concise",
+      operationLimit: 200,
+      metadataPlacement:
+        "intent and summary belong at transaction top level; semanticName and semanticRole belong on supported create operations.",
+      schemaAuthority:
+        "The registered apply_canvas_transaction input schema is authoritative. Do not invent operation fields; follow actionable recovery instead of retrying blindly.",
+    },
+    draftPreflight: {
+      field: "draftValidation",
+      authority:
+        "Intent-unaware deterministic evidence only; it must never override the requested composition or deliberate geometry.",
+      correction:
+        "When an unintended fail or warning is present, replace the unpublished cumulative draft before finish; otherwise preserve the candidate and continue.",
+    },
+    completion: {
+      tool: "finish_canvas_draft",
+      action: "commit",
+      confirmationRequired: false,
+      finalInspection: "inspect_canvas_scope",
+    },
+    escalation: {
+      capabilityTool: "get_canvas_capabilities",
+      useOnlyWhen:
+        `Call at most the ${task} bundle when an unfamiliar mechanic is genuinely needed, or the quick path is rejected with actionable recovery. Do not preload multiple bundles.`,
+    },
+  };
+}
+
 function invalidInput(details?: Record<string, unknown>): JazzboardToolFailure {
   return withActionableRecovery({
     ok: false,
@@ -605,7 +714,7 @@ function invalidInput(details?: Record<string, unknown>): JazzboardToolFailure {
     error: {
       code: "INVALID_TOOL_INPUT",
       message:
-        "get_canvas_capabilities accepts only an optional core, authoring, architecture, illustration, or inspection bundle.",
+        "get_canvas_capabilities accepts only a listed quickstart or capability bundle.",
       ...(details ? { details } : {}),
     },
   });
@@ -651,14 +760,14 @@ export function createJazzboardCanvasCapabilityWebMcpTools(
     name: "get_canvas_capabilities",
     title: "Read a Jazzboard canvas capability bundle",
     description:
-      "Read the compact core canvas contract or one task-scoped authoring, architecture, illustration, or inspection guidance bundle. Bundles never grant permissions.",
+      "Start new work with one quickstart bundle; do not preload others. Deeper bundles are for recovery. Guidance never grants permissions.",
     inputSchema: {
       type: "object",
       properties: {
         bundle: {
           type: "string",
           enum: JAZZBOARD_CANVAS_CAPABILITY_BUNDLES,
-          description: "Defaults to core; request one task bundle only when relevant.",
+          description: "Prefer one quickstart; omission defaults to core.",
         },
       },
       additionalProperties: false,

@@ -1133,6 +1133,7 @@ function exactDiagramOrThrow(room: RoomState, diagramId: string, expectedRevisio
 
 const AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT = 8;
 const AUTOMATIC_DIAGRAM_QUALITY_OMITTED_ID_LIMIT = 64;
+const DRAFT_VALIDATION_FINDING_LIMIT = 24;
 // A persisted Diagram can contain at most 500 connector IDs. Returning every
 // resolved route for a valid Diagram keeps the analyze -> preview -> correct
 // loop complete without introducing a second pagination protocol. The report
@@ -1156,6 +1157,18 @@ function diagramQualityReports(room: RoomState, diagramIds: readonly string[]) {
     omittedDiagramCount,
     omittedDiagramIdsTruncated: omittedDiagramIds.length < omittedDiagramCount,
   };
+}
+
+function draftQualityReports(room: RoomState, draft: AgentCanvasDraftSnapshot) {
+  const objects = { ...room.objects };
+  for (const object of draft.previewObjects) objects[object.id] = object;
+  const diagrams = { ...room.diagrams };
+  for (const diagram of draft.previewDiagrams) diagrams[diagram.id] = diagram;
+  const provisionalRoom: RoomState = { ...room, objects, diagrams };
+  return diagramQualityReports(
+    provisionalRoom,
+    draft.previewDiagrams.map((diagram) => diagram.id),
+  );
 }
 
 function visualVerification(
@@ -1387,6 +1400,51 @@ function compactValidation(
   };
 }
 
+function compactDraftValidation(
+  quality: ReturnType<typeof diagramQualityReports>,
+  totalPreviewDiagramCount: number,
+) {
+  const findings = quality.reports.flatMap((report) =>
+    report.findings.map((finding) => ({
+      diagramId: report.diagramId,
+      diagramRevision: report.diagramRevision,
+      code: finding.code,
+      status: finding.status,
+      summary: finding.summary,
+      objectIds: finding.objectIds,
+      connectorIds: finding.connectorIds,
+      ...(finding.bounds ? { bounds: finding.bounds } : {}),
+    })),
+  );
+  const returnedFindings = findings.slice(0, DRAFT_VALIDATION_FINDING_LIMIT);
+  return {
+    ...compactValidation(quality, totalPreviewDiagramCount),
+    authority:
+      "Intent-unaware deterministic evidence only. Preserve deliberate overlap, routing, cropping, spacing, and asymmetry; correct only unintended findings.",
+    findings: returnedFindings,
+    findingCoverage: {
+      totalFindingCount: findings.length,
+      returnedFindingCount: returnedFindings.length,
+      limit: DRAFT_VALIDATION_FINDING_LIMIT,
+      truncated: returnedFindings.length < findings.length,
+      omittedFindingCount: Math.max(0, findings.length - returnedFindings.length),
+    },
+  };
+}
+
+function draftNextStep(
+  draft: AgentCanvasDraftSnapshot,
+  validation: ReturnType<typeof compactDraftValidation>,
+) {
+  if (
+    validation.geometryQualityStatus === "fail" ||
+    validation.geometryQualityStatus === "warning"
+  ) {
+    return `Review draftValidation findings before publication. If any are unintended, replace the complete cumulative draft using draftId=${draft.id} and expectedDraftRevision=${draft.revision}, then recheck its receipt. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+  }
+  return "Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.";
+}
+
 function conciseMutationReceipt(
   response: SemanticResponse,
   temporaryReferences: Record<string, string> | undefined,
@@ -1420,8 +1478,13 @@ function conciseMutationReceipt(
 
 function conciseDraftReceipt(
   draft: AgentCanvasDraftSnapshot,
+  room: RoomState,
   presentation?: ReturnType<NonNullable<JazzboardWebMcpBinding["context"]["getAgentDraftPresentation"]>>,
 ) {
+  const draftValidation = compactDraftValidation(
+    draftQualityReports(room, draft),
+    draft.previewDiagrams.length,
+  );
   return {
     outcome: "drafted" as const,
     draftId: draft.id,
@@ -1434,6 +1497,7 @@ function conciseDraftReceipt(
     previewDiagramCount: draft.previewDiagrams.length,
     previewObjects: draft.previewObjects.map(compactMutationObject),
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
+    draftValidation,
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     completion: {
@@ -1444,8 +1508,7 @@ function conciseDraftReceipt(
       authorityBoundary:
         "Progressive draft delivery is a visible construction transport, not human review. Finish autonomously unless the user explicitly requested a preview-only pause. A true review-policy proposal is reported only after finish returns outcome=proposed.",
     },
-    nextStep:
-      "Submit complete cumulative operations with this draftId and expectedDraftRevision only when the candidate needs refinement. Otherwise call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard keeps the draft alive and waits for this exact revision's visible construction, then returns applied or the room's true review-policy outcome.",
+    nextStep: draftNextStep(draft, draftValidation),
   };
 }
 
@@ -2344,8 +2407,12 @@ export function createJazzboardSemanticWebMcpTools(
             response.draft.revision,
           );
           if (input.responseDetail === "concise") {
-            return conciseDraftReceipt(response.draft, presentation);
+            return conciseDraftReceipt(response.draft, currentRoom!, presentation);
           }
+          const draftValidation = compactDraftValidation(
+            draftQualityReports(currentRoom!, response.draft),
+            response.draft.previewDiagrams.length,
+          );
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -2355,6 +2422,7 @@ export function createJazzboardSemanticWebMcpTools(
             temporaryReferences: response.draft.temporaryReferences,
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
+            draftValidation,
             ...(presentation ? { presentation } : {}),
             completion: {
               requiredTool: "finish_canvas_draft",
@@ -2364,8 +2432,7 @@ export function createJazzboardSemanticWebMcpTools(
               authorityBoundary:
                 "Progressive draft delivery is a visible construction transport, not human review. Finish autonomously unless the user explicitly requested a preview-only pause. A true review-policy proposal is reported only after finish returns outcome=proposed.",
             },
-            nextStep:
-              "Submit complete cumulative operations with this draftId and expectedDraftRevision only when the candidate needs refinement. Otherwise call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard keeps the draft alive and waits for this exact revision's visible construction, then returns applied or the room's true review-policy outcome.",
+            nextStep: draftNextStep(response.draft, draftValidation),
           };
         }
         const response = await mutate(
