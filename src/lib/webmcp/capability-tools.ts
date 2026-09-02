@@ -136,11 +136,11 @@ const CORE_CAPABILITIES = {
     preferredTool: "inspect_canvas_scope",
     visualInspectionRequiresPixelCapture: true,
     framingOrGeometryAloneIsVisualInspection: false,
-    recommendedPixelCapture: "execute-pixelCaptureProtocol.copyReady-and-inspect-only-inspectionPixels",
-    pixelCaptureCompletionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
-    pixelCaptureForbiddenSubstitute: "uncropped_full_viewport",
+    recommendedPixelCapture: "execute-pixelCaptureProtocol.copyReady.cleanViewport-and-inspect-inspectionPixels-plus-inspectionRegion",
+    pixelCaptureCompletionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
+    pixelCaptureForbiddenSubstitute: "ordinary_unclean_or_invalidated_full_viewport",
     blankCaptureRecovery:
-      "If an exact clip is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the new returned directClip, and inspect it. Only the second blank or unavailable exact capture is terminal.",
+      "If the clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the newly returned cleanViewport, and inspect it. Only the second blank or unavailable clean capture is terminal.",
     exactScopes: ["room", "diagram", "objects"],
     roomScopePurpose:
       "Use an exact room revision after adding to an existing board to judge relative scale, whitespace, spatial distribution, and integration with surrounding content.",
@@ -481,8 +481,8 @@ const INSPECTION_BUNDLE = {
     "Read the exact current scope and requested intent.",
     "Run deterministic checks where they are relevant; treat findings as facts, not design commands.",
     "Frame the exact revision with inspect_canvas_scope when registered.",
-    "While validation is active, execute pixelCaptureProtocol.copyReady: prefer its exact directClip when browser clip capture is documented non-mutating, otherwise capture the full clean viewport and crop in memory to screenshotClip. Inspect only inspectionPixels and never substitute the uncropped viewport.",
-    "If the first exact capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture exactly once: reframe the exact scope, immediately capture the new returned directClip, and inspect it. Only a second blank or unavailable exact capture is terminal.",
+    "While validation is active, execute pixelCaptureProtocol.copyReady.cleanViewport. Inspect inspectionPixels as a stable clean canvas, judging the exact inspectionRegion first and surrounding pixels as authorized composition context. Never substitute an ordinary unclean or invalidated viewport.",
+    "If the first clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture exactly once: reframe the exact scope, immediately capture the newly returned cleanViewport, and inspect it. Only a second blank or unavailable clean capture is terminal.",
     "Inspect the cropped pixels against the visual contract and identify defects by stable object ID.",
     "When work was added to an existing board, inspect the exact room revision at overview once and compare relative scale, whitespace, spatial distribution, and surrounding-content integration against the requested intent.",
     "Patch only the affected region, re-render, and stop after success or bounded stagnation.",
@@ -541,7 +541,7 @@ const INSPECTION_BUNDLE = {
         "An artifact was added to an existing board and final relative scale or integration needs judgment.",
     },
     pixelCapture:
-      "Execute pixelCaptureProtocol.copyReady while validation.activeSelector exists: prefer its exact directClip when supported, otherwise capture the full clean viewport and crop to screenshotClip; inspect only inspectionPixels. If an exact clip is unexpectedly blank, execute onBlankCapture once and inspect the newly returned clip before reporting unavailable. The JSON result alone is not visual QA; neither is the uncropped viewport.",
+      "Execute pixelCaptureProtocol.copyReady.cleanViewport while validation.activeSelector exists; inspect inspectionPixels, the exact inspectionRegion, and surrounding authorized clean-canvas context. If the clean capture is unexpectedly blank, execute onBlankCapture once and inspect the newly returned clean viewport before reporting unavailable. The JSON result alone and an ordinary unclean or invalidated viewport are not visual QA.",
   },
 } as const;
 
@@ -735,7 +735,7 @@ function canvasQuickstart(
       "Check draftValidation before finishing. Correct only unintended findings with an exact-revision updateMode=patch containing the affected stable tempRefs, then recheck the new receipt. Use updateMode=replace only to remove or fully replace candidate content; deliberate overlap, routing, cropping, and asymmetry remain valid.",
       "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
       "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
-      "If the first exact capture is blank despite visible semantic targets, follow pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the new returned directClip, and inspect it before reporting pixel inspection unavailable.",
+      "If the first clean capture is blank despite visible semantic targets, follow pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the newly returned cleanViewport, and inspect it before reporting pixel inspection unavailable.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -762,7 +762,7 @@ function canvasQuickstart(
       "Leave a measurable labeled corridor between nodes. Typical one-word labels need about 90-110 canvas units of clear gap and longer labels such as replication need roughly 135+; 40-75 unit gaps commonly put label bounds inside endpoint nodes. These are planning facts, not enforced layout.",
       "Use distinct attachment positions or route lanes when several connectors share one side. This is evidence for agent judgment, never mandatory layout.",
       "Do not finish while draftValidation still reports an unintended fail. Patch only the affected node or connector tempRefs with the exact draft revision, then inspect the replacement receipt.",
-      "When the user's acceptance criteria explicitly forbid collisions, corresponding draftValidation collision failures are blockers rather than deliberate geometry. This does not apply to creative work that intentionally overlaps.",
+      "When the user's acceptance criteria explicitly forbid collisions, intrusion, or ambiguous routing, every corresponding draftValidation warning or failure is a blocker. Patch it before finish rather than treating warning status as permission to publish. This does not apply to creative work that intentionally overlaps.",
     ],
     completion: {
       tool: "finish_canvas_draft",

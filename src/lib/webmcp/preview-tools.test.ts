@@ -606,7 +606,7 @@ describe("render_canvas_preview WebMCP tool", () => {
       tool: "inspect_canvas_scope",
       data: {
         pixelCaptureProtocol: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           onBlankCapture: {
             retryLimit: 1,
             steps: [
@@ -776,11 +776,25 @@ describe("render_canvas_preview WebMCP tool", () => {
           height: 180,
         },
         pixelCaptureProtocol: {
-          schemaVersion: 4,
-          capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active",
-          crop: "use_screenshotClip_in_viewport_css_pixels",
+          schemaVersion: 5,
+          capture: "stable_clean_viewport_while_validation_is_active",
+          crop: "screenshotClip_is_the_scoped_inspection_region_within_clean_viewport_pixels",
           copyReady: {
-            preferredPath: "directClip",
+            preferredPath: "cleanViewport",
+            cleanViewport: {
+              precondition: "validation_active_and_clean_canvas_presentation",
+              action: "browser_screenshot",
+              arguments: { fullPage: false },
+              resultReference: "inspectionPixels",
+              inspectionRegion: {
+                coordinateSpace: "viewport-css-pixels",
+                x: 12,
+                y: 24,
+                width: 320,
+                height: 180,
+              },
+            },
+            compatibilityPath: "directClip",
             directClip: {
               precondition: "browser_screenshot_clip_is_documented_as_non_mutating",
               action: "browser_screenshot",
@@ -810,7 +824,7 @@ describe("render_canvas_preview WebMCP tool", () => {
               sourceReference: "inspectionPixels",
             },
           },
-          completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+          completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
           onBlankCapture: {
             classification: "invalid_or_stale_capture_not_successful_inspection",
             retryLimit: 1,
@@ -828,8 +842,8 @@ describe("render_canvas_preview WebMCP tool", () => {
                 resultReference: "reframedInspection",
               },
               expect.objectContaining({
-                step: "capture_new_returned_clip_immediately",
-                argumentsPath: "reframedInspection.data.pixelCaptureProtocol.copyReady.directClip.arguments",
+                step: "capture_new_clean_viewport_immediately",
+                argumentsPath: "reframedInspection.data.pixelCaptureProtocol.copyReady.cleanViewport.arguments",
               }),
               expect.objectContaining({ step: "inspect_recovered_pixels" }),
             ],
@@ -838,7 +852,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
         geometryQualityStatus: "unknown",
-        nextStep: expect.stringMatching(/Framing is not visual QA.*directClip.*fullViewportCrop/i),
+        nextStep: expect.stringMatching(/Framing is not visual QA.*cleanViewport.*inspectionRegion/i),
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");
@@ -884,7 +898,7 @@ describe("render_canvas_preview WebMCP tool", () => {
             action: {
               required: true,
               protocolPath: "data.pixelCaptureProtocol",
-              completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+              completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
             },
             visualInspectionStatus: "not_performed",
           },
@@ -910,9 +924,16 @@ describe("render_canvas_preview WebMCP tool", () => {
     const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     expect(result.data).toMatchObject({
       pixelCaptureProtocol: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         copyReady: {
-          preferredPath: "directClip",
+          preferredPath: "cleanViewport",
+          cleanViewport: {
+            action: "browser_screenshot",
+            arguments: { fullPage: false },
+            resultReference: "inspectionPixels",
+            inspectionRegion: { coordinateSpace: "viewport-css-pixels", x: 12, y: 24, width: 320, height: 180 },
+          },
+          compatibilityPath: "directClip",
           directClip: {
             action: "browser_screenshot",
             arguments: { clip: { x: 12, y: 24, width: 320, height: 180 } },
@@ -926,8 +947,8 @@ describe("render_canvas_preview WebMCP tool", () => {
           },
           inspect: { action: "inspect_image_pixels", sourceReference: "inspectionPixels" },
         },
-        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
-        forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+        completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
+        forbiddenSubstitutions: expect.arrayContaining(["ordinary_unclean_or_invalidated_full_viewport"]),
         onBlankCapture: {
           retryLimit: 1,
           steps: [

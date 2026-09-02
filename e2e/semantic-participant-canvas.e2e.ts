@@ -1191,8 +1191,21 @@ test.describe("first-party semantic participant canvas", () => {
     const preview = successData(await callWebMcpTool<{
       screenshotClip: { x: number; y: number; width: number; height: number };
       pixelCaptureProtocol: {
-        schemaVersion: 4;
+        schemaVersion: 5;
         copyReady: {
+          preferredPath: "cleanViewport";
+          cleanViewport: {
+            action: "browser_screenshot";
+            arguments: { fullPage: false };
+            resultReference: "inspectionPixels";
+            inspectionRegion: {
+              coordinateSpace: "viewport-css-pixels";
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+            };
+          };
           directClip: {
             action: "browser_screenshot";
             arguments: {
@@ -1223,7 +1236,7 @@ test.describe("first-party semantic participant canvas", () => {
             sourceReference: "inspectionPixels";
           };
         };
-        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa";
+        completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa";
         forbiddenSubstitutions: string[];
         onBlankCapture: {
           retryLimit: 1;
@@ -1267,8 +1280,15 @@ test.describe("first-party semantic participant canvas", () => {
       geometryQualityStatus: "pass",
       visualInspectionStatus: "not_performed",
       pixelCaptureProtocol: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         copyReady: {
+          preferredPath: "cleanViewport",
+          cleanViewport: {
+            action: "browser_screenshot",
+            arguments: { fullPage: false },
+            resultReference: "inspectionPixels",
+            inspectionRegion: expect.objectContaining({ coordinateSpace: "viewport-css-pixels" }),
+          },
           directClip: {
             action: "browser_screenshot",
             arguments: {
@@ -1298,8 +1318,8 @@ test.describe("first-party semantic participant canvas", () => {
             sourceReference: "inspectionPixels",
           },
         },
-        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
-        forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+        completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
+        forbiddenSubstitutions: expect.arrayContaining(["ordinary_unclean_or_invalidated_full_viewport"]),
         onBlankCapture: {
           retryLimit: 1,
           steps: [
@@ -1332,6 +1352,14 @@ test.describe("first-party semantic participant canvas", () => {
       width: preview.screenshotClip.width,
       height: preview.screenshotClip.height,
     });
+    expect(preview.pixelCaptureProtocol.copyReady.cleanViewport.inspectionRegion).toEqual({
+      coordinateSpace: "viewport-css-pixels",
+      ...preview.screenshotClip,
+    });
+    const cleanViewportPng = await page.screenshot(
+      preview.pixelCaptureProtocol.copyReady.cleanViewport.arguments,
+    );
+    expect(cleanViewportPng.byteLength).toBeGreaterThan(10_000);
     const previewPng = await page.screenshot({
       clip: preview.pixelCaptureProtocol.copyReady.directClip.arguments.clip,
     });

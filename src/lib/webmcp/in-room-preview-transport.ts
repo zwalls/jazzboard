@@ -102,12 +102,22 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
             },
           };
     const pixelCaptureProtocol = {
-      schemaVersion: 4 as const,
-      capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active" as const,
-      crop: "use_screenshotClip_in_viewport_css_pixels" as const,
-      reason: "A documented non-mutating browser clip is the fastest exact capture. Full-viewport capture plus in-memory crop remains the compatibility fallback.",
+      schemaVersion: 5 as const,
+      capture: "stable_clean_viewport_while_validation_is_active" as const,
+      crop: "screenshotClip_is_the_scoped_inspection_region_within_clean_viewport_pixels" as const,
+      reason: "A clean full-viewport capture keeps responsive canvas geometry stable, avoids clipped-capture reflow, and requires no external image-cropping library. The exact screenshotClip remains the primary inspection region; surrounding clean canvas is composition context.",
       copyReady: {
-        preferredPath: "directClip" as const,
+        preferredPath: "cleanViewport" as const,
+        cleanViewport: {
+          precondition: "validation_active_and_clean_canvas_presentation" as const,
+          action: "browser_screenshot" as const,
+          arguments: { fullPage: false as const },
+          resultReference: "inspectionPixels" as const,
+          inspectionRegion: presentation.clip,
+          surroundingPixels:
+            "authorized_clean_canvas_composition_context_not_a_substitute_for_inspecting_inspectionRegion" as const,
+        },
+        compatibilityPath: "directClip" as const,
         directClip: {
           precondition: "browser_screenshot_clip_is_documented_as_non_mutating" as const,
           action: "browser_screenshot" as const,
@@ -138,9 +148,9 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
           sourceReference: "inspectionPixels" as const,
         },
       },
-      completionGate: "inspect_cropped_pixels_before_claiming_visual_qa" as const,
+      completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa" as const,
       forbiddenSubstitutions: [
-        "uncropped_full_viewport",
+        "ordinary_unclean_or_invalidated_full_viewport",
         "framing_metadata_without_pixels",
         "stale_or_replacement_inspection",
       ] as const,
@@ -157,12 +167,12 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
             resultReference: "reframedInspection" as const,
           },
           {
-            step: "capture_new_returned_clip_immediately" as const,
+            step: "capture_new_clean_viewport_immediately" as const,
             action: "browser_screenshot" as const,
             argumentsPath:
-              "reframedInspection.data.pixelCaptureProtocol.copyReady.directClip.arguments" as const,
+              "reframedInspection.data.pixelCaptureProtocol.copyReady.cleanViewport.arguments" as const,
             precondition:
-              "browser_screenshot_clip_is_documented_as_non_mutating" as const,
+              "reframedInspection.data.validation.activeSelector_is_still_active" as const,
             resultReference: "recoveredInspectionPixels" as const,
           },
           {
@@ -172,10 +182,10 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
           },
         ],
         terminalFailure:
-          "Only if the second exact capture is still blank or unavailable, report pixel inspection unavailable. Do not loop, infer pixels from metadata, or claim visual QA passed.",
+          "Only if the second clean capture is still blank or unavailable, report pixel inspection unavailable. Do not loop, infer pixels from metadata, or claim visual QA passed.",
       },
       onCaptureUnavailable:
-        "If capture is blank despite visible semantic targets, execute onBlankCapture first. Otherwise report that exact pixel inspection is unavailable; do not claim that visual QA passed and do not infer pixels from geometry metadata.",
+        "If the clean capture is blank despite visible semantic targets, execute onBlankCapture first. Otherwise report that exact pixel inspection is unavailable; do not claim that visual QA passed and do not infer pixels from geometry metadata.",
     } as const;
     const pixels = {
       delivery: "host_capture_required" as const,
@@ -186,15 +196,15 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
       action: {
         required: true as const,
         protocolPath: "data.pixelCaptureProtocol" as const,
-        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa" as const,
+        completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa" as const,
       },
       visualInspectionStatus: "not_performed" as const,
     };
     const nextStep = geometryCoverageStatus === "partial"
       ? visualQuality?.status === "fail"
         ? `Supported deterministic geometry already has a known failure and ${unsupportedGeometryLabel} coverage is partial. Fix every finding, rerun exact-revision analysis, then frame the live canvas again and inspect all pixels including unsupported geometry; framing itself is not visual QA.`
-        : `Deterministic geometry coverage is partial because ${unsupportedGeometryLabel} require pixel inspection; report.status is not a complete geometry certification. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: prefer directClip when the browser documents a non-mutating clip capture, otherwise use fullViewportCrop. Inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport. If the exact capture is blank despite visible semantic targets, execute onBlankCapture once and inspect the new returned clip. Revise and repeat when needed.`
-      : "Framing is not visual QA. Execute pixelCaptureProtocol.copyReady before expiresAt or invalidation: prefer directClip when the browser documents a non-mutating clip capture, otherwise use fullViewportCrop. Inspect only inspectionPixels for readability, crossings, clearance, endpoints, and labels. Do not substitute the uncropped viewport or report visual QA as passed from JSON alone. If the exact capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope and immediately capture the new returned directClip. Only if that second exact capture is still blank or unavailable, report pixel inspection unavailable.";
+        : `Deterministic geometry coverage is partial because ${unsupportedGeometryLabel} require pixel inspection; report.status is not a complete geometry certification. Execute pixelCaptureProtocol.copyReady.cleanViewport before expiresAt or invalidation and inspect inspectionPixels, including the exact inspectionRegion and its clean canvas context, for readability, crossings, clearance, endpoints, and labels. Do not substitute an ordinary unclean or invalidated viewport. If the clean capture is blank despite visible semantic targets, execute onBlankCapture once and inspect the newly returned clean viewport. Revise and repeat when needed.`
+      : "Framing is not visual QA. Execute pixelCaptureProtocol.copyReady.cleanViewport before expiresAt or invalidation and inspect inspectionPixels, including the exact inspectionRegion plus its clean canvas context, for readability, crossings, clearance, endpoints, and labels. Do not substitute an ordinary unclean or invalidated viewport or report visual QA as passed from JSON alone. If the clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope and immediately capture the newly returned cleanViewport. Only if that second clean capture is still blank or unavailable, report pixel inspection unavailable.";
     const clipInvalidatedBy = [
       "viewport_change",
       "window_resize",

@@ -379,7 +379,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           preferredTool: "inspect_canvas_scope",
           correctionLoop: expect.arrayContaining([
             expect.stringMatching(/exact revision/i),
-            expect.stringMatching(/crop.*screenshotClip/i),
+            expect.stringMatching(/cleanViewport.*inspectionRegion/i),
             expect.stringMatching(/exact room revision.*relative scale.*surrounding-content integration/i),
             expect.stringMatching(/patch only/i),
           ]),
@@ -403,7 +403,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               },
             },
             pixelCapture: expect.stringMatching(
-              /JSON result alone is not visual QA/i,
+              /JSON result alone.*not visual QA/i,
             ),
           },
         },

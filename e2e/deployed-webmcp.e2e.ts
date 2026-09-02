@@ -1360,7 +1360,7 @@ test.describe("WebMCP browser acceptance", () => {
       previewId: expect.stringMatching(/^preview_/),
       visualInspectionStatus: "not_performed",
       geometryQualityStatus: "pass",
-      nextStep: expect.stringMatching(/Framing is not visual QA.*directClip/),
+      nextStep: expect.stringMatching(/Framing is not visual QA.*cleanViewport.*inspectionRegion/),
       screenshotClip: {
         coordinateSpace: "viewport-css-pixels",
         x: expect.any(Number),

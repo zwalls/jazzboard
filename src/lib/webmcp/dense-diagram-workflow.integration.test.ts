@@ -467,10 +467,18 @@ describe("dense AI-native diagram WebMCP workflow", () => {
           height: expect.any(Number),
         },
         pixelCaptureProtocol: {
-          schemaVersion: 4,
-          capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active",
-          crop: "use_screenshotClip_in_viewport_css_pixels",
-          completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+          schemaVersion: 5,
+          capture: "stable_clean_viewport_while_validation_is_active",
+          crop: "screenshotClip_is_the_scoped_inspection_region_within_clean_viewport_pixels",
+          copyReady: {
+            preferredPath: "cleanViewport",
+            cleanViewport: {
+              action: "browser_screenshot",
+              arguments: { fullPage: false },
+              resultReference: "inspectionPixels",
+            },
+          },
+          completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
           onBlankCapture: {
             retryLimit: 1,
             steps: [
@@ -497,7 +505,7 @@ describe("dense AI-native diagram WebMCP workflow", () => {
           diagramId: DIAGRAM_ID,
           metrics: { failCount: 0 },
         },
-        nextStep: expect.stringMatching(/directClip.*fullViewportCrop.*inspectionPixels/i),
+        nextStep: expect.stringMatching(/cleanViewport.*inspectionPixels.*inspectionRegion/i),
       },
     });
     expect(renderPng).toHaveBeenCalledOnce();

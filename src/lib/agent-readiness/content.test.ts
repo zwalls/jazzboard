@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.13.1");
+    expect(AGENT_DOC_VERSION).toBe("1.13.2");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -478,7 +478,7 @@ describe("agent-readable content", () => {
     expect(guide).toContain("visualInspectionStatus: not_performed");
     expect(guide).toContain("existing live canvas");
     expect(guide).toContain("without painting a duplicate modal or temporary image surface");
-    expect(guide).toMatch(/viewport, browser-window, or scoped-revision change makes the clip stale/i);
+    expect(guide).toMatch(/viewport, browser-window, or scoped-revision change makes the handoff stale/i);
     expect(guide).toContain("persists no image");
     expect(guide).toContain("exposes no preview URL");
     expect(guide).toContain("graph-aware hierarchy layout");

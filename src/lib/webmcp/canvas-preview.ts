@@ -393,7 +393,7 @@ export type CanvasInspectionPixels = {
   action: {
     required: true;
     protocolPath: "data.pixelCaptureProtocol";
-    completionGate: "inspect_cropped_pixels_before_claiming_visual_qa";
+    completionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa";
   };
   visualInspectionStatus: "not_performed";
 };
