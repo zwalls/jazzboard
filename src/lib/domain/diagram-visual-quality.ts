@@ -569,6 +569,24 @@ function intentionalSemanticContainment(
   return leftContainsRight || rightContainsLeft;
 }
 
+function connectorUsesSemanticContainer(
+  connector: ConnectorObject,
+  container: CanvasObject,
+  containerGeometry: MemberGeometry,
+  room: QualityRoom,
+  memberGeometry: ReadonlyMap<string, MemberGeometry>,
+): boolean {
+  if (!isExplicitSemanticContainer(container)) return false;
+  return [connector.start.objectId, connector.end.objectId].some((objectId) => {
+    if (!objectId || objectId === container.id) return false;
+    const endpoint = room.objects[objectId];
+    const endpointGeometry = memberGeometry.get(objectId);
+    return Boolean(endpoint && endpointGeometry) && endpointGeometry!.polygon.every(
+      (point) => pointInConvexPolygon(point, containerGeometry.polygon),
+    );
+  });
+}
+
 function endpointObjectIds(connector: ConnectorObject): Set<string> {
   return new Set([connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)));
 }
@@ -829,7 +847,12 @@ export function analyzeDiagramVisualQuality(
     const endpoints = endpointObjectIds(connector);
     for (const member of members) {
       if (endpoints.has(member.id)) continue;
-      if (isExplicitSemanticContainer(member) && paintsBefore(member, connector)) continue;
+      const memberGeometryValue = memberGeometry.get(member.id);
+      if (
+        memberGeometryValue &&
+        (isExplicitSemanticContainer(member) && paintsBefore(member, connector) ||
+          connectorUsesSemanticContainer(connector, member, memberGeometryValue, room, memberGeometry))
+      ) continue;
       const interior = objectPolygon(member, T.connectorIntrusionInset);
       if (!interior.length || !segments(route.points).some((segment) => segmentIntersectsPolygon(segment, interior))) continue;
       findings.push(finding({
@@ -882,9 +905,12 @@ export function analyzeDiagramVisualQuality(
   for (const connector of labeled) {
     const labelBounds = routes[connector.id].labelBounds!;
     for (const member of members) {
-      if (isExplicitSemanticContainer(member) && paintsBefore(member, connector)) continue;
       const geometry = memberGeometry.get(member.id);
       if (!geometry) continue;
+      if (
+        isExplicitSemanticContainer(member) && paintsBefore(member, connector) ||
+        connectorUsesSemanticContainer(connector, member, geometry, room, memberGeometry)
+      ) continue;
       const overlap = polygonOverlap(boundsPolygon(labelBounds), geometry.polygon);
       if (!overlap) continue;
       findings.push(finding({

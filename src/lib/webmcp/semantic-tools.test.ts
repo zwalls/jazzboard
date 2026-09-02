@@ -329,6 +329,8 @@ describe("role-scoped semantic tool registration", () => {
       type: "string",
       maxLength: 128,
     });
+    expect(transactionSchema.properties?.operations?.items?.properties?.intent).toEqual({ type: "string" });
+    expect(transactionSchema.properties?.operations?.items?.properties?.summary).toEqual({ type: "string" });
     const connectionRequired = operationSchema(transactionSchema, "connect").required ?? [];
     expect(connectionRequired).toEqual(["op"]);
     for (const field of ["direction", "label", "color"]) expect(connectionRequired).not.toContain(field);
@@ -456,6 +458,96 @@ describe("role-scoped semantic tool registration", () => {
       expect(lifecycleRejected).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
     }
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("tolerates inert operation activity notes and advances omitted paint order past explicit candidates", async () => {
+    const state = room([]);
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: [],
+      membershipObjectIds: [],
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      intent: "Show an outside-to-inside request path.",
+      summary: "One boundary, two nodes, and one request.",
+      operations: [
+        {
+          op: "create_shape",
+          tempRef: "boundary",
+          label: "Commerce trust boundary",
+          semanticRole: "architecture.trust_boundary",
+          x: 300,
+          y: 80,
+          width: 820,
+          height: 440,
+          zIndex: 0,
+          intent: "Frame internal services.",
+          summary: "Commerce boundary.",
+        },
+        {
+          op: "create_node",
+          tempRef: "shopper",
+          label: "Shopper Browser",
+          nodeType: "component",
+          x: 20,
+          y: 240,
+          width: 180,
+          height: 70,
+          zIndex: 2,
+          intent: "Show the external actor.",
+          summary: "External browser.",
+        },
+        {
+          op: "create_node",
+          tempRef: "checkout",
+          label: "Checkout API",
+          nodeType: "service",
+          x: 420,
+          y: 240,
+          width: 180,
+          height: 70,
+          zIndex: 2,
+          intent: "Show the internal service.",
+          summary: "Checkout service.",
+        },
+        {
+          op: "connect",
+          tempRef: "request",
+          start: { tempRef: "shopper" },
+          end: { tempRef: "checkout" },
+          label: "checkout request",
+          intent: "Connect the supplied entities.",
+          summary: "Directed request.",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const requestBody = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
+    ));
+    const createdObjects = requestBody.transaction.commands
+      .filter((command: { type: string }) => command.type === "create")
+      .map((command: { object: CanvasObject }) => command.object);
+    expect(createdObjects.find((object: CanvasObject) => object.semanticRole === "architecture.trust_boundary")?.zIndex)
+      .toBe(0);
+    expect(createdObjects.filter((object: CanvasObject) => object.kind === "shape" && object.nodeType !== null))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ zIndex: 2 }),
+        expect.objectContaining({ zIndex: 2 }),
+      ]));
+    expect(createdObjects.find((object: CanvasObject) => object.kind === "connector")?.zIndex).toBe(3);
+    for (const object of createdObjects) {
+      expect(object).not.toHaveProperty("intent");
+      expect(object).not.toHaveProperty("summary");
+    }
   });
 
   it("rejects cross-operation fields in the authoritative strict runtime validator", async () => {
@@ -618,7 +710,8 @@ describe("progressive draft delivery", () => {
     expect(transactionTool.description).toMatch(/bot-traced.*not review/i);
     expect(transactionTool.description).toMatch(/finish_canvas_draft.*yourself.*no confirmation/i);
     expect(transactionTool.description).toMatch(/existing corrections/i);
-    expect(transactionTool.description).toMatch(/root only:.*no expectedRoomRevision/i);
+    expect(transactionTool.description).toMatch(/root:.*no expectedRoomRevision/i);
+    expect(transactionTool.description).toMatch(/per-op intent\/summary.*inert/i);
     expect(transactionTool.description).toMatch(/updateMode=patch.*affected stable tempRefs/i);
     expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
     expect(validates({ operations, expectedRoomRevision: 7 })).toBe(false);

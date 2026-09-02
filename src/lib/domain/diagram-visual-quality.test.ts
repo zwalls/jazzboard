@@ -498,6 +498,38 @@ describe("diagram visual quality analysis", () => {
     ]));
   });
 
+  it("recognizes an outside-to-inside connector as a structural container crossing", () => {
+    const boundary = node("zz-commerce-boundary", 300, 80, {
+      width: 820,
+      height: 440,
+      label: "Commerce trust boundary",
+      semanticRole: "architecture.trust_boundary",
+      zIndex: 0,
+    });
+    const shopper = node("shopper", 20, 240, { width: 180, zIndex: 1 });
+    const checkout = node("checkout", 420, 240, { width: 180, zIndex: 1 });
+    const crossing = edge(
+      "aa-checkout-request",
+      { x: 200, y: 275, objectId: shopper.id, normalizedAnchor: { x: 1, y: 0.5 } },
+      { x: 420, y: 275, objectId: checkout.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      { label: "checkout request" },
+    );
+    crossing.zIndex = 0;
+
+    const report = analyzeDiagramVisualQuality(
+      room([boundary, shopper, checkout, crossing]),
+      "quality-diagram",
+    );
+    const boundaryConnectorFindings = report.findings.filter(
+      (finding) => finding.objectIds.includes(boundary.id) && finding.connectorIds.includes(crossing.id),
+    );
+
+    expect(boundaryConnectorFindings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "CONNECTOR_OBJECT_INTRUSION" }),
+      expect.objectContaining({ code: "CONNECTOR_LABEL_OBJECT_COLLISION" }),
+    ]));
+  });
+
   it("still reports a foreground container or partial boundary collision", () => {
     const boundary = node("foreground-boundary", 100, 100, {
       width: 280,

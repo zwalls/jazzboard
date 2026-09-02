@@ -233,6 +233,7 @@ const createNodeOperation = z
     nodeMetadata: nodeMetadataInputSchema.optional(),
     ...semanticIdentityFields,
     ...placement,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -246,6 +247,7 @@ const createShapeOperation = z
     stroke: semanticPaintSchema.default("blue"),
     ...semanticIdentityFields,
     ...placement,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -259,6 +261,7 @@ const createTextOperation = z
     align: z.enum(["start", "middle", "end"]).default("start"),
     ...semanticIdentityFields,
     ...placement,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -273,6 +276,7 @@ const createDrawingOperation = z
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     groupId: id.nullable().default(null),
     ...semanticIdentityFields,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -288,6 +292,7 @@ const pathStyle = {
   zIndex: z.number().int().min(0).max(1_000_000).optional(),
   groupId: id.nullable().default(null),
   ...semanticIdentityFields,
+  ...activityMetadataFields,
 };
 
 function visiblePathStyle(
@@ -330,6 +335,7 @@ const connectOperation = z
     routing: connectorRoutingInputSchema.default({ mode: "auto" }),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     ...semanticIdentityFields,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -345,10 +351,11 @@ const updateDraftConnectorOperation = z
     routing: connectorRoutingInputSchema.optional(),
     zIndex: z.number().int().min(0).max(1_000_000).optional(),
     ...semanticIdentityFields,
+    ...activityMetadataFields,
   })
   .strict()
   .refine(
-    (value) => Object.keys(value).some((key) => !["op", "tempRef"].includes(key)),
+    (value) => Object.keys(value).some((key) => !["op", "tempRef", "intent", "summary"].includes(key)),
     "At least one draft connector field must be updated.",
   );
 
@@ -360,6 +367,7 @@ const updateOperation = z
     leaseId: id.optional(),
     operation: z.enum(["move", "resize", "edit", "connect", "delete", "annotate"]).default("edit"),
     patch: objectPatch,
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -375,6 +383,7 @@ const createDiagramOperation = z
     tags: z.array(z.string().trim().min(1).max(64)).max(32).default([]),
     members: z.array(objectReference).max(500).optional(),
     connectors: z.array(objectReference).max(500).optional(),
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -390,10 +399,11 @@ const editDiagramOperation = z
     tags: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     members: z.array(objectReference).max(500).optional(),
     connectors: z.array(objectReference).max(500).optional(),
+    ...activityMetadataFields,
   })
   .strict()
   .refine(
-    (value) => Object.keys(value).some((key) => !["op", "diagramId", "expectedRevision"].includes(key)),
+    (value) => Object.keys(value).some((key) => !["op", "diagramId", "expectedRevision", "intent", "summary"].includes(key)),
     "At least one diagram field must be updated.",
   );
 
@@ -407,6 +417,7 @@ const autoLayoutOperation = z
     diagramTempRef: tempRef.optional(),
     origin: point.optional(),
     columns: z.number().int().min(1).max(50).optional(),
+    ...activityMetadataFields,
   })
   .strict();
 
@@ -667,6 +678,8 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           rotation: { type: "number" },
           zIndex: { type: "integer" },
           groupId: { type: ["string", "null"] },
+          intent: { type: "string" },
+          summary: { type: "string" },
           layout: { enum: ["flow", "grid", "hierarchy"] },
           layoutDirection: { enum: ["right", "down"] },
           density: { enum: ["comfortable", "compact"] },
@@ -2128,7 +2141,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "Atomic create/update. Root only: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. For visible multi-object work use delivery.mode=draft: bot-traced, not review. With updateMode=patch send affected stable tempRefs; use update_draft_connector for one connector. Then finish_canvas_draft yourself—no confirmation. Replace only to remove or fully replace. Omit delivery for existing corrections.",
+        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Per-op intent/summary tolerated; inert. Visible multi-object work uses delivery.mode=draft: bot-traced, not review. updateMode=patch sends affected stable tempRefs; use update_draft_connector for one connector. Then finish_canvas_draft yourself—no confirmation. Replace for removal/full replacement. Omit delivery for existing corrections.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2252,9 +2265,22 @@ export function createJazzboardSemanticWebMcpTools(
           binding.context.getViewport(),
         );
         let createIndex = 0;
-        let zIndex = nextZIndex(currentRoom);
-        const candidateZIndex = (objectId: string, requested?: number) =>
-          requested ?? existingPreviewObjects.get(objectId)?.zIndex ?? zIndex++;
+        let zIndex = Math.max(
+          nextZIndex(currentRoom),
+          Math.max(-1, ...Array.from(existingPreviewObjects.values(), (object) => object.zIndex)) + 1,
+        );
+        const candidateZIndex = (objectId: string, requested?: number) => {
+          const existing = existingPreviewObjects.get(objectId)?.zIndex;
+          if (requested !== undefined) {
+            zIndex = Math.max(zIndex, requested + 1);
+            return requested;
+          }
+          if (existing !== undefined) {
+            zIndex = Math.max(zIndex, existing + 1);
+            return existing;
+          }
+          return zIndex++;
+        };
 
         const idFor = (reference: z.output<typeof objectReference>): string => {
           if ("objectId" in reference) return reference.objectId;

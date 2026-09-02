@@ -743,7 +743,7 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "Root fields are only operations, delivery, responseDetail, intent, and summary; expectedRoomRevision is not accepted. intent and summary belong at transaction top level; semanticName and semanticRole belong on supported create operations. nodeMetadata is only for decision/open_question lifecycle state and must be omitted for ordinary service/component/requirement nodes.",
+        "Root fields are operations, delivery, responseDetail, intent, and summary; expectedRoomRevision is not accepted. Put activity intent and summary at transaction top level. Redundant per-operation copies are accepted but inert and not persisted. semanticName and semanticRole belong on supported create operations. nodeMetadata is only for decision/open_question lifecycle state and must be omitted for ordinary service/component/requirement nodes.",
       schemaAuthority:
         "The registered apply_canvas_transaction input schema is authoritative. Do not invent operation fields; follow actionable recovery instead of retrying blindly.",
     },
