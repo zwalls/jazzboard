@@ -74,6 +74,10 @@ Start with these persisted documents after any handoff or context reset:
   records the first completed live A/A pair and its retained author,
   presentation, and evaluator-transport failure modes. It is descriptive
   evidence, not a percentage-improvement claim.
+- [`reports/exp0001a-second-live-aa-pair.md`](reports/exp0001a-second-live-aa-pair.md)
+  records the second completed live A/A pair: two autonomous concurrent-edit
+  completions, two accepted artifacts, one visual pairwise preference, and the
+  retained exact-terminal-ingestion lesson. It remains descriptive evidence.
 - [`reports/exp0001a-browser-attached-transport-spike-v1.md`](reports/exp0001a-browser-attached-transport-spike-v1.md)
   records the direct-origin Terra/medium production transport pass. A fresh
   browser-attached author self-provisioned a private room and produced an
