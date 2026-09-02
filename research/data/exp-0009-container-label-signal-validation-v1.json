@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0009",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-validation",
+  "productChange": {
+    "description": "Preserve semantic-container fill and passage exceptions while reporting connector-label collisions with the container's own renderer-equivalent visible label bounds.",
+    "commit": "9ac7ce3d48b9e3c5cf8b939970832004e29f5f06"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0645a-ed44-73e0-99ea-5cd505f4ac33",
+    "turnId": "01a0645a-eef7-7332-ac52-d1b2f781f284",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 269038,
+      "accountedWallMs": 269000,
+      "hostExecutionMs": 66731,
+      "modelAndCoordinationMs": 202269,
+      "hostExecutionShare": 0.24807063197026022
+    },
+    "calls": {
+      "hostCallCount": 22,
+      "failedHostCallCount": 2,
+      "webMcpCallCount": 16,
+      "webMcpBusinessFailureCount": 3,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 3,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 5,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 3,
+        "update_object": 2,
+        "create_text": 1,
+        "edit_diagram": 2
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 6,
+      "objectCount": 11,
+      "diagramCount": 1,
+      "diagramRevision": 4,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 8,
+      "declaredDiagramConnectorCount": 3,
+      "deterministicGeometryStatus": "pass",
+      "authorPixelCapture": "completed_after_one_documented_blank_capture_recovery"
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a06462-5a9f-7d80-b019-a818e3c5d2c1",
+    "turnId": "01a06462-5c74-7d71-8368-1721a987ad40",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 20708,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "blockingGeometryViolations": 0,
+      "duplicateSemanticCredit": false,
+      "overall": "pass"
+    }
+  },
+  "mechanismEvidence": {
+    "containerLabelCollisionWasCorrected": true,
+    "firstCommittedPixelDefect": "The asynchronous connector path split the visible Commerce trust boundary label even though draft deterministic geometry had reported pass.",
+    "postCommitCorrection": {
+      "additionalWebMcpCalls": 7,
+      "authorResolution": "Reroute the connector, replace the shape's centered label with a dedicated header text object, and repair Diagram membership."
+    },
+    "friction": [
+      {
+        "code": "INVALID_TOOL_INPUT",
+        "cause": "The author supplied unsupported routing.dash to distinguish the asynchronous event.",
+        "stateChanged": false
+      },
+      {
+        "code": "INVALID_TOOL_INPUT",
+        "cause": "The author used the standalone tool name update_object as a transaction operation instead of the canonical update discriminator.",
+        "stateChanged": false
+      },
+      {
+        "code": "REVISION_CONFLICT",
+        "cause": "The author concurrently edited a member object and its Diagram using the pre-object-update Diagram revision.",
+        "stateChanged": "object_update_applied_diagram_edit_rejected"
+      }
+    ]
+  },
+  "comparison": {
+    "failedFastCandidateExp0008": {
+      "totalWallMs": 145615,
+      "blindedReview": "fail"
+    },
+    "priorAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "blindedReview": "pass"
+    },
+    "current": {
+      "totalWallMs": 269038,
+      "blindedReview": "pass"
+    },
+    "descriptiveDeltaFromPriorAcceptedCandidateMs": 97097,
+    "interpretation": "The intervention restored accepted visual quality but did not improve speed. The additional loop exposes a path-versus-container-label blind spot and two avoidable authoring-contract mismatches."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "e52fae4dc593a373a0317fb5aa0725425dc75664d288bca146e9d37dbe392db8",
+    "cleanPngBytes": 40762,
+    "sanitizedStateSha256": "a5f8a4e9132b06e3545a2155c7b315d034d8cb0d7ceffc83a9377804bac3b812",
+    "rawAuthorSessionSha256": "3060b3e6a210c44034867c27fa7dd3ad361057a78f143308da149568739c7bac",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "acceptedCompletionTimeMs": 269038,
+    "speedImprovementObserved": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Report connector-path intersections with semantic-container label bounds, document the solid-only connector contract in the quickstart, and tolerate update_object as an apply_canvas_transaction operation alias while preserving revision checks."
+  }
+}
