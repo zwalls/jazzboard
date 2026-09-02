@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "exp-0004-draft-correction-transport",
+  "createdAt": "2026-09-02T20:20:00Z",
+  "status": "candidate_implementation_pre_release",
+  "sourceEvidence": [
+    {
+      "condition": "historical_production_baseline",
+      "threadId": "01a060ba-59b6-7740-9b79-c8d650f78189",
+      "turnId": "01a060ba-5b2c-79c3-b3ae-4f8646802ebb",
+      "sessionSha256": "1b241d25cb050838f21e18b80ac10b3daef885f32f8b92de41d9b2824e9b647a",
+      "wallMs": 477603,
+      "accountedWallMs": 478000,
+      "clockDeltaMs": -397,
+      "hostExecutionMs": 60033,
+      "modelAndCoordinationMs": 417967,
+      "hostCalls": 20,
+      "failedHostCalls": 2,
+      "webMcpCalls": 13,
+      "phases": {
+        "capability_discovery": { "segmentWallMs": 70454, "hostCalls": 6, "webMcpCalls": 4 },
+        "room_entry": { "segmentWallMs": 24436, "hostCalls": 1, "webMcpCalls": 1 },
+        "initial_authoring": { "segmentWallMs": 48489, "hostCalls": 2, "webMcpCalls": 2 },
+        "draft_finish": { "segmentWallMs": 37248, "hostCalls": 2, "webMcpCalls": 1 },
+        "inspection": { "segmentWallMs": 152515, "hostCalls": 5, "webMcpCalls": 3 },
+        "correction": { "segmentWallMs": 89464, "hostCalls": 2, "webMcpCalls": 2 },
+        "other": { "segmentWallMs": 31308, "hostCalls": 2, "webMcpCalls": 0 },
+        "terminal": { "segmentWallMs": 24086, "hostCalls": 0, "webMcpCalls": 0 }
+      }
+    },
+    {
+      "condition": "current_production_candidate",
+      "threadId": "01a06175-e883-7222-80a5-59d68ff377e0",
+      "turnId": "01a06175-e9e4-7543-839c-895e3b272431",
+      "sessionSha256": "852bdebc1d3afeed05f80020209ac6be33a52d4c6660bea09fe78c2b74b59c0f",
+      "wallMs": 335809,
+      "accountedWallMs": 336000,
+      "clockDeltaMs": -191,
+      "hostExecutionMs": 75133,
+      "modelAndCoordinationMs": 260867,
+      "hostCalls": 20,
+      "failedHostCalls": 0,
+      "webMcpCalls": 15,
+      "phases": {
+        "capability_discovery": { "segmentWallMs": 33455, "hostCalls": 5, "webMcpCalls": 2 },
+        "initial_authoring": { "segmentWallMs": 238758, "hostCalls": 10, "webMcpCalls": 10 },
+        "draft_finish": { "segmentWallMs": 21265, "hostCalls": 1, "webMcpCalls": 2 },
+        "inspection": { "segmentWallMs": 13915, "hostCalls": 2, "webMcpCalls": 1 },
+        "other": { "segmentWallMs": 24796, "hostCalls": 2, "webMcpCalls": 0 },
+        "terminal": { "segmentWallMs": 3811, "hostCalls": 0, "webMcpCalls": 0 }
+      }
+    }
+  ],
+  "diagnosis": {
+    "largestCurrentPhase": "initial_authoring",
+    "largestCurrentPhaseWallMs": 238758,
+    "largestCurrentPhaseShare": 0.7106,
+    "currentDraftTransactionCalls": 11,
+    "observedMechanicFailure": "The author identified one connector correction but tried three unsupported partial-update shapes before falling back to repeated full draft replacements.",
+    "selectedIntervention": "Expose update_draft_connector plus a real-ID/revision-bound recommendedDraftCorrection receipt so an author can change only agent-chosen connector fields by stable tempRef.",
+    "excludedInterventions": [
+      "server-selected routing or layout",
+      "weaker validation",
+      "skipped pixel inspection",
+      "animation-paced authoring",
+      "model or reasoning-level change"
+    ]
+  },
+  "timingAttribution": {
+    "method": "Time before each host call is assigned to the phase of that next call; the post-call tail is terminal.",
+    "warning": "modelAndCoordinationMs includes all between-call latency and is not pure model reasoning time. Whole-second task clocks cause the separately reported sub-second clock delta."
+  }
+}

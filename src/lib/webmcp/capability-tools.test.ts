@@ -107,7 +107,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             draftPreflight: {
               field: "draftValidation",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/unintended.*patch.*recheck/i),
+              correction: expect.stringMatching(/unintended.*patch.*recheck.*update_draft_connector.*tempRef/i),
             },
             canonicalDraftSkeleton: {
               operations: expect.arrayContaining([
@@ -130,7 +130,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               expect.stringMatching(/first draft.*never supply draftId without expectedDraftRevision/i),
               expect.stringMatching(/connector ports are objects/i),
               expect.stringMatching(/measurable labeled corridor.*90-110/i),
-              expect.stringMatching(/do not finish.*unintended fail.*patch/i),
+              expect.stringMatching(/unintended failures.*patch.*update_draft_connector.*recheck.*finish/i),
             ]),
             completion: {
               tool: "finish_canvas_draft",

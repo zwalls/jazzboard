@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 const modulePath: string = "./analyze-codex-author-speed.mjs";
-const { summarizeCodexAuthorThread } = await import(modulePath);
+const { summarizeCodexAuthorSessionJsonl, summarizeCodexAuthorThread } = await import(modulePath);
 
 function thread(items: unknown[], durationMs = 100_000) {
   return {
@@ -88,5 +88,96 @@ describe("Codex author speed analysis", () => {
       call("Slow", "", 11_000),
     ], 10_000))).toThrow(/exceeds author wall time/i);
   });
-});
 
+  it("attributes exact JSONL wall time to the next action phase without exposing content", () => {
+    const events = [
+      { type: "event_msg", payload: { type: "task_started", turn_id: "turn_jsonl", started_at: 100 } },
+      {
+        type: "event_msg",
+        payload: {
+          type: "item_completed",
+          turn_id: "turn_jsonl",
+          started_at_ms: 103_000,
+          completed_at_ms: 104_000,
+          item: {
+            type: "McpToolCall",
+            status: "completed",
+            arguments: { title: "private title", code: `await tools.call("join_room", {code:"SECRET"})` },
+          },
+        },
+      },
+      {
+        type: "event_msg",
+        payload: {
+          type: "item_completed",
+          turn_id: "turn_jsonl",
+          started_at_ms: 107_000,
+          completed_at_ms: 109_000,
+          item: {
+            type: "McpToolCall",
+            status: "completed",
+            arguments: {
+              title: "private draft",
+              code: `await tools.call("apply_canvas_transaction", {delivery:{mode:"draft"},operations:[]})`,
+            },
+          },
+        },
+      },
+      {
+        type: "event_msg",
+        payload: {
+          type: "task_complete",
+          turn_id: "turn_jsonl",
+          started_at: 100,
+          completed_at: 112,
+          duration_ms: 12_000,
+        },
+      },
+    ].map((event) => JSON.stringify(event)).join("\n");
+
+    const result = summarizeCodexAuthorSessionJsonl(events, {
+      attemptId: "attempt_jsonl",
+      threadId: "thread_jsonl",
+    });
+
+    expect(result).toMatchObject({
+      schemaVersion: "jazzboard-codex-author-timeline/v1",
+      attemptId: "attempt_jsonl",
+      threadId: "thread_jsonl",
+      timing: {
+        totalWallMs: 12_000,
+        accountedWallMs: 12_000,
+        clockDeltaMs: 0,
+        hostExecutionMs: 3_000,
+        modelAndCoordinationMs: 9_000,
+      },
+      phases: {
+        room_entry: {
+          segmentWallMs: 4_000,
+          modelAndCoordinationMs: 3_000,
+          hostExecutionMs: 1_000,
+        },
+        initial_authoring: {
+          segmentWallMs: 5_000,
+          modelAndCoordinationMs: 3_000,
+          hostExecutionMs: 2_000,
+        },
+        terminal: {
+          segmentWallMs: 3_000,
+          modelAndCoordinationMs: 3_000,
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("SECRET");
+    expect(JSON.stringify(result)).not.toContain("private title");
+  });
+
+  it("fails closed when JSONL contains multiple task boundaries", () => {
+    const events = [
+      { type: "event_msg", payload: { type: "task_started", turn_id: "one", started_at: 1 } },
+      { type: "event_msg", payload: { type: "task_started", turn_id: "two", started_at: 2 } },
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "two", completed_at: 3, duration_ms: 1_000 } },
+    ].map((event) => JSON.stringify(event)).join("\n");
+    expect(() => summarizeCodexAuthorSessionJsonl(events)).toThrow(/exactly one started and completed/i);
+  });
+});

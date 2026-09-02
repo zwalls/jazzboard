@@ -664,6 +664,17 @@ describe("progressive draft delivery", () => {
       ok: false,
       error: { code: "INVALID_TOOL_INPUT", message: expect.stringContaining("schema") },
     });
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "update_draft_connector",
+        tempRef: "request",
+        routing: { mode: "curved", bend: 80 },
+      }],
+      delivery: { mode: "draft" },
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "INVALID_TOOL_INPUT" },
+    });
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -969,8 +980,23 @@ describe("progressive draft delivery", () => {
             ]),
           },
         },
+        recommendedDraftCorrection: {
+          tool: "apply_canvas_transaction",
+          delivery: {
+            mode: "draft",
+            draftId: "draft_cramped",
+            expectedDraftRevision: 1,
+            updateMode: "patch",
+          },
+          affectedTempRefs: expect.arrayContaining(["api", "db", "request"]),
+          connectorTempRefs: ["request"],
+          connectorOperation: {
+            op: "update_draft_connector",
+            rule: expect.stringMatching(/only agent-chosen.*do not use authoritative update/i),
+          },
+        },
         nextStep: expect.stringMatching(
-          /review draftValidation.*if any are unintended.*replace.*deliberate geometry is valid/i,
+          /review draftValidation.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
         ),
       },
     });
@@ -1180,6 +1206,70 @@ describe("progressive draft delivery", () => {
         object: expect.objectContaining({ id: "text_stable", content: "Only this candidate changed" }),
       }),
     ]);
+  });
+
+  it("updates one unpublished connector by stable tempRef without resending the draft", async () => {
+    const previewApi = { ...node("api", "Checkout API", "service", 0), authority: "draft" as const };
+    const previewDb = { ...node("db", "Orders DB", "component", 400), authority: "draft" as const };
+    const previewConnector = {
+      ...(connector() as Extract<CanvasObject, { kind: "connector" }>),
+      authority: "draft" as const,
+    };
+    const existing = agentDraft({
+      revision: 3,
+      temporaryReferences: { api: "api", db: "db", request: "api-db" },
+      previewObjects: [previewApi, previewDb, previewConnector],
+      previewDiagrams: [],
+    });
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return { ok: true, draft: existing };
+      return {
+        ok: true,
+        draft: agentDraft({
+          revision: 4,
+          temporaryReferences: existing.temporaryReferences,
+          previewObjects: existing.previewObjects,
+        }),
+      };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture(room([])).binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "update_draft_connector",
+        tempRef: "request",
+        label: "query",
+        routing: { mode: "curved", bend: 120, labelPosition: 0.35 },
+      }],
+      delivery: {
+        mode: "draft",
+        draftId: existing.id,
+        expectedDraftRevision: existing.revision,
+        updateMode: "patch",
+      },
+    })).resolves.toMatchObject({ ok: true, data: { draftRevision: 4 } });
+
+    const put = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(put.body));
+    expect(body).toMatchObject({
+      expectedDraftRevision: 3,
+      updateMode: "patch",
+      temporaryReferences: { request: "api-db" },
+    });
+    expect(body.transaction.commands).toEqual([{
+      type: "create",
+      object: expect.objectContaining({
+        id: "api-db",
+        kind: "connector",
+        label: "query",
+        start: previewConnector.start,
+        end: previewConnector.end,
+        routing: expect.objectContaining({ mode: "curved", bend: 120, labelPosition: 0.35 }),
+      }),
+    }]);
   });
 
   it("stops after exact-read when the persisted draft revision has changed", async () => {

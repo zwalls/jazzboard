@@ -333,6 +333,25 @@ const connectOperation = z
   })
   .strict();
 
+const updateDraftConnectorOperation = z
+  .object({
+    op: z.literal("update_draft_connector"),
+    tempRef,
+    start: endpointReference.optional(),
+    end: endpointReference.optional(),
+    direction: z.enum(["none", "end", "both"]).optional(),
+    label: z.string().max(2_000).optional(),
+    color: semanticColorSchema.optional(),
+    routing: connectorRoutingInputSchema.optional(),
+    zIndex: z.number().int().min(0).max(1_000_000).optional(),
+    ...semanticIdentityFields,
+  })
+  .strict()
+  .refine(
+    (value) => Object.keys(value).some((key) => !["op", "tempRef"].includes(key)),
+    "At least one draft connector field must be updated.",
+  );
+
 const updateOperation = z
   .object({
     op: z.literal("update"),
@@ -399,6 +418,7 @@ const transactionOperation = z.discriminatedUnion("op", [
   createPathOperation,
   createPolygonOperation,
   connectOperation,
+  updateDraftConnectorOperation,
   updateOperation,
   createDiagramOperation,
   editDiagramOperation,
@@ -450,6 +470,19 @@ const transactionInput = z
         }
       });
     }
+    input.operations.forEach((operation, index) => {
+      if (
+        operation.op === "update_draft_connector" &&
+        (!input.delivery?.draftId || input.delivery.updateMode !== "patch")
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations", index],
+          message:
+            "update_draft_connector is only valid for an existing draft with its exact draftId, expectedDraftRevision, and updateMode=patch.",
+        });
+      }
+    });
     input.operations.forEach((operation, index) => {
       if (
         operation.op === "create_node" &&
@@ -542,7 +575,7 @@ const SEMANTIC_PAINT_JSON_SCHEMA = {
 } as const;
 const WORLD_PATH_SEGMENT_JSON_SCHEMA = {
   type: "object",
-  description: "World coords: line={kind,to}; quadratic adds control; cubic adds control1/control2. Points are {x,y}.",
+  description: "World line/quadratic/cubic segment.",
 } as const;
 // Zod is the authoritative op-specific validator. The registered schema keeps
 // the complete field vocabulary and the coordinate/reference rules visible,
@@ -561,9 +594,12 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         additionalProperties: false,
         required: ["op"],
         properties: {
-          op: { enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update", "create_diagram", "edit_diagram", "auto_layout"] },
-          tempRef: { type: "string", description: "Stable request-local alias." },
-          objectId: { type: "string" },
+          op: {
+            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update_draft_connector", "update", "create_diagram", "edit_diagram", "auto_layout"],
+            description: "update_draft_connector patches a draft connector; update targets an authoritative object.",
+          },
+          tempRef: { type: "string", description: "Stable draft/create alias." },
+          objectId: { type: "string", description: "Authoritative object ID." },
           expectedRevision: { type: "integer" },
           leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
@@ -593,7 +629,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           align: { enum: ["start", "middle", "end"] },
           points: {
             type: "array",
-            description: "World {x,y} points; local storage is derived.",
+            description: "World {x,y} points.",
             items: { type: "object" },
           },
           segments: {
@@ -607,8 +643,8 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          start: { type: "object", description: "World {x,y}, or connector {objectId|tempRef,port?}." },
-          end: { type: "object", description: "Connector world point or object/temp reference." },
+          start: { type: "object", description: "World point or {objectId|tempRef,port?} endpoint." },
+          end: { type: "object", description: "World point or object/tempRef endpoint." },
           routing: {
             type: "object",
             description: "mode auto|straight|elbow|curved; curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
@@ -623,7 +659,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           category: { type: ["string", "null"] },
           tags: { type: "array", items: { type: "string" } },
           members: { type: "array", items: { type: "object" } },
-          connectors: { type: "array", items: { type: "object" }, description: "Exact connector refs; omit to infer, [] means empty." },
+          connectors: { type: "array", items: { type: "object" }, description: "Exact refs; omit=infer; []=empty." },
           x: { type: "number" },
           y: { type: "number" },
           width: { type: "number" },
@@ -655,7 +691,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         expectedDraftRevision: { type: "integer" },
         updateMode: {
           enum: ["replace", "patch"],
-          description: "Existing draft: patch affected tempRefs; replace the full candidate. Omit initially.",
+          description: "Patch refs or replace all. Omit initially.",
         },
       },
       oneOf: [
@@ -1525,9 +1561,47 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `Review draftValidation findings before publication. If any are unintended, repair only affected stable tempRefs using delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}, then recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    return `Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use update or resend the whole draft. For other objects, patch by resubmitting the complete create operation for only the affected stable tempRefs. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
   }
   return "Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.";
+}
+
+function recommendedDraftCorrection(
+  draft: AgentCanvasDraftSnapshot,
+  validation: ReturnType<typeof compactDraftValidation>,
+) {
+  if (validation.geometryQualityStatus === "pass") return null;
+  const tempRefById = new Map(
+    Object.entries(draft.temporaryReferences).map(([reference, objectId]) => [objectId, reference]),
+  );
+  const affectedTempRefs = uniqueStrings(
+    validation.findings.flatMap((finding) => [...finding.objectIds, ...finding.connectorIds])
+      .flatMap((objectId) => tempRefById.get(objectId) ?? []),
+  ).sort();
+  const connectorTempRefs = uniqueStrings(
+    validation.findings.flatMap((finding) => finding.connectorIds)
+      .flatMap((objectId) => tempRefById.get(objectId) ?? []),
+  ).sort();
+  return {
+    tool: "apply_canvas_transaction" as const,
+    delivery: {
+      mode: "draft" as const,
+      draftId: draft.id,
+      expectedDraftRevision: draft.revision,
+      updateMode: "patch" as const,
+    },
+    affectedTempRefs,
+    connectorTempRefs,
+    connectorOperation: {
+      op: "update_draft_connector" as const,
+      rule:
+        "Send one operation per affected connector tempRef with only agent-chosen start, end, routing, label, direction, color, zIndex, semanticName, or semanticRole changes. Do not use authoritative update or resend unaffected draft content.",
+    },
+    otherObjectRule:
+      "For a non-connector candidate, resend its complete original create operation with the same tempRef and corrected fields.",
+    validationRule:
+      "Inspect the new draftValidation receipt and repeat only when an unintended task-relevant finding remains.",
+  };
 }
 
 function conciseMutationReceipt(
@@ -1585,6 +1659,7 @@ function conciseDraftReceipt(
     previewObjects: draft.previewObjects.map(compactMutationObject),
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
     draftValidation,
+    recommendedDraftCorrection: recommendedDraftCorrection(draft, draftValidation),
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     completion: {
@@ -2053,7 +2128,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "Atomic canvas create/update. Root only: operations, delivery, responseDetail, intent, summary. For visible multi-object work use delivery.mode=draft, then finish_canvas_draft yourself—no confirmation. Drafts are bot-traced, not review; only proposed needs review. Repair by exact draft ID/revision with updateMode=patch and affected stable tempRefs; replace only for removal. No expectedRoomRevision. Omit delivery for existing corrections.",
+        "Atomic create/update. Root only: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. For visible multi-object work use delivery.mode=draft: bot-traced, not review. With updateMode=patch send affected stable tempRefs; use update_draft_connector for one connector. Then finish_canvas_draft yourself—no confirmation. Replace only to remove or fully replace. Omit delivery for existing corrections.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2109,6 +2184,13 @@ export function createJazzboardSemanticWebMcpTools(
             }
             continue;
           }
+          if (operation.op === "update_draft_connector") {
+            throw new SemanticToolError(
+              "UNRESOLVED_TEMP_REF",
+              `Draft connector reference ${operation.tempRef} is not reserved by this draft. Use a tempRef returned in temporaryReferences.`,
+              { tempRef: operation.tempRef, availableTempRefs: [...refs.keys()].sort() },
+            );
+          }
           const prefix = {
             create_node: "node",
             create_shape: "shape",
@@ -2149,6 +2231,7 @@ export function createJazzboardSemanticWebMcpTools(
         const commands: CanvasCommand[] = [];
         const diagramCommands: DiagramCommand[] = [];
         const deferredConnections: z.output<typeof connectOperation>[] = [];
+        const deferredDraftConnectorUpdates: z.output<typeof updateDraftConnectorOperation>[] = [];
         const deferredUpdates: z.output<typeof updateOperation>[] = [];
         const deferredDiagrams: Array<z.output<typeof createDiagramOperation> | z.output<typeof editDiagramOperation>> = [];
         let deferredAutoLayout: z.output<typeof autoLayoutOperation> | undefined;
@@ -2191,6 +2274,10 @@ export function createJazzboardSemanticWebMcpTools(
           }
           if (operation.op === "connect") {
             deferredConnections.push(operation);
+            continue;
+          }
+          if (operation.op === "update_draft_connector") {
+            deferredDraftConnectorUpdates.push(operation);
             continue;
           }
           if (operation.op === "update") {
@@ -2372,6 +2459,55 @@ export function createJazzboardSemanticWebMcpTools(
             rotation: object.rotation,
           });
         }
+        for (const operation of deferredDraftConnectorUpdates) {
+          const objectId = refs.get(operation.tempRef)!;
+          const existing = existingPreviewObjects.get(objectId);
+          if (!existing) {
+            throw new SemanticToolError(
+              "OBJECT_NOT_FOUND",
+              `Draft connector ${operation.tempRef} resolves to ${objectId}, but that object is not present in the current draft preview.`,
+              { tempRef: operation.tempRef, objectId },
+            );
+          }
+          if (existing.kind !== "connector") {
+            throw new SemanticToolError(
+              "INVALID_OPERATION",
+              `Draft reference ${operation.tempRef} targets ${existing.kind}, not a connector.`,
+              { tempRef: operation.tempRef, objectId, kind: existing.kind },
+            );
+          }
+          const start = operation.start ? endpointFor(operation.start) : existing.start;
+          const end = operation.end ? endpointFor(operation.end) : existing.end;
+          const object: CreateCanvasObject = {
+            id: objectId,
+            kind: "connector",
+            semanticName: operation.semanticName ?? existing.semanticName,
+            semanticRole: operation.semanticRole ?? existing.semanticRole,
+            x: Math.min(start.x, end.x),
+            y: Math.min(start.y, end.y),
+            width: Math.max(Math.abs(end.x - start.x), 1),
+            height: Math.max(Math.abs(end.y - start.y), 1),
+            rotation: 0,
+            zIndex: operation.zIndex ?? existing.zIndex,
+            groupId: null,
+            start,
+            end,
+            routing: normalizeConnectorRouting(operation.routing ?? existing.routing),
+            direction: operation.direction ?? existing.direction,
+            label: operation.label ?? existing.label,
+            color: operation.color ?? existing.color,
+          };
+          commands.push({ type: "create", object });
+          geometry.set(objectId, {
+            id: objectId,
+            kind: "connector",
+            x: object.x,
+            y: object.y,
+            width: object.width,
+            height: object.height,
+            rotation: object.rotation,
+          });
+        }
         for (const operation of deferredUpdates) {
           const patch = {
             ...operation.patch,
@@ -2521,6 +2657,7 @@ export function createJazzboardSemanticWebMcpTools(
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
             draftValidation,
+            recommendedDraftCorrection: recommendedDraftCorrection(response.draft, draftValidation),
             ...(presentation ? { presentation } : {}),
             completion: {
               requiredTool: "finish_canvas_draft",

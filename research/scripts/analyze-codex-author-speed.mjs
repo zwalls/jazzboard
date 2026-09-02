@@ -38,6 +38,23 @@ function extractThreadExport(value) {
   return extractThreadExport(JSON.parse(text));
 }
 
+function parseSessionJsonl(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Session JSONL must be a non-empty string.");
+  }
+  return value
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line, index) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        throw new Error(`Session JSONL line ${index + 1} is not valid JSON.`);
+      }
+    });
+}
+
 function webMcpCalls(code) {
   if (typeof code !== "string") return [];
   const names = [];
@@ -159,6 +176,152 @@ export function summarizeCodexAuthorThread(raw, options = {}) {
   };
 }
 
+function normalizedSessionCall(event) {
+  const payload = record(event)?.payload;
+  const item = record(payload)?.item;
+  if (record(event)?.type !== "event_msg" || payload?.type !== "item_completed" || !item) return null;
+  if (item.type !== "McpToolCall" && item.type !== "CommandExecution") return null;
+  const startedAtMs = finiteNonNegative(payload.started_at_ms, "Tool-call start");
+  const completedAtMs = finiteNonNegative(payload.completed_at_ms, "Tool-call completion");
+  if (completedAtMs < startedAtMs) throw new Error("Tool-call completion precedes its start.");
+  return {
+    turnId: typeof payload.turn_id === "string" ? payload.turn_id : null,
+    startedAtMs,
+    completedAtMs,
+    item: {
+      type: item.type === "McpToolCall" ? "mcpToolCall" : "commandExecution",
+      arguments: record(item.arguments) ?? {},
+      command: Array.isArray(item.command) ? item.command.join(" ") : "",
+      status: typeof item.status === "string" ? item.status : "unknown",
+      durationMs: completedAtMs - startedAtMs,
+    },
+  };
+}
+
+function epochSecondsToMs(value, label) {
+  return finiteNonNegative(value, label) * 1000;
+}
+
+export function summarizeCodexAuthorSessionJsonl(raw, options = {}) {
+  const records = parseSessionJsonl(raw);
+  const starts = records.filter((event) => event?.type === "event_msg" && event.payload?.type === "task_started");
+  const completions = records.filter((event) => event?.type === "event_msg" && event.payload?.type === "task_complete");
+  if (starts.length !== 1 || completions.length !== 1) {
+    throw new Error("Speed evidence must contain exactly one started and completed author turn.");
+  }
+
+  const start = starts[0].payload;
+  const completion = completions[0].payload;
+  if (start.turn_id !== completion.turn_id) throw new Error("Task start and completion turn IDs differ.");
+  const taskStartedAtMs = epochSecondsToMs(start.started_at, "Task start");
+  const taskCompletedAtMs = epochSecondsToMs(completion.completed_at, "Task completion");
+  const totalWallMs = finiteNonNegative(completion.duration_ms, "Turn duration");
+  if (taskCompletedAtMs < taskStartedAtMs) throw new Error("Task completion precedes its start.");
+
+  const calls = records
+    .map(normalizedSessionCall)
+    .filter((call) => call?.turnId === start.turn_id)
+    .sort((left, right) => left.startedAtMs - right.startedAtMs);
+  const phaseMetrics = Object.fromEntries(PHASES.map((phase) => [phase, {
+    segmentWallMs: 0,
+    modelAndCoordinationMs: 0,
+    hostExecutionMs: 0,
+    hostCallCount: 0,
+    failedHostCallCount: 0,
+    webMcpCallCount: 0,
+    webMcpTools: {},
+  }]));
+  phaseMetrics.terminal = {
+    segmentWallMs: 0,
+    modelAndCoordinationMs: 0,
+    hostExecutionMs: 0,
+    hostCallCount: 0,
+    failedHostCallCount: 0,
+    webMcpCallCount: 0,
+    webMcpTools: {},
+  };
+
+  let cursorMs = taskStartedAtMs;
+  let afterFinish = false;
+  let hostExecutionMs = 0;
+  const allWebMcpTools = {};
+  const sequence = [];
+
+  for (const call of calls) {
+    if (call.startedAtMs < cursorMs) throw new Error("Tool calls overlap or are out of order.");
+    const phase = phaseFor(call.item, afterFinish);
+    const metric = phaseMetrics[phase];
+    const leadInMs = call.startedAtMs - cursorMs;
+    const callExecutionMs = call.completedAtMs - call.startedAtMs;
+    metric.segmentWallMs += leadInMs + callExecutionMs;
+    metric.modelAndCoordinationMs += leadInMs;
+    metric.hostExecutionMs += callExecutionMs;
+    metric.hostCallCount += 1;
+    if (call.item.status === "failed") metric.failedHostCallCount += 1;
+    const calledTools = webMcpCalls(call.item.arguments?.code);
+    metric.webMcpCallCount += calledTools.length;
+    for (const name of calledTools) {
+      metric.webMcpTools[name] = (metric.webMcpTools[name] ?? 0) + 1;
+      allWebMcpTools[name] = (allWebMcpTools[name] ?? 0) + 1;
+      if (name === "finish_canvas_draft") afterFinish = true;
+    }
+    if (phase === "draft_finish") afterFinish = true;
+    hostExecutionMs += callExecutionMs;
+    sequence.push({
+      phase,
+      leadInMs,
+      hostExecutionMs: callExecutionMs,
+      segmentWallMs: leadInMs + callExecutionMs,
+      failed: call.item.status === "failed",
+      webMcpTools: calledTools,
+    });
+    cursorMs = call.completedAtMs;
+  }
+
+  if (cursorMs > taskCompletedAtMs) throw new Error("Recorded tool execution exceeds task completion.");
+  const terminalMs = taskCompletedAtMs - cursorMs;
+  phaseMetrics.terminal.segmentWallMs = terminalMs;
+  phaseMetrics.terminal.modelAndCoordinationMs = terminalMs;
+  const accountedWallMs = calls.length === 0
+    ? terminalMs
+    : sequence.reduce((total, item) => total + item.segmentWallMs, 0) + terminalMs;
+  const clockDeltaMs = totalWallMs - accountedWallMs;
+
+  return {
+    schemaVersion: "jazzboard-codex-author-timeline/v1",
+    attemptId: typeof options.attemptId === "string" ? options.attemptId : null,
+    threadId: typeof options.threadId === "string" ? options.threadId : null,
+    turnId: start.turn_id,
+    status: "completed",
+    timing: {
+      totalWallMs,
+      accountedWallMs,
+      clockDeltaMs,
+      hostExecutionMs,
+      modelAndCoordinationMs: accountedWallMs - hostExecutionMs,
+      hostExecutionShare: accountedWallMs === 0 ? 0 : hostExecutionMs / accountedWallMs,
+    },
+    calls: {
+      hostCallCount: calls.length,
+      failedHostCallCount: calls.filter((call) => call.item.status === "failed").length,
+      webMcpCallCount: Object.values(allWebMcpTools).reduce((total, count) => total + count, 0),
+      webMcpTools: allWebMcpTools,
+    },
+    phases: phaseMetrics,
+    sequence,
+    attribution: {
+      method: "Time before each host call is assigned to the phase of that next call; post-call tail is terminal.",
+      interpretation: "modelAndCoordinationMs includes all between-call latency and is not pure model reasoning time.",
+    },
+    observability: {
+      modelReasoningTime: "unobservable",
+      exactTokens: "unobservable_unless_present_in_separate_task_usage_evidence",
+      authoritativeCompletionMs: "requires_room_activity_evidence",
+      presentationCompletionMs: "requires_live_presentation_evidence",
+    },
+  };
+}
+
 function parseArgs(argv) {
   if (argv.length !== 2 || argv[0] !== "--input") {
     throw new Error("Usage: analyze-codex-author-speed.mjs --input /absolute/path/to/read-thread.json");
@@ -170,13 +333,14 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   try {
     const inputPath = parseArgs(process.argv.slice(2));
-    const summary = summarizeCodexAuthorThread(JSON.parse(readFileSync(inputPath, "utf8")), {
-      attemptId: path.basename(inputPath, path.extname(inputPath)),
-    });
+    const input = readFileSync(inputPath, "utf8");
+    const options = { attemptId: path.basename(inputPath, path.extname(inputPath)) };
+    const summary = inputPath.endsWith(".jsonl")
+      ? summarizeCodexAuthorSessionJsonl(input, options)
+      : summarizeCodexAuthorThread(JSON.parse(input), options);
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   }
 }
-
