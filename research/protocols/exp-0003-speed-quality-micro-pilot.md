@@ -199,3 +199,31 @@ The next candidate freeze must name a public production-accessible deployment
 before releasing exactly one fresh matched production `J1`. Local
 qualifications remain mechanism-development evidence only and are not pooled
 with the production comparison.
+
+## Production execution addendum — all attempts retained
+
+The production candidate was subsequently reopened twice to correct defects
+revealed by actual browser evidence. This means EXP-0003 no longer supplies one
+clean, preregistered causal `J0` versus `J1` comparison. Every begun production
+attempt remains part of the record:
+
+| Attempt | Candidate state | Author task | Wall time | Semantic result | Geometry | Pixel/review result |
+| --- | --- | --- | ---: | --- | --- | --- |
+| `J1` | initial production candidate | `01a06138-6f6e-7bd0-ac36-92a2e769f78d` | 290,506 ms | 9/9 entities, 9/9 relationships | 0 failures, 5 warnings | blank pixel handoff; not accepted |
+| `J1b` | bounded blank-capture recovery | `01a0614c-b324-7610-ab6c-554bd21aad04` | 304,156 ms | 9/9 entities, 9/9 relationships | 0 failures, 2 warnings | pixels recovered, but blinded reviewer `01a06155-553c-75c0-8fe7-fa0e71a55f7a` failed materially small framing and one ambiguous crossing |
+| `J1c` | intended stable-capture deployment, stale custom-domain alias | `01a0616d-f335-78c0-9f68-1236f4b32f04` | 280,351 ms | 9/9 entities, 9/9 relationships | 0 failures, 1 warning | retained as deployment-control evidence; it actually loaded pixel protocol v4 and is not candidate evidence |
+| `J1d` | commits `18460d8`, `09ae3b2`, and `85f8bd5`; deployment `dpl_B2QMi4VXcv8cA1hnMoUXUNrVC9xP` after explicit `www.jazzboard.xyz` alias verification | `01a06175-e883-7222-80a5-59d68ff377e0` | 335,809 ms | 9/9 entities, 9/9 relationships, one first-class Diagram | 0 failures, 1 warning | stable clean-viewport protocol v5 capture; blinded reviewer `01a0617c-3e31-79a1-bc91-4bde15237677` passed all four public criteria |
+
+`J1d` was 141,794 ms faster than the retained 477,603 ms `J0` reference, an
+observed 29.7% reduction on this one task. The reviewer found the one
+orthogonal connector crossing visible but not materially ambiguous because
+the labels and endpoint arrows kept both relationships traceable.
+
+The production mechanism result is therefore positive development evidence:
+the candidate preserved exact semantics, progressive construction, atomic
+commit, and blinded rendered quality while completing materially faster. It
+is not a population-level effect estimate and is not presented as a clean
+single-release causal result because the candidate was reopened after observed
+failures and one production alias mistake. A later randomized multi-task
+replication must use an immutable commit plus an explicit custom-domain
+deployment digest before author release.
