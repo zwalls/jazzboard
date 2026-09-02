@@ -66,6 +66,10 @@ Start with these persisted documents after any handoff or context reset:
   authors, six accepting blinded Sol/high primary reviews, and no adjudication
   or usage-limit interruption. The pass makes a separately signed successor
   runtime eligible; it does not by itself release the 48-attempt A/A.
+- [`protocols/exp0001a-successor-runtime-v4-implementation.md`](protocols/exp0001a-successor-runtime-v4-implementation.md)
+  is the active continuation record for the additive full-run successor. It
+  preserves the signed qualification and frozen denominator while replacing
+  the disabled predecessor execution shell.
 - [`reports/exp0001a-browser-attached-transport-spike-v1.md`](reports/exp0001a-browser-attached-transport-spike-v1.md)
   records the direct-origin Terra/medium production transport pass. A fresh
   browser-attached author self-provisioned a private room and produced an
