@@ -601,7 +601,32 @@ describe("render_canvas_preview WebMCP tool", () => {
       representation: "overview",
     });
 
-    expect(result).toMatchObject({ ok: true, tool: "inspect_canvas_scope" });
+    expect(result).toMatchObject({
+      ok: true,
+      tool: "inspect_canvas_scope",
+      data: {
+        pixelCaptureProtocol: {
+          schemaVersion: 4,
+          onBlankCapture: {
+            retryLimit: 1,
+            steps: [
+              expect.objectContaining({
+                action: "call_webmcp_tool",
+                tool: "render_canvas_preview",
+                arguments: {
+                  scope: {
+                    kind: "objects",
+                    targets: [{ objectId: "object-a", expectedRevision: 3 }],
+                  },
+                },
+              }),
+              expect.objectContaining({ action: "browser_screenshot" }),
+              expect.objectContaining({ action: "inspect_image_pixels" }),
+            ],
+          },
+        },
+      },
+    });
     expect(state.inspectCanvasScope).toHaveBeenCalledWith(
       expect.objectContaining({
         source: { kind: "room", expectedRevision: 12 },
@@ -751,7 +776,7 @@ describe("render_canvas_preview WebMCP tool", () => {
           height: 180,
         },
         pixelCaptureProtocol: {
-          schemaVersion: 3,
+          schemaVersion: 4,
           capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active",
           crop: "use_screenshotClip_in_viewport_css_pixels",
           copyReady: {
@@ -786,6 +811,29 @@ describe("render_canvas_preview WebMCP tool", () => {
             },
           },
           completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+          onBlankCapture: {
+            classification: "invalid_or_stale_capture_not_successful_inspection",
+            retryLimit: 1,
+            steps: [
+              {
+                step: "reframe_exact_scope",
+                action: "call_webmcp_tool",
+                tool: "render_canvas_preview",
+                arguments: {
+                  scope: {
+                    kind: "objects",
+                    targets: [{ objectId: "object-a", expectedRevision: 3 }],
+                  },
+                },
+                resultReference: "reframedInspection",
+              },
+              expect.objectContaining({
+                step: "capture_new_returned_clip_immediately",
+                argumentsPath: "reframedInspection.data.pixelCaptureProtocol.copyReady.directClip.arguments",
+              }),
+              expect.objectContaining({ step: "inspect_recovered_pixels" }),
+            ],
+          },
         },
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
@@ -862,7 +910,7 @@ describe("render_canvas_preview WebMCP tool", () => {
     const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     expect(result.data).toMatchObject({
       pixelCaptureProtocol: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         copyReady: {
           preferredPath: "directClip",
           directClip: {
@@ -880,6 +928,22 @@ describe("render_canvas_preview WebMCP tool", () => {
         },
         completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
         forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+        onBlankCapture: {
+          retryLimit: 1,
+          steps: [
+            expect.objectContaining({
+              tool: "render_canvas_preview",
+              arguments: {
+                scope: {
+                  kind: "objects",
+                  targets: [{ objectId: "object-a", expectedRevision: 3 }],
+                },
+              },
+            }),
+            expect.objectContaining({ action: "browser_screenshot" }),
+            expect.objectContaining({ action: "inspect_image_pixels" }),
+          ],
+        },
       },
       resultSerialization: {
         byteLength: serializedResultByteLength,

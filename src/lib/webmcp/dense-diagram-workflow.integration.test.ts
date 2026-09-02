@@ -467,10 +467,25 @@ describe("dense AI-native diagram WebMCP workflow", () => {
           height: expect.any(Number),
         },
         pixelCaptureProtocol: {
-          schemaVersion: 3,
+          schemaVersion: 4,
           capture: "non_mutating_direct_clip_or_full_viewport_crop_while_validation_is_active",
           crop: "use_screenshotClip_in_viewport_css_pixels",
           completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+          onBlankCapture: {
+            retryLimit: 1,
+            steps: [
+              expect.objectContaining({
+                action: "call_webmcp_tool",
+                tool: "render_canvas_preview",
+              }),
+              expect.objectContaining({
+                action: "browser_screenshot",
+              }),
+              expect.objectContaining({
+                action: "inspect_image_pixels",
+              }),
+            ],
+          },
         },
         sourceRevisions: {
           roomRevision: authoritative.roomRevision,

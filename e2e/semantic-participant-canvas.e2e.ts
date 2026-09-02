@@ -1191,7 +1191,7 @@ test.describe("first-party semantic participant canvas", () => {
     const preview = successData(await callWebMcpTool<{
       screenshotClip: { x: number; y: number; width: number; height: number };
       pixelCaptureProtocol: {
-        schemaVersion: 3;
+        schemaVersion: 4;
         copyReady: {
           directClip: {
             action: "browser_screenshot";
@@ -1225,6 +1225,20 @@ test.describe("first-party semantic participant canvas", () => {
         };
         completionGate: "inspect_cropped_pixels_before_claiming_visual_qa";
         forbiddenSubstitutions: string[];
+        onBlankCapture: {
+          retryLimit: 1;
+          steps: Array<{
+            action: string;
+            tool?: string;
+            arguments?: {
+              scope: {
+                kind: "diagram";
+                diagramId: string;
+                expectedRevision: number;
+              };
+            };
+          }>;
+        };
       };
       pageBounds: PreviewPageBounds;
       geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
@@ -1253,7 +1267,7 @@ test.describe("first-party semantic participant canvas", () => {
       geometryQualityStatus: "pass",
       visualInspectionStatus: "not_performed",
       pixelCaptureProtocol: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         copyReady: {
           directClip: {
             action: "browser_screenshot",
@@ -1286,6 +1300,24 @@ test.describe("first-party semantic participant canvas", () => {
         },
         completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
         forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+        onBlankCapture: {
+          retryLimit: 1,
+          steps: [
+            expect.objectContaining({
+              action: "call_webmcp_tool",
+              tool: "render_canvas_preview",
+              arguments: {
+                scope: {
+                  kind: "diagram",
+                  diagramId: DENSE_DIAGRAM_ID,
+                  expectedRevision: diagramAfterLayout.diagram.revision,
+                },
+              },
+            }),
+            expect.objectContaining({ action: "browser_screenshot" }),
+            expect.objectContaining({ action: "inspect_image_pixels" }),
+          ],
+        },
       },
       width: expect.any(Number),
       height: expect.any(Number),

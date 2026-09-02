@@ -139,6 +139,8 @@ const CORE_CAPABILITIES = {
     recommendedPixelCapture: "execute-pixelCaptureProtocol.copyReady-and-inspect-only-inspectionPixels",
     pixelCaptureCompletionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
     pixelCaptureForbiddenSubstitute: "uncropped_full_viewport",
+    blankCaptureRecovery:
+      "If an exact clip is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the new returned directClip, and inspect it. Only the second blank or unavailable exact capture is terminal.",
     exactScopes: ["room", "diagram", "objects"],
     roomScopePurpose:
       "Use an exact room revision after adding to an existing board to judge relative scale, whitespace, spatial distribution, and integration with surrounding content.",
@@ -479,7 +481,8 @@ const INSPECTION_BUNDLE = {
     "Read the exact current scope and requested intent.",
     "Run deterministic checks where they are relevant; treat findings as facts, not design commands.",
     "Frame the exact revision with inspect_canvas_scope when registered.",
-    "While validation is active, execute pixelCaptureProtocol.copyReady: capture the full clean viewport, crop in memory to its screenshotClip rectangle, and inspect only inspectionPixels. Never substitute the uncropped viewport.",
+    "While validation is active, execute pixelCaptureProtocol.copyReady: prefer its exact directClip when browser clip capture is documented non-mutating, otherwise capture the full clean viewport and crop in memory to screenshotClip. Inspect only inspectionPixels and never substitute the uncropped viewport.",
+    "If the first exact capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture exactly once: reframe the exact scope, immediately capture the new returned directClip, and inspect it. Only a second blank or unavailable exact capture is terminal.",
     "Inspect the cropped pixels against the visual contract and identify defects by stable object ID.",
     "When work was added to an existing board, inspect the exact room revision at overview once and compare relative scale, whitespace, spatial distribution, and surrounding-content integration against the requested intent.",
     "Patch only the affected region, re-render, and stop after success or bounded stagnation.",
@@ -538,7 +541,7 @@ const INSPECTION_BUNDLE = {
         "An artifact was added to an existing board and final relative scale or integration needs judgment.",
     },
     pixelCapture:
-      "Execute pixelCaptureProtocol.copyReady while validation.activeSelector exists: capture the full clean viewport, crop in memory to its screenshotClip rectangle, and inspect only inspectionPixels. The JSON result alone is not visual QA; neither is the uncropped viewport.",
+      "Execute pixelCaptureProtocol.copyReady while validation.activeSelector exists: prefer its exact directClip when supported, otherwise capture the full clean viewport and crop to screenshotClip; inspect only inspectionPixels. If an exact clip is unexpectedly blank, execute onBlankCapture once and inspect the newly returned clip before reporting unavailable. The JSON result alone is not visual QA; neither is the uncropped viewport.",
   },
 } as const;
 
@@ -732,6 +735,7 @@ function canvasQuickstart(
       "Check draftValidation before finishing. Correct only unintended findings with an exact-revision updateMode=patch containing the affected stable tempRefs, then recheck the new receipt. Use updateMode=replace only to remove or fully replace candidate content; deliberate overlap, routing, cropping, and asymmetry remain valid.",
       "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
       "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
+      "If the first exact capture is blank despite visible semantic targets, follow pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the new returned directClip, and inspect it before reporting pixel inspection unavailable.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",

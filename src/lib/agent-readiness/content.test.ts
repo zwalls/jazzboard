@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.13.0");
+    expect(AGENT_DOC_VERSION).toBe("1.13.1");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
