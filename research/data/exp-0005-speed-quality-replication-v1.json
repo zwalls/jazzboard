@@ -1,0 +1,225 @@
+{
+  "schemaVersion": "jazzboard-speed-quality-replication/v1",
+  "experimentId": "EXP-0005",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-paired-randomized-replication",
+  "protocol": "research/protocols/exp-0005-speed-quality-replication.md",
+  "conditions": {
+    "A0": {
+      "description": "Immediately preceding production WebMCP surface",
+      "deploymentId": "dpl_B2QMi4VXcv8cA1hnMoUXUNrVC9xP"
+    },
+    "A1": {
+      "description": "Connector-update transport and exact recommended draft corrections",
+      "deploymentId": "dpl_BKMmpJ4t3Yiy9axtDXkFtLGSR2Uy",
+      "commit": "6af0784815de4961597f1f1a638c5cef34b9d6b4"
+    }
+  },
+  "authorProfile": {
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable"
+  },
+  "reviewerProfile": {
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable"
+  },
+  "attempts": [
+    {
+      "attemptId": "attempt-01",
+      "sequence": 1,
+      "taskId": "dev-architecture-create-observability",
+      "taskClass": "architecture",
+      "condition": "A0",
+      "author": { "taskId": "01a063e1-c46c-70e2-910a-d226887365ef", "turnId": "01a063e1-c600-7a11-ac2b-3ada9984d6e6", "status": "completed" },
+      "timing": { "totalWallMs": 214150, "acceptedCompletionMs": null, "hostExecutionMs": 40523, "modelAndCoordinationMs": 173477 },
+      "calls": { "host": 17, "failedHost": 3, "webMcp": 9, "draftTransactions": 4, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 18, "diagramCount": 1 },
+      "review": {
+        "taskId": "01a063e5-e479-7763-8cba-430f460e943c",
+        "turnId": "01a063e5-e5ea-73d2-ab4b-230947452f1a",
+        "wallMs": 22331,
+        "overall": "fail",
+        "materialDefects": ["Four required node labels were visibly truncated.", "The telemetry connector label was obscured."]
+      },
+      "sha256": {
+        "authorSession": "e81db7bad1f1a2931a3a22183c4456618616c4a7c4ffd2a667c78bf571cdf8b5",
+        "reviewerSession": "1b071f07bef73e5c333a64cc478d1ad5f9859c251d812845b76aecbe01a554a4",
+        "semanticState": "b944c5f63f6f9fc90b06171014274dd1a34e61d8316e423329b79d3d4ade18a4",
+        "cleanPng": "52fda1eff5db67cf9cd173cd8a12daa2180f8cb1b57cf11803a8ef38e9668823"
+      }
+    },
+    {
+      "attemptId": "attempt-02",
+      "sequence": 2,
+      "taskId": "dev-architecture-create-observability",
+      "taskClass": "architecture",
+      "condition": "A1",
+      "author": { "taskId": "01a063e8-d0de-7441-a4fa-39378fef9e4c", "turnId": "01a063e8-d244-7022-9b65-09af887d9866", "status": "completed" },
+      "timing": { "totalWallMs": 316374, "acceptedCompletionMs": 316374, "hostExecutionMs": 66604, "modelAndCoordinationMs": 250396 },
+      "calls": { "host": 23, "failedHost": 3, "webMcp": 22, "draftTransactions": 3, "updateDraftConnectorCalls": 2, "updateDraftConnectorOperations": 10 },
+      "artifact": { "roomRevision": 11, "objectCount": 20, "diagramCount": 1 },
+      "review": { "taskId": "01a063ef-f939-7e83-a24c-d4baacb53238", "turnId": "01a063ef-faa0-76c1-8912-405b16ca6c6d", "wallMs": 37442, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "80349c2dfc7952950bd98641a94ca31d562175424e2dcac9eec5361b6f901f64",
+        "reviewerSession": "054151458408e6e171f233f13d8f82cdbff1421de96e34bdbac8bf981d0303b9",
+        "semanticState": "d79d661cc9693d69d1a4184fe8d446fd1e4653c5770aa99eb76f51f0dd3a8ce6",
+        "cleanPng": "e0088a7bad39492b39c679ae4c1b2470118921422183a97392a8dafc1a887653"
+      }
+    },
+    {
+      "attemptId": "attempt-03",
+      "sequence": 3,
+      "taskId": "dev-drawing-create-wayfinding-icon",
+      "taskClass": "drawing",
+      "condition": "A0",
+      "author": { "taskId": "01a063f1-d243-71e1-a83c-edfd8f431a7a", "turnId": "01a063f1-d3db-7ff0-affc-3d8b60798b40", "status": "completed" },
+      "timing": { "totalWallMs": 123710, "acceptedCompletionMs": 123710, "hostExecutionMs": 29720, "modelAndCoordinationMs": 94280 },
+      "calls": { "host": 14, "failedHost": 1, "webMcp": 6, "draftTransactions": 2, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 13, "diagramCount": 1 },
+      "review": { "taskId": "01a063f4-c122-76f2-8991-4fdd062e521d", "turnId": "01a063f4-c2d7-7191-9b82-27a035cb83b1", "wallMs": 29228, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "4516c44602482ed68df39823e23ad63b2e62560e03e6bf4cc0c9032f369baf8a",
+        "reviewerSession": "d47ddbccda0137bb2fb210694acebde40c174ecee060955570dbad6d8dd51732",
+        "semanticState": "2a1b4c7c2f20470cc2ea8b3eac23184e4d860a72ac26b2ae3127134e158eeab5",
+        "cleanPng": "b2076570203618d46517c33e41fb41115331dc3cadc31d75ae346d008cb62992"
+      }
+    },
+    {
+      "attemptId": "attempt-04",
+      "sequence": 4,
+      "taskId": "dev-drawing-create-wayfinding-icon",
+      "taskClass": "drawing",
+      "condition": "A1",
+      "author": { "taskId": "01a063f6-3a56-7e01-955c-6e77239f4176", "turnId": "01a063f6-3bd5-7641-b0d7-8ec15523bb2b", "status": "completed" },
+      "timing": { "totalWallMs": 213800, "acceptedCompletionMs": 213800, "hostExecutionMs": 30990, "modelAndCoordinationMs": 183010 },
+      "calls": { "host": 13, "failedHost": 2, "webMcp": 7, "draftTransactions": 4, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 13, "diagramCount": 1 },
+      "review": { "taskId": "01a063fa-31f9-77c3-89ea-94c8dcad2a5c", "turnId": "01a063fa-336c-74a1-ac55-07fbb1c2c5bb", "wallMs": 14994, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "1cfeab9079397c4f67fe1948a09c17cd5a8ad4a23cb7588d22defbee62f33076",
+        "reviewerSession": "687e7fdd61efaf3754cdcfcc90e4936130c32d925290744c8c1ebfb943143d3d",
+        "semanticState": "32282542033fefef195f3c0d6222cce93f7c5763854b984a49f5e42e9b09de75",
+        "cleanPng": "de8928ea05f448e18aed89014945a245a6dc6d20ba9a4f60efe713fa09cd4fec"
+      }
+    },
+    {
+      "attemptId": "attempt-05",
+      "sequence": 5,
+      "taskId": "dev-drawing-create-layered-portrait",
+      "taskClass": "drawing",
+      "condition": "A0",
+      "author": { "taskId": "01a063fb-24fa-7471-a829-d84eb11bf410", "turnId": "01a063fb-2685-7471-bdc9-37ec34da6398", "status": "completed" },
+      "timing": { "totalWallMs": 210893, "acceptedCompletionMs": 210893, "hostExecutionMs": 35532, "modelAndCoordinationMs": 175468 },
+      "calls": { "host": 14, "failedHost": 1, "webMcp": 7, "draftTransactions": 2, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 16, "diagramCount": 1 },
+      "review": { "taskId": "01a063ff-7748-7243-912a-c3537130063f", "turnId": "01a063ff-78b7-7d50-84fb-4621f9bdbc78", "wallMs": 30969, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "7de779cf249cc0b43cf5779d71d6b4be33d6e0222436bfccb1a5fe11cda19871",
+        "reviewerSession": "08b4cfb1259c13a7c293c0963267eedb11b06e47cc692a4ef22faa712a2c68d5",
+        "semanticState": "d170542eb4ea6394a2fd6ebeb5a82e7ee4a7dff52bec349075338278cd0cb6f2",
+        "cleanPng": "22425fc8220fbd13b6336cd1205127fd85eac2dd85a57ce4ef371720a31af565"
+      }
+    },
+    {
+      "attemptId": "attempt-06",
+      "sequence": 6,
+      "taskId": "dev-drawing-create-layered-portrait",
+      "taskClass": "drawing",
+      "condition": "A1",
+      "author": { "taskId": "01a06400-9305-7550-ac82-75950ae7b2a3", "turnId": "01a06400-94ae-7752-ab25-30e5403c8f49", "status": "completed" },
+      "timing": { "totalWallMs": 167933, "acceptedCompletionMs": 167933, "hostExecutionMs": 29224, "modelAndCoordinationMs": 138776 },
+      "calls": { "host": 15, "failedHost": 2, "webMcp": 7, "draftTransactions": 2, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 27, "diagramCount": 1 },
+      "review": { "taskId": "01a06403-d48a-7f63-90ff-2f9845dda57e", "turnId": "01a06403-d637-7ac2-87e3-02d7544e8f57", "wallMs": 21941, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "a0df19e1370a5e148133807c031ef5598bb3ed60f82951cd320129cb383bb8e6",
+        "reviewerSession": "c0e92a6b38bde5d2a15c084246127f876f0f7e8159c1a60b20eef34e26aa818c",
+        "semanticState": "13dd9117ffbd1a8f1de0d4769f4acbfbd6a97ed8b942191bb2684ff64ebdf36b",
+        "cleanPng": "ebec6904bf34f7946e31577a074f59c57556712d22e5a7895f716514e8359b5f"
+      }
+    },
+    {
+      "attemptId": "attempt-07",
+      "sequence": 7,
+      "taskId": "dev-architecture-create-checkout",
+      "taskClass": "architecture",
+      "condition": "A1",
+      "author": { "taskId": "01a06404-cedb-71e2-a3e2-07a399991e51", "turnId": "01a06404-d088-7a13-acfb-8b9bcffd3672", "status": "completed" },
+      "timing": { "totalWallMs": 171941, "acceptedCompletionMs": 171941, "hostExecutionMs": 38534, "modelAndCoordinationMs": 133466 },
+      "calls": { "host": 13, "failedHost": 1, "webMcp": 8, "draftTransactions": 3, "updateDraftConnectorCalls": 1, "updateDraftConnectorOperations": 3 },
+      "artifact": { "roomRevision": 2, "objectCount": 10, "diagramCount": 1 },
+      "review": { "taskId": "01a06408-bf45-76e1-9a30-77353d87ae4c", "turnId": "01a06408-c116-7921-8a36-713aa90d2430", "wallMs": 31100, "overall": "pass", "materialDefects": [] },
+      "sha256": {
+        "authorSession": "04f53fc58ac8bc80801874139e456c68fb7434965cb9d230d74d29e728fb4bcf",
+        "reviewerSession": "ccb579be9efe34a172c9fe71ab814a1e1bb6d53c39ca30c27a65e1fbf67ee75f",
+        "semanticState": "222d371e7e19b29deb7b63a01790a9389cba903233f381a84798a0dcc6b00819",
+        "cleanPng": "073bf46938fea4847188e70a24b83dc46947eff314d6f4a9429668a745497a87"
+      }
+    },
+    {
+      "attemptId": "attempt-08",
+      "sequence": 8,
+      "taskId": "dev-architecture-create-checkout",
+      "taskClass": "architecture",
+      "condition": "A0",
+      "author": { "taskId": "01a0640a-147b-7110-89a8-3a058d0fca39", "turnId": "01a0640a-1628-7850-a93d-ee92ac62f588", "status": "completed" },
+      "timing": { "totalWallMs": 241810, "acceptedCompletionMs": null, "hostExecutionMs": 50702, "modelAndCoordinationMs": 191298 },
+      "calls": { "host": 18, "failedHost": 1, "webMcp": 11, "draftTransactions": 6, "updateDraftConnectorCalls": 0, "updateDraftConnectorOperations": 0 },
+      "artifact": { "roomRevision": 2, "objectCount": 9, "diagramCount": 1 },
+      "review": {
+        "taskId": "01a0640e-afd6-7a40-8304-cdb058fa45f6",
+        "turnId": "01a0640e-b162-7160-b465-263f9b823189",
+        "wallMs": 23916,
+        "overall": "fail",
+        "materialDefects": ["The Checkout API node occluded the first letter of the required Commerce trust boundary label."]
+      },
+      "sha256": {
+        "authorSession": "fcbe0811d26766353c49b3e6ea9237d4aac98963fc32ea88d93512e4a5c8d58a",
+        "reviewerSession": "ae0782d15199153a9bc3325046952e0aec76b49c93fd74ee061a2acaec934910",
+        "semanticState": "9f6ab20fb010ee8bf48701f67468cbf4b205245431904d954918fff08819acd5",
+        "cleanPng": "a22d16668ded1cc077fc8864eea28951219a2b91dfd002ffd251b453b02f569a"
+      }
+    }
+  ],
+  "descriptiveSummary": {
+    "quality": {
+      "A0": { "passed": 2, "attempted": 4, "architecturePassed": 0, "architectureAttempted": 2, "drawingPassed": 2, "drawingAttempted": 2 },
+      "A1": { "passed": 4, "attempted": 4, "architecturePassed": 2, "architectureAttempted": 2, "drawingPassed": 2, "drawingAttempted": 2 }
+    },
+    "rawWallTimeMs": { "A0Median": 212521.5, "A1Median": 192870.5, "A1MinusA0Median": -19651, "interpretation": "Descriptive only. Rejected artifacts are not accepted completion times." },
+    "withinTaskRawWallDeltaMsA1MinusA0": {
+      "dev-architecture-create-observability": 102224,
+      "dev-drawing-create-wayfinding-icon": 90090,
+      "dev-drawing-create-layered-portrait": -42960,
+      "dev-architecture-create-checkout": -69869
+    },
+    "hostExecutionMedianMs": { "A0": 38027.5, "A1": 34762 },
+    "modelAndCoordinationMedianMs": { "A0": 174472.5, "A1": 160893 },
+    "draftTransactionMedian": { "A0": 3, "A1": 3 },
+    "architectureDraftTransactions": { "A0": [4, 6], "A1": [3, 3] },
+    "candidateConnectorCorrection": { "completedTransactionCallsContainingOperation": 3, "operationEntries": 13, "unsupportedCorrectionForms": 0 }
+  },
+  "usage": {
+    "codexTaskCount": 16,
+    "authorTasks": 8,
+    "reviewerTasks": 8,
+    "subscriptionUsagePerTask": "unobservable",
+    "accountPrimaryWindowUsedPercentAfterStudy": 78,
+    "accountWindowAttributionWarning": "The account-level window is shared and cannot be attributed exactly to this study.",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "candidateQualityDirection": "positive",
+    "candidateSpeedDirection": "inconclusive_high_variance",
+    "populationPercentageClaimPermitted": false,
+    "broaderReplicationPermitted": true,
+    "nextProductTarget": "Detect contextual shape-label or text-object occlusion by later opaque shapes and return exact corrective guidance."
+  }
+}

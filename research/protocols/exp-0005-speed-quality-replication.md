@@ -1,6 +1,6 @@
 # EXP-0005 — Small interleaved speed-with-quality replication
 
-- Status: **frozen before author release**
+- Status: **complete**
 - Frozen at: 2026-09-02T20:44:00Z
 - Branch: `research/speed-quality-replication-v2`
 - Study class: paired randomized development replication
@@ -142,5 +142,19 @@ Before attempt 1 received a brief, direct navigation to the immutable `A0`
 deployment hostname encountered Vercel deployment protection. No author task or
 room was created. The two exact frozen builds were therefore assigned the
 public, condition-neutral author origins listed above. Aliasing does not rebuild
-or alter either deployment. Both origins must pass health and live WebMCP
-discovery checks before release.
+or alter either deployment. Both origins passed health and live WebMCP discovery
+checks before release.
+
+## Completion
+
+All eight frozen author attempts and eight separate blinded reviews completed
+without a usage-limit interruption or replacement attempt. A1 passed 4/4
+reviews, including 2/2 architecture tasks; A0 passed 2/4, including 0/2
+architecture tasks. Drawing controls passed in both conditions.
+
+Raw median wall time was 19,651 ms lower for A1, but matched task deltas split
+evenly and both A0 architecture artifacts were rejected. Speed is therefore
+inconclusive rather than a percentage improvement claim. The candidate met the
+frozen advancement rule. Full sanitized results and provenance are recorded in
+`research/data/exp-0005-speed-quality-replication-v1.json` and interpreted in
+`research/reports/exp-0005-speed-quality-replication.md`.
