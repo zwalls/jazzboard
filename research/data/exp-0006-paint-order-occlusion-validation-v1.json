@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0006",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-mechanism-validation",
+  "productChange": {
+    "description": "Expose paint-order-aware text occlusion risks for working-set and focused canvas inspection without imposing automatic layout.",
+    "commit": "80a9a1afdc94baa95d5bc844ebfca7cc15afd4c2",
+    "previewDeployment": {
+      "deploymentId": "dpl_3dH5bWbkZoJLqVC2qf54yZ4Sepzh",
+      "url": "https://jazzboard-dqcgjxxes-zwalls-projects.vercel.app",
+      "accessNote": "The isolated author validation used the same candidate code on the local public-in-host origin because the preview deployment required Vercel authentication."
+    }
+  },
+  "liveMechanismCheck": {
+    "method": "Use actual browser-exposed WebMCP tools to create a labeled trust boundary and a later-painted opaque node that obscures its label, inspect the pair, move the node by exact revision, then inspect the same scope with the prior finding key.",
+    "before": {
+      "roomRevision": 3,
+      "textOcclusionRiskCount": 1,
+      "findingKey": "scope:v2:2e7d98d5:text:text_occlusion_risk:ecc48cfd",
+      "source": "shape_label",
+      "status": "likely",
+      "method": "shared_text_layout_bounds_and_exact_rectangle_paint_order",
+      "labelObjectRevision": 1,
+      "occludingObjectRevision": 1
+    },
+    "after": {
+      "roomRevision": 4,
+      "textOcclusionRiskCount": 0,
+      "currentFindingKeys": [],
+      "priorSameScopeFindingKeyNotObserved": true,
+      "interpretation": "The prior key was not observed after the agent-chosen move. This is not an authoritative claim that every possible visual defect was resolved."
+    }
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06424-688a-74f3-abb6-822dd9df98bb",
+    "turnId": "01a06424-6a76-79a0-9c8c-e7d0650ce5c6",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "totalWallMs": 200800,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "result": {
+      "status": "completed",
+      "roomRevision": 2,
+      "objectCount": 8,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredDiagramMemberCount": 4,
+      "connectorCount": 3,
+      "geometryQualityStatus": "pass",
+      "textOcclusionRisks": [],
+      "textFindings": [],
+      "findingKeys": []
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a0642a-1197-75a1-94cd-4d0e3fb36780",
+    "turnId": "01a0642a-1358-74a0-9359-54582633a37d",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 14211,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "overall": "pass",
+      "materialDefects": []
+    }
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "8e8d70a63328d387f11b93e5e182d4d9b0dbc54fad913fd74f9f470f5dfa7950",
+    "cleanPngBytes": 30435,
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "mechanismValidated": true,
+    "isolatedArtifactPassedBlindedReview": true,
+    "populationPercentageClaimPermitted": false,
+    "interpretation": "This prospective n=1 follow-up validates the intended detect-correct-verify mechanism and one autonomous artifact outcome. It does not estimate the population effect size or settle the high-variance speed question."
+  }
+}
