@@ -126,10 +126,53 @@ After the candidate is implemented and frozen, append an amendment naming its
 commit, deployment, exact mechanism hypothesis, and fixed `J0`/`J1` release
 order before releasing `J1`.
 
+## Candidate amendment — frozen before J1 release
+
+- Frozen at: `2026-09-02T06:42:10Z`
+- Candidate source commit: `080cc19c54ceee0a0ce3e074c7d69a8a76c2d8f0`
+- Candidate deployment: `dpl_48CbCBWQnkrGegqkV1DGLkC1aUgD`
+- Candidate origin: `https://jazzboard-r2li6w9ce-zwalls-projects.vercel.app`
+- Release order: completed `M0`, then completed `J0`, then exactly one fresh
+  `J1` author task. No candidate change is permitted after `J1` receives its
+  brief.
+
+The retained `J0` attempt took `477,603 ms`. Recorded host/tool execution
+accounted for `60,023 ms`; the remaining `417,580 ms` is labeled
+`model_and_coordination`, not pure reasoning. The trace included three
+capability-bundle reads, one failed first transaction caused by unsupported
+per-operation metadata placement, and post-commit geometry and pixel repair.
+The final semantic graph was complete, but deterministic geometry still
+reported nine failures and three warnings.
+
+The frozen candidate changes only information timing:
+
+1. The existing `get_canvas_capabilities` selector now exposes compact
+   `quickstart_architecture` and `quickstart_illustration` bundles. The
+   quickstart is a self-contained authoring, draft-preflight, finish, and exact
+   inspection path; it explicitly tells authors not to preload core or multiple
+   deeper bundles. No additional registered tool or descriptor was added.
+2. Every progressive draft receipt now overlays its unpublished preview onto
+   the current authoritative room and returns bounded, intent-unaware
+   `draftValidation` findings before `finish_canvas_draft`. Authors may replace
+   the complete cumulative draft to correct unintended findings before atomic
+   publication. Deliberate overlap, routing, cropping, spacing, asymmetry, and
+   all creative decisions remain under author/user control.
+3. The public agent guide, `llms.txt` family, `AGENTS.md`, and downloadable
+   Jazzboard skill now direct new work through one quickstart and explain the
+   draft preflight. Registered schemas and server validation remain
+   authoritative.
+
+The mechanism hypothesis is that one compact initial contract plus pre-commit
+geometry evidence will reduce context processing, prevent the observed schema
+retry, and move deterministic corrections ahead of presentation and commit.
+The candidate does not alter transaction limits, progressive presentation,
+draft persistence, atomic commit, routing/layout algorithms, authorization,
+leases, revision checks, final pixel inspection, or the frozen author model and
+reasoning level.
+
 ## Interpretation
 
 Report exact observed durations, call counts, quality decisions, and paired
 differences. Do not call an ordinal score a percentage and do not generalize
 from this micro-pilot. A later randomized multi-task replication is required
 before making a broad speed-with-quality claim.
-
