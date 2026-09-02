@@ -533,6 +533,42 @@ function intentionalGroupedOverlap(left: CanvasObject, right: CanvasObject): boo
   return left.groupId !== null && left.groupId === right.groupId;
 }
 
+const SEMANTIC_CONTAINER_ROLE_TOKENS = new Set([
+  "background",
+  "boundary",
+  "container",
+  "region",
+  "zone",
+]);
+
+function isExplicitSemanticContainer(object: CanvasObject): boolean {
+  if (object.kind !== "shape" || !object.semanticRole) return false;
+  return object.semanticRole
+    .toLocaleLowerCase()
+    .split(/[.:/_-]+/)
+    .some((token) => SEMANTIC_CONTAINER_ROLE_TOKENS.has(token));
+}
+
+function paintsBefore(background: CanvasObject, foreground: CanvasObject): boolean {
+  return background.zIndex < foreground.zIndex ||
+    (background.zIndex === foreground.zIndex && background.id.localeCompare(foreground.id) < 0);
+}
+
+function intentionalSemanticContainment(
+  left: CanvasObject,
+  leftGeometry: MemberGeometry,
+  right: CanvasObject,
+  rightGeometry: MemberGeometry,
+): boolean {
+  const leftContainsRight = isExplicitSemanticContainer(left) &&
+    paintsBefore(left, right) &&
+    rightGeometry.polygon.every((point) => pointInConvexPolygon(point, leftGeometry.polygon));
+  const rightContainsLeft = isExplicitSemanticContainer(right) &&
+    paintsBefore(right, left) &&
+    leftGeometry.polygon.every((point) => pointInConvexPolygon(point, rightGeometry.polygon));
+  return leftContainsRight || rightContainsLeft;
+}
+
 function endpointObjectIds(connector: ConnectorObject): Set<string> {
   return new Set([connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)));
 }
@@ -758,8 +794,11 @@ export function analyzeDiagramVisualQuality(
       if (!rightGeometry) continue;
       const overlap = polygonOverlap(leftGeometry.polygon, rightGeometry.polygon);
       const gap = overlap ? 0 : polygonGap(leftGeometry.polygon, rightGeometry.polygon);
+      if (
+        intentionalGroupedOverlap(left, right) ||
+        intentionalSemanticContainment(left, leftGeometry, right, rightGeometry)
+      ) continue;
       minimumMemberSpacing = Math.min(minimumMemberSpacing, gap);
-      if (intentionalGroupedOverlap(left, right)) continue;
       if (overlap && overlap.area >= T.objectOverlapMinimumArea) {
         findings.push(finding({
           code: "MEMBER_OBJECT_OVERLAP",
@@ -790,6 +829,7 @@ export function analyzeDiagramVisualQuality(
     const endpoints = endpointObjectIds(connector);
     for (const member of members) {
       if (endpoints.has(member.id)) continue;
+      if (isExplicitSemanticContainer(member) && paintsBefore(member, connector)) continue;
       const interior = objectPolygon(member, T.connectorIntrusionInset);
       if (!interior.length || !segments(route.points).some((segment) => segmentIntersectsPolygon(segment, interior))) continue;
       findings.push(finding({
@@ -842,6 +882,7 @@ export function analyzeDiagramVisualQuality(
   for (const connector of labeled) {
     const labelBounds = routes[connector.id].labelBounds!;
     for (const member of members) {
+      if (isExplicitSemanticContainer(member) && paintsBefore(member, connector)) continue;
       const geometry = memberGeometry.get(member.id);
       if (!geometry) continue;
       const overlap = polygonOverlap(boundsPolygon(labelBounds), geometry.polygon);

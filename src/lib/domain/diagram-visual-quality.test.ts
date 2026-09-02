@@ -56,6 +56,8 @@ function node(
     label?: string;
     groupId?: string | null;
     rotation?: number;
+    semanticRole?: string | null;
+    zIndex?: number;
   } = {},
 ): ShapeObject {
   return {
@@ -66,7 +68,9 @@ function node(
     width: options.width ?? 120,
     height: options.height ?? 70,
     rotation: options.rotation ?? 0,
+    zIndex: options.zIndex ?? 0,
     groupId: options.groupId ?? null,
+    semanticRole: options.semanticRole ?? null,
     shape: "rectangle",
     nodeType: "service",
     label: options.label ?? id,
@@ -437,6 +441,94 @@ describe("diagram visual quality analysis", () => {
     expect(overlapPairs).not.toContainEqual(["grouped-a", "grouped-b"]);
     expect(overlapPairs).toContainEqual(["grouped-a", "ungrouped"]);
     expect(overlapPairs).toContainEqual(["grouped-b", "ungrouped"]);
+  });
+
+  it("treats explicit background containers as semantic context, not colliding members", () => {
+    const boundary = node("commerce-boundary", 300, 80, {
+      width: 820,
+      height: 440,
+      label: "Commerce trust boundary",
+      semanticRole: "architecture.trust_boundary",
+      zIndex: 0,
+    });
+    const shopper = node("shopper", 20, 240, { width: 180, zIndex: 1 });
+    const checkout = node("checkout", 420, 240, { width: 180, zIndex: 1 });
+    const payment = node("payment", 850, 130, { width: 180, zIndex: 1 });
+    const fulfillment = node("fulfillment", 850, 360, { width: 180, zIndex: 1 });
+    const connectors = [
+      edge(
+        "checkout-request",
+        { x: 200, y: 275, objectId: shopper.id, normalizedAnchor: { x: 1, y: 0.5 } },
+        { x: 420, y: 275, objectId: checkout.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { label: "checkout request" },
+      ),
+      edge(
+        "authorization",
+        { x: 600, y: 255, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.25 } },
+        { x: 850, y: 165, objectId: payment.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { label: "authorization" },
+      ),
+      edge(
+        "order-created",
+        { x: 600, y: 295, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.75 } },
+        { x: 850, y: 395, objectId: fulfillment.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { label: "order-created" },
+      ),
+    ].map((connector) => ({ ...connector, zIndex: 2 }));
+
+    const report = analyzeDiagramVisualQuality(
+      room([boundary, shopper, checkout, payment, fulfillment, ...connectors]),
+      "quality-diagram",
+    );
+
+    expect(report.status).toBe("pass");
+    expect(report.findings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "MEMBER_OBJECT_OVERLAP",
+        objectIds: expect.arrayContaining([boundary.id]),
+      }),
+      expect.objectContaining({
+        code: "CONNECTOR_OBJECT_INTRUSION",
+        objectIds: [boundary.id],
+      }),
+      expect.objectContaining({
+        code: "CONNECTOR_LABEL_OBJECT_COLLISION",
+        objectIds: [boundary.id],
+      }),
+    ]));
+  });
+
+  it("still reports a foreground container or partial boundary collision", () => {
+    const boundary = node("foreground-boundary", 100, 100, {
+      width: 280,
+      height: 180,
+      semanticRole: "architecture.trust_boundary",
+      zIndex: 3,
+    });
+    const partiallyCovered = node("partially-covered", 330, 150, { zIndex: 1 });
+    const crossing = edge(
+      "crossing",
+      { x: 0, y: 190 },
+      { x: 500, y: 190 },
+      { label: "crossing" },
+    );
+    crossing.zIndex = 2;
+
+    const report = analyzeDiagramVisualQuality(
+      room([boundary, partiallyCovered, crossing]),
+      "quality-diagram",
+    );
+
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "MEMBER_OBJECT_OVERLAP",
+        objectIds: [boundary.id, partiallyCovered.id].sort(),
+      }),
+      expect.objectContaining({
+        code: "CONNECTOR_OBJECT_INTRUSION",
+        objectIds: [boundary.id],
+      }),
+    ]));
   });
 
   it("uses oriented member geometry instead of rotated axis-aligned envelopes", () => {

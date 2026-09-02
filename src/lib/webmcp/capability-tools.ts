@@ -732,10 +732,10 @@ function canvasQuickstart(
     fastPath: [
       "Read only the exact existing Diagram, neighborhood, or region that affects the requested work; skip a room-wide read for a clearly empty target area.",
       "Submit one full-speed coherent create-only candidate with stable tempRefs, one first-class Diagram, delivery.mode=draft, and responseDetail=concise. Do not split work to pace the visible animation.",
-      "Check draftValidation. For connector findings, apply recommendedDraftCorrection with update_draft_connector and only agent-chosen fields. For other objects, exact-revision patch only the affected complete create operations. Recheck; replace only to remove content. Preserve deliberate geometry.",
+      "Check draftValidation. Patch only affected tempRefs; use recommendedDraftCorrection/update_draft_connector for connectors. Recheck and preserve deliberate geometry.",
       "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
       "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
-      "If the first clean capture is blank despite visible semantic targets, follow pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the newly returned cleanViewport, and inspect it before reporting pixel inspection unavailable.",
+      "If the clean capture is blank, follow onBlankCapture once: reframe and capture immediately before reporting pixels unavailable.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -756,12 +756,13 @@ function canvasQuickstart(
     },
     canonicalDraftSkeleton: QUICKSTART_CANONICAL_DRAFT_SKELETON,
     readabilityHeuristics: [
-      "On the first draft call, use delivery={mode:draft} only. Never supply draftId without expectedDraftRevision; both are required only for an exact-revision patch or replacement.",
+      "First draft: use delivery={mode:draft} only. Never supply draftId without expectedDraftRevision; both are only for exact patch/replace.",
       "Connector ports are objects shaped as {side:left|right|top|bottom, position:0..1, exact:boolean}; a side string alone is invalid.",
       "A curved connector must include bend with absolute value at least 8 canvas units. Use straight or elbow when no deliberate curve is needed; elbow may include elbowMidPoint from 0..1.",
       "Leave a measurable labeled corridor between nodes. Typical one-word labels need about 90-110 canvas units of clear gap and longer labels such as replication need roughly 135+; 40-75 unit gaps commonly put label bounds inside endpoint nodes. These are planning facts, not enforced layout.",
       "Use distinct attachment positions or route lanes when several connectors share one side. This is evidence for agent judgment, never mandatory layout.",
-      "For unintended failures, patch only affected tempRefs; use update_draft_connector for connectors. Recheck before finish.",
+      "Classify background containers with a boundary/container/region/zone/background semanticRole, paint them behind contents, and keep them in Diagram membership. QA preserves containment but still reports paint-order text risk.",
+      "For unintended failures, patch affected tempRefs with update_draft_connector where applicable; recheck, then finish.",
       "When the user's acceptance criteria explicitly forbid collisions, intrusion, or ambiguous routing, every corresponding draftValidation warning or failure is a blocker. Patch it before finish rather than treating warning status as permission to publish. This does not apply to creative work that intentionally overlaps.",
     ],
     completion: {
