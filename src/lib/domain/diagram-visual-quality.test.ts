@@ -530,6 +530,39 @@ describe("diagram visual quality analysis", () => {
     ]));
   });
 
+  it("reports a connector label that obscures its semantic container label", () => {
+    const boundary = node("commerce-boundary", 300, 80, {
+      width: 820,
+      height: 440,
+      label: "Commerce trust boundary",
+      semanticRole: "architecture.trust_boundary",
+      zIndex: 0,
+    });
+    const checkout = node("checkout", 420, 265, { width: 180, zIndex: 2 });
+    const fulfillment = node("fulfillment", 850, 265, { width: 180, zIndex: 2 });
+    const orderCreated = edge(
+      "order-created",
+      { x: 600, y: 300, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.5 } },
+      { x: 850, y: 300, objectId: fulfillment.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      { label: "order-created" },
+    );
+    orderCreated.zIndex = 3;
+
+    const report = analyzeDiagramVisualQuality(
+      room([boundary, checkout, fulfillment, orderCreated]),
+      "quality-diagram",
+    );
+
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "CONNECTOR_LABEL_OBJECT_COLLISION",
+        objectIds: [boundary.id],
+        connectorIds: [orderCreated.id],
+        details: { collisionTarget: "semantic_container_label" },
+      }),
+    ]));
+  });
+
   it("still reports a foreground container or partial boundary collision", () => {
     const boundary = node("foreground-boundary", 100, 100, {
       width: 280,

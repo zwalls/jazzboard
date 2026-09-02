@@ -761,7 +761,7 @@ function canvasQuickstart(
       "A curved connector must include bend with absolute value at least 8 canvas units. Use straight or elbow when no deliberate curve is needed; elbow may include elbowMidPoint from 0..1.",
       "Leave a measurable labeled corridor between nodes. Typical one-word labels need about 90-110 canvas units of clear gap and longer labels such as replication need roughly 135+; 40-75 unit gaps commonly put label bounds inside endpoint nodes. These are planning facts, not enforced layout.",
       "Use distinct attachment positions or route lanes when several connectors share one side. This is evidence for agent judgment, never mandatory layout.",
-      "Classify background containers with a boundary/container/region/zone/background semanticRole, paint them behind contents, and keep them in Diagram membership. QA preserves containment but still reports paint-order text risk.",
+      "Classify background containers with a boundary/container/region/zone/background semanticRole, paint them behind contents, and keep them in Diagram membership. QA ignores intentional fill passage but still reports any connector label that obscures the container's own visible label.",
       "For unintended failures, patch affected tempRefs with update_draft_connector where applicable; recheck, then finish.",
       "When the user's acceptance criteria explicitly forbid collisions, intrusion, or ambiguous routing, every corresponding draftValidation warning or failure is a blocker. Patch it before finish rather than treating warning status as permission to publish. This does not apply to creative work that intentionally overlaps.",
     ],

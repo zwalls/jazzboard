@@ -1,4 +1,6 @@
 import {
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
   SEMANTIC_TEXT_FONT_SIZES,
   semanticShapeLabelMaxCharacters,
   semanticShapeLabelMaxLines,
@@ -6,6 +8,7 @@ import {
 import {
   layoutSemanticText,
   SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
+  SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR,
   semanticConnectorLabelMaximumCharacters,
   semanticTextMaximumCharacters,
   semanticTextMaximumLines,
@@ -587,6 +590,37 @@ function connectorUsesSemanticContainer(
   });
 }
 
+/**
+ * Estimate the visible label rectangle with the same wrapping and centering
+ * contract as Jazzboard's live canvas and PNG renderer. Rotated shape labels
+ * remain a pixel-inspection responsibility because an axis-aligned estimate
+ * would overstate their painted area.
+ */
+function estimatedShapeLabelBounds(object: CanvasObject): CanvasBounds | null {
+  if (object.kind !== "shape" || object.rotation !== 0 || !object.label.trim()) return null;
+  const lines = layoutSemanticText(
+    object.label,
+    semanticShapeLabelMaxCharacters(object.width),
+    semanticShapeLabelMaxLines(object.height),
+  ).lines;
+  if (!lines.length) return null;
+  const maximumGraphemes = Math.max(...lines.map((line) => Array.from(line).length));
+  const width = Math.min(
+    object.width,
+    maximumGraphemes * SEMANTIC_SHAPE_LABEL_FONT_SIZE * SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR + 10,
+  );
+  const height = Math.min(
+    object.height,
+    (lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT + SEMANTIC_SHAPE_LABEL_FONT_SIZE * 1.35,
+  );
+  return {
+    x: object.x + (object.width - width) / 2,
+    y: object.y + (object.height - height) / 2,
+    width,
+    height,
+  };
+}
+
 function endpointObjectIds(connector: ConnectorObject): Set<string> {
   return new Set([connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)));
 }
@@ -907,10 +941,29 @@ export function analyzeDiagramVisualQuality(
     for (const member of members) {
       const geometry = memberGeometry.get(member.id);
       if (!geometry) continue;
-      if (
-        isExplicitSemanticContainer(member) && paintsBefore(member, connector) ||
-        connectorUsesSemanticContainer(connector, member, geometry, room, memberGeometry)
-      ) continue;
+      const semanticContainerContext =
+        (isExplicitSemanticContainer(member) && paintsBefore(member, connector)) ||
+        connectorUsesSemanticContainer(connector, member, geometry, room, memberGeometry);
+      if (semanticContainerContext) {
+        const shapeLabelBounds = paintsBefore(member, connector)
+          ? estimatedShapeLabelBounds(member)
+          : null;
+        const labelOverlap = shapeLabelBounds
+          ? intersectionBounds(labelBounds, shapeLabelBounds)
+          : null;
+        if (labelOverlap) {
+          findings.push(finding({
+            code: "CONNECTOR_LABEL_OBJECT_COLLISION",
+            status: "fail",
+            summary: `Move the label for ${connector.id} so it no longer obscures the visible label of semantic container ${member.id}.`,
+            objectIds: [member.id],
+            connectorIds: [connector.id],
+            bounds: labelOverlap,
+            details: { collisionTarget: "semantic_container_label" },
+          }));
+        }
+        continue;
+      }
       const overlap = polygonOverlap(boundsPolygon(labelBounds), geometry.polygon);
       if (!overlap) continue;
       findings.push(finding({
