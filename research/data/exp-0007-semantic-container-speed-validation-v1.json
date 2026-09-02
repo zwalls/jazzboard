@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0007",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-validation",
+  "productChange": {
+    "description": "Treat explicitly classified, behind-painted semantic containers as intentional diagram structure instead of generic object collisions.",
+    "commit": "842d986a80bc5c36f3b0e587243a3180f7eac437"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06439-247e-73b1-8f62-575c98aace09",
+    "turnId": "01a06439-265d-7e42-8df8-3be738129fef",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 228378,
+      "accountedWallMs": 228000,
+      "hostExecutionMs": 45169,
+      "modelAndCoordinationMs": 182831,
+      "hostExecutionShare": 0.198109649122807
+    },
+    "calls": {
+      "hostCallCount": 19,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 12,
+      "webMcpBusinessFailureCount": 1,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 3,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 4,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "read_room_state": 1,
+        "update_object": 1,
+        "create_text": 1,
+        "edit_diagram": 1
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 5,
+      "objectCount": 11,
+      "diagramCount": 1,
+      "diagramRevision": 3,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 8,
+      "declaredDiagramConnectorCount": 3
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a0643f-3f07-75a3-8468-2e10ed20aa28",
+    "turnId": "01a0643f-40ca-7532-91e5-7d06bb212d14",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 27593,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "blockingGeometryViolations": 0,
+      "duplicateSemanticCredit": false,
+      "overall": "pass"
+    }
+  },
+  "mechanismEvidence": {
+    "intentionalContainmentSuppressed": true,
+    "containedNodeBoundaryOverlapFindingsObserved": 0,
+    "remainingFalsePositive": {
+      "code": "CONNECTOR_OBJECT_INTRUSION",
+      "description": "The required outside-to-inside connector crossing the explicit trust boundary remained a blocking finding because its omitted z-index tied the explicit boundary z-index instead of painting after it."
+    },
+    "schemaFriction": {
+      "code": "INVALID_TOOL_INPUT",
+      "description": "The first transaction redundantly supplied root activity intent and summary on individual create operations. The strict schema rejected the all-or-nothing call and supplied actionable recovery; retry succeeded without state corruption."
+    }
+  },
+  "comparison": {
+    "priorAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "draftTransactionCallCount": 3,
+      "blindedReview": "pass"
+    },
+    "current": {
+      "totalWallMs": 228378,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 3,
+      "blindedReview": "pass"
+    },
+    "descriptiveWallTimeDeltaMs": 56437,
+    "interpretation": "This non-randomized n=1 run preserved quality but was slower. It does not estimate a treatment effect; it exposes two concrete transport and diagnostic costs for the next intervention."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "c3c3c50831e64542b30166fa3c18a9182557d1a2d02a572f68e44d626eec15eb",
+    "cleanPngBytes": 33491,
+    "sanitizedStateSha256": "7147c9f9e86a3379a379b9b2660c95f424afb1135d60fe59a40b392b4c955420",
+    "rawAuthorSessionSha256": "dfad2943dbeb268b13593148b24e4f267986968eb9ee5e2589c1b9f256067517",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "speedImprovementObserved": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Make transaction-local omitted z-indexes advance beyond explicit and existing candidates, and tolerate redundant per-operation activity metadata without persisting it. Then rerun the unchanged author and blinded-review gates."
+  }
+}
