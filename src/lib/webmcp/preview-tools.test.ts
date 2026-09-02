@@ -751,8 +751,33 @@ describe("render_canvas_preview WebMCP tool", () => {
           height: 180,
         },
         pixelCaptureProtocol: {
+          schemaVersion: 2,
           capture: "full_viewport_while_validation_selector_is_active",
           crop: "crop_the_captured_pixels_to_screenshotClip_in_viewport_css_pixels",
+          copyReady: {
+            browserCapture: {
+              action: "browser_screenshot",
+              arguments: { fullPage: false },
+              resultReference: "fullViewportPixels",
+            },
+            crop: {
+              action: "crop_image_in_memory",
+              sourceReference: "fullViewportPixels",
+              rectangle: {
+                coordinateSpace: "viewport-css-pixels",
+                x: 12,
+                y: 24,
+                width: 320,
+                height: 180,
+              },
+              resultReference: "inspectionPixels",
+            },
+            inspect: {
+              action: "inspect_image_pixels",
+              sourceReference: "inspectionPixels",
+            },
+          },
+          completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
         },
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
@@ -800,6 +825,11 @@ describe("render_canvas_preview WebMCP tool", () => {
             clip: { coordinateSpace: "viewport-css-pixels", x: 12, y: 24, width: 320, height: 180 },
             validationSelector: '[data-canvas-inspection-token="preview-1"]',
             expiresAt: 70_000,
+            action: {
+              required: true,
+              protocolPath: "data.pixelCaptureProtocol",
+              completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+            },
             visualInspectionStatus: "not_performed",
           },
         },
@@ -823,6 +853,19 @@ describe("render_canvas_preview WebMCP tool", () => {
     if (!result.ok) throw new Error("inspection unexpectedly failed");
     const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     expect(result.data).toMatchObject({
+      pixelCaptureProtocol: {
+        schemaVersion: 2,
+        copyReady: {
+          browserCapture: { action: "browser_screenshot", arguments: { fullPage: false } },
+          crop: {
+            action: "crop_image_in_memory",
+            rectangle: { coordinateSpace: "viewport-css-pixels", x: 12, y: 24, width: 320, height: 180 },
+          },
+          inspect: { action: "inspect_image_pixels", sourceReference: "inspectionPixels" },
+        },
+        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+        forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+      },
       resultSerialization: {
         byteLength: serializedResultByteLength,
         byteLimit: 96_000,

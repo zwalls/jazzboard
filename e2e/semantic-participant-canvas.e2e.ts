@@ -10,6 +10,7 @@ import {
   type Route,
 } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import sharp from "sharp";
 
 import {
   connectorObject,
@@ -1190,6 +1191,34 @@ test.describe("first-party semantic participant canvas", () => {
 
     const preview = successData(await callWebMcpTool<{
       screenshotClip: { x: number; y: number; width: number; height: number };
+      pixelCaptureProtocol: {
+        schemaVersion: 2;
+        copyReady: {
+          browserCapture: {
+            action: "browser_screenshot";
+            arguments: { fullPage: false };
+            resultReference: "fullViewportPixels";
+          };
+          crop: {
+            action: "crop_image_in_memory";
+            sourceReference: "fullViewportPixels";
+            rectangle: {
+              coordinateSpace: "viewport-css-pixels";
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+            };
+            resultReference: "inspectionPixels";
+          };
+          inspect: {
+            action: "inspect_image_pixels";
+            sourceReference: "inspectionPixels";
+          };
+        };
+        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa";
+        forbiddenSubstitutions: string[];
+      };
       pageBounds: PreviewPageBounds;
       geometryQualityStatus: "pass" | "warning" | "fail" | "unknown";
       visualInspectionStatus: "not_performed";
@@ -1216,10 +1245,47 @@ test.describe("first-party semantic participant canvas", () => {
       },
       geometryQualityStatus: "pass",
       visualInspectionStatus: "not_performed",
+      pixelCaptureProtocol: {
+        schemaVersion: 2,
+        copyReady: {
+          browserCapture: {
+            action: "browser_screenshot",
+            arguments: { fullPage: false },
+            resultReference: "fullViewportPixels",
+          },
+          crop: {
+            action: "crop_image_in_memory",
+            sourceReference: "fullViewportPixels",
+            rectangle: expect.objectContaining({ coordinateSpace: "viewport-css-pixels" }),
+            resultReference: "inspectionPixels",
+          },
+          inspect: {
+            action: "inspect_image_pixels",
+            sourceReference: "inspectionPixels",
+          },
+        },
+        completionGate: "inspect_cropped_pixels_before_claiming_visual_qa",
+        forbiddenSubstitutions: expect.arrayContaining(["uncropped_full_viewport"]),
+      },
       width: expect.any(Number),
       height: expect.any(Number),
     });
-    const previewPng = await page.screenshot({ clip: preview.screenshotClip });
+    expect(preview.pixelCaptureProtocol.copyReady.crop.rectangle).toEqual({
+      coordinateSpace: "viewport-css-pixels",
+      ...preview.screenshotClip,
+    });
+    const fullViewportPixels = await page.screenshot({
+      fullPage: preview.pixelCaptureProtocol.copyReady.browserCapture.arguments.fullPage,
+    });
+    const clip = preview.pixelCaptureProtocol.copyReady.crop.rectangle;
+    const left = Math.floor(clip.x);
+    const top = Math.floor(clip.y);
+    const previewPng = await sharp(fullViewportPixels).extract({
+      left,
+      top,
+      width: Math.ceil(clip.x + clip.width) - left,
+      height: Math.ceil(clip.y + clip.height) - top,
+    }).png().toBuffer();
     const pixels = await renderedDiagramPixelStats(page, previewPng, {
       pageBounds: preview.pageBounds,
       routes: analysis.routes,
