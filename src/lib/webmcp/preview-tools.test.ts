@@ -273,6 +273,7 @@ function inspectionArtifact(): CanvasInspectionArtifact {
     routes: [],
     relationships: [],
     boundsOverlaps: { totalCount: 0, truncated: false, items: [] },
+    textOcclusionRisks: [],
     textFindings: [],
     contrastFindings: [],
     findingKeys: [],

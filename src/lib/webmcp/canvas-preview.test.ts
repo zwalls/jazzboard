@@ -1028,6 +1028,105 @@ describe("exact canvas preview renderer", () => {
     ).toBe(false);
   });
 
+  it("reports a higher opaque rectangle covering a lower shape label even outside Diagram membership", async () => {
+    const boundary = {
+      ...object("trust-boundary", 4),
+      x: 440,
+      y: 150,
+      width: 850,
+      height: 500,
+      zIndex: 0,
+      label: "Commerce trust boundary",
+      semanticName: "Commerce trust boundary",
+      semanticRole: "architecture.trust_boundary",
+    };
+    const checkout = {
+      ...object("checkout-api", 7),
+      x: 580,
+      y: 340,
+      width: 180,
+      height: 88,
+      zIndex: 2,
+      label: "Checkout API",
+      semanticName: "Checkout API",
+      semanticRole: "architecture.checkout_api",
+      nodeType: "service" as const,
+    };
+    const objects = [boundary, checkout];
+    const bounds = Object.fromEntries(objects.map((item) => [item.id, {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+    }]));
+    const currentRoom = room(objects);
+    const { canvas } = canvasFor(objects, undefined, [], bounds);
+
+    const result = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      request([checkout]),
+      new AbortController().signal,
+    );
+    const context = result.metadata.inspectionEvidence!;
+
+    expect(context.textOcclusionRisks).toEqual([
+      expect.objectContaining({
+        findingKey: expect.stringMatching(/^scope:v2:[a-f0-9]{8}:text:text_occlusion_risk:[a-f0-9]{8}$/),
+        labelObjectId: "trust-boundary",
+        labelObjectRevision: 4,
+        occludingObjectId: "checkout-api",
+        occludingObjectRevision: 7,
+        source: "shape_label",
+        method: "shared_text_layout_bounds_and_exact_rectangle_paint_order",
+        status: "likely",
+        summary: expect.stringMatching(/checkout-api.*trust-boundary.*Inspect the exact pixels/i),
+      }),
+    ]);
+    expect(context.textOcclusionRisks[0].overlapBounds.width).toBeGreaterThan(0);
+    expect(context.textOcclusionRisks[0].overlapBounds.height).toBeGreaterThan(0);
+    expect(context.findingKeys).toContain(context.textOcclusionRisks[0].findingKey);
+  });
+
+  it("preserves deliberate unlabeled overlap without inventing a text-occlusion finding", async () => {
+    const background = {
+      ...object("portrait-background"),
+      width: 600,
+      height: 600,
+      zIndex: 0,
+      label: "",
+      semanticRole: "drawing.background",
+    };
+    const face = {
+      ...object("portrait-face"),
+      x: 180,
+      y: 120,
+      width: 240,
+      height: 320,
+      zIndex: 2,
+      label: "",
+      shape: "ellipse" as const,
+      semanticRole: "drawing.face",
+    };
+    const objects = [background, face];
+    const bounds = Object.fromEntries(objects.map((item) => [item.id, {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+    }]));
+    const currentRoom = room(objects);
+    const { canvas } = canvasFor(objects, undefined, [], bounds);
+
+    const result = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      request(objects),
+      new AbortController().signal,
+    );
+
+    expect(result.metadata.inspectionEvidence!.boundsOverlaps.totalCount).toBe(1);
+    expect(result.metadata.inspectionEvidence!.textOcclusionRisks).toEqual([]);
+  });
+
   it("compares stable findings against caller-supplied unverified keys without claiming resolution", async () => {
     const text: CanvasObject = {
       ...object("portrait-caption"),

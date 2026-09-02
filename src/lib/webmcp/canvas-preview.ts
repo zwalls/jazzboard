@@ -5,9 +5,21 @@ import {
 } from "@/lib/domain/diagram-visual-quality";
 import { materializeConnectorRoute } from "@/lib/domain/connector-routing";
 import {
+  SEMANTIC_SHAPE_LABEL_FONT_SIZE,
+  SEMANTIC_SHAPE_LABEL_LINE_HEIGHT,
+  SEMANTIC_TEXT_FONT_SIZES,
+  SEMANTIC_TEXT_LINE_HEIGHT,
+  semanticShapeLabelMaxCharacters,
+  semanticShapeLabelMaxLines,
   semanticFillColor,
   semanticStrokeColor,
 } from "@/lib/canvas/semantic-visual-style";
+import {
+  layoutSemanticText,
+  SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR,
+  semanticTextMaximumCharacters,
+  semanticTextMaximumLines,
+} from "@/lib/canvas/semantic-text-layout";
 import type { CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
 import {
@@ -243,7 +255,7 @@ export type CanvasInspectionEvidence = {
     geometry: "complete" | "partial";
     unsupported: Array<{
       objectId?: string;
-      analysis: "freehand_swept_path" | "vector_path_geometry" | "rotated_exact_intersection" | "image_internal_pixels" | "context_dependent_contrast" | "diagram_geometry_deferred_in_overview";
+      analysis: "freehand_swept_path" | "vector_path_geometry" | "rotated_exact_intersection" | "image_internal_pixels" | "context_dependent_contrast" | "diagram_geometry_deferred_in_overview" | "text_occlusion_deferred_in_overview";
       reason: string;
     }>;
     omittedUnsupportedCount: number;
@@ -354,6 +366,19 @@ export type CanvasInspectionEvidence = {
       interpretation: "bounds_overlap_only_not_proof_of_painted_intersection_or_occlusion";
     }>;
   };
+  textOcclusionRisks: Array<{
+    findingKey: string;
+    labelObjectId: string;
+    labelObjectRevision: number;
+    occludingObjectId: string;
+    occludingObjectRevision: number;
+    source: "shape_label" | "text_object";
+    method: "shared_text_layout_bounds_and_exact_rectangle_paint_order";
+    status: "likely";
+    labelBounds: { x: number; y: number; width: number; height: number };
+    overlapBounds: { x: number; y: number; width: number; height: number };
+    summary: string;
+  }>;
   textFindings: Array<{
     findingKey: string;
     objectId: string;
@@ -674,6 +699,74 @@ function objectText(object: CanvasObject): string | null {
   if (object.kind === "shape" || object.kind === "connector") return object.label;
   if (object.kind === "image") return object.alt;
   return null;
+}
+
+type EstimatedTextBounds = {
+  source: "shape_label" | "text_object";
+  bounds: { x: number; y: number; width: number; height: number };
+};
+
+function estimatedTextBounds(object: CanvasObject): EstimatedTextBounds | null {
+  if (object.rotation !== 0) return null;
+  if (object.kind === "shape" && object.label.trim()) {
+    const lines = layoutSemanticText(
+      object.label,
+      semanticShapeLabelMaxCharacters(object.width),
+      semanticShapeLabelMaxLines(object.height),
+    ).lines;
+    if (!lines.length) return null;
+    const maximumGraphemes = Math.max(...lines.map((line) => Array.from(line).length));
+    const width = Math.min(
+      object.width,
+      maximumGraphemes * SEMANTIC_SHAPE_LABEL_FONT_SIZE * SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR + 10,
+    );
+    const height = Math.min(
+      object.height,
+      (lines.length - 1) * SEMANTIC_SHAPE_LABEL_LINE_HEIGHT + SEMANTIC_SHAPE_LABEL_FONT_SIZE * 1.35,
+    );
+    return {
+      source: "shape_label",
+      bounds: {
+        x: object.x + (object.width - width) / 2,
+        y: object.y + (object.height - height) / 2,
+        width,
+        height,
+      },
+    };
+  }
+  if (object.kind === "text" && object.content.trim()) {
+    const fontSize = SEMANTIC_TEXT_FONT_SIZES[object.size];
+    const lines = layoutSemanticText(
+      object.content,
+      semanticTextMaximumCharacters(object.width, fontSize),
+      semanticTextMaximumLines(object.height, fontSize),
+    ).lines;
+    if (!lines.length) return null;
+    const maximumGraphemes = Math.max(...lines.map((line) => Array.from(line).length));
+    const width = Math.min(
+      object.width,
+      maximumGraphemes * fontSize * SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR,
+    );
+    const height = Math.min(
+      object.height,
+      (lines.length - 1) * fontSize * SEMANTIC_TEXT_LINE_HEIGHT + fontSize * 1.2,
+    );
+    const x = object.align === "start"
+      ? object.x
+      : object.align === "end"
+        ? object.x + object.width - width
+        : object.x + (object.width - width) / 2;
+    return {
+      source: "text_object",
+      bounds: { x, y: object.y, width, height },
+    };
+  }
+  return null;
+}
+
+function paintsAfter(left: CanvasObject, right: CanvasObject): boolean {
+  return left.zIndex > right.zIndex
+    || (left.zIndex === right.zIndex && left.id.localeCompare(right.id) > 0);
 }
 
 function stableDigest(value: unknown): string {
@@ -1360,6 +1453,50 @@ function buildInspectionEvidence(
     }
   }
 
+  const textOcclusionRisks: CanvasInspectionEvidence["textOcclusionRisks"] = [];
+  if (inspection.representation !== "overview") {
+    const opaqueRectangleOccluders = analysisObjects.filter((object) =>
+      object.kind === "shape"
+      && object.shape === "rectangle"
+      && object.rotation === 0
+      && semanticFillColor(object.fill, "blue", true) !== "none"
+    );
+    for (const labelObject of analysisObjects) {
+      const text = estimatedTextBounds(labelObject);
+      if (!text) continue;
+      for (const occluder of opaqueRectangleOccluders) {
+        if (occluder.id === labelObject.id || !paintsAfter(occluder, labelObject)) continue;
+        const overlapBounds = intersects(text.bounds, {
+          x: occluder.x,
+          y: occluder.y,
+          width: occluder.width,
+          height: occluder.height,
+        });
+        if (!overlapBounds) continue;
+        const identity = [
+          { objectId: labelObject.id, createdAt: labelObject.createdAt },
+          { objectId: occluder.id, createdAt: occluder.createdAt },
+        ];
+        const findingKey = `${scopeIdentity}:text:text_occlusion_risk:${stableDigest(identity).slice("fnv1a32:".length)}`;
+        textOcclusionRisks.push({
+          findingKey,
+          labelObjectId: labelObject.id,
+          labelObjectRevision: labelObject.revision,
+          occludingObjectId: occluder.id,
+          occludingObjectRevision: occluder.revision,
+          source: text.source,
+          method: "shared_text_layout_bounds_and_exact_rectangle_paint_order",
+          status: "likely",
+          labelBounds: text.bounds,
+          overlapBounds,
+          summary: `A later-painted opaque rectangle ${occluder.id} overlaps the estimated rendered text of ${labelObject.id}. Inspect the exact pixels; if unintended, move or resize one of those exact-revision objects, or place the label in a separate clear text object.`,
+        });
+        if (textOcclusionRisks.length >= MAX_INSPECTION_RELATIONS) break;
+      }
+      if (textOcclusionRisks.length >= MAX_INSPECTION_RELATIONS) break;
+    }
+  }
+
   const routeObjects = inspection.representation === "overview"
     ? []
     : workingSetObjects.filter((object) => object.kind === "connector");
@@ -1446,6 +1583,12 @@ function buildInspectionEvidence(
           reason: "Overview intentionally omits full Diagram geometry; use working_set or focus for deterministic Diagram quality evidence.",
         }]
       : []),
+    ...(inspection.representation === "overview"
+      ? [{
+          analysis: "text_occlusion_deferred_in_overview" as const,
+          reason: "Overview omits paint-order text-occlusion analysis; use working_set or focus for bounded exact-object evidence.",
+        }]
+      : []),
     ...analysisObjects.flatMap((object) => {
     const items: CanvasInspectionEvidence["coverage"]["unsupported"] = [];
     if (object.kind === "draw") items.push({
@@ -1478,6 +1621,7 @@ function buildInspectionEvidence(
   ];
   const allFindingKeys = [...new Set([
     ...allTextFindings.map((finding) => finding.findingKey),
+    ...textOcclusionRisks.map((finding) => finding.findingKey),
     ...diagramFindingKeys(
       visualQuality,
       inspection.representation === "focus" ? analysisObjectIds : null,
@@ -1578,6 +1722,7 @@ function buildInspectionEvidence(
       truncated: boundsOverlapCount > boundsOverlapItems.length,
       items: boundsOverlapItems,
     },
+    textOcclusionRisks,
     textFindings: allTextFindings.slice(0, MAX_INSPECTION_RELATIONS),
     contrastFindings,
     findingKeys,
