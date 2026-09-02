@@ -390,6 +390,11 @@ export type CanvasInspectionPixels = {
   clip: CanvasPreviewPresentation["clip"];
   validationSelector: string | null;
   expiresAt: number;
+  action: {
+    required: true;
+    protocolPath: "data.pixelCaptureProtocol";
+    completionGate: "inspect_cropped_pixels_before_claiming_visual_qa";
+  };
   visualInspectionStatus: "not_performed";
 };
 
