@@ -451,27 +451,27 @@ describe("diagram visual quality analysis", () => {
       semanticRole: "architecture.trust_boundary",
       zIndex: 0,
     });
-    const shopper = node("shopper", 20, 240, { width: 180, zIndex: 1 });
-    const checkout = node("checkout", 420, 240, { width: 180, zIndex: 1 });
-    const payment = node("payment", 850, 130, { width: 180, zIndex: 1 });
-    const fulfillment = node("fulfillment", 850, 360, { width: 180, zIndex: 1 });
+    const shopper = node("shopper", 20, 360, { width: 180, zIndex: 1 });
+    const checkout = node("checkout", 420, 360, { width: 180, zIndex: 1 });
+    const payment = node("payment", 850, 340, { width: 180, zIndex: 1 });
+    const fulfillment = node("fulfillment", 850, 450, { width: 180, zIndex: 1 });
     const connectors = [
       edge(
         "checkout-request",
-        { x: 200, y: 275, objectId: shopper.id, normalizedAnchor: { x: 1, y: 0.5 } },
-        { x: 420, y: 275, objectId: checkout.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { x: 200, y: 395, objectId: shopper.id, normalizedAnchor: { x: 1, y: 0.5 } },
+        { x: 420, y: 395, objectId: checkout.id, normalizedAnchor: { x: 0, y: 0.5 } },
         { label: "checkout request" },
       ),
       edge(
         "authorization",
-        { x: 600, y: 255, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.25 } },
-        { x: 850, y: 165, objectId: payment.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { x: 600, y: 378, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.25 } },
+        { x: 850, y: 375, objectId: payment.id, normalizedAnchor: { x: 0, y: 0.5 } },
         { label: "authorization" },
       ),
       edge(
         "order-created",
-        { x: 600, y: 295, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.75 } },
-        { x: 850, y: 395, objectId: fulfillment.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { x: 600, y: 413, objectId: checkout.id, normalizedAnchor: { x: 1, y: 0.75 } },
+        { x: 850, y: 485, objectId: fulfillment.id, normalizedAnchor: { x: 0, y: 0.5 } },
         { label: "order-created" },
       ),
     ].map((connector) => ({ ...connector, zIndex: 2 }));
@@ -558,6 +558,38 @@ describe("diagram visual quality analysis", () => {
         code: "CONNECTOR_LABEL_OBJECT_COLLISION",
         objectIds: [boundary.id],
         connectorIds: [orderCreated.id],
+        details: { collisionTarget: "semantic_container_label" },
+      }),
+    ]));
+  });
+
+  it("reports a connector path that crosses its semantic container label", () => {
+    const boundary = node("commerce-boundary", 300, 80, {
+      width: 820,
+      height: 440,
+      label: "Commerce trust boundary",
+      semanticRole: "architecture.trust_boundary",
+      zIndex: 0,
+    });
+    const upper = node("upper-service", 650, 140, { width: 120, zIndex: 2 });
+    const lower = node("lower-service", 650, 390, { width: 120, zIndex: 2 });
+    const vertical = edge(
+      "vertical-event",
+      { x: 710, y: 210, objectId: upper.id, normalizedAnchor: { x: 0.5, y: 1 } },
+      { x: 710, y: 390, objectId: lower.id, normalizedAnchor: { x: 0.5, y: 0 } },
+    );
+    vertical.zIndex = 3;
+
+    const report = analyzeDiagramVisualQuality(
+      room([boundary, upper, lower, vertical]),
+      "quality-diagram",
+    );
+
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "CONNECTOR_OBJECT_INTRUSION",
+        objectIds: [boundary.id],
+        connectorIds: [vertical.id],
         details: { collisionTarget: "semantic_container_label" },
       }),
     ]));

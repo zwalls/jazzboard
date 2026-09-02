@@ -433,6 +433,27 @@ describe("role-scoped semantic tool registration", () => {
       },
     });
 
+    const aliasAccepted = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{
+        op: "update_object",
+        objectId: "api",
+        expectedRevision: 1,
+        operation: "connect",
+        patch: { routing: { mode: "elbow", elbowMidPoint: 0.4 } },
+      }],
+    });
+    expect(aliasAccepted).toMatchObject({ ok: true });
+    const aliasRequestBody = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as RequestInit).body,
+    ));
+    expect(aliasRequestBody.transaction.commands[0]).toMatchObject({
+      type: "update",
+      objectId: "api",
+      expectedRevision: 1,
+      operation: "connect",
+      patch: { routing: { mode: "elbow", kind: "elbow", bend: 0, elbowMidPoint: 0.4, labelPosition: 0.5 } },
+    });
+
     const rejected = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: { surprise: true } }],
     });
@@ -457,7 +478,7 @@ describe("role-scoped semantic tool registration", () => {
       });
       expect(lifecycleRejected).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
     }
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it("tolerates inert operation activity notes and advances omitted paint order past explicit candidates", async () => {

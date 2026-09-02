@@ -882,11 +882,31 @@ export function analyzeDiagramVisualQuality(
     for (const member of members) {
       if (endpoints.has(member.id)) continue;
       const memberGeometryValue = memberGeometry.get(member.id);
-      if (
+      const semanticContainerContext = Boolean(
         memberGeometryValue &&
         (isExplicitSemanticContainer(member) && paintsBefore(member, connector) ||
           connectorUsesSemanticContainer(connector, member, memberGeometryValue, room, memberGeometry))
-      ) continue;
+      );
+      if (semanticContainerContext) {
+        const shapeLabelBounds = paintsBefore(member, connector)
+          ? estimatedShapeLabelBounds(member)
+          : null;
+        if (
+          shapeLabelBounds &&
+          segments(route.points).some((segment) => segmentIntersectsBounds(segment, shapeLabelBounds))
+        ) {
+          findings.push(finding({
+            code: "CONNECTOR_OBJECT_INTRUSION",
+            status: "fail",
+            summary: `Reroute ${connector.id} so its path no longer crosses the visible label of semantic container ${member.id}.`,
+            objectIds: [member.id],
+            connectorIds: [connector.id],
+            bounds: shapeLabelBounds,
+            details: { collisionTarget: "semantic_container_label" },
+          }));
+        }
+        continue;
+      }
       const interior = objectPolygon(member, T.connectorIntrusionInset);
       if (!interior.length || !segments(route.points).some((segment) => segmentIntersectsPolygon(segment, interior))) continue;
       findings.push(finding({

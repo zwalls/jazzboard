@@ -371,6 +371,11 @@ const updateOperation = z
   })
   .strict();
 
+/** Compatibility alias matching the standalone tool name; execution normalizes it to `update`. */
+const updateObjectAliasOperation = updateOperation.extend({
+  op: z.literal("update_object"),
+});
+
 const createDiagramOperation = z
   .object({
     op: z.literal("create_diagram"),
@@ -431,6 +436,7 @@ const transactionOperation = z.discriminatedUnion("op", [
   connectOperation,
   updateDraftConnectorOperation,
   updateOperation,
+  updateObjectAliasOperation,
   createDiagramOperation,
   editDiagramOperation,
   autoLayoutOperation,
@@ -471,7 +477,7 @@ const transactionInput = z
   .superRefine((input, context) => {
     if (input.delivery) {
       input.operations.forEach((operation, index) => {
-        if (operation.op === "update" || operation.op === "edit_diagram") {
+        if (operation.op === "update" || operation.op === "update_object" || operation.op === "edit_diagram") {
           context.addIssue({
             code: "custom",
             path: ["operations", index],
@@ -606,8 +612,8 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         required: ["op"],
         properties: {
           op: {
-            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update_draft_connector", "update", "create_diagram", "edit_diagram", "auto_layout"],
-            description: "update_draft_connector patches a draft connector; update targets an authoritative object.",
+            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"],
+            description: "update_draft_connector patches draft; update/update_object edit objects.",
           },
           tempRef: { type: "string", description: "Stable draft/create alias." },
           objectId: { type: "string", description: "Authoritative object ID." },
@@ -2245,7 +2251,7 @@ export function createJazzboardSemanticWebMcpTools(
         const diagramCommands: DiagramCommand[] = [];
         const deferredConnections: z.output<typeof connectOperation>[] = [];
         const deferredDraftConnectorUpdates: z.output<typeof updateDraftConnectorOperation>[] = [];
-        const deferredUpdates: z.output<typeof updateOperation>[] = [];
+        const deferredUpdates: Array<z.output<typeof updateOperation> | z.output<typeof updateObjectAliasOperation>> = [];
         const deferredDiagrams: Array<z.output<typeof createDiagramOperation> | z.output<typeof editDiagramOperation>> = [];
         let deferredAutoLayout: z.output<typeof autoLayoutOperation> | undefined;
         const placeableOperations = input.operations.filter(
@@ -2306,7 +2312,7 @@ export function createJazzboardSemanticWebMcpTools(
             deferredDraftConnectorUpdates.push(operation);
             continue;
           }
-          if (operation.op === "update") {
+          if (operation.op === "update" || operation.op === "update_object") {
             deferredUpdates.push(operation);
             continue;
           }
