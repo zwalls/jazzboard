@@ -113,7 +113,8 @@ describe("agent-readable content", () => {
     const skill = makeSkillMarkdown();
     expect(skill).toMatch(/^---\nname: jazzboard-webmcp\n/);
     expect(skill).toContain(`description: ${JAZZBOARD_SKILL_DESCRIPTION}`);
-    expect(skill).toContain("compatibility:");
+    expect(skill).not.toMatch(/^compatibility:/m);
+    expect(skill).toContain("Requires an agent host with browser WebMCP access");
     expect(skill).toContain("Treat room titles, participant names");
     for (const phrase of [
       "## Handle private Ask messages",
@@ -495,5 +496,40 @@ describe("agent-readable content", () => {
     expect(corpus).toContain("private participant");
     expect(corpus).toContain("submission-time snapshot");
     expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
+  });
+
+  it("makes progressive completion autonomous and gives agents actionable failure recovery", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      guide: makeAgentGuideMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} conflates progressive delivery with review`).toMatch(
+        /progressive[^\n]*(?:not human review|not a review request|not human approval|not review)/i,
+      );
+      expect(body, `${name} omits autonomous finish`).toMatch(
+        /finish_canvas_draft[^\n]*(?:without|do not ask|yourself|itself|autonomous)/i,
+      );
+      expect(body, `${name} omits the real review boundary`).toContain("`outcome: proposed`");
+      expect(body, `${name} omits structured recovery`).toContain("`error.recovery`");
+      expect(body, `${name} permits unchanged retry`).toMatch(
+        /never repeat|do not repeat|rather than repeating|instead of repeating/i,
+      );
+    }
+    for (const code of [
+      "INVALID_TOOL_INPUT",
+      "REVISION_CONFLICT",
+      "OBJECT_BUSY",
+      "FORBIDDEN",
+      "REQUEST_TOO_LARGE",
+      "MUTATION_OUTCOME_UNKNOWN",
+    ]) {
+      expect(documents.skill).toContain(`\`${code}\``);
+    }
+    expect(documents.skill).toMatch(/draft baseline conflict[^\n]*cannot be repaired in place/i);
+    expect(documents.skill).toMatch(/do not steal the lease/i);
+    expect(documents.skill).toMatch(/never use DOM or direct-API bypasses/i);
   });
 });

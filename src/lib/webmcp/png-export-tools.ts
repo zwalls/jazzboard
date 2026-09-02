@@ -22,6 +22,7 @@ import type {
   JazzboardWebMcpDependencies,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const id = z.string().min(1).max(128);
 const revision = z.number().int().positive();
@@ -302,7 +303,7 @@ export function createJazzboardPngExportWebMcpTools(
           },
         };
       } catch (error) {
-        return failure(error);
+        return withActionableRecovery(failure(error));
       }
     },
   }];

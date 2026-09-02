@@ -43,6 +43,7 @@ import type {
   JazzboardWebMcpDependencies,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const idSchema = z.string().min(1).max(128);
 const finite = z.number().finite();
@@ -592,7 +593,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
         const data = await input.execute(parsed, signal);
         return { ok: true, tool: input.name, data };
       } catch (error) {
-        return failure(input.name, error);
+        return withActionableRecovery(failure(input.name, error));
       }
     },
   };

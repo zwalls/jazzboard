@@ -12,6 +12,7 @@ import type {
   JazzboardWebMcpDependencies,
   WebMcpRequest,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 const id = z.string().min(1).max(128);
 const listInput = z.object({
@@ -121,7 +122,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
         const signal = options?.signal ?? new AbortController().signal;
         return { ok: true, tool: input.name, data: await input.execute(parsed, signal) };
       } catch (error) {
-        return failure(input.name, error);
+        return withActionableRecovery(failure(input.name, error));
       }
     },
   };

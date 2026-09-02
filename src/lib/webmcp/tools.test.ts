@@ -308,13 +308,17 @@ describe("authenticated read tools", () => {
 
     const result = await execute(toolByName(tools, "read_room_state"), {});
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       tool: "read_room_state",
       error: {
         code: "FORBIDDEN",
         message: "Spectators cannot change the canvas.",
         details: { role: "spectator" },
+        recovery: {
+          retry: "do_not_retry",
+          instructions: expect.stringMatching(/do not bypass permissions.*human must grant/i),
+        },
       },
     });
     expect(request).toHaveBeenCalledTimes(1);
@@ -1010,13 +1014,18 @@ describe("semantic mutation handlers", () => {
       targets: [{ objectId: "service-a", expectedRevision: 1, x: 0, y: 0 }],
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       tool: "move_objects",
       error: {
         code: "OBJECT_BUSY",
         message: "Bob is currently editing this object.",
         details: busy,
+        recovery: {
+          retry: "after_wait",
+          suggestedTools: expect.arrayContaining(["read_collaboration_state", "read_room_state"]),
+          instructions: expect.stringMatching(/do not steal.*lease.*current exact revisions/i),
+        },
       },
     });
     expect(request).toHaveBeenCalledTimes(1);

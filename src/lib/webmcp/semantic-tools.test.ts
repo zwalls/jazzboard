@@ -425,7 +425,16 @@ describe("role-scoped semantic tool registration", () => {
     const rejected = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: { surprise: true } }],
     });
-    expect(rejected).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_TOOL_INPUT",
+        recovery: {
+          retry: "after_correction",
+          suggestedTools: ["get_canvas_capabilities"],
+        },
+      },
+    });
     for (const nodeMetadata of [
       { kind: "decision", status: "proposed", resolution: "Too early" },
       { kind: "decision", status: "accepted", resolution: null },
@@ -596,8 +605,10 @@ describe("progressive draft delivery", () => {
       oneOf: expect.any(Array),
       description: expect.stringMatching(/preferred.*user-visible new multi-object composition/i),
     });
-    expect(transactionTool.description).toMatch(/user-visible new multi-object composition.*delivery\.mode=draft/i);
-    expect(transactionTool.description).toMatch(/revision-checked corrections.*explicitly instant.*no live audience/i);
+    expect(transactionTool.description).toMatch(/visible new multi-object work.*delivery\.mode=draft/i);
+    expect(transactionTool.description).toMatch(/bot-traced delivery.*not review.*do not ask for confirmation/i);
+    expect(transactionTool.description).toMatch(/call finish_canvas_draft.*yourself/i);
+    expect(transactionTool.description).toMatch(/existing-object corrections.*explicit instant/i);
     expect(validates({ operations, delivery: { mode: "draft" } })).toBe(true);
     expect(validates({
       operations,
@@ -767,6 +778,13 @@ describe("progressive draft delivery", () => {
           state: "pending",
           complete: false,
         },
+        completion: {
+          requiredTool: "finish_canvas_draft",
+          action: "commit",
+          expectedDraftRevision: 4,
+          userConfirmationRequired: false,
+          authorityBoundary: expect.stringMatching(/not human review.*finish autonomously/i),
+        },
         nextStep: expect.stringMatching(
           /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,
         ),
@@ -817,6 +835,12 @@ describe("progressive draft delivery", () => {
           observedRevision: 4,
           state: "pending",
           complete: false,
+        },
+        completion: {
+          requiredTool: "finish_canvas_draft",
+          action: "commit",
+          expectedDraftRevision: 4,
+          userConfirmationRequired: false,
         },
         nextStep: expect.stringMatching(
           /call finish_canvas_draft once.*waits for this exact revision's visible construction/i,

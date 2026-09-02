@@ -15,6 +15,7 @@ import type {
   JazzboardToolResult,
   JazzboardWebMcpBinding,
 } from "./types";
+import { withActionableRecovery } from "./actionable-failure";
 
 export const JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES = [
   "get_canvas_capabilities",
@@ -201,6 +202,8 @@ const AUTHORING_BUNDLE = {
     diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact",
     progressiveDrafts: "create-only-cumulative-replacement",
     preferredVisibleCompositionDelivery: "delivery.mode=draft",
+    progressiveDraftAuthority:
+      "Draft delivery is visible construction transport, not human review. After the final candidate, the author calls finish_canvas_draft action=commit without requesting user confirmation. Only an outcome=proposed from a room already in review policy creates a human approval boundary.",
     directDeliveryUse:
       "existing-object-corrections-explicitly-instant-work-or-no-live-audience",
     authoringPace: "full-speed-no-animation-driven-chunking-or-pauses",
@@ -271,7 +274,7 @@ const ARCHITECTURE_BUNDLE = {
     "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
     "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
-    "Read the live draft only when semantic inspection helps, finish the latest exact revision once while Jazzboard waits for visible construction internally, then inspect exact authoritative semantics and pixels and patch only identified defects.",
+    "Read the live draft only when semantic inspection helps, then autonomously finish the latest exact revision once without asking for confirmation. Progressive delivery is animation, not review. Jazzboard waits for visible construction internally; after finish returns applied, inspect exact authoritative semantics and pixels and patch only identified defects. If finish returns proposed, report the true room review boundary without claiming publication.",
   ],
   toolChoices: {
     coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
@@ -334,7 +337,7 @@ const ARCHITECTURE_BUNDLE = {
         delivery: { mode: "draft" },
       },
       semantics:
-        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition. Rapid cumulative replacements may refine the candidate without animation-driven pauses; call finish once and let Jazzboard wait for visible completion internally.",
+        "Omitted Diagram membership infers compatible creates; exact positions and routing preserve this composition. Rapid cumulative replacements may refine the candidate without animation-driven pauses. Then call finish_canvas_draft with action=commit yourself; no user confirmation is needed for progressive delivery. Jazzboard waits for visible completion internally.",
     },
     optionalHierarchyLayout: {
       operation: {
@@ -361,7 +364,7 @@ const ILLUSTRATION_BUNDLE = {
     "Build each user-visible new layer as a progressive create-only draft with native paths and shapes; use a direct transaction only for revision-checked corrections or an explicitly instant result.",
     "Submit coherent layers and rapid cumulative refinements without animation-driven pauses; the client queues visible construction independently of the agent's reasoning pace.",
     "Use exact coordinates, groupId, opacity, and zIndex; omit architecture layout unless the user explicitly requests it.",
-    "Inspect actual pixels for likeness, silhouette, expression, balance, color, and unintended occlusion, then patch locally.",
+    "Autonomously finish the latest exact draft revision without asking for confirmation; progressive delivery is animation, not review. Then inspect actual committed pixels for likeness, silhouette, expression, balance, color, and unintended occlusion, and patch locally.",
   ],
   compositionConvention: {
     container: "custom-Diagram",
@@ -434,7 +437,7 @@ const ILLUSTRATION_BUNDLE = {
         delivery: { mode: "draft" },
       },
       next:
-        "Replace with the complete cumulative create-only operation list and exact draft revision as quickly as reasoning requires. Call finish once; Jazzboard waits for visible construction and commits atomically, after which you perform pixel inspection of the committed result.",
+        "Replace with the complete cumulative create-only operation list and exact draft revision as quickly as reasoning requires. Then call finish_canvas_draft with action=commit yourself; do not ask for confirmation because progressive delivery is not review. Jazzboard waits for visible construction and commits atomically, after which you perform pixel inspection of the committed result.",
     },
   },
 } as const;
@@ -566,7 +569,7 @@ function canvasCapabilities(
 }
 
 function invalidInput(details?: Record<string, unknown>): JazzboardToolFailure {
-  return {
+  return withActionableRecovery({
     ok: false,
     tool: "get_canvas_capabilities",
     error: {
@@ -575,7 +578,7 @@ function invalidInput(details?: Record<string, unknown>): JazzboardToolFailure {
         "get_canvas_capabilities accepts only an optional core, authoring, architecture, illustration, or inspection bundle.",
       ...(details ? { details } : {}),
     },
-  };
+  });
 }
 
 function parseBundle(rawInput: unknown):

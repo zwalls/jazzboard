@@ -327,12 +327,16 @@ describe("Spotlight and room-view lifecycle", () => {
     });
     const tools = createJazzboardLifecycleWebMcpTools(binding(fixture.context), { request });
 
-    await expect(execute(toolByName(tools, "stop_spotlight"))).resolves.toEqual({
+    await expect(execute(toolByName(tools, "stop_spotlight"))).resolves.toMatchObject({
       ok: false,
       tool: "stop_spotlight",
       error: {
         code: "FORBIDDEN",
         message: "Only the current presenter can stop Spotlight.",
+        recovery: {
+          retry: "do_not_retry",
+          instructions: expect.stringMatching(/do not bypass permissions.*human must grant/i),
+        },
       },
     });
     expect(fixture.accepted).toEqual([]);
