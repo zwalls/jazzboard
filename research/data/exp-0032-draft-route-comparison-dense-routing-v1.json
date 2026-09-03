@@ -1,0 +1,263 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0032",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-draft-route-comparison",
+  "productChange": {
+    "description": "Read-only counterfactual evaluation of two to eight agent-authored connector-route alternatives on one exact owned draft; no ranking, selection, application, layout, routing, or rendering.",
+    "commit": "136e7254c1b6355753ae586bbc810fae326c89e3"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0031": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a066ba-a892-7ee1-8dec-70030ca58b21",
+    "turnId": "01a066ba-aa31-71b0-8b75-581c446ce7c4",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 320287,
+      "rawSessionWallMs": 320287,
+      "hostExecutionMs": 60310,
+      "modelAndCoordinationMs": 259690,
+      "hostExecutionShare": 0.188469
+    },
+    "calls": {
+      "hostCallCount": 19,
+      "failedHostCallCount": 1,
+      "webMcpBusinessCallCount": 14,
+      "webMcpDescriptorFetchCount": 2,
+      "webMcpBusinessFailureCount": 0,
+      "acceptedDraftTransactionCallCount": 7,
+      "draftPatchOrReplacementCount": 6,
+      "semanticInspectionCallCount": 3,
+      "routeCandidateComparisonCallCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 2,
+        "apply_canvas_transaction": 7,
+        "inspect_canvas_scope": 3,
+        "finish_canvas_draft": 1
+      }
+    },
+    "result": {
+      "status": "completed_with_failed_visual_quality_gate",
+      "roomRevision": 4,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 50,
+        "y": 100,
+        "width": 940,
+        "height": 445
+      },
+      "independentExactViewportCapture": "completed",
+      "qualityGatePassed": false
+    }
+  },
+  "draftCorrectionEvidence": {
+    "routeComparisonMechanismAvailable": true,
+    "routeComparisonMechanismUsed": false,
+    "acceptedDraftResponseBytes": 146439,
+    "acceptedDraftTransactionCount": 7,
+    "initialDraft": {
+      "draftRevision": 1,
+      "responseBytes": 22156,
+      "failCount": 8,
+      "warningCount": 1
+    },
+    "committedDraft": {
+      "draftRevision": 7,
+      "responseBytes": 18295,
+      "failCount": 3,
+      "warningCount": 3
+    },
+    "commitDisposition": {
+      "status": "intentional_failures_acknowledged",
+      "failFindingCount": 3,
+      "acknowledgedFindingCount": 3,
+      "acknowledgedOmittedFindingCount": 0
+    },
+    "behavioralUseObserved": false,
+    "behavioralUseBasis": "The author used concise draft receipts and inspect_canvas_scope but never called analyze_diagram_layout or supplied routeCandidates."
+  },
+  "liveMechanismQa": {
+    "exactDraftCompared": true,
+    "baseline": {
+      "failCount": 2,
+      "warningCount": 3,
+      "connectorCrossingPairCount": 1,
+      "routeAmbiguityClusterCount": 1
+    },
+    "unchangedAlternativePreservedBaseline": true,
+    "agentAuthoredOuterLaneAlternative": {
+      "failCount": 0,
+      "warningCount": 0,
+      "connectorCrossingPairCount": 0,
+      "routeAmbiguityClusterCount": 0
+    },
+    "draftRevisionChanged": false,
+    "roomRevisionChanged": false,
+    "automaticRankingSelectionOrMutation": false
+  },
+  "authoritativeFactAudit": {
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "confirmed"
+  },
+  "deterministicGeometryAudit": {
+    "status": "fail",
+    "coverage": "complete",
+    "findingCount": 6,
+    "warningCount": 3,
+    "failCount": 3,
+    "findingTypes": {
+      "CONNECTOR_CROSSING": 1,
+      "CONNECTOR_LABEL_EDGE_COLLISION": 1,
+      "CONNECTOR_LABEL_OBJECT_COLLISION": 1,
+      "CONNECTOR_OBJECT_INTRUSION": 1,
+      "CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD": 1,
+      "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER": 1
+    },
+    "connectorCrossingPairCount": 1,
+    "sharedSegmentPairCount": 0,
+    "endpointReentryCount": 0,
+    "routeAmbiguityClusterCount": 1,
+    "minimumObservedSpacing": 45,
+    "outsideLayoutScaffoldConnectorCount": 1
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a066c2-460e-7390-8418-b0b8411e52bf",
+      "turnId": "01a066c2-4794-7f11-a5c6-5303746e67f1",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 105335,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "fail",
+        "blockingGeometryViolations": 3,
+        "outOfFrameEssentialRoute": "yes",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "All nine entities and relationships occur exactly once with correct endpoints.",
+        "Gateway-to-Service-B and Monitor-to-Service-A routes cross into an ambiguous junction.",
+        "The observation label overlaps Service A and obscures its endpoint arrowhead.",
+        "The replication label crosses the frame boundary."
+      ]
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a066c2-5aa4-7d61-a2a7-d184a68c0e10",
+      "turnId": "01a066c2-5c95-7ec3-8399-d3914bfa8465",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 79024,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "fail",
+        "blockingGeometryViolations": 2,
+        "outOfFrameEssentialRoute": "yes",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "All nine entities and relationships occur exactly once with correct endpoints.",
+        "The observation route crosses the request route at its label.",
+        "The replication label and right-hand dogleg breach the fixed frame."
+      ]
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same criterion verdicts and identified the same crossing and frame breach."
+  },
+  "comparisons": {
+    "toExp0031": {
+      "predecessorWallMs": 553909,
+      "currentWallMs": 320287,
+      "wallDeltaMs": -233622,
+      "wallDeltaFraction": -0.42177,
+      "predecessorWebMcpBusinessCalls": 24,
+      "currentWebMcpBusinessCalls": 14,
+      "predecessorAcceptedDraftTransactions": 16,
+      "currentAcceptedDraftTransactions": 7,
+      "predecessorDraftResponseBytes": 253607,
+      "currentDraftResponseBytes": 146439,
+      "interpretation": "Latency and traffic improved substantially, but deterministic and blinded visual quality regressed."
+    },
+    "toExp0030FailedCandidate": {
+      "predecessorWallMs": 272832,
+      "currentWallMs": 320287,
+      "wallDeltaMs": 47455,
+      "wallDeltaFraction": 0.173935,
+      "interpretation": "The candidate remained slower than EXP-0030 and failed the same overall visual gate."
+    },
+    "toExp0029FailedCandidate": {
+      "predecessorWallMs": 301391,
+      "currentWallMs": 320287,
+      "wallDeltaMs": 18896,
+      "wallDeltaFraction": 0.062696,
+      "interpretation": "The candidate was close to EXP-0029 latency but still failed visual acceptance."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "f6eb4432b062cc6d188f6bf8d2bdd734764936e84bd159d125d5fa8429efbf36",
+    "primaryASessionSha256": "26d9ab52abca7542ac55e19ea8ae23c8aa9d894bb7c6df98e07e9b0aae66cc61",
+    "primaryBSessionSha256": "30dbe4d77b2a003ee6a199938151a3e676c0e98235ed5a3dbd72890755c040f3",
+    "sanitizedStateSha256": "db1b9c2b7b90de65403d0d7adbebde794db1450a77c53eb292db3e5a6267241f",
+    "pixelArtifactSha256": "78e1e01240c005bfa1643aa39ed9009128f3cb723619198a506abd5963c45b57",
+    "deterministicLayoutArtifactSha256": "cf7889db8c2005974f58a65aba47ee6a504e11a6bb2463686967c6deb7f607c0",
+    "primaryAVerdictSha256": "d43a85d001974fca4d8f52d7f980c509bfd72909af3d8ca440c8fb6a93d05d38",
+    "primaryBVerdictSha256": "1f40919d3ee3c5042a9d43d073df55389ed068bf738bd7808eab9562de058736"
+  },
+  "decision": {
+    "status": "mechanism_not_behaviorally_exercised_speed_quality_result_not_accepted",
+    "retainProductChange": true,
+    "whyRetain": "The primitive is read-only, preserves agent control, passed live non-mutation QA, and demonstrated a zero-finding alternative when called.",
+    "nextIntervention": "Place an exact recommendedRouteComparison contract in finding-bearing concise draft receipts and the architecture quickstart so the agent can discover and use the existing evaluator inside the correction loop."
+  }
+}
