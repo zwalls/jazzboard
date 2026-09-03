@@ -1,0 +1,211 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0018",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-relationship-review-replication",
+  "productChange": {
+    "description": "Expose a bounded relationshipReview in draft and direct transaction receipts that joins connector prose and tempRefs to actual start and end semantic identities, while leaving correction decisions to the author.",
+    "commit": "b3f3e83d2f4cf2aadb1abf5f4df7e1132b73762f"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0017": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06521-ca5b-70b0-8f3f-c8e8a013f3cd",
+    "turnId": "01a06521-cc6f-7310-b195-613f56b2607e",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 282595,
+      "accountedWallMs": 282000,
+      "clockDeltaMs": 595,
+      "hostExecutionMs": 44365,
+      "modelAndCoordinationMs": 237635,
+      "hostExecutionShare": 0.157322695035
+    },
+    "calls": {
+      "hostCallCount": 18,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 10,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 6,
+      "acceptedDraftTransactionCallCount": 6,
+      "postCommitCorrectionCallCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 6,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 1
+      },
+      "note": "The only failed host call was an incorrect first attempt to read the browser skill path. Every Jazzboard WebMCP call returned successfully."
+    },
+    "phases": {
+      "capabilityDiscoveryMs": 52054,
+      "initialAuthoringMs": 172419,
+      "draftFinishMs": 13138,
+      "inspectionMs": 27230,
+      "otherAndTerminalMs": 17159
+    },
+    "result": {
+      "status": "completed_with_failed_visual_gate",
+      "roomRevision": 2,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "pass",
+      "finalDeterministicGeometryCoverage": "complete",
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "primaryBlindedReviewer": {
+    "taskId": "01a06528-8e19-7a12-bfe6-718be241359a",
+    "turnId": "01a06528-904b-7b62-8564-35d93a50caeb",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 263613,
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 1,
+      "blockingGeometryFindings": [
+        "Collector-to-Telemetry Store and Alert Engine-to-Telemetry Store converge and overlap at the store endpoint, obscuring their distinct arrow geometry."
+      ],
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [],
+      "overall": "fail"
+    }
+  },
+  "blindedAdjudicator": {
+    "taskId": "01a0652f-d9d7-7182-bbd4-25c81c7ec44d",
+    "turnId": "01a0652f-dbd2-72a3-b2bf-956636a6fca3",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "primaryDecisionProvided": false,
+    "authorTranscriptProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "totalWallMs": 123391,
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 1,
+      "blockingGeometryFindings": [
+        "The write and evaluate connectors converge and overlap at the same left-edge ingress of Telemetry Store, causing their terminal segments and arrowheads to collide."
+      ],
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [],
+      "overall": "fail"
+    }
+  },
+  "invalidEvaluationAttempt": {
+    "taskId": "01a0652c-e0dd-7303-8a32-1e3bcccd5145",
+    "turnId": "01a0652c-e355-7253-b05e-83d030694dfe",
+    "totalWallMs": 161941,
+    "reason": "The evaluator could inspect pixels but its browser blocked the separately served sanitized-state URL. Its conservative membership failure is a transport failure, not an artifact judgment, so a fresh blinded adjudicator received the identical state inline."
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0017",
+      "wallMs": 188763,
+      "factualGatePassed": false,
+      "visualGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 282595,
+      "factualGatePassed": true,
+      "visualGatePassed": false
+    },
+    "versusExp0017": {
+      "descriptiveIncreaseMs": 93832,
+      "descriptiveIncreaseFraction": 0.497086500321,
+      "hostExecutionIncreaseMs": 5388,
+      "modelAndCoordinationIncreaseMs": 87612
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 100211,
+      "descriptiveIncreaseFraction": 0.549449515311
+    },
+    "interpretation": "The intervention corrected the exact reversed-endpoint failure, but the author spent six draft transactions on geometry and finished 49.7% slower than EXP-0017. A near-coincident two-connector ingress escaped deterministic validation and failed the blinded visual gate."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "Every one of the six draft receipts exposed all five actual connector start and end tempRefs in relationshipReview.",
+      "The initial candidate and every subsequent draft revision matched all five requested directed facts.",
+      "Both independent judges passed semantic facts, plane distinction, viewport readability, first-class Diagram membership, and unsupported-assertion checks.",
+      "No Jazzboard WebMCP call returned a business failure, and no post-commit mutation was required."
+    ],
+    "failureSignals": [
+      "The author used one initial draft plus five targeted draft patches, raising authoring wall time to 172,419 ms.",
+      "Collector write and Alert Engine evaluate terminate 5.5 canvas units apart on the same Telemetry Store edge, visually merging their arrowheads.",
+      "Both valid blinded judges independently reported the same single blocking connector-ingress collision.",
+      "Deterministic validation reported congestedPortCount=0 because attachment congestion currently requires three nearby connectors."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "png",
+    "cleanImageSha256": "ef43d833c83d3149c858f6a004b69562b96ee58214516360bc605f708413333b",
+    "cleanImageBytes": 45236,
+    "sanitizedStateSha256": "b6800b4f957dd4f3e0eed6ecfd0346185a766ce50281d276c442acd088cc068e",
+    "rawAuthorSessionSha256": "b670b10bf3ee4cb3935d9e90bdff06dd564a3178e3886c368175f83fb04fec78",
+    "rawPrimaryReviewerSessionSha256": "5bac962ccbf140f195ea2a2d3c1964c5b3409c0199a31b3d0b86e9ee1a6f0d7b",
+    "rawAdjudicatorSessionSha256": "6f61c6691119a31a9c259acf4926a19bc37ec47a8fc412342f6f4e4e0ed47b1a",
+    "rawInvalidAdjudicatorSessionSha256": "a1a6af24ec7b5a3917d0df0981567c9ad6c3d41d250e7f6c5c0d3a60d929ad94",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 4,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 1,
+    "validAdjudicatorTasks": 1,
+    "invalidEvaluatorTasksRetained": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": true,
+    "visualQualityGatePassed": false,
+    "speedGatePassed": false,
+    "overallQualityGatePassed": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Make the existing passive attachment-port congestion signal detect two connectors within the 12-unit endpoint radius, retain warning-only and intent-unaware semantics, and rerun the unchanged benchmark. Jazzboard must expose the collision but must not choose ports or routes for the author."
+  }
+}
