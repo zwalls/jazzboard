@@ -1,0 +1,205 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0016",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-one-pass-clearance-replication",
+  "productChange": {
+    "description": "Expose conservative node-size floors, label-width-derived connector clearance, a semantic-container title band, and atomic additive Diagram membership in the architecture authoring surface.",
+    "commit": "a870bb2ff4d723ad0be6dc8520c8ae13f450b8cf"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0015": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064f9-01c4-7462-a2e9-f6c315659595",
+    "turnId": "01a064f9-039c-7ed3-81f4-b0fb42ceee47",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 291232,
+      "hostExecutionMs": 47273,
+      "modelAndCoordinationMs": 243959,
+      "hostExecutionShare": 0.162318983730
+    },
+    "calls": {
+      "hostCallCount": 21,
+      "failedHostCallCount": 0,
+      "webMcpCallCount": 12,
+      "webMcpBusinessFailureCount": 2,
+      "draftTransactionCallCount": 2,
+      "acceptedDraftTransactionCallCount": 1,
+      "postCommitCorrectionCallCount": 1,
+      "acceptedPostCommitCorrectionCallCount": 1,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 3,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "render_canvas_preview": 5
+      }
+    },
+    "phases": {
+      "capabilityDiscoveryApproxMs": 46710,
+      "initialAuthoringApproxMs": 86434,
+      "draftFinishApproxMs": 14635,
+      "initialInspectionAndRecoveryApproxMs": 70496,
+      "postCommitCompactionAndFinalInspectionApproxMs": 68530,
+      "terminalApproxMs": 4427
+    },
+    "draftValidationProgression": [
+      {
+        "draftRevision": 1,
+        "failCount": 0,
+        "warningCount": 0,
+        "findingCount": 0,
+        "analyzedDiagramCount": 0,
+        "coverageStatus": "not_applicable"
+      }
+    ],
+    "result": {
+      "status": "completed_with_failed_quality_gate",
+      "roomRevision": 3,
+      "objectCount": 17,
+      "diagramCount": 0,
+      "diagramRevision": null,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 0,
+      "declaredDiagramConnectorCount": 0,
+      "finalDeterministicGeometryStatus": "unknown",
+      "finalDeterministicGeometryCoverage": "partial",
+      "independentExactClipCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "primaryBlindedReviewer": {
+    "taskId": "01a064ff-f34d-74e3-96be-9e42901ad03b",
+    "turnId": "01a064ff-f578-75b3-8c4c-1872bc18bd47",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "sanitizedStateTransport": "inline",
+    "exactPngTransport": "localhost_url",
+    "totalWallMs": 105167,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 2,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "no",
+      "unsupportedAssertion": "no",
+      "overall": "fail"
+    }
+  },
+  "blindedAdjudicator": {
+    "taskId": "01a06504-5cfb-7f51-8574-083d820123a0",
+    "turnId": "01a06504-5f10-7921-ad89-d38fefac8c0e",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "primaryDecisionProvided": false,
+    "authorTranscriptProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "totalWallMs": 132358,
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 2,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "no",
+      "unsupportedAssertion": "no",
+      "overall": "fail"
+    }
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0015",
+      "wallMs": 298952,
+      "qualityGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 291232,
+      "qualityGatePassed": false
+    },
+    "versusExp0015": {
+      "descriptiveDecreaseMs": 7720,
+      "descriptiveDecreaseFraction": 0.025823543579,
+      "hostExecutionDecreaseMs": 17317,
+      "modelAndCoordinationIncreaseMs": 9549
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 108848,
+      "descriptiveIncreaseFraction": 0.596806737433
+    },
+    "interpretation": "The intervention reduced observed wall time by 2.6% relative to EXP-0015 but lost the blinded quality gate and remained 59.7% slower than the fastest prior passing run. This is not a speed-quality improvement."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The accepted first draft used the advertised conservative two-line node dimensions.",
+      "Only one accepted draft transaction and one accepted post-commit compaction transaction were required.",
+      "The final exact PNG visibly distinguishes all three planes and all five relationship captions.",
+      "Capability discovery was approximately 16.5 seconds faster than EXP-0015."
+    ],
+    "failureSignals": [
+      "The first transaction invented spatial and semantic fields on create_diagram and attached diagramTempRef to every create operation; strict validation rejected all of them.",
+      "The author recovered by deleting the Diagram operation and every membership link instead of translating the request into create_diagram members/connectors.",
+      "With no Diagram, draft validation analyzed zero Diagrams and returned not_applicable, creating a false clean preflight signal.",
+      "The final six node descriptions are visibly ellipsized despite the node-size floor.",
+      "Both blinded judges counted two blocking visual defects and failed Diagram membership coherence.",
+      "Authoritative endpoint state encodes the evaluates relationship from Telemetry Store to Alert Engine even though its semantic name describes the opposite direction; both blinded judges still marked observabilityFacts pass."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "0ed3ea518ef39f8082a977186edc5f7190e157b378750f06cb75a9ef5df013b5",
+    "cleanPngBytes": 50840,
+    "sanitizedStateSha256": "db122fdfabf8fb58336b68428ecfa37a27be33dd161ff7430d633fa4cdef79c9",
+    "rawAuthorSessionSha256": "8093aa3c9dbfaeaa846e4ff8608a8b771abe888893b34d7c8ab285046da81798",
+    "rawReviewerSessionSha256": "e9847ddbcf31241ba30b4ed9882a9ada7d3e3df05c8f0327cb73a22492d50df3",
+    "rawAdjudicatorSessionSha256": "617d0c66b3c1e633bd320eecf5ffc0cbda0d00a47b258f4ee44f6229cd7a0e23",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "adjudicatorTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "authorQualityGatePassed": false,
+    "speedGatePassed": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Make the quickstart explicitly distinguish Diagram metadata/membership fields from object create fields, tell authors to preserve the first-class Diagram when recovering from a schema rejection, require subject-to-object endpoint verification before submit, and size conventional node width from its longest visible line. Then run an unchanged replication."
+  }
+}
