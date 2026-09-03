@@ -783,7 +783,7 @@ function canvasQuickstart(
       "New create_diagram: tempRef/title/description/diagramType/category/tags/members/connectors; no spatial/semantic identity. diagramTempRef is only for edit_diagram draft patches, never object creates. Fix errors; keep semantic structure.",
       "Ports are {side:left|right|top|bottom,position:0..1,exact:boolean}, not strings.",
       "Curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
-      "Direction audit: subject=start, label=relation, object=end. Compare endpoints; names/labels never reverse them.",
+      "Before finish, compare relationshipReview actual start->end with task facts; names/labels never override endpoints.",
       "Node floors for 1/2/3 lines: 180x88/220x110/260x132; width >= 12*longest visible line characters+48. Deliberate exceptions are valid; correct outward or shorten, never into occupied space.",
       "Straight labeled edge gap >= max(160,12*visible label characters+48); else shorten or use an empty curved/elbow label lane. Keep necessary meaning.",
       "If one row makes the overview microscopic, choose multiple rows/ranks with clear reading order. Guidance only; never imposed layout or creative authority.",

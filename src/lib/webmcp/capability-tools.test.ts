@@ -152,7 +152,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               expect.stringMatching(/first draft.*draftId.*needs expectedDraftRevision/i),
               expect.stringMatching(/new create_diagram.*no spatial\/semantic identity.*diagramTempRef.*only.*edit_diagram.*never object creates.*keep semantic structure/i),
               expect.stringMatching(/ports are.*side:left.*not strings/i),
-              expect.stringMatching(/direction audit.*subject=start.*label=relation.*object=end.*names\/labels never reverse/i),
+              expect.stringMatching(/before finish.*relationshipReview.*actual start->end.*task facts.*names\/labels never override endpoints/i),
               expect.stringMatching(/node floors.*180x88.*260x132.*12\*longest visible line characters\+48.*deliberate exceptions/i),
               expect.stringMatching(/straight labeled edge.*max\(160.*12\*visible label characters\+48\).*keep necessary meaning/i),
               expect.stringMatching(/one row.*overview microscopic.*multiple rows\/ranks.*never imposed layout or creative authority/i),

@@ -1415,6 +1415,7 @@ const COMPACT_DIAGRAM_SUMMARY_LIMIT = 32;
 const COMPACT_DIAGRAM_OMITTED_ID_LIMIT = 64;
 const COMPACT_OBJECT_DIAGRAM_ID_LIMIT = 16;
 const COMPACT_OBJECT_DIAGRAM_OMITTED_ID_LIMIT = 16;
+const RELATIONSHIP_REVIEW_LIMIT = 200;
 
 function boundsForObject(object: CanvasObject) {
   return { x: object.x, y: object.y, width: object.width, height: object.height };
@@ -1425,6 +1426,56 @@ function boundedText(value: string) {
     value: value.slice(0, COMPACT_TEXT_LIMIT),
     originalLength: value.length,
     truncated: value.length > COMPACT_TEXT_LIMIT,
+  };
+}
+
+function compactRelationshipReview(
+  room: RoomState,
+  connectorIds: readonly string[],
+  temporaryReferences?: Record<string, string>,
+) {
+  const tempRefById = new Map(
+    Object.entries(temporaryReferences ?? {}).map(([tempRef, id]) => [id, tempRef]),
+  );
+  const connectors = [...new Set(connectorIds)].flatMap((connectorId) => {
+    const object = room.objects[connectorId];
+    return object?.kind === "connector" ? [object] : [];
+  });
+  if (!connectors.length) return null;
+  const returned = connectors.slice(0, RELATIONSHIP_REVIEW_LIMIT);
+  const endpoint = (rawObjectId: string | null | undefined) => {
+    const objectId = rawObjectId ?? null;
+    const object = objectId ? room.objects[objectId] : null;
+    const semanticName = object?.semanticName?.trim() || null;
+    const displayText = object ? objectVisibleText(object).trim() || null : null;
+    return {
+      objectId,
+      tempRef: objectId ? tempRefById.get(objectId) ?? null : null,
+      semanticName,
+      displayText,
+    };
+  };
+  return {
+    authority:
+      "Actual authored endpoint state; connector prose never overrides start/end.",
+    requiredAction:
+      "Before finish or completion, compare every actual start -> end below with the requested relationship facts; correct any mismatch explicitly.",
+    coverage: {
+      totalConnectorCount: connectors.length,
+      returnedConnectorCount: returned.length,
+      limit: RELATIONSHIP_REVIEW_LIMIT,
+      truncated: returned.length < connectors.length,
+      omittedConnectorCount: Math.max(0, connectors.length - returned.length),
+    },
+    items: returned.map((connector) => ({
+      connectorId: connector.id,
+      connectorTempRef: tempRefById.get(connector.id) ?? null,
+      semanticName: connector.semanticName ?? null,
+      label: connector.label,
+      direction: connector.direction,
+      start: endpoint(connector.start.objectId),
+      end: endpoint(connector.end.objectId),
+    })),
   };
 }
 
@@ -1682,13 +1733,16 @@ function draftNextStep(
   draft: AgentCanvasDraftSnapshot,
   validation: ReturnType<typeof compactDraftValidation>,
 ) {
+  const relationshipStep = draft.previewObjects.some((object) => object.kind === "connector")
+    ? "First reconcile every relationshipReview actual start -> end with the requested facts; prose never overrides endpoints. "
+    : "";
   if (
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    return `${relationshipStep}Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
   }
-  return "Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.";
+  return `${relationshipStep}Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.`;
 }
 
 function recommendedDraftCorrection(
@@ -1745,6 +1799,11 @@ function conciseMutationReceipt(
 ) {
   const objects = response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []);
   const diagrams = response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []);
+  const relationshipReview = compactRelationshipReview(
+    response.room,
+    objects.filter((object) => object.kind === "connector").map((object) => object.id),
+    temporaryReferences,
+  );
   return {
     outcome: response.outcome,
     roomRevision: response.room.roomRevision,
@@ -1756,6 +1815,7 @@ function conciseMutationReceipt(
     membershipObjectIds: response.membershipObjectIds,
     objects: objects.map(compactMutationObject),
     diagrams: diagrams.map(compactDiagram),
+    ...(relationshipReview ? { relationshipReview } : {}),
     validation: compactValidation(quality, response.changedDiagramIds.length),
     visualInspectionStatus: "not_performed" as const,
     recommendedInspection: response.outcome === "applied"
@@ -1780,6 +1840,11 @@ function conciseDraftReceipt(
     draft.previewDiagrams.length,
     preview.room,
   );
+  const relationshipReview = compactRelationshipReview(
+    preview.room,
+    draft.previewObjects.filter((object) => object.kind === "connector").map((object) => object.id),
+    draft.temporaryReferences,
+  );
   return {
     outcome: "drafted" as const,
     draftId: draft.id,
@@ -1792,6 +1857,7 @@ function conciseDraftReceipt(
     previewDiagramCount: draft.previewDiagrams.length,
     previewObjects: draft.previewObjects.map(compactMutationObject),
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
+    ...(relationshipReview ? { relationshipReview } : {}),
     draftValidation,
     recommendedDraftCorrection: recommendedDraftCorrection(draft, draftValidation),
     ...(presentation ? { presentation } : {}),
@@ -2856,6 +2922,13 @@ export function createJazzboardSemanticWebMcpTools(
             response.draft.previewDiagrams.length,
             preview.room,
           );
+          const relationshipReview = compactRelationshipReview(
+            preview.room,
+            response.draft.previewObjects
+              .filter((object) => object.kind === "connector")
+              .map((object) => object.id),
+            response.draft.temporaryReferences,
+          );
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -2865,6 +2938,7 @@ export function createJazzboardSemanticWebMcpTools(
             temporaryReferences: response.draft.temporaryReferences,
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
+            ...(relationshipReview ? { relationshipReview } : {}),
             draftValidation,
             recommendedDraftCorrection: recommendedDraftCorrection(response.draft, draftValidation),
             ...(presentation ? { presentation } : {}),
@@ -2893,16 +2967,25 @@ export function createJazzboardSemanticWebMcpTools(
         if (input.responseDetail === "concise") {
           return conciseMutationReceipt(response, Object.fromEntries(refs), quality);
         }
+        const resolvedTemporaryReferences = Object.fromEntries(refs);
+        const relationshipReview = compactRelationshipReview(
+          response.room,
+          response.changedObjectIds.filter(
+            (objectId) => response.room.objects[objectId]?.kind === "connector",
+          ),
+          resolvedTemporaryReferences,
+        );
         return {
           outcome: response.outcome,
           roomRevision: response.room.roomRevision,
-          temporaryReferences: Object.fromEntries(refs),
+          temporaryReferences: resolvedTemporaryReferences,
           changedObjectIds: response.changedObjectIds,
           changedDiagramIds: response.changedDiagramIds,
           membershipObjectIds: response.membershipObjectIds,
           ...(response.positions === undefined ? {} : { positions: response.positions }),
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
+          ...(relationshipReview ? { relationshipReview } : {}),
           visualQuality: quality.reports,
           visualQualityOmittedDiagramIds: quality.omittedDiagramIds,
           visualQualityOmittedDiagramCount: quality.omittedDiagramCount,

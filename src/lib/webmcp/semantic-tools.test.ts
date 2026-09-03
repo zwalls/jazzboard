@@ -1173,6 +1173,36 @@ describe("progressive draft delivery", () => {
             ]),
           },
         },
+        relationshipReview: {
+          authority: expect.stringMatching(/actual authored endpoint state.*prose never overrides/i),
+          requiredAction: expect.stringMatching(/before finish or completion.*actual start -> end.*requested relationship facts/i),
+          coverage: {
+            totalConnectorCount: 1,
+            returnedConnectorCount: 1,
+            limit: 200,
+            truncated: false,
+            omittedConnectorCount: 0,
+          },
+          items: [{
+            connectorId: "api-db",
+            connectorTempRef: "request",
+            semanticName: null,
+            label: "writes",
+            direction: "end",
+            start: {
+              objectId: "api",
+              tempRef: "api",
+              semanticName: null,
+              displayText: "Checkout API",
+            },
+            end: {
+              objectId: "db",
+              tempRef: "db",
+              semanticName: null,
+              displayText: "Orders DB",
+            },
+          }],
+        },
         recommendedDraftCorrection: {
           tool: "apply_canvas_transaction",
           delivery: {
@@ -1189,7 +1219,7 @@ describe("progressive draft delivery", () => {
           },
         },
         nextStep: expect.stringMatching(
-          /review draftValidation.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
+          /relationshipReview.*requested facts.*review draftValidation.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
         ),
       },
     });
@@ -2348,6 +2378,34 @@ describe("transactional semantic mutations", () => {
           memberObjectCount: 2,
           connectorCount: 1,
         }],
+        relationshipReview: {
+          coverage: {
+            totalConnectorCount: 1,
+            returnedConnectorCount: 1,
+            limit: 200,
+            truncated: false,
+            omittedConnectorCount: 0,
+          },
+          items: [{
+            connectorId: "connector_1",
+            connectorTempRef: "writes",
+            semanticName: "Writes orders",
+            label: "writes",
+            direction: "end",
+            start: {
+              objectId: "node_1",
+              tempRef: "api",
+              semanticName: "Checkout API",
+              displayText: "Checkout API",
+            },
+            end: {
+              objectId: "node_2",
+              tempRef: "db",
+              semanticName: "Orders database",
+              displayText: "Orders DB",
+            },
+          }],
+        },
         validation: {
           totalChangedDiagramCount: 1,
           analyzedDiagramCount: 1,
@@ -2397,6 +2455,14 @@ describe("transactional semantic mutations", () => {
           memberObjectIds: ["node_3", "node_4"],
           connectorIds: ["connector_2"],
         }],
+        relationshipReview: {
+          items: [{
+            connectorId: "connector_2",
+            connectorTempRef: "writes",
+            start: expect.objectContaining({ objectId: "node_3", tempRef: "api" }),
+            end: expect.objectContaining({ objectId: "node_4", tempRef: "db" }),
+          }],
+        },
         visualQuality: [{ diagramId: "diagram_2", diagramRevision: 1 }],
         verification: { visualInspectionStatus: "not_performed" },
       },
