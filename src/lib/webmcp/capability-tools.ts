@@ -606,6 +606,7 @@ export type JazzboardCanvasQuickstart = Readonly<{
   }>;
   draftPreflight: Readonly<{
     field: "draftValidation";
+    losslessCorrectionField: "canonicalDraftCorrectionJson";
     authority: string;
     correction: string;
   }>;
@@ -763,13 +764,13 @@ function canvasQuickstart(
     purpose:
       `${task} fast path.`,
     fastPath: [
-      "Blank target: skip room read; otherwise read the narrowest relevant scope.",
-      "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
-      "On schema rejection, correct every path once; preserve Diagram and membership.",
-      "Use draftValidation; failCount=0 does not clear task-relevant warnings; patch affected refs, then recheck.",
-      "Call finish_canvas_draft once with action=commit and latest revision; no confirmation.",
-      "Inspect pixels via inspect_canvas_scope; make one direct correction without guessed fields.",
-      "Blank capture: follow onBlankCapture once.",
+      "Blank target: skip read; otherwise read narrowly.",
+      "Adapt canonicalDraftJson as one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
+      "Schema rejection: fix all paths once; preserve Diagram/membership.",
+      "draftValidation findings: parse canonicalDraftCorrectionJson and combine compatible agent-chosen fixes. failCount=0 does not clear task-relevant warnings.",
+      "Call finish_canvas_draft once at latest revision; no confirmation.",
+      "Inspect pixels once with inspect_canvas_scope; correct identified defects without guessing.",
+      "Blank capture: onBlankCapture once.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -783,10 +784,11 @@ function canvasQuickstart(
     },
     draftPreflight: {
       field: "draftValidation",
+      losslessCorrectionField: "canonicalDraftCorrectionJson",
       authority:
         "Intent-unaware evidence; never override requested or deliberate geometry.",
       correction:
-        "Patch and recheck unintended findings before finish; task-relevant warnings remain unresolved at failCount=0. Use exact recommended bounds when supplied.",
+        "Parse canonicalDraftCorrectionJson, choose and combine fixes, then recheck once; task-relevant warnings survive failCount=0.",
     },
     canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,

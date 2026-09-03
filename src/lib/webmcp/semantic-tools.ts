@@ -1355,6 +1355,8 @@ function exactDiagramOrThrow(room: RoomState, diagramId: string, expectedRevisio
 const AUTOMATIC_DIAGRAM_QUALITY_REPORT_LIMIT = 8;
 const AUTOMATIC_DIAGRAM_QUALITY_OMITTED_ID_LIMIT = 64;
 const DRAFT_VALIDATION_FINDING_LIMIT = 24;
+const CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT = 32_768;
+const CANONICAL_DRAFT_DISPLAY_TEXT_LIMIT = 240;
 // A persisted Diagram can contain at most 500 connector IDs. Returning every
 // resolved route for a valid Diagram keeps the analyze -> preview -> correct
 // loop complete without introducing a second pagination protocol. The report
@@ -1919,8 +1921,12 @@ function compactDraftValidation(
           semanticName: connector.semanticName ?? null,
           semanticRole: connector.semanticRole ?? null,
           label: connector.label,
+          direction: connector.direction,
+          color: connector.color,
+          start: connector.start,
           startObjectId: connector.start.objectId,
           startSemanticName: startObject?.semanticName ?? null,
+          end: connector.end,
           endObjectId: connector.end.objectId,
           endSemanticName: endObject?.semanticName ?? null,
           routing: route.routing,
@@ -1996,6 +2002,125 @@ function recommendedDraftCorrection(
   };
 }
 
+function canonicalDraftCorrectionJson(
+  draft: AgentCanvasDraftSnapshot,
+  validation: ReturnType<typeof compactDraftValidation>,
+  correction: NonNullable<ReturnType<typeof recommendedDraftCorrection>>,
+): string {
+  const tempRefById = new Map(
+    Object.entries(draft.temporaryReferences).map(([reference, objectId]) => [objectId, reference]),
+  );
+  const compactDisplayText = (value: string) => ({
+    value: value.slice(0, CANONICAL_DRAFT_DISPLAY_TEXT_LIMIT),
+    truncated: value.length > CANONICAL_DRAFT_DISPLAY_TEXT_LIMIT,
+  });
+  const build = (findingLimit: number) => {
+    const findings = validation.findings.slice(0, findingLimit);
+    const objectIds = new Set(findings.flatMap((finding) => finding.objectIds));
+    const connectorIds = new Set(findings.flatMap((finding) => finding.connectorIds));
+    return {
+      schemaVersion: 1,
+      authority:
+        "Intent-unaware evidence for agent-chosen correction. Preserve requested and deliberate geometry; Jazzboard does not choose layout, routes, or edits here.",
+      tool: correction.tool,
+      delivery: correction.delivery,
+      geometryQualityStatus: validation.geometryQualityStatus,
+      findingCoverage: {
+        totalFindingCount: validation.findingCoverage.totalFindingCount,
+        receiptFindingCount: validation.findings.length,
+        includedFindingCount: findings.length,
+        omittedFindingCount:
+          validation.findingCoverage.totalFindingCount - findings.length,
+        truncated: validation.findingCoverage.totalFindingCount > findings.length,
+        byteLimit: CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT,
+      },
+      findings: findings.map((finding) => ({
+        code: finding.code,
+        status: finding.status,
+        summary: finding.summary,
+        ...(finding.bounds ? { bounds: finding.bounds } : {}),
+        ...(finding.details ? { details: finding.details } : {}),
+        objectTempRefs: finding.objectIds.flatMap((objectId) => tempRefById.get(objectId) ?? []),
+        connectorTempRefs: finding.connectorIds.flatMap((connectorId) => tempRefById.get(connectorId) ?? []),
+      })),
+      objects: validation.reasoningContext.objects
+        .filter((object) => objectIds.has(object.id))
+        .map((object) => ({
+          id: object.id,
+          tempRef: tempRefById.get(object.id) ?? null,
+          semanticName: object.semanticName,
+          semanticRole: object.semanticRole,
+          kind: object.kind,
+          displayText: compactDisplayText(object.displayText),
+          bounds: object.bounds,
+        })),
+      connectors: validation.reasoningContext.connectors
+        .filter((connector) => connectorIds.has(connector.id))
+        .map((connector) => ({
+          id: connector.id,
+          tempRef: tempRefById.get(connector.id) ?? null,
+          semanticName: connector.semanticName,
+          semanticRole: connector.semanticRole,
+          label: connector.label,
+          direction: connector.direction,
+          color: connector.color,
+          start: {
+            ...connector.start,
+            objectTempRef: connector.start.objectId
+              ? tempRefById.get(connector.start.objectId) ?? null
+              : null,
+          },
+          end: {
+            ...connector.end,
+            objectTempRef: connector.end.objectId
+              ? tempRefById.get(connector.end.objectId) ?? null
+              : null,
+          },
+          routing: connector.routing,
+          pathBounds: connector.pathBounds,
+          labelBounds: connector.labelBounds,
+        })),
+      connectorPatchContract: {
+        op: correction.connectorOperation.op,
+        shape: {
+          op: "update_draft_connector",
+          tempRef: "<affected connector tempRef>",
+          chooseOneOrMoreOf: [
+            "start",
+            "end",
+            "routing",
+            "label",
+            "direction",
+            "color",
+            "zIndex",
+            "semanticName",
+            "semanticRole",
+          ],
+        },
+        rule: correction.connectorOperation.rule,
+      },
+      otherObjectRule: correction.otherObjectRule,
+      diagramPatchContract: correction.diagramOperation,
+      validationRule: correction.validationRule,
+      completionRule:
+        "Recheck the returned receipt. Finish only after every unintended task-relevant finding is resolved; deliberate findings may remain when they match the request.",
+    };
+  };
+
+  for (let findingLimit = validation.findings.length; findingLimit >= 0; findingLimit -= 1) {
+    const serialized = JSON.stringify(build(findingLimit));
+    if (new TextEncoder().encode(serialized).byteLength <= CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT) {
+      return serialized;
+    }
+  }
+
+  throw new SemanticToolError(
+    "DRAFT_CORRECTION_CONTEXT_TOO_LARGE",
+    "Jazzboard could not create a bounded draft-correction context.",
+    { byteLimit: CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT },
+  );
+}
+
 function conciseMutationReceipt(
   response: SemanticResponse,
   temporaryReferences: Record<string, string> | undefined,
@@ -2052,6 +2177,7 @@ function conciseDraftReceipt(
     draft.previewObjects.filter((object) => object.kind === "connector").map((object) => object.id),
     draft.temporaryReferences,
   );
+  const recommendedCorrection = recommendedDraftCorrection(draft, draftValidation);
   return {
     outcome: "drafted" as const,
     draftId: draft.id,
@@ -2067,7 +2193,16 @@ function conciseDraftReceipt(
     ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
     ...(relationshipReview ? { relationshipReview } : {}),
     draftValidation,
-    recommendedDraftCorrection: recommendedDraftCorrection(draft, draftValidation),
+    recommendedDraftCorrection: recommendedCorrection,
+    ...(recommendedCorrection
+      ? {
+          canonicalDraftCorrectionJson: canonicalDraftCorrectionJson(
+            draft,
+            draftValidation,
+            recommendedCorrection,
+          ),
+        }
+      : {}),
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     completion: {
@@ -3148,6 +3283,7 @@ export function createJazzboardSemanticWebMcpTools(
               .map((object) => object.id),
             response.draft.temporaryReferences,
           );
+          const recommendedCorrection = recommendedDraftCorrection(response.draft, draftValidation);
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -3160,7 +3296,16 @@ export function createJazzboardSemanticWebMcpTools(
             ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
             ...(relationshipReview ? { relationshipReview } : {}),
             draftValidation,
-            recommendedDraftCorrection: recommendedDraftCorrection(response.draft, draftValidation),
+            recommendedDraftCorrection: recommendedCorrection,
+            ...(recommendedCorrection
+              ? {
+                  canonicalDraftCorrectionJson: canonicalDraftCorrectionJson(
+                    response.draft,
+                    draftValidation,
+                    recommendedCorrection,
+                  ),
+                }
+              : {}),
             ...(presentation ? { presentation } : {}),
             completion: {
               requiredTool: "finish_canvas_draft",

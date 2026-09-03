@@ -92,7 +92,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
-              expect.stringMatching(/schema rejection.*correct every path.*preserve Diagram and membership/i),
+              expect.stringMatching(/schema rejection.*fix all paths.*preserve Diagram\/membership/i),
               expect.stringMatching(/draftValidation/i),
               expect.stringMatching(/failCount=0.*task-relevant warnings/i),
               expect.stringMatching(/finish_canvas_draft.*no confirmation/i),
@@ -108,8 +108,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             },
             draftPreflight: {
               field: "draftValidation",
+              losslessCorrectionField: "canonicalDraftCorrectionJson",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/patch.*recheck.*unintended.*warnings.*failCount=0.*recommended bounds/i),
+              correction: expect.stringMatching(/canonicalDraftCorrectionJson.*choose.*fixes.*recheck.*warnings.*failCount=0/i),
             },
             canonicalDraftJson: expect.any(String),
             canonicalDirectCorrection: {

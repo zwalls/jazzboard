@@ -1320,6 +1320,7 @@ describe("progressive draft delivery", () => {
     });
     const conciseData = (concise as { ok: true; data: Record<string, unknown> }).data;
     expect(conciseData).not.toHaveProperty("draft");
+    expect(conciseData).not.toHaveProperty("canonicalDraftCorrectionJson");
     expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("label");
     expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("createdAt");
 
@@ -1492,6 +1493,7 @@ describe("progressive draft delivery", () => {
             rule: expect.stringMatching(/only agent-chosen.*do not use authoritative update/i),
           },
         },
+        canonicalDraftCorrectionJson: expect.any(String),
         nextStep: expect.stringMatching(
           /relationshipReview.*requested facts.*review draftValidation.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
         ),
@@ -1499,7 +1501,10 @@ describe("progressive draft delivery", () => {
     });
     const data = (result as {
       ok: true;
-      data: { draftValidation: { findings: Array<Record<string, unknown>> } };
+      data: {
+        canonicalDraftCorrectionJson: string;
+        draftValidation: { findings: Array<Record<string, unknown>> };
+      };
     }).data;
     expect(data.draftValidation.findings.length).toBeLessThanOrEqual(24);
     expect(data.draftValidation.findings.find((finding) => finding.code === "MEMBER_OBJECT_OVERLAP"))
@@ -1510,6 +1515,52 @@ describe("progressive draft delivery", () => {
         objectIds: expect.arrayContaining(["api", "db"]),
         details: { overlapArea: expect.any(Number) },
       });
+    expect(new TextEncoder().encode(data.canonicalDraftCorrectionJson).byteLength).toBeLessThanOrEqual(32_768);
+    const canonicalCorrection = JSON.parse(data.canonicalDraftCorrectionJson);
+    expect(canonicalCorrection).toMatchObject({
+      schemaVersion: 1,
+      authority: expect.stringMatching(/agent-chosen correction.*does not choose layout/i),
+      tool: "apply_canvas_transaction",
+      delivery: {
+        mode: "draft",
+        draftId: "draft_cramped",
+        expectedDraftRevision: 1,
+        updateMode: "patch",
+      },
+      geometryQualityStatus: "fail",
+      findings: expect.arrayContaining([
+        expect.objectContaining({
+          code: "MEMBER_OBJECT_OVERLAP",
+          status: "fail",
+          objectTempRefs: expect.arrayContaining(["api", "db"]),
+        }),
+      ]),
+      objects: expect.arrayContaining([
+        expect.objectContaining({
+          id: "api",
+          tempRef: "api",
+          bounds: { x: 0, y: 100, width: 200, height: 100 },
+        }),
+      ]),
+      connectors: expect.arrayContaining([
+        expect.objectContaining({
+          id: "api-db",
+          tempRef: "request",
+          start: expect.objectContaining({ objectId: "api", objectTempRef: "api" }),
+          end: expect.objectContaining({ objectId: "db", objectTempRef: "db" }),
+          routing: expect.any(Object),
+          pathBounds: expect.any(Object),
+          labelBounds: expect.any(Object),
+        }),
+      ]),
+      connectorPatchContract: {
+        op: "update_draft_connector",
+        shape: expect.objectContaining({
+          op: "update_draft_connector",
+          tempRef: "<affected connector tempRef>",
+        }),
+      },
+    });
   });
 
   it("keeps tempRef IDs stable when a cumulative draft omits and later reintroduces a candidate", async () => {
