@@ -46,7 +46,7 @@ export const DIAGRAM_VISUAL_QUALITY_THRESHOLDS = Object.freeze({
   connectorSharedSegmentMinimumLength: 16,
   sharedInitialCorridorMinimumLength: 24,
   attachmentPortRadius: 12,
-  attachmentPortMinimumConnectors: 3,
+  attachmentPortMinimumConnectors: 2,
   minimumMemberSpacing: 32,
 } as const);
 

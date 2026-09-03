@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.20.0");
+    expect(AGENT_DOC_VERSION).toBe("1.21.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -239,6 +239,8 @@ describe("agent-readable content", () => {
       "delegates route selection",
       "Generated singleton endpoints",
       "naturally sharing one side",
+      "two connector endpoints",
+      "never moves the ports",
       "intent-unaware",
       "`straight`",
       "`curved`",

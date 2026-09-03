@@ -428,6 +428,62 @@ describe("diagram visual quality analysis", () => {
     });
   });
 
+  it("reports two near-coincident arrow endpoints on the same object edge", () => {
+    const collector = node("collector", 0, 80);
+    const alertEngine = node("alert-engine", 0, 280);
+    const store = node("telemetry-store", 400, 120, { width: 200, height: 110 });
+    const objects: CanvasObject[] = [
+      collector,
+      alertEngine,
+      store,
+      edge(
+        "write",
+        {
+          x: collector.x + collector.width,
+          y: collector.y + collector.height / 2,
+          objectId: collector.id,
+          normalizedAnchor: { x: 1, y: 0.5 },
+        },
+        {
+          x: store.x,
+          y: store.y + store.height * 0.5,
+          objectId: store.id,
+          normalizedAnchor: { x: 0, y: 0.5 },
+        },
+      ),
+      edge(
+        "evaluate",
+        {
+          x: alertEngine.x + alertEngine.width,
+          y: alertEngine.y + alertEngine.height / 2,
+          objectId: alertEngine.id,
+          normalizedAnchor: { x: 1, y: 0.5 },
+        },
+        {
+          x: store.x,
+          y: store.y + store.height * 0.55,
+          objectId: store.id,
+          normalizedAnchor: { x: 0, y: 0.55 },
+        },
+      ),
+    ];
+
+    const report = analyzeDiagramVisualQuality(room(objects), "quality-diagram");
+
+    expect(report.metrics.congestedPortCount).toBe(1);
+    expect(report.findings.find((finding) => finding.code === "ATTACHMENT_PORT_CONGESTION"))
+      .toMatchObject({
+        status: "warning",
+        objectIds: ["telemetry-store"],
+        connectorIds: ["evaluate", "write"],
+        details: {
+          connectorCount: 2,
+          portRadius: 12,
+          sides: ["left"],
+        },
+      });
+  });
+
   it("ignores intentional overlap within one group but reports ungrouped overlap", () => {
     const groupedA = node("grouped-a", 0, 0, { groupId: "intentional" });
     const groupedB = node("grouped-b", 20, 20, { groupId: "intentional" });
@@ -995,7 +1051,7 @@ describe("diagram visual quality analysis", () => {
   it("documents stable threshold values and rejects an unknown Diagram identity", () => {
     expect(DIAGRAM_VISUAL_QUALITY_THRESHOLDS).toMatchObject({
       minimumMemberSpacing: 32,
-      attachmentPortMinimumConnectors: 3,
+      attachmentPortMinimumConnectors: 2,
       connectorSharedSegmentMinimumLength: 16,
       sharedInitialCorridorMinimumLength: 24,
     });
