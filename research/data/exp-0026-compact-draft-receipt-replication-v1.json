@@ -1,0 +1,313 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0026",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-compact-draft-receipt-unchanged-replication",
+  "productChange": {
+    "description": "Unchanged replication of the compact responseDetail=concise draft receipt introduced before EXP-0025.",
+    "commit": "8ed161840978d7c35a892e9a187a2ad3f414fd81"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0025": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a065e9-cb22-79e0-b50c-a0e8c46407fa",
+    "turnId": "01a065e9-cc9d-7901-875e-d3f16c3f9a8b",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 236449,
+      "rawSessionWallMs": 236449,
+      "accountedWallMs": 236000,
+      "clockDeltaMs": 449,
+      "hostExecutionMs": 37592,
+      "modelAndCoordinationMs": 198408,
+      "hostExecutionShare": 0.159288135593
+    },
+    "calls": {
+      "hostCallCount": 17,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 9,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 4,
+      "draftPatchCount": 3,
+      "postCommitCorrectionCallCount": 0,
+      "semanticInspectionCallCount": 1,
+      "pixelCaptureCount": 2,
+      "pixelCaptureRetryCount": 1,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 4,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 1,
+        "read_room_state": 1
+      },
+      "note": "The author made one failed read of a nonexistent browser-skill path and one redundant full tool-list read before authoring. Every WebMCP business call succeeded. The author created one initial draft, applied three preview-only correction patches, committed once, and completed semantic and pixel inspection."
+    },
+    "result": {
+      "status": "completed_with_all_quality_gates_passed",
+      "roomRevision": 2,
+      "objectCount": 19,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 14,
+      "declaredDiagramConnectorCount": 5,
+      "diagramBounds": {
+        "x": 50,
+        "y": 32,
+        "width": 1420,
+        "height": 728
+      },
+      "finalDeterministicGeometryStatus": "warning",
+      "finalDeterministicGeometryCoverage": "complete",
+      "finalFindingCount": 1,
+      "finalWarningCount": 1,
+      "finalFailCount": 0,
+      "finalConnectorCrossingCount": 0,
+      "finalCongestedPortCount": 0,
+      "minimumObservedSpacing": 10,
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoBlockingIssues": true
+    }
+  },
+  "compactReceiptEvidence": {
+    "compactSchemaPreserved": true,
+    "canonicalCorrectionScalarRetainedWhenFindingsExist": true,
+    "deeperCapabilityReadSkipped": true,
+    "draftResponses": [
+      {
+        "draftRevision": 1,
+        "responseBytes": 20182,
+        "findingCount": 12,
+        "failCount": 4,
+        "warningCount": 8,
+        "canonicalScalarBytes": 11559
+      },
+      {
+        "draftRevision": 2,
+        "responseBytes": 11842,
+        "findingCount": 2,
+        "failCount": 1,
+        "warningCount": 1,
+        "canonicalScalarBytes": 4330
+      },
+      {
+        "draftRevision": 3,
+        "responseBytes": 11905,
+        "findingCount": 2,
+        "failCount": 1,
+        "warningCount": 1,
+        "canonicalScalarBytes": 4393
+      },
+      {
+        "draftRevision": 4,
+        "responseBytes": 10197,
+        "findingCount": 1,
+        "failCount": 0,
+        "warningCount": 1,
+        "canonicalScalarBytes": 2867
+      }
+    ],
+    "totalDraftResponseBytes": 54126,
+    "draftPatchCount": 3,
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author corrected the compact receipt's named text, node, and connector references without loading the deeper architecture bundle."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:6f5346bbba88e245834c1b3582ebdd0f2c9b58fe2b902b810f0d193c6f5ebffb",
+    "sanitizedSemanticStateDigest": "sha256:2f18aa811353400ac68e0211d83a31df0fc4b0ddb56fd5d75249b138ff5846e4",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 5,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "unobservable",
+    "note": "The exact endpoints and arrow directions match all five requirements. Visible connector labels use the required verbs; the deterministic audit conservatively leaves normalized relationship-type evidence unobservable."
+  },
+  "deterministicGeometryAudit": {
+    "status": "warning",
+    "coverage": "complete",
+    "findingCount": 1,
+    "warningCount": 1,
+    "failCount": 0,
+    "findingTypes": {
+      "MEMBER_SPACING_TOO_SMALL": 1
+    },
+    "connectorCrossingPairCount": 0,
+    "minimumObservedSpacing": 10,
+    "congestedPortCount": 0,
+    "note": "The sole warning concerns deliberate 10-unit title/subtitle spacing. Both blinded pixel reviewers independently judged the typography readable and non-blocking."
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a065ef-66c7-7112-b4ba-7aca726d34c5",
+      "turnId": "01a065ef-684b-7aa1-8b02-53a45df2a7b2",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 18059,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a065ef-7947-7540-87f4-fec4b553efef",
+      "turnId": "01a065ef-7ab1-7dd2-b607-24cb33262ac7",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 18083,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary acceptance."
+  },
+  "comparisonToExp0024": {
+    "predecessor": {
+      "wallMs": 250682,
+      "hostExecutionMs": 39605,
+      "modelAndCoordinationMs": 211075,
+      "draftPatchCount": 4,
+      "totalDraftResponseBytes": 129888,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 236449,
+      "hostExecutionMs": 37592,
+      "modelAndCoordinationMs": 198408,
+      "draftPatchCount": 3,
+      "totalDraftResponseBytes": 54126,
+      "qualityGatePassed": true
+    },
+    "descriptiveChanges": {
+      "wallDecreaseMs": 14233,
+      "wallDecreaseFraction": 0.05678,
+      "hostExecutionDecreaseMs": 2013,
+      "hostExecutionDecreaseFraction": 0.05083,
+      "modelAndCoordinationDecreaseMs": 12667,
+      "modelAndCoordinationDecreaseFraction": 0.06001,
+      "draftResponseByteDecrease": 75762,
+      "draftResponseByteDecreaseFraction": 0.58328,
+      "draftPatchDecrease": 1,
+      "draftPatchDecreaseFraction": 0.25
+    }
+  },
+  "twoRunPostChangeSummary": {
+    "experiments": [
+      "EXP-0025",
+      "EXP-0026"
+    ],
+    "qualityPassCount": 2,
+    "qualityAttemptCount": 2,
+    "wallMs": {
+      "minimum": 161551,
+      "maximum": 236449,
+      "mean": 199000
+    },
+    "draftResponseBytes": {
+      "minimum": 31717,
+      "maximum": 54126,
+      "mean": 42921.5
+    },
+    "draftPatchCount": {
+      "minimum": 2,
+      "maximum": 3,
+      "mean": 2.5
+    },
+    "descriptiveMeanVersusSingleExp0024Predecessor": {
+      "wallDecreaseFraction": 0.20616,
+      "draftResponseByteDecreaseFraction": 0.66954,
+      "draftPatchDecreaseFraction": 0.375
+    },
+    "interpretation": "Both unchanged post-change runs passed all quality gates and improved wall time, payload, and correction count versus EXP-0024. The range is wide and the comparison still has only one immediately preceding control, so it is descriptive evidence rather than an average causal estimate."
+  },
+  "pixelCaptureEvidence": {
+    "prescribedCapture": {
+      "fullPage": false
+    },
+    "actualFirstCapture": {
+      "clipUsed": true
+    },
+    "prescribedCaptureFollowed": false,
+    "blankCaptureObserved": true,
+    "boundedRecoveryUsed": true,
+    "captureRepeated": true,
+    "terminalPixelInspectionSucceeded": true,
+    "finalViewport": {
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "e6d192fe7c4b44553cc8f28394889b745c9291601f85a1c5b1e52d4ae3cacb63",
+    "primaryASessionSha256": "274065a969544a790ef769d1fb1b7782ecca2c4c8ac549699511b8c1bcd4ba71",
+    "primaryBSessionSha256": "00b9d38ca76286f24b2e2dee7ddf4a9a9f74872ac90eeb51b63d3310c8205910",
+    "sanitizedStateSha256": "c1c2a229f0df24d1a237c33d61a442b17060f42133ddaacbc26222526b3096a0",
+    "pixelArtifactSha256": "ceddc1f89cdf91209f3a06cff86a7988d75ed6e38d772a9659c0a76f069cd7b2",
+    "reviewerBriefSha256": "8b8536189bf50589efa9fedf293b4e2408726d92a3055cfb6194cff935442b46"
+  },
+  "decision": {
+    "qualityRegressionObserved": false,
+    "speedImprovementObserved": true,
+    "correctionRoundReductionObserved": true,
+    "payloadReductionObserved": true,
+    "sameTaskReplicationDirectionallyConsistent": true,
+    "claimAverageImprovement": false,
+    "promoteToCrossTaskGeneralization": true,
+    "nextIntervention": "Hold the product constant and run the compact receipt on a different frozen large architecture benchmark. Preserve the same isolated Terra-medium author and blinded Sol-high review protocol."
+  }
+}
