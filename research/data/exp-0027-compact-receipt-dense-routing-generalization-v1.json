@@ -1,0 +1,242 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0027",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-compact-receipt-cross-task-generalization",
+  "productChange": {
+    "description": "Unchanged compact responseDetail=concise draft receipt introduced before EXP-0025.",
+    "commit": "8ed161840978d7c35a892e9a187a2ad3f414fd81"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0025AndExp0026": true,
+    "matchedHistoricalCandidate": "EXP-0004"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a065f3-ecea-7800-b59b-c4927c7baa91",
+    "turnId": "01a065f3-ee9a-7992-bd16-3b5696c562e6",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 381018,
+      "rawSessionWallMs": 381018,
+      "accountedWallMs": 381000,
+      "clockDeltaMs": 18,
+      "hostExecutionMs": 78685,
+      "modelAndCoordinationMs": 302315,
+      "hostExecutionShare": 0.206511811024
+    },
+    "phaseTimingMs": {
+      "capabilityDiscovery": 36634,
+      "authoritativeStateRead": 4841,
+      "initialDraftAndEightDraftPatches": 212563,
+      "draftFinish": 8831,
+      "inspection": 36797,
+      "postCommitCorrection": 75485,
+      "terminalReport": 5849
+    },
+    "calls": {
+      "hostCallCount": 25,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 20,
+      "webMcpBusinessFailureCount": 1,
+      "draftTransactionCallCount": 9,
+      "acceptedDraftTransactionCallCount": 9,
+      "draftPatchCount": 8,
+      "postCommitCorrectionCallCount": 4,
+      "acceptedPostCommitCorrectionCallCount": 3,
+      "semanticInspectionCallCount": 4,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 1,
+        "apply_canvas_transaction": 13,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 4
+      },
+      "note": "The author made one failed read of a nonexistent browser-skill path and one rejected post-commit transaction with INVALID_TOOL_INPUT. The rejected mutation changed no state. Nine draft transactions and three direct corrections succeeded."
+    },
+    "result": {
+      "status": "completed_with_failed_visual_quality_gate",
+      "roomRevision": 7,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 4,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 25.847298276156124,
+        "y": -36.46317761568153,
+        "width": 894.1527017238438,
+        "height": 544.4631776156815
+      },
+      "authorIdentifiedResidualIssue": "Monitor-to-Service-A observation route remained visually prominent outside the evaluation frame's upper edge.",
+      "independentExactViewportCapture": "completed",
+      "qualityGatePassed": false
+    }
+  },
+  "compactReceiptEvidence": {
+    "compactSchemaPreserved": true,
+    "canonicalCorrectionScalarRetainedWhenFindingsExist": true,
+    "draftResponses": [
+      {"draftRevision": 1, "responseBytes": 27994, "findingCount": 18, "failCount": 16, "warningCount": 2, "canonicalScalarBytes": 13974},
+      {"draftRevision": 2, "responseBytes": 25967, "findingCount": 11, "failCount": 6, "warningCount": 5, "canonicalScalarBytes": 12794},
+      {"draftRevision": 3, "responseBytes": 24025, "findingCount": 9, "failCount": 3, "warningCount": 6, "canonicalScalarBytes": 11064},
+      {"draftRevision": 4, "responseBytes": 18130, "findingCount": 4, "failCount": 2, "warningCount": 2, "canonicalScalarBytes": 5745},
+      {"draftRevision": 5, "responseBytes": 17377, "findingCount": 3, "failCount": 2, "warningCount": 1, "canonicalScalarBytes": 5038},
+      {"draftRevision": 6, "responseBytes": 17832, "findingCount": 2, "failCount": 0, "warningCount": 2, "canonicalScalarBytes": 5429},
+      {"draftRevision": 7, "responseBytes": 18509, "findingCount": 5, "failCount": 2, "warningCount": 3, "canonicalScalarBytes": 6094},
+      {"draftRevision": 8, "responseBytes": 18752, "findingCount": 3, "failCount": 2, "warningCount": 1, "canonicalScalarBytes": 6253},
+      {"draftRevision": 9, "responseBytes": 17832, "findingCount": 2, "failCount": 0, "warningCount": 2, "canonicalScalarBytes": 5429}
+    ],
+    "totalDraftResponseBytes": 186418,
+    "draftPatchCount": 8,
+    "postCommitOscillationObserved": true,
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author repeatedly used stable temporary connector references and exact draft revisions, but the compact findings did not prevent correction oscillation or expose fixed-frame containment as a deterministic fact."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:c4b00b13ef32ea4b99aa8eba46a05dc95815fbf946731cabc4ea7573177b44cf",
+    "sanitizedSemanticStateDigest": "sha256:313186978e8013a33f2505ef8b4cc8037f8fe685984e41a20baf0a322e0d5b65",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "unobservable"
+  },
+  "deterministicGeometryAudit": {
+    "status": "warning",
+    "coverage": "complete",
+    "findingCount": 5,
+    "warningCount": 5,
+    "failCount": 0,
+    "findingTypes": {
+      "ATTACHMENT_PORT_CONGESTION": 2,
+      "CONNECTOR_CROSSING": 2,
+      "CONNECTOR_LABEL_EDGE_COLLISION": 1
+    },
+    "connectorCrossingPairCount": 2,
+    "minimumObservedSpacing": 42,
+    "congestedPortCount": 2,
+    "fixedFrameContainmentReported": false,
+    "note": "The deterministic report covered every Diagram member and connector but did not report that an essential connector route exited the separate fixed layout scaffold. Both pixel reviewers detected that defect."
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a065fe-c868-7452-b7f6-31bb392e4218",
+      "turnId": "01a065fe-ca0b-72a3-ad09-beecaf56b178",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 98912,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 3,
+        "outOfFrameEssentialRoute": "yes",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a065fe-de9f-7dd1-b69d-b42979f3b521",
+      "turnId": "01a065fe-e004-7ab3-b94d-ee9fa8076f4c",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 70184,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 2,
+        "outOfFrameEssentialRoute": "yes",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers agreed on the failed binary acceptance and the same out-of-frame essential route."
+  },
+  "comparisonToExp0004": {
+    "predecessor": {
+      "wallMs": 270038,
+      "hostExecutionMs": 56214,
+      "modelAndCoordinationMs": 213786,
+      "webMcpCallCount": 10,
+      "draftTransactionCallCount": 6,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 381018,
+      "hostExecutionMs": 78685,
+      "modelAndCoordinationMs": 302315,
+      "webMcpCallCount": 20,
+      "draftTransactionCallCount": 9,
+      "qualityGatePassed": false
+    },
+    "descriptiveChanges": {
+      "wallIncreaseMs": 110980,
+      "wallIncreaseFraction": 0.410979,
+      "hostExecutionIncreaseMs": 22471,
+      "hostExecutionIncreaseFraction": 0.39974,
+      "modelAndCoordinationIncreaseMs": 88529,
+      "modelAndCoordinationIncreaseFraction": 0.414101,
+      "webMcpCallIncrease": 10,
+      "draftTransactionCallIncrease": 3
+    },
+    "interpretation": "The current run is not an accepted-completion speed measurement because it failed the visual quality gate. Its slower terminal time and doubled WebMCP traffic are diagnostic evidence that compact response transport alone does not solve dense routing."
+  },
+  "provenance": {
+    "authorSessionSha256": "c6fb2efb4dc4b186a2fe2774121040f510c4a4dcd5f95d2f71d6ac15cd96b6f5",
+    "primaryASessionSha256": "572529e576511db1e9bd2345636682f6913ecc88ad62ef331e5e0a3f64ebfb3f",
+    "primaryBSessionSha256": "58a8a56a04c093168a67acde18561c774faddf11a305074c7fae832d3836b572",
+    "sanitizedStateSha256": "ad1f8c77eb4b723825c71362d90f817f7be1b22edf58d525e51b5017c625bdbb",
+    "pixelArtifactSha256": "0edae4cd1b7eb3ea918e63fe663c1a8ff396510be20718fb7a8a461004b1ae0a",
+    "authoritativeAuditArtifactSha256": "3e0d6e79791ac0f8b238a41362f68ec4abc9b85674a5568acd013cad77b8c702",
+    "deterministicLayoutArtifactSha256": "aa5ba6070093cfef418b99e78da6c3081e2168cb52f0ffe3d26d2a842c8122ad"
+  },
+  "decision": {
+    "status": "failed_cross_task_generalization",
+    "retainProductChange": true,
+    "whyRetain": "Two matched observability replications passed and improved payload and speed; this hard-case failure identifies an additional bottleneck rather than evidence that compact receipts are harmful.",
+    "nextIntervention": "Expose objective fixed-frame and containing-scaffold route facts in narrow inspection/correction context, then rerun this frozen dense-routing benchmark before expanding the batch. Do not auto-route or choose layout for the author."
+  }
+}
