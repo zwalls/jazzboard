@@ -59,6 +59,7 @@ import type {
   WebMcpRequest,
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
+import { evaluateDraftRouteCandidates } from "./draft-route-evaluation";
 import {
   recommendedCanvasInspection,
   recommendedDraftInspection,
@@ -360,6 +361,24 @@ const updateDraftConnectorOperation = z
   .refine(
     (value) => Object.keys(value).some((key) => !["op", "tempRef", "intent", "summary"].includes(key)),
     "At least one draft connector field must be updated.",
+  );
+
+const evaluateDraftRouteOperation = z
+  .object({
+    op: z.literal("update_draft_connector"),
+    tempRef,
+    start: endpointReference.optional(),
+    end: endpointReference.optional(),
+    label: z.string().max(2_000).optional(),
+    routing: connectorRoutingInputSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (value) => value.start !== undefined
+      || value.end !== undefined
+      || value.label !== undefined
+      || value.routing !== undefined,
+    "A route alternative must change an endpoint, routing field, or label.",
   );
 
 const updateOperation = z
@@ -1084,12 +1103,71 @@ const READ_DIAGRAM_TOOL_INPUT_SCHEMA = {
   },
 } as const;
 
-const analyzeDiagramLayoutInput = z
+const analyzeAuthoritativeDiagramLayoutInput = z
   .object({
     diagramId: id,
     expectedDiagramRevision: z.number().int().positive(),
   })
   .strict();
+
+const analyzeDraftRouteAlternativesInput = z
+  .object({
+    draftId,
+    expectedDraftRevision: z.number().int().positive(),
+    routeCandidates: z.array(z.object({
+      candidateId: z.string().min(1).max(64),
+      operations: z.array(evaluateDraftRouteOperation).min(1).max(24),
+    }).strict()).min(2).max(8),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const candidateIds = value.routeCandidates.map(({ candidateId }) => candidateId);
+    if (new Set(candidateIds).size !== candidateIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["routeCandidates"],
+        message: "Route candidate IDs must be unique.",
+      });
+    }
+    value.routeCandidates.forEach((candidate, candidateIndex) => {
+      const connectorRefs = candidate.operations.map(({ tempRef: connectorRef }) => connectorRef);
+      if (new Set(connectorRefs).size !== connectorRefs.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["routeCandidates", candidateIndex, "operations"],
+          message: "A route candidate may update each connector tempRef at most once.",
+        });
+      }
+    });
+  });
+
+const analyzeDiagramLayoutInput = z.union([
+  analyzeAuthoritativeDiagramLayoutInput,
+  analyzeDraftRouteAlternativesInput,
+]);
+
+const ANALYZE_DIAGRAM_LAYOUT_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  oneOf: [
+    { required: ["diagramId", "expectedDiagramRevision"] },
+    { required: ["draftId", "expectedDraftRevision", "routeCandidates"] },
+  ],
+  properties: {
+    diagramId: {},
+    expectedDiagramRevision: { type: "integer" },
+    draftId: {},
+    expectedDraftRevision: { type: "integer" },
+    routeCandidates: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      description:
+        "{candidateId,operations:[{op:'update_draft_connector',tempRef,start?,end?,routing?,label?}]}.",
+      items: { type: "object" },
+    },
+  },
+} as const;
 
 const describeDiagramInput = z.object({ diagramId: id }).strict();
 
@@ -2630,12 +2708,77 @@ export function createJazzboardSemanticWebMcpTools(
     }),
     defineTool({
       name: "analyze_diagram_layout",
-      title: "Analyze exact diagram visual quality",
+      title: "Analyze routes",
       description:
-        "Return passive, intent-unaware conventional geometry signals, exact routes, and partial freehand coverage for one exact Diagram, including compact route-conflict clusters when crossings, labels, and congested attachments combine into false-junction risk; the agent decides what is intentional and must inspect pixels.",
+        "Analyze Diagram geometry/route-conflict clusters or compare 2-8 agent-authored draft routes. Read-only; agent chooses and inspects pixels.",
       schema: analyzeDiagramLayoutInput,
+      inputSchema: ANALYZE_DIAGRAM_LAYOUT_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
+        if ("draftId" in input) {
+          if (binding.role !== "participant") {
+            throw new SemanticToolError(
+              "FORBIDDEN",
+              "Only a participant may compare alternatives for its own active canvas draft.",
+              { stateChanged: false },
+            );
+          }
+          const response = await request<DraftResponse>(
+            exactReadableDraftUrl(binding.roomId, input.draftId),
+            { method: "GET", signal },
+          );
+          const draft = response.draft;
+          binding.context.acceptAgentDraft?.(draft);
+          if (draft.ownerParticipantId !== binding.participantId) {
+            throw new SemanticToolError(
+              "FORBIDDEN",
+              "Only the participant that owns this draft may compare its route alternatives.",
+              { draftId: draft.id, stateChanged: false },
+            );
+          }
+          if (draft.revision !== input.expectedDraftRevision) {
+            throw new SemanticToolError(
+              "DRAFT_REVISION_CONFLICT",
+              `Draft ${draft.id} changed from revision ${input.expectedDraftRevision} to ${draft.revision}.`,
+              {
+                draftId: draft.id,
+                expectedDraftRevision: input.expectedDraftRevision,
+                currentDraftRevision: draft.revision,
+                stateChanged: false,
+              },
+            );
+          }
+          let baselineRoom = binding.context.getRoom();
+          if (!baselineRoom || baselineRoom.roomRevision !== draft.baselineRoomRevision) {
+            baselineRoom = await readRoom(signal);
+          }
+          if (baselineRoom.roomRevision !== draft.baselineRoomRevision) {
+            throw new SemanticToolError(
+              "REVISION_CONFLICT",
+              `Draft ${draft.id} was based on room revision ${draft.baselineRoomRevision}, but the room is now revision ${baselineRoom.roomRevision}.`,
+              {
+                draftId: draft.id,
+                expectedRoomRevision: draft.baselineRoomRevision,
+                currentRoomRevision: baselineRoom.roomRevision,
+                stateChanged: false,
+              },
+            );
+          }
+          return evaluateDraftRouteCandidates({
+            room: baselineRoom,
+            draft,
+            candidates: input.routeCandidates.map((candidate) => ({
+              candidateId: candidate.candidateId,
+              patches: candidate.operations.map((operation) => ({
+                tempRef: operation.tempRef,
+                ...(operation.start !== undefined ? { start: operation.start } : {}),
+                ...(operation.end !== undefined ? { end: operation.end } : {}),
+                ...(operation.routing !== undefined ? { routing: operation.routing } : {}),
+                ...(operation.label !== undefined ? { label: operation.label } : {}),
+              })),
+            })),
+          });
+        }
         const room = await readRoom(signal);
         const diagram = exactDiagramOrThrow(room, input.diagramId, input.expectedDiagramRevision);
         const report = analyzeDiagramVisualQuality(room, diagram.id);

@@ -292,10 +292,22 @@ describe("role-scoped semantic tool registration", () => {
     expect(schemaFor(tools, "query_objects").properties?.detail).toEqual({ enum: ["summary", "full"] });
     expect(schemaFor(tools, "read_neighborhood").properties?.detail).toEqual({ enum: ["summary", "full"] });
     expect(schemaFor(tools, "find_diagrams").required ?? []).not.toContain("limit");
-    expect(schemaFor(tools, "analyze_diagram_layout").required).toEqual([
+    const analyzeSchema = schemaFor(tools, "analyze_diagram_layout");
+    expect(analyzeSchema.oneOf?.[0]?.required).toEqual([
       "diagramId",
       "expectedDiagramRevision",
     ]);
+    expect(analyzeSchema.oneOf?.[1]?.required).toEqual([
+      "draftId",
+      "expectedDraftRevision",
+      "routeCandidates",
+    ]);
+    expect(analyzeSchema.properties?.routeCandidates).toMatchObject({
+      minItems: 2,
+      maxItems: 8,
+      description: expect.stringMatching(/update_draft_connector.*tempRef.*routing/),
+      items: { type: "object" },
+    });
     expect(tool(tools, "analyze_diagram_layout").description).toContain(
       "route-conflict clusters",
     );
@@ -2457,6 +2469,136 @@ describe("bounded semantic reads", () => {
         details: { expectedRevision: 99, currentRevision: 1 },
       },
     });
+  });
+
+  it("compares agent-authored draft route alternatives without mutating the draft or room", async () => {
+    const state = room([]);
+    const previewObjects = [
+      node("api", "Checkout API", "service", 0),
+      node("db", "Orders DB", "component", 400),
+      connector(),
+    ];
+    const candidateDraft = agentDraft({
+      temporaryReferences: {
+        apiNode: "api",
+        dbNode: "db",
+        apiToDb: "api-db",
+      },
+      previewObjects: previewObjects.map((object) => ({ ...object, authority: "draft" as const })),
+      previewDiagrams: [{ ...diagram(), authority: "draft" as const }],
+    });
+    const request = vi.fn(async () => ({ ok: true, draft: candidateDraft, serverTime: 50 })) as unknown as WebMcpRequest;
+    const context = fixture(state);
+    const tools = createJazzboardSemanticWebMcpTools(context.binding, { request });
+
+    const result = await execute(tool(tools, "analyze_diagram_layout"), {
+      draftId: candidateDraft.id,
+      expectedDraftRevision: 2,
+      routeCandidates: [
+        {
+          candidateId: "straight",
+          operations: [{
+            op: "update_draft_connector",
+            tempRef: "apiToDb",
+            routing: { mode: "straight" },
+          }],
+        },
+        {
+          candidateId: "elbow",
+          operations: [{
+            op: "update_draft_connector",
+            tempRef: "apiToDb",
+            routing: { mode: "elbow", waypoints: [{ x: 300, y: 50 }] },
+          }],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        draftId: candidateDraft.id,
+        draftRevision: 2,
+        stateChanged: false,
+        candidates: [
+          { candidateId: "straight", outcome: "evaluated" },
+          { candidateId: "elbow", outcome: "evaluated" },
+        ],
+        nextStep: expect.stringMatching(/user's intent.*choose a route yourself.*did not rank/i),
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/rooms/room%2Fa%20b/drafts/draft_architecture",
+      { method: "GET", signal: expect.any(AbortSignal) },
+    );
+    expect(context.acceptedDrafts).toEqual([candidateDraft]);
+    expect(context.accepted).toHaveLength(0);
+    expect(context.getRoom()).toBe(state);
+  });
+
+  it("rejects draft route comparison for spectators before reading a private draft", async () => {
+    const state = room([]);
+    const request = vi.fn() as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state, "spectator").binding, { request });
+
+    const result = await execute(tool(tools, "analyze_diagram_layout"), {
+      draftId: "draft_architecture",
+      expectedDraftRevision: 2,
+      routeCandidates: [
+        {
+          candidateId: "one",
+          operations: [{ op: "update_draft_connector", tempRef: "route", routing: { mode: "straight" } }],
+        },
+        {
+          candidateId: "two",
+          operations: [{ op: "update_draft_connector", tempRef: "route", routing: { mode: "elbow" } }],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN", details: { stateChanged: false } },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale draft route comparison without changing canvas state", async () => {
+    const state = room([]);
+    const candidateDraft = agentDraft();
+    const request = vi.fn(async () => ({ ok: true, draft: candidateDraft, serverTime: 50 })) as unknown as WebMcpRequest;
+    const context = fixture(state);
+    const tools = createJazzboardSemanticWebMcpTools(context.binding, { request });
+
+    const result = await execute(tool(tools, "analyze_diagram_layout"), {
+      draftId: candidateDraft.id,
+      expectedDraftRevision: 1,
+      routeCandidates: [
+        {
+          candidateId: "one",
+          operations: [{ op: "update_draft_connector", tempRef: "route", routing: { mode: "straight" } }],
+        },
+        {
+          candidateId: "two",
+          operations: [{ op: "update_draft_connector", tempRef: "route", routing: { mode: "elbow" } }],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "DRAFT_REVISION_CONFLICT",
+        details: {
+          draftId: candidateDraft.id,
+          expectedDraftRevision: 1,
+          currentDraftRevision: 2,
+          stateChanged: false,
+        },
+      },
+    });
+    expect(context.getRoom()).toBe(state);
+    expect(context.accepted).toHaveLength(0);
   });
 
   it("returns all routes for the schema-maximum 500-member and 500-connector Diagram", async () => {
