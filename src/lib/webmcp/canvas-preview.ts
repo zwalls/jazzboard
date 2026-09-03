@@ -5,6 +5,7 @@ import {
   analyzeDiagramVisualQuality,
   type DiagramVisualQualityReport,
 } from "@/lib/domain/diagram-visual-quality";
+import { diagramVisualQualityFindingKey } from "@/lib/domain/diagram-visual-quality-key";
 import { materializeConnectorRoute } from "@/lib/domain/connector-routing";
 import {
   SEMANTIC_SHAPE_LABEL_FONT_SIZE,
@@ -1327,7 +1328,7 @@ function diagramFindingKeys(
   return report.findings.flatMap((finding) => {
     const identities = [...finding.objectIds, ...finding.connectorIds].sort();
     if (relevantObjectIds && !identities.some((objectId) => relevantObjectIds.has(objectId))) return [];
-    return [`diagram:${finding.code.toLowerCase()}:${stableDigest(identities).slice("fnv1a32:".length)}`];
+    return [diagramVisualQualityFindingKey(finding)];
   });
 }
 

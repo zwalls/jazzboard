@@ -41,7 +41,14 @@ export const keepaliveAgentCanvasDraftRequestSchema = z
   .strict();
 
 export const commitAgentCanvasDraftRequestSchema = z
-  .object({ expectedDraftRevision: positiveRevision })
+  .object({
+    expectedDraftRevision: positiveRevision,
+    intentionalFindingAcknowledgements: z.record(
+      z.string().min(1).max(200),
+      z.string().trim().min(8).max(320),
+    ).refine((value) => Object.keys(value).length <= 256, "At most 256 finding acknowledgements are allowed.").optional(),
+    intentionalOmittedFindingsAcknowledgement: z.string().trim().min(8).max(320).optional(),
+  })
   .strict();
 
 export const discardAgentCanvasDraftRequestSchema = z

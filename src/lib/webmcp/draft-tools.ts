@@ -27,6 +27,11 @@ const finishDraftInput = z
     draftId,
     expectedDraftRevision: z.number().int().positive(),
     action: z.enum(["commit", "discard"]),
+    intentionalFindingAcknowledgements: z.record(
+      z.string().min(1).max(200),
+      z.string().trim().min(8).max(320),
+    ).refine((value) => Object.keys(value).length <= 256, "At most 256 finding acknowledgements are allowed.").optional(),
+    intentionalOmittedFindingsAcknowledgement: z.string().trim().min(8).max(320).optional(),
   })
   .strict();
 
@@ -46,6 +51,17 @@ const FINISH_DRAFT_INPUT_SCHEMA = {
     draftId: { type: "string", pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
     expectedDraftRevision: { type: "integer", minimum: 1 },
     action: { enum: ["commit", "discard"] },
+    intentionalFindingAcknowledgements: {
+      type: "object",
+      maxProperties: 256,
+      propertyNames: { minLength: 1, maxLength: 200 },
+      additionalProperties: { type: "string", minLength: 8, maxLength: 320 },
+    },
+    intentionalOmittedFindingsAcknowledgement: {
+      type: "string",
+      minLength: 8,
+      maxLength: 320,
+    },
   },
 } as const;
 
@@ -89,6 +105,12 @@ type FinishDraftResponse = {
   positions?: Array<{ objectId: string; x: number; y: number }>;
   activity?: RoomActivitySummary | null;
   proposal?: AgentEditProposalSummary | null;
+  qualityDisposition?: {
+    status: "passed" | "intentional_failures_acknowledged";
+    failFindingCount: number;
+    acknowledgedFindingCount: number;
+    acknowledgedOmittedFindingCount: number;
+  };
   [key: string]: unknown;
 };
 
@@ -299,7 +321,7 @@ export function createJazzboardDraftWebMcpTools(
       name: "finish_canvas_draft",
       title: "Finish a canvas draft",
       description:
-        "Complete one exact progressive draft. Commit is autonomous and needs no extra user confirmation: draft delivery is visible construction, not review. It keeps the draft alive, waits inside this call for the exact revision's presentation, then applies atomically. If presentation cannot complete, no authoritative canvas mutation is sent and the draft remains recoverable. Discard only for intentional cancellation. outcome=proposed means actual room review and is not applied.",
+        "Commit is autonomous and needs no extra user confirmation. Resolve fail findings, or for deliberate geometry pass intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every current key. It keeps the draft alive, waits inside this call, then applies atomically. Presentation failure sends no authoritative canvas mutation and the draft remains recoverable. Discard cancels. outcome=proposed means review, not apply.",
       schema: finishDraftInput,
       inputSchema: FINISH_DRAFT_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -345,7 +367,15 @@ export function createJazzboardDraftWebMcpTools(
           input.action === "commit" ? `${url}/commit` : url,
           {
             method: input.action === "commit" ? "POST" : "DELETE",
-            body: JSON.stringify({ expectedDraftRevision: input.expectedDraftRevision }),
+            body: JSON.stringify({
+              expectedDraftRevision: input.expectedDraftRevision,
+              ...(input.intentionalFindingAcknowledgements
+                ? { intentionalFindingAcknowledgements: input.intentionalFindingAcknowledgements }
+                : {}),
+              ...(input.intentionalOmittedFindingsAcknowledgement
+                ? { intentionalOmittedFindingsAcknowledgement: input.intentionalOmittedFindingsAcknowledgement }
+                : {}),
+            }),
             signal,
           },
         );
@@ -390,6 +420,7 @@ export function createJazzboardDraftWebMcpTools(
           positions: response.positions ?? response.mutation?.positions,
           activity: response.activity ?? response.mutation?.activity,
           proposal: response.proposal ?? response.mutation?.proposal,
+          qualityDisposition: response.qualityDisposition ?? null,
           recommendedInspection: input.action === "commit" && outcome === "applied" && authoritativeRoom
             ? recommendedCanvasInspection(authoritativeRoom, changedObjectIds, changedDiagramIds)
             : null,

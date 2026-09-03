@@ -23,6 +23,7 @@ export type DomainErrorCode =
   | "ASSET_CAPACITY_EXCEEDED"
   | "CLIENT_UPGRADE_REQUIRED"
   | "LEASE_NOT_FOUND"
+  | "UNRESOLVED_DRAFT_FINDINGS"
   | "INVALID_OPERATION";
 
 export class DomainError extends Error {

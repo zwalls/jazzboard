@@ -64,6 +64,13 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
           "Read error.details.violations and correct each named connector operation or its caller-authored assertion so fromTempRef is the actual start, toTempRef is the actual end, direction matches, and exactLabel matches when supplied. Preserve the requested facts and retry the complete call once. Jazzboard inferred no relationship and the rejected call changed no state.",
         suggestedTools: ["get_canvas_capabilities"],
       };
+    case "UNRESOLVED_DRAFT_FINDINGS":
+      return {
+        retry: "after_correction",
+        instructions:
+          "Read error.details.findings and requiredAction. Preserve the user's intent. Patch unintended findings on the exact current draft revision, then inspect and finish that new revision. If and only if the geometry is deliberate, retry finish_canvas_draft on the unchanged exact revision with intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every returned key; also acknowledge the exact omitted count when requested. This is agent deliberation, not user authorization, and the rejected call changed no canvas state.",
+        suggestedTools: ["apply_canvas_transaction", "inspect_canvas_scope", "finish_canvas_draft"],
+      };
     case "OBJECT_BUSY":
       return {
         retry: "after_wait",

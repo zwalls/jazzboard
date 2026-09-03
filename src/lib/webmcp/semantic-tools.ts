@@ -20,6 +20,7 @@ import {
   analyzeDiagramVisualQuality,
   type DiagramVisualQualityReport,
 } from "@/lib/domain/diagram-visual-quality";
+import { diagramVisualQualityFindingKey } from "@/lib/domain/diagram-visual-quality-key";
 import {
   connectorRoutingInputSchema,
   nodeMetadataInputSchema,
@@ -1864,6 +1865,7 @@ function compactDraftValidation(
     report.findings.map((finding) => ({
       diagramId: report.diagramId,
       diagramRevision: report.diagramRevision,
+      findingKey: diagramVisualQualityFindingKey(finding),
       code: finding.code,
       status: finding.status,
       summary: finding.summary,
@@ -2056,6 +2058,7 @@ function canonicalDraftCorrectionJson(
         byteLimit: CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT,
       },
       findings: findings.map((finding) => ({
+        findingKey: finding.findingKey,
         code: finding.code,
         status: finding.status,
         summary: finding.summary,

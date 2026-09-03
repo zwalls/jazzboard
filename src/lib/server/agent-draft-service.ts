@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain/engine";
 import { DomainError } from "@/lib/domain/errors";
 import type { AgentEditProposal, RoomState, SemanticTransaction } from "@/lib/domain/types";
+import { agentDraftVisualQualityGate } from "@/lib/agent-drafts/visual-quality";
 
 import {
   AGENT_DRAFT_HARD_TTL_MS,
@@ -561,7 +562,70 @@ export type AgentCanvasDraftCommitResult = {
   /** Whether the non-authoritative draft sidecar reached its canonical terminal state. */
   sidecarStatus: "settled" | "cleanup_pending";
   mutation: Awaited<ReturnType<typeof runSemanticTransaction>>;
+  qualityDisposition: {
+    status: "passed" | "intentional_failures_acknowledged";
+    failFindingCount: number;
+    acknowledgedFindingCount: number;
+    acknowledgedOmittedFindingCount: number;
+  };
 };
+
+function assertDraftCommitVisualQuality(
+  room: RoomState,
+  draft: AgentCanvasDraft,
+  request: CommitAgentCanvasDraftRequest,
+): AgentCanvasDraftCommitResult["qualityDisposition"] {
+  const gate = agentDraftVisualQualityGate(room, snapshot(draft));
+  const acknowledgements = request.intentionalFindingAcknowledgements ?? {};
+  const acknowledgedKeys = Object.keys(acknowledgements);
+  const currentKeys = new Set(gate.failFindings.map(({ findingKey }) => findingKey));
+  const missingFindingKeys = gate.failFindings
+    .map(({ findingKey }) => findingKey)
+    .filter((findingKey) => acknowledgements[findingKey] === undefined);
+  const unknownFindingKeys = acknowledgedKeys
+    .filter((findingKey) => !currentKeys.has(findingKey));
+  const omittedAcknowledgement = request.intentionalOmittedFindingsAcknowledgement;
+  const omittedCountMatches = gate.omittedFailFindingCount === 0
+    ? omittedAcknowledgement === undefined
+    : omittedAcknowledgement !== undefined;
+
+  if (missingFindingKeys.length || unknownFindingKeys.length || !omittedCountMatches) {
+    throw new DomainError(
+      "UNRESOLVED_DRAFT_FINDINGS",
+      `Draft ${draft.id} revision ${draft.revision} has ${gate.failFindingCount} deterministic fail-level finding${gate.failFindingCount === 1 ? "" : "s"}. Resolve them, or explicitly acknowledge each exact current finding as intentional before commit.`,
+      {
+        stateChanged: false,
+        draftId: draft.id,
+        expectedDraftRevision: request.expectedDraftRevision,
+        currentDraftRevision: draft.revision,
+        failFindingCount: gate.failFindingCount,
+        returnedFailFindingCount: gate.returnedFailFindingCount,
+        omittedFailFindingCount: gate.omittedFailFindingCount,
+        missingFindingKeys,
+        unknownFindingKeys,
+        omittedAcknowledgementExpectedCount: gate.omittedFailFindingCount || null,
+        findings: gate.failFindings.map((finding) => ({
+          findingKey: finding.findingKey,
+          diagramId: finding.diagramId,
+          diagramRevision: finding.diagramRevision,
+          code: finding.code,
+          summary: finding.summary,
+          objectIds: finding.objectIds,
+          connectorIds: finding.connectorIds,
+        })),
+        requiredAction:
+          "Preserve the user's intent. Patch unintended findings on this exact draft revision and re-inspect. For deliberate freeform or illustrative geometry only, retry finish_canvas_draft at the same exact revision with intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every returned key; when omittedFailFindingCount is nonzero, also supply intentionalOmittedFindingsAcknowledgement with a rationale accounting for that exact current count. No user confirmation is required.",
+      },
+    );
+  }
+
+  return {
+    status: gate.failFindingCount ? "intentional_failures_acknowledged" : "passed",
+    failFindingCount: gate.failFindingCount,
+    acknowledgedFindingCount: acknowledgedKeys.length,
+    acknowledgedOmittedFindingCount: gate.omittedFailFindingCount,
+  };
+}
 
 export async function commitAgentCanvasDraft(input: {
   roomId: string;
@@ -578,6 +642,24 @@ export async function commitAgentCanvasDraft(input: {
   const context = currentMutationContext();
   const mutationId = context?.idempotency?.scopedKeyHash ?? context?.requestId ?? `draft_commit_${randomUUID()}`;
   const store = getAgentCanvasDraftStore();
+  const currentDraft = await store.get(input.roomId, input.draftId, now);
+  if (!currentDraft) {
+    throw new DomainError("INVALID_OPERATION", "That agent canvas draft is unavailable or expired.");
+  }
+  if (currentDraft.ownerParticipantId !== input.participantId) {
+    throw new DomainError("FORBIDDEN", "Only the participant that owns this draft may commit it.");
+  }
+  if (currentDraft.revision !== input.request.expectedDraftRevision) {
+    throw new DomainError(
+      "REVISION_CONFLICT",
+      `Draft ${currentDraft.id} changed from revision ${input.request.expectedDraftRevision} to ${currentDraft.revision}.`,
+      {
+        expectedDraftRevision: input.request.expectedDraftRevision,
+        currentDraftRevision: currentDraft.revision,
+      },
+    );
+  }
+  const qualityDisposition = assertDraftCommitVisualQuality(room, currentDraft, input.request);
   const draft = await store.beginCommit({
     roomId: input.roomId,
     draftId: input.draftId,
@@ -621,17 +703,18 @@ export async function commitAgentCanvasDraft(input: {
         proposalId: mutation.proposal.id,
         now: settledAt,
       });
-      return { outcome: "proposed", draft: snapshot(awaiting), sidecarStatus: "settled", mutation };
+      return { outcome: "proposed", draft: snapshot(awaiting), sidecarStatus: "settled", mutation, qualityDisposition };
     } catch {
       const current = await store.get(input.roomId, input.draftId, settledAt).catch(() => null);
       if (current?.status === "awaiting_review" && current.awaitingReview?.proposalId === mutation.proposal.id) {
-        return { outcome: "proposed", draft: snapshot(current), sidecarStatus: "settled", mutation };
+        return { outcome: "proposed", draft: snapshot(current), sidecarStatus: "settled", mutation, qualityDisposition };
       }
       return {
         outcome: "proposed",
         draft: snapshot(awaitingReviewDraft(current ?? draft, mutation.proposal.id, settledAt)),
         sidecarStatus: "cleanup_pending",
         mutation,
+        qualityDisposition,
       };
     }
   }
@@ -659,6 +742,7 @@ export async function commitAgentCanvasDraft(input: {
         draft: null,
         sidecarStatus: "cleanup_pending",
         mutation,
+        qualityDisposition,
       };
     }
     committedDraft = current;
@@ -673,7 +757,7 @@ export async function commitAgentCanvasDraft(input: {
       authoritativeRoomRevision: mutation.room.roomRevision,
       now: settledAt,
     });
-    return { outcome: "applied", draft: null, sidecarStatus: "settled", mutation };
+    return { outcome: "applied", draft: null, sidecarStatus: "settled", mutation, qualityDisposition };
   } catch {
     const current = await store.get(input.roomId, input.draftId, settledAt).catch(() => null);
     return {
@@ -681,6 +765,7 @@ export async function commitAgentCanvasDraft(input: {
       draft: null,
       sidecarStatus: current ? "cleanup_pending" : "settled",
       mutation,
+      qualityDisposition,
     };
   }
 }

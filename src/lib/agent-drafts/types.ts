@@ -182,6 +182,13 @@ export type KeepaliveAgentCanvasDraftRequest = {
 
 export type CommitAgentCanvasDraftRequest = {
   expectedDraftRevision: number;
+  /**
+   * Required only when exact-revision deterministic fail findings are
+   * deliberately preserved. This is agent deliberation, never user approval.
+   */
+  intentionalFindingAcknowledgements?: Record<string, string>;
+  /** Bounded fallback when the analyzer has more fail findings than it can return individually. */
+  intentionalOmittedFindingsAcknowledgement?: string;
 };
 
 export type DiscardAgentCanvasDraftRequest = {

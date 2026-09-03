@@ -130,7 +130,12 @@ describe("agent canvas draft routes", () => {
       temporaryReferences: { node: "node_http" },
     }), draftContext);
     const discarded = await discard(request("DELETE", { expectedDraftRevision: 2 }), draftContext);
-    const committed = await commit(request("POST", { expectedDraftRevision: 2 }), draftContext);
+    const committed = await commit(request("POST", {
+      expectedDraftRevision: 2,
+      intentionalFindingAcknowledgements: {
+        "diagram:member_object_overlap:12345678": "This overlap is required by the requested illustration.",
+      },
+    }), draftContext);
 
     expect([replaced.status, discarded.status, committed.status]).toEqual([200, 200, 200]);
     expect(mocks.replaceAgentCanvasDraft).toHaveBeenCalledWith(expect.objectContaining({ draftId: "draft_http" }));
@@ -140,7 +145,12 @@ describe("agent canvas draft routes", () => {
     }));
     expect(mocks.commitAgentCanvasDraft).toHaveBeenCalledWith(expect.objectContaining({
       draftId: "draft_http",
-      request: { expectedDraftRevision: 2 },
+      request: {
+        expectedDraftRevision: 2,
+        intentionalFindingAcknowledgements: {
+          "diagram:member_object_overlap:12345678": "This overlap is required by the requested illustration.",
+        },
+      },
     }));
   });
 

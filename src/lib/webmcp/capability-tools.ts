@@ -815,7 +815,7 @@ function canvasQuickstart(
       "Container/plane: semanticRole boundary/container/plane/region/zone/background; empty shape label; inset title; 72-unit clear header. Containment is ignored; title occlusion reports.",
       "Draft Diagram metadata/membership: edit_diagram + diagramTempRef + exact patch delivery.",
       "Patch unintended failures (update_draft_connector for edges), recheck, then inspect newest revision; geometryQualityStatus=fail blocks conventional completion.",
-      "If criteria forbid collision/intrusion/ambiguous routing, matching validation blocks finish; deliberate creative overlap is valid.",
+      "Criteria-forbidden geometry blocks finish; only deliberate creative overlap may use exact per-key acknowledgements.",
     ],
     completion: {
       tool: "finish_canvas_draft",
@@ -823,7 +823,7 @@ function canvasQuickstart(
       confirmationRequired: false,
       finalInspection: "inspect_canvas_scope",
       blockingState:
-        "geometryQualityStatus=fail is not complete for conventional diagrams; correct unintended failures, then reinspect newest revisions and pixels.",
+        "geometryQualityStatus=fail is not complete; correct it. Deliberate freeform geometry requires exact per-key rationales, never user approval.",
     },
     escalation: {
       capabilityTool: "get_canvas_capabilities",

@@ -1517,6 +1517,7 @@ describe("progressive draft delivery", () => {
       diagramTempRefs: ["diagram"],
       findings: expect.arrayContaining([
         expect.objectContaining({
+          findingKey: expect.stringMatching(/^diagram:member_object_overlap:[a-f0-9]{8}$/),
           code: "MEMBER_OBJECT_OVERLAP",
           status: "fail",
           objectTempRefs: expect.arrayContaining(["api", "db"]),

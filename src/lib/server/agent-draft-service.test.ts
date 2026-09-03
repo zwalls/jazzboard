@@ -62,6 +62,53 @@ function stageRequest(roomRevision: number): StageAgentCanvasDraftRequest {
   };
 }
 
+function overlappingDiagramStageRequest(roomRevision: number): StageAgentCanvasDraftRequest {
+  const shape = (id: string, x: number) => ({
+    id,
+    kind: "shape" as const,
+    x,
+    y: 40,
+    width: 180,
+    height: 100,
+    rotation: 0,
+    zIndex: 1,
+    groupId: null,
+    shape: "rectangle" as const,
+    nodeType: "service" as const,
+    label: id,
+    fill: "blue",
+    stroke: "blue",
+  });
+  return {
+    draftId: "draft_quality_gate",
+    baselineRoomRevision: roomRevision,
+    transaction: {
+      commands: [
+        { type: "create", object: shape("draft_left", 40) },
+        { type: "create", object: shape("draft_right", 120) },
+      ],
+      diagramCommands: [{
+        type: "diagram.create",
+        diagram: {
+          id: "draft_diagram_quality",
+          title: "Deliberate overlap fixture",
+          description: "Two overlapping objects for the commit-quality contract.",
+          diagramType: "custom",
+          category: null,
+          tags: [],
+          memberObjectIds: ["draft_left", "draft_right"],
+          connectorIds: [],
+        },
+      }],
+    },
+    temporaryReferences: {
+      left: "draft_left",
+      right: "draft_right",
+      diagram: "draft_diagram_quality",
+    },
+  };
+}
+
 async function seedRoom() {
   const store = getRoomStore();
   const created = await store.createRoom({
@@ -245,6 +292,251 @@ describe("agent canvas draft service", () => {
     expect(committed).toMatchObject({ outcome: "applied", draft: null });
     expect((await store.getRoom(room.id))?.objects.draft_note).toMatchObject({ content: "Refined draft" });
     expect((await listAgentCanvasDrafts({ roomId: room.id, participantId: "p_owner" })).drafts).toEqual([]);
+  });
+
+  it("rejects unresolved fail findings without mutating authority and returns exact correction evidence", async () => {
+    const { store, room } = await seedRoom();
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: overlappingDiagramStageRequest(room.roomRevision),
+    });
+
+    await expect(commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: staged.revision },
+    })).rejects.toMatchObject({
+      code: "UNRESOLVED_DRAFT_FINDINGS",
+      details: {
+        stateChanged: false,
+        currentDraftRevision: 1,
+        failFindingCount: 1,
+        missingFindingKeys: [expect.stringMatching(/^diagram:member_object_overlap:/)],
+        unknownFindingKeys: [],
+        findings: [{
+          findingKey: expect.stringMatching(/^diagram:member_object_overlap:/),
+          code: "MEMBER_OBJECT_OVERLAP",
+          objectIds: ["draft_left", "draft_right"],
+        }],
+        requiredAction: expect.stringMatching(/patch unintended.*deliberate freeform.*no user confirmation/i),
+      },
+    });
+
+    expect((await store.getRoom(room.id))?.objects.draft_left).toBeUndefined();
+    await expect(readAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+    })).resolves.toMatchObject({ draft: { status: "active", revision: 1 } });
+  });
+
+  it("commits deliberate geometry only after exact per-finding acknowledgement", async () => {
+    const { store, room } = await seedRoom();
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: overlappingDiagramStageRequest(room.roomRevision),
+    });
+    let findingKey = "";
+    try {
+      await commitAgentCanvasDraft({
+        roomId: room.id,
+        draftId: staged.id,
+        participantId: "p_owner",
+        request: { expectedDraftRevision: staged.revision },
+      });
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+      const missing = error.details && "missingFindingKeys" in error.details
+        ? error.details.missingFindingKeys
+        : null;
+      if (!Array.isArray(missing) || typeof missing[0] !== "string") throw error;
+      findingKey = missing[0];
+    }
+
+    const committed = await commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        intentionalFindingAcknowledgements: {
+          [findingKey]: "The requested illustration deliberately layers these two components.",
+        },
+      },
+    });
+
+    expect(committed.qualityDisposition).toEqual({
+      status: "intentional_failures_acknowledged",
+      failFindingCount: 1,
+      acknowledgedFindingCount: 1,
+      acknowledgedOmittedFindingCount: 0,
+    });
+    expect((await store.getRoom(room.id))?.objects).toMatchObject({
+      draft_left: { id: "draft_left" },
+      draft_right: { id: "draft_right" },
+    });
+  });
+
+  it("rejects stale finding acknowledgements after the exact draft revision changes", async () => {
+    const { room } = await seedRoom();
+    const initial = overlappingDiagramStageRequest(room.roomRevision);
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: initial,
+    });
+    let staleFindingKey = "";
+    try {
+      await commitAgentCanvasDraft({
+        roomId: room.id,
+        draftId: staged.id,
+        participantId: "p_owner",
+        request: { expectedDraftRevision: staged.revision },
+      });
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+      const missing = error.details && "missingFindingKeys" in error.details
+        ? error.details.missingFindingKeys
+        : null;
+      if (!Array.isArray(missing) || typeof missing[0] !== "string") throw error;
+      staleFindingKey = missing[0];
+    }
+    const right = initial.transaction.commands[1];
+    if (right?.type !== "create" || right.object.kind !== "shape") throw new Error("Expected shape.");
+    right.object.x = 320;
+    const patched = await replaceAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        updateMode: "patch",
+        baselineRoomRevision: room.roomRevision,
+        transaction: { commands: [right], diagramCommands: [] },
+        temporaryReferences: { right: "draft_right" },
+      },
+    });
+
+    await expect(commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: patched.revision,
+        intentionalFindingAcknowledgements: {
+          [staleFindingKey]: "This acknowledgement belongs to the prior candidate revision.",
+        },
+      },
+    })).rejects.toMatchObject({
+      code: "UNRESOLVED_DRAFT_FINDINGS",
+      details: {
+        failFindingCount: 0,
+        missingFindingKeys: [],
+        unknownFindingKeys: [staleFindingKey],
+      },
+    });
+  });
+
+  it("does not require acknowledgement for warning-only conventional evidence", async () => {
+    const { store, room } = await seedRoom();
+    const request = overlappingDiagramStageRequest(room.roomRevision);
+    const right = request.transaction.commands[1];
+    if (right?.type !== "create" || right.object.kind !== "shape") throw new Error("Expected shape.");
+    right.object.x = 230;
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request,
+    });
+
+    const committed = await commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: staged.revision },
+    });
+
+    expect(committed.qualityDisposition).toEqual({
+      status: "passed",
+      failFindingCount: 0,
+      acknowledgedFindingCount: 0,
+      acknowledgedOmittedFindingCount: 0,
+    });
+    expect((await store.getRoom(room.id))?.objects.draft_right).toBeDefined();
+  });
+
+  it("keeps high-complexity deliberate overlap possible with bounded exact evidence", async () => {
+    const { store, room } = await seedRoom();
+    const request = overlappingDiagramStageRequest(room.roomRevision);
+    const left = request.transaction.commands[0];
+    if (left?.type !== "create" || left.object.kind !== "shape") throw new Error("Expected shape.");
+    const overlapCommands = Array.from({ length: 5 }, (_, index) => ({
+      type: "create" as const,
+      object: {
+        ...structuredClone(left.object),
+        id: `draft_overlap_${index}`,
+        label: `Layer ${index}`,
+        zIndex: index,
+      },
+    }));
+    request.transaction.commands = overlapCommands;
+    const diagramCommand = request.transaction.diagramCommands[0];
+    if (!diagramCommand || diagramCommand.type !== "diagram.create") throw new Error("Expected Diagram.");
+    diagramCommand.diagram.memberObjectIds = overlapCommands.map((command) => command.object.id);
+    request.temporaryReferences = Object.fromEntries([
+      ...overlapCommands.map((command, index) => [`layer_${index}`, command.object.id]),
+      ["diagram", diagramCommand.diagram.id],
+    ]);
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request,
+    });
+    let findings: Array<{ findingKey: string }> = [];
+    let omittedFailFindingCount = 0;
+    try {
+      await commitAgentCanvasDraft({
+        roomId: room.id,
+        draftId: staged.id,
+        participantId: "p_owner",
+        request: { expectedDraftRevision: staged.revision },
+      });
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+      const details = error.details as Record<string, unknown>;
+      findings = details.findings as Array<{ findingKey: string }>;
+      omittedFailFindingCount = details.omittedFailFindingCount as number;
+    }
+    expect(findings).toHaveLength(8);
+    expect(omittedFailFindingCount).toBe(2);
+
+    const committed = await commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        intentionalFindingAcknowledgements: Object.fromEntries(findings.map(({ findingKey }) => [
+          findingKey,
+          "The user requested these five illustration layers to occupy the same silhouette.",
+        ])),
+        intentionalOmittedFindingsAcknowledgement:
+          "The omitted pairwise overlaps are part of the same requested layered silhouette.",
+      },
+    });
+
+    expect(committed.qualityDisposition).toMatchObject({
+      status: "intentional_failures_acknowledged",
+      failFindingCount: 10,
+      acknowledgedFindingCount: 8,
+      acknowledgedOmittedFindingCount: 2,
+    });
+    expect(Object.keys((await store.getRoom(room.id))?.objects ?? {})).toEqual(
+      expect.arrayContaining(overlapCommands.map((command) => command.object.id)),
+    );
   });
 
   it("patches only affected stable candidate IDs while preserving the rest of the draft", async () => {

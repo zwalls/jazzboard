@@ -65,6 +65,20 @@ describe("actionable WebMCP failures", () => {
     });
   });
 
+  it("turns a draft quality rejection into autonomous exact-revision correction", () => {
+    expect(failure("finish_canvas_draft", "UNRESOLVED_DRAFT_FINDINGS")).toMatchObject({
+      error: {
+        recovery: {
+          retry: "after_correction",
+          suggestedTools: ["apply_canvas_transaction", "inspect_canvas_scope", "finish_canvas_draft"],
+          instructions: expect.stringMatching(
+            /error\.details\.findings.*patch unintended.*exact current draft revision.*if and only if.*deliberate.*intentionalFindingAcknowledgements.*not user authorization.*changed no canvas state/i,
+          ),
+        },
+      },
+    });
+  });
+
   it("stops permission bypass and room enumeration", () => {
     expect(failure("update_object", "FORBIDDEN")).toMatchObject({
       error: {

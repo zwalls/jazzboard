@@ -105,10 +105,13 @@ describe("canvas draft WebMCP tools", () => {
       /keeps the draft alive.*waits inside this call/i,
     );
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
-      /no authoritative canvas mutation is sent.*recoverable/i,
+      /sends no authoritative canvas mutation.*recoverable/i,
     );
     expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
       /commit is autonomous.*needs no extra user confirmation/i,
+    );
+    expect(tool(participantTools, "finish_canvas_draft").description).toMatch(
+      /resolve fail findings.*deliberate geometry.*findingKey-to-rationale/i,
     );
   });
 
@@ -256,6 +259,9 @@ describe("canvas draft WebMCP tools", () => {
       draftId: "draft_architecture",
       expectedDraftRevision: 2,
       action: "commit",
+      intentionalFindingAcknowledgements: {
+        "diagram:member_object_overlap:12345678": "The user requested this deliberate visual layering.",
+      },
     });
 
     expect(result).toMatchObject({
@@ -276,7 +282,12 @@ describe("canvas draft WebMCP tools", () => {
       "/api/rooms/room%2Fa%20b/agent/drafts/draft_architecture/commit",
       {
         method: "POST",
-        body: JSON.stringify({ expectedDraftRevision: 2 }),
+        body: JSON.stringify({
+          expectedDraftRevision: 2,
+          intentionalFindingAcknowledgements: {
+            "diagram:member_object_overlap:12345678": "The user requested this deliberate visual layering.",
+          },
+        }),
         signal: expect.any(AbortSignal),
       },
     );
