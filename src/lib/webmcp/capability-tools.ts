@@ -762,7 +762,7 @@ function canvasQuickstart(
       "Label-fit planning, not enforced layout: one/two/three-line nodes ≈180x88/220x110/260x132.",
       "Keep edge labels short when semanticRole or a legend carries type. Clear gap ≈120-180 for one line; 220-280 for two.",
       "Shared sides: choose distinct ports or lanes; Jazzboard never imposes layout.",
-      "Large semantic containers: use an empty shape label plus top-left inset text member and keep routes below it. Containment is allowed; title occlusion still reports.",
+      "Large semantic containers or planes: classify the background shape with a semanticRole token such as boundary, container, plane, region, zone, or background; use an empty shape label plus top-left inset text member and keep routes below it. Intentional containment is excluded from generic collision findings; title occlusion still reports.",
       "Draft Diagram metadata/membership: edit_diagram with diagramTempRef and exact patch delivery; authoritative IDs only after commit.",
       "For unintended failures, patch affected tempRefs with update_draft_connector where applicable; recheck, then finish.",
       "When the user's acceptance criteria explicitly forbid collisions, intrusion, or ambiguous routing, every corresponding draftValidation warning or failure is a blocker. Patch it before finish rather than treating warning status as permission to publish. This does not apply to creative work that intentionally overlaps.",

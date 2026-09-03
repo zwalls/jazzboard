@@ -540,6 +540,7 @@ const SEMANTIC_CONTAINER_ROLE_TOKENS = new Set([
   "background",
   "boundary",
   "container",
+  "plane",
   "region",
   "zone",
 ]);

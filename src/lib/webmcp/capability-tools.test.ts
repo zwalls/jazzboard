@@ -131,7 +131,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               expect.stringMatching(/connector ports are objects/i),
               expect.stringMatching(/label-fit planning.*180x88.*260x132/i),
               expect.stringMatching(/edge labels short.*120-180.*220-280/i),
-              expect.stringMatching(/large semantic containers.*top-left inset text/i),
+              expect.stringMatching(/large semantic containers or planes.*semanticRole.*top-left inset text/i),
               expect.stringMatching(/draft Diagram.*edit_diagram.*diagramTempRef/i),
               expect.stringMatching(/unintended failures.*patch.*update_draft_connector.*recheck.*finish/i),
             ]),

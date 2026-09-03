@@ -498,6 +498,45 @@ describe("diagram visual quality analysis", () => {
     ]));
   });
 
+  it("treats explicitly classified architecture planes as semantic containers", () => {
+    const productionPlane = node("production-plane", 40, 80, {
+      width: 320,
+      height: 440,
+      label: "",
+      semanticRole: "architecture.plane.production",
+      zIndex: 0,
+    });
+    const application = node("application", 90, 250, { width: 220, zIndex: 2 });
+    const collector = node("collector", 430, 250, { width: 220, zIndex: 2 });
+    const telemetry = edge(
+      "telemetry",
+      { x: 310, y: 285, objectId: application.id, normalizedAnchor: { x: 1, y: 0.5 } },
+      { x: 430, y: 285, objectId: collector.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      { label: "telemetry" },
+    );
+    telemetry.zIndex = 3;
+
+    const report = analyzeDiagramVisualQuality(
+      room([productionPlane, application, collector, telemetry]),
+      "quality-diagram",
+    );
+
+    expect(report.findings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "MEMBER_OBJECT_OVERLAP",
+        objectIds: expect.arrayContaining([productionPlane.id]),
+      }),
+      expect.objectContaining({
+        code: "CONNECTOR_OBJECT_INTRUSION",
+        objectIds: [productionPlane.id],
+      }),
+      expect.objectContaining({
+        code: "CONNECTOR_LABEL_OBJECT_COLLISION",
+        objectIds: [productionPlane.id],
+      }),
+    ]));
+  });
+
   it("recognizes an outside-to-inside connector as a structural container crossing", () => {
     const boundary = node("zz-commerce-boundary", 300, 80, {
       width: 820,
