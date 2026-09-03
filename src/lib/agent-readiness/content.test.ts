@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.24.0");
+    expect(AGENT_DOC_VERSION).toBe("1.25.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -342,6 +342,7 @@ describe("agent-readable content", () => {
       "line/quadratic/cubic",
       "including `[]`",
       "`inspect_canvas_scope`",
+      "`canonicalPixelCaptureJson`",
     ]) {
       expect(corpus).toContain(phrase);
     }

@@ -187,6 +187,20 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
       onCaptureUnavailable:
         "If the clean capture is blank despite visible semantic targets, execute onBlankCapture first. Otherwise report that exact pixel inspection is unavailable; do not claim that visual QA passed and do not infer pixels from geometry metadata.",
     } as const;
+    // Some agent hosts preserve scalar strings but collapse nested tool-result
+    // objects in their default display. Keep the complete structured protocol
+    // above, and duplicate only its preferred executable path as bounded JSON
+    // so a caller never has to guess screenshot arguments from an opaque object.
+    const canonicalPixelCaptureJson = JSON.stringify({
+      schemaVersion: 1,
+      executeBeforeExpiresAt: presentation.expiresAt,
+      validationSelector: presentation.validation?.activeSelector ?? null,
+      capture: pixelCaptureProtocol.copyReady.cleanViewport,
+      inspect: pixelCaptureProtocol.copyReady.inspect,
+      completionGate: pixelCaptureProtocol.completionGate,
+      forbiddenSubstitutions: pixelCaptureProtocol.forbiddenSubstitutions,
+      onBlankCapture: pixelCaptureProtocol.onBlankCapture,
+    });
     const pixels = {
       delivery: "host_capture_required" as const,
       nativeImageResultSupported: false as const,
@@ -241,6 +255,7 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
           presentation: "live_canvas" as const,
           screenshotClip: presentation.clip,
           pixelCaptureProtocol,
+          canonicalPixelCaptureJson,
           expiresAt: presentation.expiresAt,
           clipInvalidatedBy,
           validation: presentation.validation ?? null,
@@ -268,6 +283,7 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
         presentation: "live_canvas",
         screenshotClip: presentation.clip,
         pixelCaptureProtocol,
+        canonicalPixelCaptureJson,
         expiresAt: presentation.expiresAt,
         clipInvalidatedBy,
         validation: presentation.validation ?? null,

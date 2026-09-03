@@ -495,6 +495,7 @@ describe("dense AI-native diagram WebMCP workflow", () => {
             ],
           },
         },
+        canonicalPixelCaptureJson: expect.any(String),
         sourceRevisions: {
           roomRevision: authoritative.roomRevision,
           diagramRevision: diagramAfterLayout.revision,

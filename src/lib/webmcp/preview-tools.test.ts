@@ -868,6 +868,7 @@ describe("render_canvas_preview WebMCP tool", () => {
             ],
           },
         },
+        canonicalPixelCaptureJson: expect.any(String),
         sourceRevisions: { roomRevision: 12, objects: [{ objectId: "object-a", revision: 3 }] },
         visualInspectionStatus: "not_performed",
         geometryQualityStatus: "unknown",
@@ -875,6 +876,23 @@ describe("render_canvas_preview WebMCP tool", () => {
       },
     });
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty("previewUrl");
+    const canonicalPixelCapture = JSON.parse(
+      (result as { data: { canonicalPixelCaptureJson: string } }).data.canonicalPixelCaptureJson,
+    );
+    expect(canonicalPixelCapture).toMatchObject({
+      schemaVersion: 1,
+      executeBeforeExpiresAt: 70_000,
+      validationSelector: '[data-canvas-inspection-token="preview-1"]',
+      capture: {
+        action: "browser_screenshot",
+        arguments: { fullPage: false },
+        resultReference: "inspectionPixels",
+        inspectionRegion: { x: 12, y: 24, width: 320, height: 180 },
+      },
+      inspect: { action: "inspect_image_pixels", sourceReference: "inspectionPixels" },
+      onBlankCapture: { retryLimit: 1 },
+    });
+    expect(new TextEncoder().encode(JSON.stringify(canonicalPixelCapture)).byteLength).toBeLessThan(4_096);
   });
 
   it("returns metadata-only unified inspection evidence without describing a discarded PNG", async () => {
@@ -942,6 +960,7 @@ describe("render_canvas_preview WebMCP tool", () => {
     if (!result.ok) throw new Error("inspection unexpectedly failed");
     const serializedResultByteLength = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     expect(result.data).toMatchObject({
+      canonicalPixelCaptureJson: expect.any(String),
       pixelCaptureProtocol: {
         schemaVersion: 5,
         copyReady: {
@@ -991,6 +1010,16 @@ describe("render_canvas_preview WebMCP tool", () => {
       },
     });
     expect(serializedResultByteLength).toBeLessThanOrEqual(96_000);
+    const canonicalPixelCapture = JSON.parse(result.data.canonicalPixelCaptureJson as string);
+    expect(canonicalPixelCapture.capture).toEqual(
+      (result.data.pixelCaptureProtocol as {
+        copyReady: { cleanViewport: unknown };
+      }).copyReady.cleanViewport,
+    );
+    expect(canonicalPixelCapture.onBlankCapture).toEqual(
+      (result.data.pixelCaptureProtocol as { onBlankCapture: unknown }).onBlankCapture,
+    );
+    expect(new TextEncoder().encode(result.data.canonicalPixelCaptureJson as string).byteLength).toBeLessThan(4_096);
     expect(result.data).not.toHaveProperty("width");
     expect(result.data).not.toHaveProperty("height");
     expect(result.data).not.toHaveProperty("byteLength");
