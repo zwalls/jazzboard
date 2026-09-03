@@ -1,0 +1,206 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0017",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-semantic-recovery-replication",
+  "productChange": {
+    "description": "Make transaction rejection recovery preserve canonical first-class Diagram structure, add explicit endpoint-direction review, longest-visible-line sizing, and multi-row planning guidance without imposing layout.",
+    "commit": "113d9cd5071c6a5abfdf205d2b17a6cf9cd6b058"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0016": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06510-4c71-7800-b782-3f86f748c88d",
+    "turnId": "01a06510-4e71-76b0-a2c4-1e0e564612b2",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 188763,
+      "accountedWallMs": 189000,
+      "clockDeltaMs": -237,
+      "hostExecutionMs": 38977,
+      "modelAndCoordinationMs": 150023,
+      "hostExecutionShare": 0.206227513228
+    },
+    "calls": {
+      "hostCallCount": 19,
+      "failedHostCallCount": 3,
+      "webMcpInvocationPatternCount": 9,
+      "successfulWebMcpCallCount": 8,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 2,
+      "acceptedDraftTransactionCallCount": 2,
+      "postCommitCorrectionCallCount": 0,
+      "tools": {
+        "join_room": 2,
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 2,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 1,
+        "read_room_state": 1
+      },
+      "note": "The static analyzer counted an initial unsupported webmcp.call expression that failed in the browser host before a product call; eight WebMCP calls returned results and none returned a business failure. Three host failures were browser setup/invocation errors, not Jazzboard rejections."
+    },
+    "phases": {
+      "roomEntryMs": 11662,
+      "capabilityDiscoveryMs": 53320,
+      "initialAuthoringMs": 60340,
+      "draftFinishMs": 10357,
+      "inspectionMs": 30059,
+      "stateReadMs": 11359,
+      "otherAndTerminalMs": 11903
+    },
+    "result": {
+      "status": "completed_with_failed_factual_gate",
+      "roomRevision": 3,
+      "objectCount": 18,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 13,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "pass",
+      "finalDeterministicGeometryCoverage": "complete",
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "primaryBlindedReviewer": {
+    "taskId": "01a06515-87d1-73c3-8d2d-60e58e9bcf9a",
+    "turnId": "01a06515-89cc-71f0-925a-24fd6a3115e9",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 48312,
+    "verdict": {
+      "observabilityFacts": "fail",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [
+        "Query UI -> Telemetry Store: reads",
+        "Alert Engine -> Telemetry Store: evaluates"
+      ],
+      "overall": "fail"
+    }
+  },
+  "blindedAdjudicator": {
+    "taskId": "01a06517-27bd-76e0-b6cf-0b7bad48a46e",
+    "turnId": "01a06517-29df-7ce3-94cb-d108b1a164f0",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "primaryDecisionProvided": false,
+    "authorTranscriptProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "totalWallMs": 51107,
+    "verdict": {
+      "observabilityFacts": "fail",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [
+        "Query UI -> Telemetry Store: reads",
+        "Alert Engine -> Telemetry Store: evaluates"
+      ],
+      "overall": "fail"
+    }
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0016",
+      "wallMs": 291232,
+      "qualityGatePassed": false
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 188763,
+      "qualityGatePassed": false
+    },
+    "versusExp0016": {
+      "descriptiveDecreaseMs": 102469,
+      "descriptiveDecreaseFraction": 0.351846637732,
+      "hostExecutionDecreaseMs": 8296,
+      "modelAndCoordinationDecreaseMs": 93936
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 6379,
+      "descriptiveIncreaseFraction": 0.034975655759
+    },
+    "interpretation": "The intervention was 35.2% faster than EXP-0016 and only 3.5% slower than the fastest prior passing run. It restored coherent Diagram structure and passed all visual gates, but two reversed directed relationships still make this a failed quality result rather than a speed-quality gain."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The first submitted draft used the canonical create_diagram form and preserved all 13 members and five connectors.",
+      "No Jazzboard WebMCP call returned a business failure.",
+      "The author resolved deterministic draft findings in one exact patch before one finish call; no post-commit mutation was needed.",
+      "Both blinded judges found zero blocking geometry defects and passed plane distinction and fixed-viewport readability.",
+      "The final Diagram is 1,600 by 725 canvas units with all six required nodes and five visible labeled connectors."
+    ],
+    "failureSignals": [
+      "The author named two connector tempRefs store_to_query and store_to_alert while their semantic names stated the opposite required direction.",
+      "The draft receipt exposed authoritative endpoint IDs but did not provide one compact tempRef-to-semantic-name direction table for every connector.",
+      "The author claimed correct direction after inspecting pixels even though arrowheads visibly and semantically point from Telemetry Store to Query UI and Alert Engine.",
+      "Both independent judges failed the same two endpoint-direction facts."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "jpeg",
+    "cleanImageSha256": "f6440c974a1aeabfe8e16386999e47b5e571155f7447d6be4aa7ecd469fd7eff",
+    "cleanImageBytes": 43549,
+    "sanitizedStateSha256": "659522c653a98805226e0c103308ca7a46edcf87984888349fe8d7265eeb3975",
+    "rawAuthorSessionSha256": "724472c7c0cf26b984c3302617b8526b640d27cc958d10878bb0f127e0fcf783",
+    "rawReviewerSessionSha256": "3f8869236fdb56dc2e50317428b325056de70ff9ffbe0ab79b1017fd44c47c19",
+    "rawAdjudicatorSessionSha256": "a5b8bd29eba37d30fe3fa457c1c51fab0eb72059e046ef4b9b70776e2a2588c1",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "adjudicatorTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "authorQualityGatePassed": false,
+    "visualQualityGatePassed": true,
+    "speedGatePassed": true,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Add a bounded compact relationshipReview to draft and transaction receipts that maps each connector tempRef and semantic name to start/end tempRefs and semantic names. Tell authors to reconcile that table with the task facts before finish; do not infer prose meaning or rewrite endpoints automatically. Then run an unchanged replication."
+  }
+}
