@@ -1,0 +1,236 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0021",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-lossless-quickstart-replication",
+  "productChange": {
+    "description": "Expose the architecture quickstart transaction as bounded, copy-ready JSON so generic tool-result renderers cannot collapse nested operation, endpoint, Diagram-membership, or relationship-assertion fields.",
+    "commit": "32648280b11f869a10d59863f058b753af392bbc"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0020": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0657a-8e44-7412-9238-ab14a3b8d297",
+    "turnId": "01a0657a-90f5-7513-ab5d-f689230642ba",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 204504,
+      "accountedWallMs": 204504,
+      "hostExecutionMs": 34711,
+      "modelAndCoordinationMs": 169793,
+      "hostExecutionShare": 0.169731643878
+    },
+    "calls": {
+      "hostCallCount": 19,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 8,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 2,
+      "acceptedDraftTransactionCallCount": 2,
+      "postCommitCorrectionCallCount": 1,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 2,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "render_canvas_preview": 1,
+        "update_object": 1
+      },
+      "note": "One failed host command used an obsolete browser-skill path. The first canvas transaction was schema-valid; no WebMCP business call failed and no deeper architecture capability bundle was requested."
+    },
+    "phases": {
+      "setupAndCapabilityDiscoveryMs": 59972,
+      "initialAuthoringMs": 47664,
+      "draftCorrectionMs": 27361,
+      "draftFinishMs": 10492,
+      "inspectionAndPostCommitCorrectionMs": 54179,
+      "terminalMs": 4836
+    },
+    "result": {
+      "status": "completed_with_all_quality_gates_passed",
+      "roomRevision": 3,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 2,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "warning",
+      "finalDeterministicGeometryCoverage": "complete",
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "losslessQuickstartEvidence": {
+    "canonicalDraftJsonUsed": true,
+    "firstTransactionSchemaValid": true,
+    "schemaInvalidTransactionCount": 0,
+    "deeperCapabilityRecoveryReadCount": 0,
+    "checkedRelationshipCount": 5,
+    "relationshipAssertionStatus": "pass",
+    "inferredTaskFacts": false,
+    "note": "The raw author transcript contains a complete first transaction with canonical op, start/end, Diagram membership, and relationshipAssertions spellings immediately after the one quickstart read."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:1c2bad9537cbc928f3f4a517f982fbdcad816d624039b3b071ad028f464f1a05",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 5,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a0657f-b97c-7cd1-8aea-10176f0c209e",
+      "turnId": "01a0657f-bb72-7d91-ab16-0c779aabef5e",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 33681,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a0657f-cdab-7980-a526-aae8bdbef912",
+      "turnId": "01a0657f-cffc-7380-a918-d4342ca59046",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 32623,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary acceptance."
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0020",
+      "wallMs": 201038,
+      "hostExecutionMs": 49241,
+      "webMcpCallCount": 13,
+      "qualityGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 204504,
+      "hostExecutionMs": 34711,
+      "webMcpCallCount": 8,
+      "qualityGatePassed": true
+    },
+    "versusExp0020": {
+      "descriptiveWallIncreaseMs": 3466,
+      "descriptiveWallIncreaseFraction": 0.017240521692,
+      "descriptiveHostExecutionDecreaseMs": 14530,
+      "descriptiveHostExecutionDecreaseFraction": 0.295079303832,
+      "descriptiveWebMcpCallDecrease": 5,
+      "descriptiveWebMcpCallDecreaseFraction": 0.384615384615
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 22120,
+      "descriptiveIncreaseFraction": 0.121282568646
+    },
+    "interpretation": "The unchanged author task removed all schema failures and recovery reads, used 38.5% fewer WebMCP calls, and spent 29.5% less time in host tools than EXP-0020 while preserving quality. Total wall time was 1.7% slower because the author performed a new evidence-based post-commit text-fit correction. One run does not establish a population speed effect."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The author read quickstart_architecture once and immediately submitted a schema-valid asserted transaction.",
+      "No deeper capability bundle, schema recovery call, or failed WebMCP business call was needed.",
+      "The accepted draft verified all five caller-authored relationship assertions against compiled endpoints.",
+      "The exact authoritative audit matched all six entities and all five directed relationships.",
+      "Both isolated pixel reviewers passed every frozen quality criterion with zero blocking geometry violations."
+    ],
+    "failureSignals": [
+      "Total author wall time did not improve versus EXP-0020 despite the reduction in tool work.",
+      "The author required a post-commit edit after pixel inspection showed that the telemetry-platform heading did not fully render.",
+      "The corrected draft receipt still reported TEXT_CONTENT_LIKELY_TRUNCATED, but the author treated failCount=0 as publishable and did not resolve that task-relevant warning before commit.",
+      "Generic browser/bootstrap setup remained a large non-product share of the task and included one obsolete-path failure."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "jpeg",
+    "cleanImageSha256": "3670911db9db57b63996f38f7e282a42cd68cdf37a65a1ae1e36210965d4d042",
+    "cleanImageBytes": 42151,
+    "sanitizedStateSha256": "8463a97bcf6866bfddc87fab990942d39fe2f7786e8b4c78e5a0b6bda019ecbd",
+    "rawAuthorSessionSha256": "cdef41d2a5f1cf87067460340d6c7512769f6072b9ad0e88b55e6d378cee01f6",
+    "rawPrimaryAReviewerSessionSha256": "14cc6085a2b667b7ed371392cf048535732758b1c3b07d9ed589050752d9c050",
+    "rawPrimaryBReviewerSessionSha256": "1569d13eba8cad53cbde3d6cbc73f827bb582ca89704104f27b8f8e65e0f265c",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 2,
+    "adjudicatorTasks": 0,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": true,
+    "visualQualityGatePassed": true,
+    "overallQualityGatePassed": true,
+    "mechanismValidated": true,
+    "descriptiveTotalSpeedImprovementObserved": false,
+    "descriptiveToolEfficiencyImprovementObserved": true,
+    "speedNonInferiorityEstablished": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Make text-fit findings prescribe exact non-mutating correction bounds and make the quickstart explicitly say that task-relevant truncation warnings remain unresolved even when failCount is zero. Preserve author control, then run the unchanged task again."
+  }
+}
