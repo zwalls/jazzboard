@@ -1,0 +1,255 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0022",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-actionable-text-fit-replication",
+  "productChange": {
+    "description": "Preserve exact non-mutating text-fit correction bounds in draft validation and state explicitly that a task-relevant warning remains unresolved when failCount is zero.",
+    "commit": "3d3cfc6"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0021": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0658d-ab46-7112-be67-a2369a8c2985",
+    "turnId": "01a0658d-ad63-7861-9746-0af8777eebec",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 227675,
+      "accountedWallMs": 227675,
+      "hostExecutionMs": 41782,
+      "modelAndCoordinationMs": 185893,
+      "hostExecutionShare": 0.183517074783
+    },
+    "calls": {
+      "hostCallCount": 17,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 8,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 3,
+      "acceptedDraftTransactionCallCount": 3,
+      "postCommitCorrectionCallCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 3,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "read_room_state": 1
+      },
+      "note": "One failed host command used an obsolete browser-skill path. The first transaction was schema-valid, all WebMCP business calls succeeded, and no post-commit mutation was needed. The author repeated inspection after its generic result display collapsed nested pixel-capture instructions and its first guessed capture was unusable."
+    },
+    "result": {
+      "status": "completed_with_all_quality_gates_passed",
+      "roomRevision": 2,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "diagramBounds": {
+        "x": 20,
+        "y": 20,
+        "width": 1754,
+        "height": 720
+      },
+      "finalDeterministicGeometryStatus": "pass",
+      "finalDeterministicGeometryCoverage": "complete",
+      "finalFindingCount": 0,
+      "finalWarningCount": 0,
+      "finalFailCount": 0,
+      "finalConnectorCrossingCount": 0,
+      "finalCongestedPortCount": 0,
+      "minimumObservedSpacing": 32,
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "actionableTextFitEvidence": {
+    "textFitFindingObserved": false,
+    "correctionBoundsConsumed": false,
+    "postCommitTextCorrectionRequired": false,
+    "taskRelevantWarningIgnored": false,
+    "noRegressionObserved": true,
+    "causalSpeedClaimSupported": false,
+    "note": "The author provisioned larger plane-heading bounds in the initial candidate, so the targeted warning did not recur. This is compatible with the intervention and removed the prior post-commit failure mode, but one run in which the new bounds were not surfaced cannot establish that the bounds caused a speed improvement."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:eef567a1f4d60f7e9e71d2438ae6c2cc7bc64623c1a98fa6acd5a771a6136dcd",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 5,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a06592-572c-7840-9a6f-cb1fec8cf6da",
+      "turnId": "01a06592-5931-77a0-aa86-b2bbffc1e1ea",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 25475,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a06592-f27c-7a61-90c0-91ba3c606e09",
+      "turnId": "01a06592-f4da-7480-a5f6-798bbe031196",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 23568,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary acceptance."
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0021",
+      "wallMs": 204504,
+      "hostExecutionMs": 34711,
+      "webMcpCallCount": 8,
+      "qualityGatePassed": true
+    },
+    "baselineRun": {
+      "sourceExperiment": "EXP-0020",
+      "wallMs": 201038,
+      "hostExecutionMs": 49241,
+      "webMcpCallCount": 13,
+      "qualityGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 227675,
+      "hostExecutionMs": 41782,
+      "webMcpCallCount": 8,
+      "qualityGatePassed": true
+    },
+    "versusExp0021": {
+      "descriptiveWallIncreaseMs": 23171,
+      "descriptiveWallIncreaseFraction": 0.113303407268,
+      "descriptiveHostExecutionIncreaseMs": 7071,
+      "descriptiveHostExecutionIncreaseFraction": 0.203710639279,
+      "descriptiveWebMcpCallDifference": 0
+    },
+    "versusExp0020": {
+      "descriptiveWallIncreaseMs": 26637,
+      "descriptiveWallIncreaseFraction": 0.132497338812,
+      "descriptiveHostExecutionDecreaseMs": 7459,
+      "descriptiveHostExecutionDecreaseFraction": 0.151479458175,
+      "descriptiveWebMcpCallDecrease": 5,
+      "descriptiveWebMcpCallDecreaseFraction": 0.384615384615
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 45291,
+      "descriptiveIncreaseFraction": 0.248327704185
+    },
+    "interpretation": "Quality remained complete and the prior post-commit text repair disappeared, but total wall time rose 11.3% versus EXP-0021. The raw trace attributes a substantial avoidable segment to loss of nested pixel-capture instructions, a guessed unusable capture, and a repeated inspection/capture sequence. One run does not establish a population speed effect."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The first transaction was schema-valid immediately after one quickstart read.",
+      "No text-fit warning remained and no post-commit text mutation was needed.",
+      "All five caller-supplied directed relationships remained exact in authoritative state.",
+      "The final deterministic geometry inspection reported zero findings, warnings, failures, crossings, or congested ports.",
+      "Both isolated pixel reviewers passed every frozen criterion."
+    ],
+    "failureSignals": [
+      "Total author wall time was 11.3% slower than EXP-0021.",
+      "The new exact text-fit bounds were not actually surfaced because the initial candidate already fit, so this run cannot causally validate their speed effect.",
+      "Generic rendering of inspect_canvas_scope collapsed nested pixelCaptureProtocol fields to an opaque object.",
+      "The author guessed an invalid capture path, obtained an unusable image, then repeated inspection and capture.",
+      "Generic browser/bootstrap setup still included one obsolete-path failure."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "jpeg",
+    "cleanImageWidth": 1280,
+    "cleanImageHeight": 720,
+    "cleanImageSha256": "e2a5f4ce3965f8dbc24a8c1fd792c9d6c3fe3c8a9f2fd88acad081c97194f38d",
+    "cleanImageBytes": 38400,
+    "sanitizedStateSha256": "5aeb59979c14ab8f2df2fe49f3fd624c20f9a4bd0cb17dc7f30a256a42af441d",
+    "rawAuthorSessionSha256": "6ae5634fd9dcfef0207ac3a6ebab1ab6248324b53f8fe8d81876592fdd0fe1eb",
+    "rawPrimaryAReviewerSessionSha256": "78cfc1d5aab1fa264712db96e84faf6243cb5e28cab759228b0ec76514e1ba52",
+    "rawPrimaryBReviewerSessionSha256": "70898ee6591c6fdbbff2147187a619582a85141bab492555e9bc054d6e6a843d",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 2,
+    "adjudicatorTasks": 0,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": true,
+    "visualQualityGatePassed": true,
+    "overallQualityGatePassed": true,
+    "mechanismValidated": false,
+    "mechanismCompatibleWithoutRegression": true,
+    "descriptiveTotalSpeedImprovementObserved": false,
+    "speedNonInferiorityEstablished": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Expose the exact clean pixel-capture request as bounded top-level lossless JSON in inspect_canvas_scope so generic result renderers cannot collapse the nested protocol. Preserve agent control over whether and how to inspect, then run the unchanged task again."
+  }
+}
