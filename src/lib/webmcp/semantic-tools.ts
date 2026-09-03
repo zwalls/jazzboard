@@ -2097,10 +2097,12 @@ function recommendedDraftRouteComparison(
     },
     useWhen:
       "A connector correction could trade one crossing, intrusion, label collision, shared corridor, or ambiguity for another. Author materially different alternatives from the returned evidence before mutating the draft serially.",
+    precondition:
+      "First inspect the finding evidence. Route comparison evaluates connector patches only. If short node gaps or an overloaded region cause multiple collisions, choose and patch new node placement or spacing before comparing routes on the new exact draft revision.",
     authorityBoundary:
       "Jazzboard compares deterministic deltas only. It does not generate, rank, recommend, select, apply, lay out, route, or render a candidate. You choose and apply an exact-revision patch.",
     completionRule:
-      "After applying your chosen route, recheck the draft receipt and inspect pixels. A favorable deterministic delta is not visual approval.",
+      "If all candidates still fail, do not stop, commit, or treat conventional readability defects as deliberate; change node geometry or author materially different routes and compare again. After applying a fail-free choice, recheck the receipt and inspect pixels. Deterministic deltas are not visual approval.",
   };
 }
 

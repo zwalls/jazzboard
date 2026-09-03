@@ -775,14 +775,14 @@ function canvasQuickstart(
     purpose:
       `${task} fast path.`,
     fastPath: [
-      "Blank target: skip read; else read narrow.",
+      "Blank target: skip read; else read.",
       "Adapt canonicalDraftJson as one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "Schema rejection: fix all paths once; preserve Diagram/membership.",
       "draftValidation: parse canonicalDraftCorrectionJson; failCount=0 does not clear task-relevant warnings.",
-      "Connector conflicts: follow recommendedRouteComparison; author 2-8 routes, compare read-only, choose and apply one.",
+      "Connector conflicts: recommendedRouteComparison; if all routes fail, change node spacing/routes and retry.",
       "Call finish_canvas_draft once at latest revision; no confirmation.",
       "Inspect pixels once with inspect_canvas_scope; correct identified defects without guessing.",
-      "Blank: onBlankCapture.",
+      "Blank:onBlankCapture",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -801,7 +801,7 @@ function canvasQuickstart(
       authority:
         "Intent-unaware evidence; never override requested or deliberate geometry.",
       correction:
-        "If canonicalDraftCorrectionJson has recommendedRouteComparison, author 2-8 alternatives in its exact contract, compare read-only with analyze_diagram_layout, choose and apply one, recheck, then inspect pixels. Jazzboard never generates or chooses geometry.",
+        "Parse canonicalDraftCorrectionJson. recommendedRouteComparison: author 2-8 exact alternatives; analyze_diagram_layout compares read-only. If all fail, change node spacing/routes and compare again; else choose/apply one, recheck, inspect pixels. Jazzboard chooses no geometry.",
     },
     canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,

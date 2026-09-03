@@ -68,7 +68,7 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
       return {
         retry: "after_correction",
         instructions:
-          "Read error.details.findings and requiredAction. Preserve the user's intent. Patch unintended findings on the exact current draft revision, then inspect and finish that new revision. If and only if the geometry is deliberate, retry finish_canvas_draft on the unchanged exact revision with intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every returned key; also acknowledge the exact omitted count when requested. This is agent deliberation, not user authorization, and the rejected call changed no canvas state.",
+          "Read error.details.findings and requiredAction. Preserve the user's intent. Patch unintended findings on the exact current draft revision, then inspect and finish that new revision. A failed route candidate, tool limit, or tight canvas region does not make a conventional readability defect deliberate. If and only if the geometry itself matches the user's intent, retry finish_canvas_draft on the unchanged exact revision with intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every returned key; also acknowledge the exact omitted count when requested. This is agent deliberation, not user authorization, and the rejected call changed no canvas state.",
         suggestedTools: ["apply_canvas_transaction", "inspect_canvas_scope", "finish_canvas_draft"],
       };
     case "OBJECT_BUSY":

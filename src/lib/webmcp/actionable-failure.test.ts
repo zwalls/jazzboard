@@ -72,7 +72,7 @@ describe("actionable WebMCP failures", () => {
           retry: "after_correction",
           suggestedTools: ["apply_canvas_transaction", "inspect_canvas_scope", "finish_canvas_draft"],
           instructions: expect.stringMatching(
-            /error\.details\.findings.*patch unintended.*exact current draft revision.*if and only if.*deliberate.*intentionalFindingAcknowledgements.*not user authorization.*changed no canvas state/i,
+            /error\.details\.findings.*patch unintended.*exact current draft revision.*failed route candidate.*does not make.*deliberate.*if and only if.*matches the user's intent.*intentionalFindingAcknowledgements.*not user authorization.*changed no canvas state/i,
           ),
         },
       },

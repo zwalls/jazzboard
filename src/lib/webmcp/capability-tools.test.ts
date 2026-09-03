@@ -94,7 +94,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*fix all paths.*preserve Diagram\/membership/i),
               expect.stringMatching(/draftValidation/i),
-              expect.stringMatching(/recommendedRouteComparison.*2-8.*compare read-only.*choose and apply/i),
+              expect.stringMatching(/recommendedRouteComparison.*all routes fail.*node spacing\/routes.*retry/i),
               expect.stringMatching(/failCount=0.*task-relevant warnings/i),
               expect.stringMatching(/finish_canvas_draft.*no confirmation/i),
               expect.stringMatching(/inspect_canvas_scope/i),
@@ -112,7 +112,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               losslessCorrectionField: "canonicalDraftCorrectionJson",
               routeComparisonField: "recommendedRouteComparison",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/canonicalDraftCorrectionJson.*recommendedRouteComparison.*author 2-8.*analyze_diagram_layout.*choose and apply.*inspect pixels.*never generates/i),
+              correction: expect.stringMatching(/canonicalDraftCorrectionJson.*recommendedRouteComparison.*author 2-8.*analyze_diagram_layout.*read-only.*all fail.*node spacing\/routes.*compare again.*choose\/apply.*inspect pixels.*chooses no geometry/i),
             },
             canonicalDraftJson: expect.any(String),
             canonicalDirectCorrection: {

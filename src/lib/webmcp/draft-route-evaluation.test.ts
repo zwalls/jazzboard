@@ -138,6 +138,7 @@ describe("evaluateDraftRouteCandidates", () => {
     expect(result.candidates[0]).toMatchObject({
       candidateId: "above",
       outcome: "evaluated",
+      failFree: true,
       deltaFromBaseline: { connectorCrossingPairCount: expect.any(Number) },
     });
     expect(result.candidates[1]).toMatchObject({
@@ -145,6 +146,14 @@ describe("evaluateDraftRouteCandidates", () => {
       outcome: "evaluated",
       deltaFromBaseline: { connectorCrossingPairCount: 0 },
     });
+    expect(result.completionGate).toMatchObject({
+      evaluatedCandidateCount: 2,
+      invalidCandidateCount: 0,
+      failFreeCandidateCount: 1,
+      allEvaluatedCandidatesHaveFailures: false,
+      authority: expect.stringMatching(/fail counts only.*does not rank.*pixel inspection/i),
+    });
+    expect(result.nextStep).toMatch(/at least one.*failCount = 0.*choose a route yourself.*inspect pixels/i);
     expect(room).toEqual(beforeRoom);
     expect(draft).toEqual(beforeDraft);
   });
@@ -161,5 +170,34 @@ describe("evaluateDraftRouteCandidates", () => {
     });
     expect(result.candidates[0]).toMatchObject({ outcome: "invalid" });
     expect(result.candidates[1]).toMatchObject({ outcome: "evaluated" });
+    expect(result.completionGate).toMatchObject({
+      evaluatedCandidateCount: 1,
+      invalidCandidateCount: 1,
+      failFreeCandidateCount: 0,
+      allEvaluatedCandidatesHaveFailures: true,
+    });
+    expect(result.nextStep).toMatch(
+      /every evaluated candidate.*failCount > 0.*do not commit.*node placement or spacing.*compare and recheck again/i,
+    );
+  });
+
+  it("makes an all-invalid comparison an explicit correction state", () => {
+    const { room, draft } = fixture();
+    const result = evaluateDraftRouteCandidates({
+      room,
+      draft,
+      candidates: [
+        { candidateId: "missing-a", patches: [{ tempRef: "missing-a", routing: { mode: "straight" } }] },
+        { candidateId: "missing-b", patches: [{ tempRef: "missing-b", routing: { mode: "straight" } }] },
+      ],
+    });
+    expect(result.completionGate).toEqual({
+      evaluatedCandidateCount: 0,
+      invalidCandidateCount: 2,
+      failFreeCandidateCount: 0,
+      allEvaluatedCandidatesHaveFailures: false,
+      authority: expect.stringMatching(/deterministic fail counts only/i),
+    });
+    expect(result.nextStep).toMatch(/every supplied candidate was invalid.*compare again.*no route was evaluated or applied/i);
   });
 });

@@ -234,6 +234,7 @@ export function evaluateDraftRouteCandidates(input: {
     return {
       candidateId: candidate.candidateId,
       outcome: "evaluated" as const,
+      failFree: summary.failCount === 0,
       patchedConnectorTempRefs,
       summary,
       deltaFromBaseline: {
@@ -250,6 +251,20 @@ export function evaluateDraftRouteCandidates(input: {
       },
     };
   });
+  const evaluatedCandidates = candidates.filter(
+    (candidate): candidate is Extract<typeof candidate, { outcome: "evaluated" }> =>
+      candidate.outcome === "evaluated",
+  );
+  const failFreeCandidateCount = evaluatedCandidates.filter(
+    (candidate) => candidate.summary.failCount === 0,
+  ).length;
+  const allEvaluatedCandidatesHaveFailures =
+    evaluatedCandidates.length > 0 && failFreeCandidateCount === 0;
+  const nextStep = evaluatedCandidates.length === 0
+    ? "Every supplied candidate was invalid. Correct the exact tempRefs or operation shapes and compare again; no route was evaluated or applied."
+    : allEvaluatedCandidatesHaveFailures
+      ? "Every evaluated candidate still has failCount > 0. Do not commit, stop, or classify conventional readability defects as deliberate merely because these alternatives failed. Route comparison evaluates connector patches only: use the returned evidence to author materially different candidates and/or patch agent-chosen node placement or spacing on this exact draft, then compare and recheck again. Jazzboard did not rank, select, apply, lay out, route, or render any candidate."
+      : "At least one evaluated candidate has failCount = 0. Compare its remaining warnings with the user's intent, choose a route yourself, and apply only your selected patches through apply_canvas_transaction on this same exact draft revision. Then recheck and inspect pixels. Jazzboard did not rank, select, apply, lay out, route, or render any candidate.";
 
   return {
     draftId: input.draft.id,
@@ -257,7 +272,14 @@ export function evaluateDraftRouteCandidates(input: {
     stateChanged: false as const,
     baseline,
     candidates,
-    nextStep:
-      "Compare these consequences with the user's intent, choose a route yourself, and apply only your selected patches through apply_canvas_transaction on this same exact draft revision. Jazzboard did not rank, select, apply, or render any candidate.",
+    completionGate: {
+      evaluatedCandidateCount: evaluatedCandidates.length,
+      invalidCandidateCount: candidates.length - evaluatedCandidates.length,
+      failFreeCandidateCount,
+      allEvaluatedCandidatesHaveFailures,
+      authority:
+        "This gate reports deterministic fail counts only. It does not rank candidates, decide intent, or replace pixel inspection.",
+    },
+    nextStep,
   };
 }
