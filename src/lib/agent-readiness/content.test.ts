@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.17.0");
+    expect(AGENT_DOC_VERSION).toBe("1.18.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -440,6 +440,10 @@ describe("agent-readable content", () => {
         /never a defect verdict|not proof of a defect|never automatic defects|never proof[^\n]*defect/i,
       );
     }
+
+    expect(reference).toMatch(/addMembers.*addConnectors.*append without resending/i);
+    expect(reference).toMatch(/max\(160, 12 \* visibleLabelCharacters \+ 48\)/i);
+    expect(reference).toMatch(/72 canvas units.*semantic container/i);
 
     for (const phrase of [
       "`findingComparison.basis`",

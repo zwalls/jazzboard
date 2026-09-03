@@ -672,15 +672,22 @@ const QUICKSTART_CANONICAL_DRAFT_SKELETON = {
 } as const;
 
 const QUICKSTART_CANONICAL_DIRECT_CORRECTION = {
-  operations: [{
-    op: "update_object",
-    objectId: "authoritative_object_id",
-    expectedRevision: 1,
-    patch: { width: 240 },
-  }],
-  responseDetail: "concise",
-  intent: "Correct one pixel-evidenced issue while preserving surrounding geometry.",
-  summary: "Revision-safe targeted correction.",
+  update: {
+    operations: [{
+      op: "update_object",
+      objectId: "authoritative_object_id",
+      expectedRevision: 1,
+      patch: { width: 240 },
+    }],
+    responseDetail: "concise",
+  },
+  addCaptionAndMembership: {
+    operations: [
+      { op: "create_text", tempRef: "caption", content: "reads", semanticName: "Reads caption", semanticRole: "architecture.edge_label", x: 320, y: 120, width: 120, height: 28 },
+      { op: "edit_diagram", diagramId: "authoritative_diagram_id", expectedRevision: 1, addMembers: [{ tempRef: "caption" }] },
+    ],
+    responseDetail: "concise",
+  },
 } as const;
 
 function authority(role: JazzboardWebMcpBinding["role"]): CapabilityAuthority {
@@ -748,7 +755,7 @@ function canvasQuickstart(
       "Submit one coherent create-only draft with stable tempRefs, one Diagram, and responseDetail=concise; never split work to pace animation.",
       "Read draftValidation; patch only affected tempRefs (update_draft_connector for edges), recheck, and preserve intent.",
       "Call finish_canvas_draft once with action=commit and the latest revision; no user confirmation.",
-      "Capture the returned inspect_canvas_scope pixels; make one consolidated direct correction with canonicalDirectCorrection, without another bundle or guessed fields.",
+      "Capture inspect_canvas_scope pixels; use one relevant canonicalDirectCorrection request, without another bundle or guessed fields.",
       "On a blank clean capture, follow onBlankCapture once: reframe and recapture immediately.",
     ],
     transactionContract: {
@@ -774,10 +781,10 @@ function canvasQuickstart(
       "First draft: delivery={mode:draft}; patch/replace draftId always needs expectedDraftRevision.",
       "Ports are objects: {side:left|right|top|bottom,position:0..1,exact:boolean}, never side strings.",
       "Connectors are solid; curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
-      "Label-fit planning: one/two/three-line nodes ≈180x88/220x110/260x132. Correct outward or shorten; never move/widen into occupied space, collapse a route, or reduce clearance.",
-      "Keep edge labels short; clear gap ≈120-180 for one line, 220-280 for two. Do not erase visibly necessary relationship meaning: choose spacing, shorter text, routing, or redundant visible semantics.",
-      "Shared sides need distinct ports or lanes; Jazzboard does not impose layout.",
-      "Large semantic containers or planes: give the background semanticRole boundary/container/plane/region/zone/background, an empty shape label, and a top-left inset text. Containment is ignored; title occlusion reports.",
+      "Conventional node size floors for one/two/three lines: 180x88/220x110/260x132; smaller is a deliberate exception. Correct outward or shorten, never into occupied space.",
+      "Before drafting each straight labeled edge, require gap >= max(160, 12*visible label characters+48); otherwise shorten or reserve an empty curved/elbow label lane. Never erase necessary relationship meaning.",
+      "Shared sides or hubs need distinct ports and empty lanes chosen before creation; Jazzboard does not impose layout.",
+      "Semantic containers/planes: use semanticRole boundary/container/plane/region/zone/background, empty shape label, top-left inset title, and a 72-unit clear header band. Containment is ignored; title occlusion reports.",
       "Draft Diagram metadata/membership uses edit_diagram, diagramTempRef, and exact patch delivery.",
       "For unintended failures, patch affected tempRefs with update_draft_connector when applicable and recheck. After direct correction, inspect the newest revision; geometryQualityStatus=fail blocks conventional completion.",
       "If criteria forbid collision, intrusion, or ambiguous routing, matching draftValidation warnings/failures block finish; deliberate creative overlap remains valid.",

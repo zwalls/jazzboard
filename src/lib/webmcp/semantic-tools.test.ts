@@ -335,6 +335,8 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.operations?.items?.properties).toEqual(expect.objectContaining({
       memberObjectRefs: expect.objectContaining({ type: "array" }),
       connectorRefs: expect.objectContaining({ type: "array" }),
+      addMembers: expect.objectContaining({ type: "array" }),
+      addConnectors: expect.objectContaining({ type: "array" }),
       diagramTempRef: { type: "string" },
     }));
     expect(transactionSchema.properties?.operations?.items?.properties?.intent).toEqual({ type: "string" });
@@ -1526,6 +1528,80 @@ describe("progressive draft delivery", () => {
         connectorIds: previewDiagram.connectorIds,
       }),
     }]);
+  });
+
+  it("atomically creates a caption and appends it to authoritative Diagram membership", async () => {
+    const state = room();
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: state,
+      changedObjectIds: [],
+      changedDiagramIds: [],
+      membershipObjectIds: [],
+      activity: null,
+      proposal: null,
+    })) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture(state).binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [
+        {
+          op: "create_text",
+          tempRef: "caption",
+          content: "evaluates",
+          semanticName: "Evaluation caption",
+          semanticRole: "architecture.edge_label",
+          x: 260,
+          y: 40,
+          width: 120,
+          height: 28,
+        },
+        {
+          op: "edit_diagram",
+          diagramId: "architecture",
+          expectedRevision: 1,
+          addMembers: [{ tempRef: "caption" }],
+        },
+      ],
+      responseDetail: "concise",
+    })).resolves.toMatchObject({ ok: true });
+
+    const post = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(post.body));
+    const captionId = body.transaction.commands[0].object.id;
+    expect(body.transaction.commands[0]).toMatchObject({
+      type: "create",
+      object: { id: captionId, kind: "text", content: "evaluates" },
+    });
+    expect(body.transaction.diagramCommands).toEqual([{
+      type: "diagram.update",
+      diagramId: "architecture",
+      expectedRevision: 1,
+      patch: { memberObjectIds: ["api", "db", captionId] },
+    }]);
+  });
+
+  it("rejects replacement and additive Diagram membership in the same operation", async () => {
+    const request = vi.fn() as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture().binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "edit_diagram",
+        diagramId: "architecture",
+        expectedRevision: 1,
+        members: [{ objectId: "api" }],
+        addMembers: [{ objectId: "db" }],
+      }],
+    })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("rejects draft Diagram tempRef edits without an exact draft patch", async () => {

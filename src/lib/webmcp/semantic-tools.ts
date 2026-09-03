@@ -404,7 +404,9 @@ const editDiagramOperation = z
     category: z.string().trim().min(1).max(128).nullable().optional(),
     tags: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     members: z.array(objectReference).max(500).optional(),
+    addMembers: z.array(objectReference).max(500).optional(),
     connectors: z.array(objectReference).max(500).optional(),
+    addConnectors: z.array(objectReference).max(500).optional(),
     ...activityMetadataFields,
   })
   .strict()
@@ -423,6 +425,20 @@ const editDiagramOperation = z
         code: "custom",
         path: ["diagramTempRef"],
         message: "Use either diagramId with expectedRevision, or diagramTempRef for an exact draft patch.",
+      });
+    }
+    if (value.members !== undefined && value.addMembers !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["addMembers"],
+        message: "Use members to replace membership or addMembers to append membership, not both.",
+      });
+    }
+    if (value.connectors !== undefined && value.addConnectors !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["addConnectors"],
+        message: "Use connectors to replace connector membership or addConnectors to append it, not both.",
       });
     }
     if (!Object.keys(value).some((key) =>
@@ -733,7 +749,6 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           align: { enum: ["start", "middle", "end"] },
           points: {
             type: "array",
-            description: "World {x,y} points.",
             items: { type: "object" },
           },
           segments: {
@@ -747,11 +762,11 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          start: { type: "object", description: "Point or {objectId|tempRef,port?}." },
-          end: { type: "object", description: "Point or object/tempRef." },
+          start: { type: "object", description: "Point or {objectId|tempRef}." },
+          end: { type: "object" },
           routing: {
             type: "object",
-            description: "auto|straight|elbow|curved; curved needs bend>=8; elbowMidPoint/labelPosition 0..1.",
+            description: "curved needs bend; elbowMidPoint 0..1.",
           },
           direction: { enum: ["none", "end", "both"] },
           diagramId: { type: "string" },
@@ -763,7 +778,9 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           category: { type: ["string", "null"] },
           tags: { type: "array", items: { type: "string" } },
           members: { type: "array", items: { type: "object" } },
+          addMembers: { type: "array", items: { type: "object" } },
           connectors: { type: "array", items: { type: "object" }, description: "Exact refs; omit=infer; []=empty." },
+          addConnectors: { type: "array", items: { type: "object" } },
           memberObjectRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
           connectorRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
           x: { type: "number" },
@@ -2710,10 +2727,14 @@ export function createJazzboardSemanticWebMcpTools(
                   tags: operation.tags ?? existing.tags,
                   memberObjectIds: operation.members !== undefined
                     ? operation.members.map(idFor)
-                    : existing.memberObjectIds,
+                    : operation.addMembers !== undefined
+                      ? uniqueStrings([...existing.memberObjectIds, ...operation.addMembers.map(idFor)])
+                      : existing.memberObjectIds,
                   connectorIds: operation.connectors !== undefined
                     ? operation.connectors.map(idFor)
-                    : existing.connectorIds,
+                    : operation.addConnectors !== undefined
+                      ? uniqueStrings([...existing.connectorIds, ...operation.addConnectors.map(idFor)])
+                      : existing.connectorIds,
                 },
               });
               continue;
@@ -2722,8 +2743,28 @@ export function createJazzboardSemanticWebMcpTools(
             for (const field of ["title", "description", "diagramType", "category", "tags"] as const) {
               if (operation[field] !== undefined) patch[field] = operation[field];
             }
-            if (operation.members !== undefined) patch.memberObjectIds = operation.members.map(idFor);
-            if (operation.connectors !== undefined) patch.connectorIds = operation.connectors.map(idFor);
+            if (operation.members !== undefined) {
+              patch.memberObjectIds = operation.members.map(idFor);
+            } else if (operation.addMembers !== undefined) {
+              const existing = currentRoom?.diagrams?.[operation.diagramId!];
+              if (!existing) {
+                throw new SemanticToolError("DIAGRAM_NOT_FOUND", `Diagram ${operation.diagramId} is not present in the room.`, {
+                  diagramId: operation.diagramId,
+                });
+              }
+              patch.memberObjectIds = uniqueStrings([...existing.memberObjectIds, ...operation.addMembers.map(idFor)]);
+            }
+            if (operation.connectors !== undefined) {
+              patch.connectorIds = operation.connectors.map(idFor);
+            } else if (operation.addConnectors !== undefined) {
+              const existing = currentRoom?.diagrams?.[operation.diagramId!];
+              if (!existing) {
+                throw new SemanticToolError("DIAGRAM_NOT_FOUND", `Diagram ${operation.diagramId} is not present in the room.`, {
+                  diagramId: operation.diagramId,
+                });
+              }
+              patch.connectorIds = uniqueStrings([...existing.connectorIds, ...operation.addConnectors.map(idFor)]);
+            }
             diagramCommands.push({
               type: "diagram.update",
               diagramId: operation.diagramId!,
