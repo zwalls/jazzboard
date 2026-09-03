@@ -1,0 +1,330 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0023",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-lossless-pixel-capture-replication",
+  "productChange": {
+    "description": "Expose a bounded top-level canonicalPixelCaptureJson scalar so exact clean pixel-capture instructions survive generic tool-result rendering without choosing an inspection strategy for the agent.",
+    "commit": "90c7585450641909bc07492350b22790dbd53c9f"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0022": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0659f-8bfe-7031-be39-df2c26c8107f",
+    "turnId": "01a0659f-8e51-7a43-8fce-2ad1f094e51b",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 217820,
+      "rawSessionWallMs": 217811,
+      "hostExecutionMs": 40868,
+      "modelAndCoordinationMs": 176952,
+      "hostExecutionShare": 0.187620971444,
+      "milestonesFromRawSessionStartMs": {
+        "quickstartComplete": 41325,
+        "firstAcceptedDraft": 84163,
+        "deeperCapabilityRead": 90326,
+        "secondDraftPatchAccepted": 129802,
+        "thirdDraftPatchAccepted": 161985,
+        "fourthDraftPatchAccepted": 185047,
+        "fifthDraftPatchAccepted": 194338,
+        "draftFinished": 202319,
+        "semanticInspectionComplete": 209513,
+        "terminal": 217811
+      }
+    },
+    "calls": {
+      "hostCallCount": 15,
+      "failedHostCallCount": 0,
+      "webMcpCallCount": 9,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 5,
+      "acceptedDraftTransactionCallCount": 5,
+      "postCommitCorrectionCallCount": 0,
+      "semanticInspectionCallCount": 1,
+      "pixelCaptureCount": 1,
+      "pixelCaptureRetryCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 5,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1
+      },
+      "note": "The first transaction was schema-valid, every WebMCP business call succeeded, the author used four preview-only correction patches, and no mutation followed commit. The author performed exactly one semantic inspection and then one clean full-viewport pixel capture with no guessed clip or retry."
+    },
+    "result": {
+      "status": "completed_with_all_quality_gates_passed",
+      "roomRevision": 2,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "diagramBounds": {
+        "x": 40,
+        "y": 100,
+        "width": 1240,
+        "height": 558.5139838820157
+      },
+      "finalDeterministicGeometryStatus": "warning",
+      "finalDeterministicGeometryCoverage": "complete",
+      "finalFindingCount": 6,
+      "finalWarningCount": 6,
+      "finalFailCount": 0,
+      "finalConnectorCrossingCount": 1,
+      "finalCongestedPortCount": 0,
+      "minimumObservedSpacing": 20,
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "losslessPixelCaptureEvidence": {
+    "canonicalScalarPresent": true,
+    "canonicalScalarBytes": 2021,
+    "canonicalScalarSurvivedGenericTransport": true,
+    "prescribedCapture": {
+      "fullPage": false
+    },
+    "actualNextCapture": {
+      "fullPage": false
+    },
+    "guessedClipUsed": false,
+    "blankCaptureObserved": false,
+    "inspectionRepeated": false,
+    "captureRepeated": false,
+    "mechanismObserved": true,
+    "exclusiveCausalAttributionSupported": false,
+    "note": "The bounded scalar remained intact before later scene-context truncation and the author's next and only browser capture exactly matched its preferred request. Because the author also JSON-serialized the complete inspection result, this one trace does not prove that only the new scalar caused the successful choice."
+  },
+  "actionableTextFitEvidence": {
+    "textFitFindingObserved": true,
+    "affectedLabel": "TELEMETRY PLATFORM",
+    "minimumWidthAtCurrentHeight": 376,
+    "minimumHeightAtCurrentWidth": 85,
+    "warningPersistsWhenFailCountZero": true,
+    "initialWidth": 360,
+    "correctedWidth": 460,
+    "correctionBoundsConsumed": true,
+    "warningResolvedBeforeCommit": true,
+    "postCommitTextCorrectionRequired": false,
+    "mechanismObserved": true
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:349caaa1ec5f5d3b3af8f889f06f09c1da2b063673bc682c4b6f86e99151d6a2",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 5,
+    "relationshipTypeEvidenceConfirmedCount": 5,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true
+  },
+  "deterministicGeometryAudit": {
+    "status": "warning",
+    "coverage": "complete",
+    "findingCount": 6,
+    "warningCount": 6,
+    "failCount": 0,
+    "findingTypes": {
+      "CONNECTOR_CROSSING": 1,
+      "CONNECTOR_LABEL_EDGE_COLLISION": 1,
+      "MEMBER_SPACING_TOO_SMALL": 4
+    },
+    "connectorCrossingPairCount": 1,
+    "minimumObservedSpacing": 20,
+    "congestedPortCount": 0,
+    "note": "Both blinded pixel reviewers independently judged the remaining deterministic warnings non-blocking."
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a065a6-5dce-76a1-b38b-cb14b4c2ab27",
+      "turnId": "01a065a6-5fb7-7652-866c-f4214f96a200",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 30053,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a065a6-6e12-7193-b5de-5b153be68f46",
+      "turnId": "01a065a6-7084-7663-8038-2e73b702bf0f",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 27140,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary acceptance."
+  },
+  "timingComparison": {
+    "immediatePredecessor": {
+      "sourceExperiment": "EXP-0022",
+      "wallMs": 227675,
+      "hostExecutionMs": 41782,
+      "hostCallCount": 17,
+      "semanticInspectionCallCount": 2,
+      "pixelCaptureRetryObserved": true,
+      "qualityGatePassed": true
+    },
+    "priorPassingRun": {
+      "sourceExperiment": "EXP-0021",
+      "wallMs": 204504,
+      "hostExecutionMs": 34711,
+      "qualityGatePassed": true
+    },
+    "baselineRun": {
+      "sourceExperiment": "EXP-0020",
+      "wallMs": 201038,
+      "hostExecutionMs": 49241,
+      "qualityGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 217820,
+      "hostExecutionMs": 40868,
+      "hostCallCount": 15,
+      "webMcpCallCount": 9,
+      "draftTransactionCallCount": 5,
+      "semanticInspectionCallCount": 1,
+      "pixelCaptureRetryObserved": false,
+      "qualityGatePassed": true
+    },
+    "versusExp0022": {
+      "descriptiveWallDecreaseMs": 9855,
+      "descriptiveWallDecreaseFraction": 0.043285384869,
+      "descriptiveHostExecutionDecreaseMs": 914,
+      "descriptiveHostExecutionDecreaseFraction": 0.021875448758,
+      "descriptiveHostCallDecrease": 2,
+      "descriptiveInspectionCallDecrease": 1,
+      "descriptiveDraftTransactionCallIncrease": 2,
+      "descriptiveWebMcpCallIncrease": 1
+    },
+    "versusExp0021": {
+      "descriptiveWallIncreaseMs": 13316,
+      "descriptiveWallIncreaseFraction": 0.065113640809,
+      "descriptiveHostExecutionIncreaseMs": 6157,
+      "descriptiveHostExecutionIncreaseFraction": 0.17737892887
+    },
+    "versusExp0020": {
+      "descriptiveWallIncreaseMs": 16782,
+      "descriptiveWallIncreaseFraction": 0.083476755638,
+      "descriptiveHostExecutionDecreaseMs": 8373,
+      "descriptiveHostExecutionDecreaseFraction": 0.170041225808
+    },
+    "versusExp0013": {
+      "descriptiveWallIncreaseMs": 35436,
+      "descriptiveWallIncreaseFraction": 0.194293359067
+    },
+    "interpretation": "The exact capture retry failure disappeared while all quality gates passed, and wall time improved 4.3% versus the immediate predecessor despite two additional draft patches. This is descriptive single-run evidence, not an average treatment effect or population claim."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The bounded canonical pixel-capture scalar survived the result transport at 2,021 bytes.",
+      "The next and only pixel capture exactly matched the prescribed clean full-viewport request.",
+      "No guessed clip, blank image, repeated inspection, or capture retry occurred.",
+      "The actionable text-fit finding was consumed before commit and eliminated the truncation warning.",
+      "The first transaction was schema-valid and all WebMCP business calls succeeded.",
+      "All required entities and caller-supplied directed relationships remained exact in authoritative state.",
+      "Both isolated pixel reviewers passed every frozen criterion."
+    ],
+    "remainingCostsAndRisks": [
+      "The author used four draft correction patches and a second capability read before commit.",
+      "One final connector crossing and one connector-label/edge collision remained as deterministic warnings.",
+      "The author JSON-serialized the full inspection result, so one run cannot isolate the scalar as the sole cause of the successful capture request.",
+      "Total time remained slower than EXP-0021, EXP-0020, and the fastest prior passing run.",
+      "A single replicate cannot establish a population-level speed effect."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "jpeg",
+    "cleanImageWidth": 1280,
+    "cleanImageHeight": 720,
+    "cleanImageSha256": "4a38d75f426254cac5ebcb5fe2a070e46fa52606ca06e94d4b86281e4b172532",
+    "cleanImageBytes": 47833,
+    "sanitizedStateSha256": "d6c1b6c3f5e5a4e2612c95c33451aac992b0433374f70b5bed0139e2848ec8da",
+    "reviewerBriefSha256": "91940b5473eb4dd28cc337e972350ed49d5940f3732f27bacf67780737082629",
+    "rawAuthorSessionSha256": "4276ba5dd7132f256e22b92f5e9c7ed4a3a59a696f98fbbc737411604ae6f957",
+    "rawPrimaryAReviewerSessionSha256": "fa3e2089e29b16dae7a924b6457e48f820853b650c5f008628e73149688ca9b1",
+    "rawPrimaryBReviewerSessionSha256": "b71749ac66cc98aa00dfc954f1702c7d69c671d1a61c4555e400062c79990203",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 2,
+    "adjudicatorTasks": 0,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": true,
+    "visualQualityGatePassed": true,
+    "overallQualityGatePassed": true,
+    "targetedCaptureBehaviorObserved": true,
+    "mechanismValidatedForThisReplicate": true,
+    "exclusiveCausalAttributionEstablished": false,
+    "descriptiveTotalSpeedImprovementVersusImmediatePredecessorObserved": true,
+    "speedNonInferiorityEstablished": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextInvestigation": "Inspect the lossless draft receipt and generic transport for the first failing candidate. Determine whether exact local correction evidence can be made easier to consume so the agent can consolidate its own patches without deterministic layout or automatic repair."
+  }
+}
