@@ -296,6 +296,9 @@ describe("role-scoped semantic tool registration", () => {
       "diagramId",
       "expectedDiagramRevision",
     ]);
+    expect(tool(tools, "analyze_diagram_layout").description).toContain(
+      "route-conflict clusters",
+    );
 
     const layoutRequired = schemaFor(tools, "layout_objects").required ?? [];
     expect(layoutRequired).toEqual(expect.arrayContaining(["layout", "targets"]));

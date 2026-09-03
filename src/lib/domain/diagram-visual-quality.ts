@@ -75,6 +75,7 @@ export type DiagramVisualQualityFindingCode =
   | "CONNECTOR_LABEL_LIKELY_TRUNCATED"
   | "CONNECTOR_LABEL_OBJECT_COLLISION"
   | "CONNECTOR_OBJECT_INTRUSION"
+  | "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER"
   | "CONNECTOR_SHARED_INITIAL_CORRIDOR"
   | "CONNECTOR_SHARED_SEGMENT"
   | "DIAGRAM_EMPTY"
@@ -117,6 +118,7 @@ export type DiagramVisualQualityMetrics = {
   crossingPairCount: number;
   endpointReentryCount: number;
   ambiguousSharedRouteGroupCount: number;
+  routeAmbiguityClusterCount: number;
   sharedSegmentPairCount: number;
   congestedPortCount: number;
   outsideLayoutScaffoldConnectorCount: number;
@@ -177,6 +179,16 @@ type SharedRouteOverlap = {
   left: ConnectorObject;
   right: ConnectorObject;
   overlap: Extract<SegmentRelation, { kind: "overlap" }>;
+};
+
+type RouteConflictKind = "crossing" | "label_edge_collision" | "congested_attachment";
+
+type RouteConflictPair = {
+  leftId: string;
+  rightId: string;
+  kinds: Set<RouteConflictKind>;
+  bounds: CanvasBounds[];
+  objectIds: Set<string>;
 };
 
 type MemberGeometry = {
@@ -732,6 +744,65 @@ function sharedRouteComponents(overlaps: readonly SharedRouteOverlap[]): Connect
   return result;
 }
 
+function routeConflictKey(leftId: string, rightId: string): string {
+  return [leftId, rightId].sort().join("\u0000");
+}
+
+function addRouteConflict(
+  conflicts: Map<string, RouteConflictPair>,
+  leftId: string,
+  rightId: string,
+  kind: RouteConflictKind,
+  bounds: CanvasBounds,
+  objectId?: string,
+): void {
+  const [sortedLeftId, sortedRightId] = [leftId, rightId].sort();
+  const key = routeConflictKey(sortedLeftId, sortedRightId);
+  const conflict = conflicts.get(key) ?? {
+    leftId: sortedLeftId,
+    rightId: sortedRightId,
+    kinds: new Set<RouteConflictKind>(),
+    bounds: [],
+    objectIds: new Set<string>(),
+  };
+  conflict.kinds.add(kind);
+  conflict.bounds.push(bounds);
+  if (objectId) conflict.objectIds.add(objectId);
+  conflicts.set(key, conflict);
+}
+
+function routeConflictComponents(conflicts: ReadonlyMap<string, RouteConflictPair>): string[][] {
+  const adjacency = new Map<string, Set<string>>();
+  for (const conflict of conflicts.values()) {
+    const left = adjacency.get(conflict.leftId) ?? new Set<string>();
+    const right = adjacency.get(conflict.rightId) ?? new Set<string>();
+    left.add(conflict.rightId);
+    right.add(conflict.leftId);
+    adjacency.set(conflict.leftId, left);
+    adjacency.set(conflict.rightId, right);
+  }
+
+  const result: string[][] = [];
+  const visited = new Set<string>();
+  for (const seed of [...adjacency.keys()].sort()) {
+    if (visited.has(seed)) continue;
+    const pending = [seed];
+    const component: string[] = [];
+    visited.add(seed);
+    while (pending.length) {
+      const connectorId = pending.shift()!;
+      component.push(connectorId);
+      for (const neighbor of [...(adjacency.get(connectorId) ?? [])].sort()) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+    result.push(component.sort());
+  }
+  return result;
+}
+
 function boundsOverflow(inner: CanvasBounds, outer: CanvasBounds) {
   const left = Math.max(0, outer.x - inner.x);
   const top = Math.max(0, outer.y - inner.y);
@@ -950,6 +1021,7 @@ export function analyzeDiagramVisualQuality(
     connectors.map((connector) => [connector.id, materializeConnectorRoute(connector, room)]),
   );
   const findings = new BoundedFindingCollector();
+  const routeConflicts = new Map<string, RouteConflictPair>();
   let minimumMemberSpacing = Number.POSITIVE_INFINITY;
 
   if (!members.length) {
@@ -1169,13 +1241,21 @@ export function analyzeDiagramVisualQuality(
       if (!rightRoute) continue;
       const geometry = routePairGeometry(left, leftRoute, right, rightRoute);
       if (geometry.crossing) {
+        const crossingBounds = pointBounds(geometry.crossing);
+        addRouteConflict(
+          routeConflicts,
+          left.id,
+          right.id,
+          "crossing",
+          crossingBounds,
+        );
         findings.push(finding({
           code: "CONNECTOR_CROSSING",
           status: "warning",
           summary: `If this crossing is unintended, reroute ${left.id} and ${right.id} into separate lanes.`,
           objectIds: [],
           connectorIds: [left.id, right.id],
-          bounds: pointBounds(geometry.crossing),
+          bounds: crossingBounds,
           details: { point: [round(geometry.crossing.x), round(geometry.crossing.y)] },
         }));
       }
@@ -1275,6 +1355,13 @@ export function analyzeDiagramVisualQuality(
       if (other.id === connector.id) continue;
       const otherRoute = routes[other.id];
       if (!otherRoute || !segments(otherRoute.points).some((segment) => segmentIntersectsBounds(segment, labelBounds))) continue;
+      addRouteConflict(
+        routeConflicts,
+        connector.id,
+        other.id,
+        "label_edge_collision",
+        labelBounds,
+      );
       findings.push(finding({
         code: "CONNECTOR_LABEL_EDGE_COLLISION",
         status: "warning",
@@ -1311,13 +1398,26 @@ export function analyzeDiagramVisualQuality(
       const distinctConnectorIds = [...new Set(cluster.map((use) => use.connectorId))].sort();
       if (distinctConnectorIds.length < T.attachmentPortMinimumConnectors) continue;
       const sides = [...new Set(cluster.map((use) => portSide(use, member, connectorById.get(use.connectorId)!)))].sort();
+      const clusterBounds = unionBounds(cluster.map((use) => pointBounds(use.point)))!;
+      for (let leftIndex = 0; leftIndex < distinctConnectorIds.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < distinctConnectorIds.length; rightIndex += 1) {
+          addRouteConflict(
+            routeConflicts,
+            distinctConnectorIds[leftIndex],
+            distinctConnectorIds[rightIndex],
+            "congested_attachment",
+            clusterBounds,
+            member.id,
+          );
+        }
+      }
       findings.push(finding({
         code: "ATTACHMENT_PORT_CONGESTION",
         status: "warning",
         summary: `If the shared attachment is unintended, distribute these ${distinctConnectorIds.length} connectors across additional ports on ${member.id}.`,
         objectIds: [member.id],
         connectorIds: distinctConnectorIds,
-        bounds: unionBounds(cluster.map((use) => pointBounds(use.point))),
+        bounds: clusterBounds,
         details: {
           connectorCount: distinctConnectorIds.length,
           portRadius: T.attachmentPortRadius,
@@ -1344,6 +1444,51 @@ export function analyzeDiagramVisualQuality(
         }));
       }
     }
+  }
+
+  for (const componentIds of routeConflictComponents(routeConflicts)) {
+    const componentIdSet = new Set(componentIds);
+    const componentConflicts = [...routeConflicts.values()]
+      .filter((conflict) =>
+        componentIdSet.has(conflict.leftId) && componentIdSet.has(conflict.rightId))
+      .sort((left, right) =>
+        left.leftId.localeCompare(right.leftId) || left.rightId.localeCompare(right.rightId));
+    const crossingConflicts = componentConflicts.filter((conflict) => conflict.kinds.has("crossing"));
+    const labelConflicts = componentConflicts.filter((conflict) =>
+      conflict.kinds.has("label_edge_collision"));
+    const congestedConflicts = componentConflicts.filter((conflict) =>
+      conflict.kinds.has("congested_attachment"));
+    const crossingAtCongestedAttachment = componentConflicts.filter((conflict) =>
+      conflict.kinds.has("crossing") && conflict.kinds.has("congested_attachment"));
+    const isBlockingAmbiguity =
+      labelConflicts.length > 0 ||
+      crossingAtCongestedAttachment.length > 0 ||
+      crossingConflicts.length >= 3;
+    if (!isBlockingAmbiguity) continue;
+
+    const conflictPairs = componentConflicts.map((conflict) =>
+      `${conflict.leftId}|${conflict.rightId}:${[...conflict.kinds].sort().join("+")}`);
+    findings.push(finding({
+      code: "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER",
+      status: "fail",
+      summary: `If these labeled connectors are intended to remain independently traceable, separate or visually clarify the reported conflict pairs; crossings through another route's label, crossings at a congested attachment, and multi-crossing clusters can read as false junctions. Preserve deliberate crossings when they match the requested composition.`,
+      objectIds: [...new Set(componentConflicts.flatMap((conflict) => [...conflict.objectIds]))],
+      connectorIds: componentIds,
+      bounds: unionBounds(componentConflicts.flatMap((conflict) => conflict.bounds)),
+      details: {
+        connectorCount: componentIds.length,
+        conflictPairCount: componentConflicts.length,
+        crossingPairCount: crossingConflicts.length,
+        labelEdgeCollisionPairCount: labelConflicts.length,
+        congestedAttachmentPairCount: congestedConflicts.length,
+        crossingAtCongestedAttachmentPairCount: crossingAtCongestedAttachment.length,
+        conflictPairs: conflictPairs.slice(0, DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedConnectorIdsPerFinding),
+        omittedConflictPairCount: Math.max(
+          0,
+          conflictPairs.length - DIAGRAM_VISUAL_QUALITY_LIMITS.maxReturnedConnectorIdsPerFinding,
+        ),
+      },
+    }));
   }
 
   for (const member of members) {
@@ -1500,6 +1645,8 @@ export function analyzeDiagramVisualQuality(
       endpointReentryCount: findingsByCode.CONNECTOR_ENDPOINT_REENTRY ?? 0,
       ambiguousSharedRouteGroupCount:
         findingsByCode.CONNECTOR_AMBIGUOUS_SHARED_ROUTE ?? 0,
+      routeAmbiguityClusterCount:
+        findingsByCode.CONNECTOR_ROUTE_AMBIGUITY_CLUSTER ?? 0,
       sharedSegmentPairCount: findingsByCode.CONNECTOR_SHARED_SEGMENT ?? 0,
       congestedPortCount: findingsByCode.ATTACHMENT_PORT_CONGESTION ?? 0,
       outsideLayoutScaffoldConnectorCount:

@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.29.0");
+    expect(AGENT_DOC_VERSION).toBe("1.30.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -244,6 +244,7 @@ describe("agent-readable content", () => {
       "intent-unaware",
       "endpoint re-entry",
       "ambiguous-shared-route",
+      "route-ambiguity-cluster",
       "`shared_route`",
       "`straight`",
       "`curved`",

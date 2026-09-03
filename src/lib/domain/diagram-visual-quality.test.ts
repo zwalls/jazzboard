@@ -1181,6 +1181,87 @@ describe("diagram visual quality analysis", () => {
     }));
   });
 
+  it("summarizes a route crossing through another relationship label as blocking ambiguity", () => {
+    const anchor = node("label-crossing-anchor", 600, 600);
+    const labeled = edge(
+      "labeled-flow",
+      { x: 0, y: 100 },
+      { x: 300, y: 100 },
+      { label: "request" },
+    );
+    const crossing = edge(
+      "crossing-flow",
+      { x: 150, y: 0 },
+      { x: 150, y: 200 },
+    );
+
+    const report = analyzeDiagramVisualQuality(
+      room([anchor, labeled, crossing]),
+      "quality-diagram",
+    );
+    const ambiguity = report.findings.find((finding) =>
+      finding.code === "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER");
+
+    expect(ambiguity).toMatchObject({
+      status: "fail",
+      connectorIds: ["crossing-flow", "labeled-flow"],
+      details: {
+        connectorCount: 2,
+        conflictPairCount: 1,
+        crossingPairCount: 1,
+        labelEdgeCollisionPairCount: 1,
+        congestedAttachmentPairCount: 0,
+        crossingAtCongestedAttachmentPairCount: 0,
+        omittedConflictPairCount: 0,
+      },
+    });
+    expect(ambiguity?.details?.conflictPairs).toEqual([
+      "crossing-flow|labeled-flow:crossing+label_edge_collision",
+    ]);
+    expect(report.metrics.routeAmbiguityClusterCount).toBe(1);
+  });
+
+  it("summarizes a multi-crossing route cluster without treating one plain crossing as blocking", () => {
+    const anchor = node("crossing-cluster-anchor", 700, 700);
+    const trunk = edge("cluster-trunk", { x: 0, y: 100 }, { x: 400, y: 100 });
+    const branches = [100, 200, 300].map((x, index) => edge(
+      `cluster-branch-${index}`,
+      { x, y: 0 },
+      { x, y: 200 },
+    ));
+    const clustered = analyzeDiagramVisualQuality(
+      room([anchor, trunk, ...branches]),
+      "quality-diagram",
+    );
+
+    expect(clustered.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER",
+      status: "fail",
+      connectorIds: ["cluster-branch-0", "cluster-branch-1", "cluster-branch-2", "cluster-trunk"],
+      details: expect.objectContaining({
+        crossingPairCount: 3,
+        labelEdgeCollisionPairCount: 0,
+      }),
+    }));
+
+    const plain = analyzeDiagramVisualQuality(
+      room([
+        anchor,
+        edge("plain-horizontal", { x: 0, y: 400 }, { x: 300, y: 400 }),
+        edge("plain-vertical", { x: 150, y: 300 }, { x: 150, y: 500 }),
+      ]),
+      "quality-diagram",
+    );
+    expect(plain.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_CROSSING",
+      status: "warning",
+    }));
+    expect(plain.findings).not.toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER",
+    }));
+    expect(plain.metrics.routeAmbiguityClusterCount).toBe(0);
+  });
+
   it("reports a long shared lane after distinct routes converge at a common bound target", () => {
     const target = node("shared-target", 500, 0);
     const upper = edge(

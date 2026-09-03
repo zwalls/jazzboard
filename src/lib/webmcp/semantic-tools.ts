@@ -2629,7 +2629,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "analyze_diagram_layout",
       title: "Analyze exact diagram visual quality",
       description:
-        "Return passive, intent-unaware conventional geometry signals, exact routes, and partial freehand coverage for one exact Diagram; the agent decides what is intentional and must inspect pixels.",
+        "Return passive, intent-unaware conventional geometry signals, exact routes, and partial freehand coverage for one exact Diagram, including compact route-conflict clusters when crossings, labels, and congested attachments combine into false-junction risk; the agent decides what is intentional and must inspect pixels.",
       schema: analyzeDiagramLayoutInput,
       annotations: readAnnotations,
       async execute(input, signal) {
