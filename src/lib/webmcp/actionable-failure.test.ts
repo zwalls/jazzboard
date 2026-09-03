@@ -51,6 +51,20 @@ describe("actionable WebMCP failures", () => {
     });
   });
 
+  it("turns a relationship assertion mismatch into one fact-preserving correction", () => {
+    expect(failure("apply_canvas_transaction", "RELATIONSHIP_ASSERTION_FAILED")).toMatchObject({
+      error: {
+        recovery: {
+          retry: "after_correction",
+          suggestedTools: ["get_canvas_capabilities"],
+          instructions: expect.stringMatching(
+            /error\.details\.violations.*fromTempRef.*actual start.*toTempRef.*actual end.*preserve the requested facts.*changed no state/i,
+          ),
+        },
+      },
+    });
+  });
+
   it("stops permission bypass and room enumeration", () => {
     expect(failure("update_object", "FORBIDDEN")).toMatchObject({
       error: {

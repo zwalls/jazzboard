@@ -92,9 +92,9 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
               expect.stringMatching(/one coherent/i),
-              expect.stringMatching(/schema rejection.*correct every path.*without deleting Diagram or membership/i),
+              expect.stringMatching(/schema rejection.*correct every path.*preserve Diagram and membership/i),
               expect.stringMatching(/draftValidation/i),
-              expect.stringMatching(/finish_canvas_draft.*no user confirmation/i),
+              expect.stringMatching(/finish_canvas_draft.*no confirmation/i),
               expect.stringMatching(/inspect_canvas_scope/i),
             ]),
             transactionContract: {
@@ -124,6 +124,13 @@ describe("get_canvas_capabilities WebMCP tool", () => {
                   },
                 }),
               ]),
+              relationshipAssertions: [{
+                connectorTempRef: "source_to_target",
+                fromTempRef: "source",
+                toTempRef: "target",
+                direction: "end",
+                exactLabel: "request",
+              }],
               delivery: { mode: "draft" },
               responseDetail: "concise",
             },
@@ -137,22 +144,12 @@ describe("get_canvas_capabilities WebMCP tool", () => {
                 }],
                 responseDetail: "concise",
               },
-              addCaptionAndMembership: {
-                operations: [
-                  expect.objectContaining({ op: "create_text", tempRef: "caption" }),
-                  expect.objectContaining({
-                    op: "edit_diagram",
-                    addMembers: [{ tempRef: "caption" }],
-                  }),
-                ],
-                responseDetail: "concise",
-              },
             },
             readabilityHeuristics: expect.arrayContaining([
               expect.stringMatching(/first draft.*draftId.*needs expectedDraftRevision/i),
               expect.stringMatching(/new create_diagram.*no spatial\/semantic identity.*diagramTempRef.*only.*edit_diagram.*never object creates.*keep semantic structure/i),
               expect.stringMatching(/ports are.*side:left.*not strings/i),
-              expect.stringMatching(/before finish.*relationshipReview.*actual start->end.*task facts.*names\/labels never override endpoints/i),
+              expect.stringMatching(/relationshipAssertions.*endpoint.*direction.*label.*before mutation.*without choosing facts.*relationshipReview.*actual start->end.*task facts.*prose never overrides endpoints/i),
               expect.stringMatching(/node floors.*180x88.*260x132.*12\*longest visible line characters\+48.*deliberate exceptions/i),
               expect.stringMatching(/straight labeled edge.*max\(160.*12\*visible label characters\+48\).*keep necessary meaning/i),
               expect.stringMatching(/one row.*overview microscopic.*multiple rows\/ranks.*never imposed layout or creative authority/i),

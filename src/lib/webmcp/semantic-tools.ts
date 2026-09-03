@@ -502,6 +502,16 @@ const draftDelivery = z
     }
   });
 
+const relationshipAssertion = z
+  .object({
+    connectorTempRef: tempRef,
+    fromTempRef: tempRef,
+    toTempRef: tempRef,
+    direction: z.enum(["none", "end", "both"]),
+    exactLabel: z.string().max(2_000).optional(),
+  })
+  .strict();
+
 function inputRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -545,6 +555,7 @@ function normalizeTransactionAliases(value: unknown): unknown {
 const canonicalTransactionInput = z
   .object({
     operations: z.array(transactionOperation).min(1).max(200),
+    relationshipAssertions: z.array(relationshipAssertion).min(1).max(200).optional(),
     delivery: draftDelivery.optional(),
     responseDetail: responseDetail.default("concise"),
     ...activityMetadataFields,
@@ -716,14 +727,13 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         properties: {
           op: {
             enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "draw_connection", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"],
-            description: "Aliases: draw_connection=connect; update_object=update.",
           },
-          tempRef: { type: "string", description: "Stable draft/create alias." },
-          objectId: { type: "string", description: "Authoritative object ID." },
+          tempRef: { type: "string" },
+          objectId: { type: "string" },
           expectedRevision: { type: "integer" },
           leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
-          patch: { type: "object", description: "Object patch; path coordinates use documented conventions." },
+          patch: { type: "object", description: "Patch; path coordinates are documented." },
           semanticName: { type: "string", minLength: 1, maxLength: 160 },
           semanticRole: { type: "string", minLength: 1, maxLength: 128 },
           label: { type: "string" },
@@ -739,7 +749,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
               owner: { type: ["string", "null"] },
               resolution: { type: ["string", "null"] },
             },
-            description: "Decision/open-question lifecycle only; omit for ordinary nodes.",
+            description: "Decision/question lifecycle.",
           },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           fill: { $ref: "#/$defs/paint" },
@@ -753,7 +763,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           },
           segments: {
             type: "array",
-            description: "line{to}; quadratic{to,control}; cubic{to,control1,control2}.",
+            description: "line{to}|quadratic{control,to}|cubic{controls,to}.",
             items: WORLD_PATH_SEGMENT_JSON_SCHEMA,
           },
           closed: { type: "boolean" },
@@ -762,11 +772,11 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          start: { type: "object", description: "Point or {objectId|tempRef}." },
+          start: { type: "object", description: "Point|object|tempRef endpoint." },
           end: { type: "object" },
           routing: {
             type: "object",
-            description: "curved needs bend; elbowMidPoint 0..1.",
+            description: "curved:bend; elbowMidPoint:0..1.",
           },
           direction: { enum: ["none", "end", "both"] },
           diagramId: { type: "string" },
@@ -779,7 +789,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           tags: { type: "array", items: { type: "string" } },
           members: { type: "array", items: { type: "object" } },
           addMembers: { type: "array", items: { type: "object" } },
-          connectors: { type: "array", items: { type: "object" }, description: "Exact refs; omit=infer; []=empty." },
+          connectors: { type: "array", items: { type: "object" } },
           addConnectors: { type: "array", items: { type: "object" } },
           memberObjectRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
           connectorRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
@@ -797,8 +807,23 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           density: { enum: ["comfortable", "compact"] },
           targets: { type: "array", items: { type: "string" } },
           diagramTempRef: { type: "string" },
-          origin: { type: "object", description: "Canvas-world {x,y}." },
+          origin: { type: "object" },
           columns: { type: "integer" },
+        },
+      },
+    },
+    relationshipAssertions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["connectorTempRef", "fromTempRef", "toTempRef", "direction"],
+        properties: {
+          connectorTempRef: { type: "string" },
+          fromTempRef: { type: "string" },
+          toTempRef: { type: "string" },
+          direction: { enum: ["none", "end", "both"] },
+          exactLabel: { type: "string" },
         },
       },
     },
@@ -807,7 +832,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
     responseDetail: { enum: ["concise", "detailed"] },
     delivery: {
       type: "object",
-      description: "Use for visible new multi-object composition.",
+      description: "Visible new multi-object composition.",
       additionalProperties: false,
       required: ["mode"],
       properties: {
@@ -816,7 +841,6 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         expectedDraftRevision: { type: "integer" },
         updateMode: {
           enum: ["replace", "patch"],
-          description: "Patch refs or replace all. Omit initially.",
         },
       },
       oneOf: [
@@ -1479,6 +1503,185 @@ function compactRelationshipReview(
   };
 }
 
+type RelationshipAssertionReview = Readonly<{
+  status: "pass";
+  authority: string;
+  checkedRelationshipCount: number;
+  connectorTempRefs: string[];
+}>;
+
+type RelationshipAssertionViolation = Readonly<{
+  code:
+    | "DUPLICATE_ASSERTION"
+    | "ASSERTION_MISSING_FOR_CONNECTOR_OPERATION"
+    | "ASSERTION_HAS_NO_CONNECTOR_OPERATION"
+    | "TEMP_REF_UNRESOLVED"
+    | "CONNECTOR_UNAVAILABLE"
+    | "ENDPOINT_MISMATCH"
+    | "DIRECTION_MISMATCH"
+    | "LABEL_MISMATCH";
+  connectorTempRef: string;
+  summary: string;
+  expected?: Record<string, unknown>;
+  actual?: Record<string, unknown>;
+}>;
+
+/**
+ * Checks only the caller's explicit relationship claims against the compiled
+ * transaction. It never derives task intent, selects endpoints, or edits the
+ * candidate. A failure occurs before any draft or authoritative mutation.
+ */
+function verifyTransactionRelationshipAssertions(
+  assertions: readonly z.output<typeof relationshipAssertion>[] | undefined,
+  operations: readonly z.output<typeof transactionOperation>[],
+  refs: ReadonlyMap<string, string>,
+  commands: readonly CanvasCommand[],
+): RelationshipAssertionReview | null {
+  if (!assertions) return null;
+
+  const connectorOperationRefs = operations.flatMap((operation) =>
+    operation.op === "connect" || operation.op === "update_draft_connector"
+      ? [operation.tempRef]
+      : [],
+  );
+  const connectorOperationRefSet = new Set(connectorOperationRefs);
+  const assertionsByConnector = new Map<string, z.output<typeof relationshipAssertion>>();
+  const violations: RelationshipAssertionViolation[] = [];
+
+  for (const assertion of assertions) {
+    if (assertionsByConnector.has(assertion.connectorTempRef)) {
+      violations.push({
+        code: "DUPLICATE_ASSERTION",
+        connectorTempRef: assertion.connectorTempRef,
+        summary: `More than one relationship assertion targets ${assertion.connectorTempRef}.`,
+      });
+      continue;
+    }
+    assertionsByConnector.set(assertion.connectorTempRef, assertion);
+    if (!connectorOperationRefSet.has(assertion.connectorTempRef)) {
+      violations.push({
+        code: "ASSERTION_HAS_NO_CONNECTOR_OPERATION",
+        connectorTempRef: assertion.connectorTempRef,
+        summary:
+          `Assertion ${assertion.connectorTempRef} must target a connect or update_draft_connector operation in this same call.`,
+      });
+    }
+  }
+
+  for (const connectorTempRef of connectorOperationRefs) {
+    if (!assertionsByConnector.has(connectorTempRef)) {
+      violations.push({
+        code: "ASSERTION_MISSING_FOR_CONNECTOR_OPERATION",
+        connectorTempRef,
+        summary:
+          `relationshipAssertions is present, so connector operation ${connectorTempRef} also requires an assertion.`,
+      });
+    }
+  }
+
+  for (const assertion of assertionsByConnector.values()) {
+    if (!connectorOperationRefSet.has(assertion.connectorTempRef)) continue;
+    const connectorId = refs.get(assertion.connectorTempRef);
+    const fromObjectId = refs.get(assertion.fromTempRef);
+    const toObjectId = refs.get(assertion.toTempRef);
+    const unresolvedTempRefs = [
+      ...(!connectorId ? [assertion.connectorTempRef] : []),
+      ...(!fromObjectId ? [assertion.fromTempRef] : []),
+      ...(!toObjectId ? [assertion.toTempRef] : []),
+    ];
+    if (unresolvedTempRefs.length) {
+      violations.push({
+        code: "TEMP_REF_UNRESOLVED",
+        connectorTempRef: assertion.connectorTempRef,
+        summary: `Relationship assertion ${assertion.connectorTempRef} contains unresolved tempRefs: ${unresolvedTempRefs.join(", ")}.`,
+        expected: { unresolvedTempRefs },
+      });
+      continue;
+    }
+    const command = commands.find((candidate) =>
+      candidate.type === "create"
+      && candidate.object.kind === "connector"
+      && candidate.object.id === connectorId,
+    );
+    if (!command || command.type !== "create" || command.object.kind !== "connector") {
+      violations.push({
+        code: "CONNECTOR_UNAVAILABLE",
+        connectorTempRef: assertion.connectorTempRef,
+        summary: `Compiled connector ${assertion.connectorTempRef} is unavailable for relationship assertion checking.`,
+      });
+      continue;
+    }
+    const connector = command.object;
+    const expected = {
+      fromTempRef: assertion.fromTempRef,
+      fromObjectId,
+      toTempRef: assertion.toTempRef,
+      toObjectId,
+      direction: assertion.direction,
+      ...(assertion.exactLabel !== undefined ? { exactLabel: assertion.exactLabel } : {}),
+    };
+    const actual = {
+      startObjectId: connector.start.objectId,
+      endObjectId: connector.end.objectId,
+      direction: connector.direction,
+      label: connector.label,
+    };
+    if (connector.start.objectId !== fromObjectId || connector.end.objectId !== toObjectId) {
+      violations.push({
+        code: "ENDPOINT_MISMATCH",
+        connectorTempRef: assertion.connectorTempRef,
+        summary:
+          `Connector ${assertion.connectorTempRef} compiles as ${connector.start.objectId ?? "unattached"} -> ${connector.end.objectId ?? "unattached"}, not ${fromObjectId} -> ${toObjectId}.`,
+        expected,
+        actual,
+      });
+    }
+    if (connector.direction !== assertion.direction) {
+      violations.push({
+        code: "DIRECTION_MISMATCH",
+        connectorTempRef: assertion.connectorTempRef,
+        summary:
+          `Connector ${assertion.connectorTempRef} direction is ${connector.direction}, not asserted ${assertion.direction}.`,
+        expected,
+        actual,
+      });
+    }
+    if (assertion.exactLabel !== undefined && connector.label !== assertion.exactLabel) {
+      violations.push({
+        code: "LABEL_MISMATCH",
+        connectorTempRef: assertion.connectorTempRef,
+        summary:
+          `Connector ${assertion.connectorTempRef} label does not exactly match its caller-authored assertion.`,
+        expected,
+        actual,
+      });
+    }
+  }
+
+  if (violations.length) {
+    throw new SemanticToolError(
+      "RELATIONSHIP_ASSERTION_FAILED",
+      `The caller-authored relationship fact contract has ${violations.length} mismatch${violations.length === 1 ? "" : "es"}; no Jazzboard state changed.`,
+      {
+        stateChanged: false,
+        authority:
+          "Jazzboard compared caller-supplied facts with compiled connector state and did not infer, reverse, route, or repair any relationship.",
+        violations,
+        requiredAction:
+          "Correct each named connector operation or its assertion so fromTempRef maps to actual start, toTempRef maps to actual end, direction matches, and exactLabel matches when supplied. Preserve the requested relationships and retry the complete call once.",
+      },
+    );
+  }
+
+  return {
+    status: "pass",
+    authority:
+      "Caller-authored relationship assertions match the compiled connector endpoints, direction, and optional exact labels. Jazzboard inferred no task facts.",
+    checkedRelationshipCount: assertions.length,
+    connectorTempRefs: assertions.map((assertion) => assertion.connectorTempRef),
+  };
+}
+
 function compactMutationObject(object: CanvasObject) {
   return {
     id: object.id,
@@ -1796,6 +1999,7 @@ function conciseMutationReceipt(
   response: SemanticResponse,
   temporaryReferences: Record<string, string> | undefined,
   quality: ReturnType<typeof diagramQualityReports>,
+  relationshipAssertionReview?: RelationshipAssertionReview | null,
 ) {
   const objects = response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []);
   const diagrams = response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []);
@@ -1815,6 +2019,7 @@ function conciseMutationReceipt(
     membershipObjectIds: response.membershipObjectIds,
     objects: objects.map(compactMutationObject),
     diagrams: diagrams.map(compactDiagram),
+    ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
     ...(relationshipReview ? { relationshipReview } : {}),
     validation: compactValidation(quality, response.changedDiagramIds.length),
     visualInspectionStatus: "not_performed" as const,
@@ -1833,6 +2038,7 @@ function conciseDraftReceipt(
   draft: AgentCanvasDraftSnapshot,
   room: RoomState,
   presentation?: ReturnType<NonNullable<JazzboardWebMcpBinding["context"]["getAgentDraftPresentation"]>>,
+  relationshipAssertionReview?: RelationshipAssertionReview | null,
 ) {
   const preview = draftPreviewQuality(room, draft);
   const draftValidation = compactDraftValidation(
@@ -1857,6 +2063,7 @@ function conciseDraftReceipt(
     previewDiagramCount: draft.previewDiagrams.length,
     previewObjects: draft.previewObjects.map(compactMutationObject),
     previewDiagrams: draft.previewDiagrams.map(compactDiagram),
+    ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
     ...(relationshipReview ? { relationshipReview } : {}),
     draftValidation,
     recommendedDraftCorrection: recommendedDraftCorrection(draft, draftValidation),
@@ -2326,9 +2533,9 @@ export function createJazzboardSemanticWebMcpTools(
   const mutations: WebMCP.ModelContextTool[] = [
     defineTool({
       name: "apply_canvas_transaction",
-      title: "Apply or draft a semantic canvas transaction",
+      title: "Canvas transaction",
       description:
-        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review. updateMode=patch sends affected stable tempRefs. Then finish_canvas_draft yourself—no confirmation. Omit delivery for existing corrections. Root: operations/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary are inert." + REVIEW_MODE_RESULT_NOTE,
+        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review; call finish_canvas_draft yourself with no confirmation. relationshipAssertions checks endpoints/direction/label before mutation; no inference. updateMode=patch sends affected stable tempRefs. Edits: omit delivery. Root: operations/relationshipAssertions/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary is inert.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2870,6 +3077,12 @@ export function createJazzboardSemanticWebMcpTools(
           diagramCommands,
           ...(autoLayout ? { autoLayout } : {}),
         };
+        const relationshipAssertionReview = verifyTransactionRelationshipAssertions(
+          input.relationshipAssertions,
+          input.operations,
+          refs,
+          commands,
+        );
         if (input.delivery) {
           // Seed compilation from lifetime reservations so reintroduced
           // tempRefs retain their IDs. Send only refs active in this cumulative
@@ -2914,7 +3127,12 @@ export function createJazzboardSemanticWebMcpTools(
             response.draft.revision,
           );
           if (input.responseDetail === "concise") {
-            return conciseDraftReceipt(response.draft, currentRoom!, presentation);
+            return conciseDraftReceipt(
+              response.draft,
+              currentRoom!,
+              presentation,
+              relationshipAssertionReview,
+            );
           }
           const preview = draftPreviewQuality(currentRoom!, response.draft);
           const draftValidation = compactDraftValidation(
@@ -2938,6 +3156,7 @@ export function createJazzboardSemanticWebMcpTools(
             temporaryReferences: response.draft.temporaryReferences,
             previewObjects: response.draft.previewObjects,
             previewDiagrams: response.draft.previewDiagrams,
+            ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
             ...(relationshipReview ? { relationshipReview } : {}),
             draftValidation,
             recommendedDraftCorrection: recommendedDraftCorrection(response.draft, draftValidation),
@@ -2965,7 +3184,12 @@ export function createJazzboardSemanticWebMcpTools(
           ? diagramQualityReports(response.room, response.changedDiagramIds)
           : { reports: [], omittedDiagramIds: [], omittedDiagramCount: 0, omittedDiagramIdsTruncated: false };
         if (input.responseDetail === "concise") {
-          return conciseMutationReceipt(response, Object.fromEntries(refs), quality);
+          return conciseMutationReceipt(
+            response,
+            Object.fromEntries(refs),
+            quality,
+            relationshipAssertionReview,
+          );
         }
         const resolvedTemporaryReferences = Object.fromEntries(refs);
         const relationshipReview = compactRelationshipReview(
@@ -2985,6 +3209,7 @@ export function createJazzboardSemanticWebMcpTools(
           ...(response.positions === undefined ? {} : { positions: response.positions }),
           objects: response.changedObjectIds.flatMap((objectId) => response.room.objects[objectId] ?? []),
           diagrams: response.changedDiagramIds.flatMap((diagramId) => response.room.diagrams?.[diagramId] ?? []),
+          ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
           ...(relationshipReview ? { relationshipReview } : {}),
           visualQuality: quality.reports,
           visualQualityOmittedDiagramIds: quality.omittedDiagramIds,

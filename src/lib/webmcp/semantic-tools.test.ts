@@ -319,7 +319,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.responseDetail).toEqual({ enum: ["concise", "detailed"] });
     expect(transactionSchema.properties?.operations?.items?.properties?.routing).toMatchObject({
       type: "object",
-      description: expect.stringMatching(/curved needs.*bend.*elbowMidPoint/i),
+      description: expect.stringMatching(/curved.*bend.*elbowMidPoint/i),
     });
     expect(transactionSchema.properties?.operations?.items?.properties?.semanticName).toMatchObject({
       type: "string",
@@ -328,6 +328,21 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.operations?.items?.properties?.semanticRole).toMatchObject({
       type: "string",
       maxLength: 128,
+    });
+    expect(transactionSchema.properties?.relationshipAssertions).toMatchObject({
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["connectorTempRef", "fromTempRef", "toTempRef", "direction"],
+        properties: expect.objectContaining({
+          connectorTempRef: { type: "string" },
+          fromTempRef: { type: "string" },
+          toTempRef: { type: "string" },
+          direction: { enum: ["none", "end", "both"] },
+          exactLabel: { type: "string" },
+        }),
+      },
     });
     expect(transactionSchema.properties?.operations?.items?.properties?.op?.enum).toEqual(
       expect.arrayContaining(["connect", "draw_connection", "update", "update_object"]),
@@ -345,13 +360,13 @@ describe("role-scoped semantic tool registration", () => {
     expect(connectionRequired).toEqual(["op"]);
     for (const field of ["direction", "label", "color"]) expect(connectionRequired).not.toContain(field);
     expect(transactionSchema.properties?.operations?.items?.properties?.start?.description)
-      .toMatch(/objectId\|tempRef/);
+      .toMatch(/point.*object.*tempRef/i);
     const createNodeSchema = operationSchema(transactionSchema, "create_node");
     expect(createNodeSchema.required).toEqual(["op"]);
     expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toMatchObject({
       type: "object",
       additionalProperties: false,
-      description: expect.stringMatching(/lifecycle only.*omit for ordinary/i),
+      description: expect.stringMatching(/decision.*question lifecycle/i),
     });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(["op"]);
@@ -361,6 +376,265 @@ describe("role-scoped semantic tool registration", () => {
     const autoLayoutRequired = operationSchema(transactionSchema, "auto_layout").required ?? [];
     expect(autoLayoutRequired).toEqual(["op"]);
     expect(autoLayoutRequired).not.toContain("density");
+  });
+
+  it("checks caller-authored relationship facts in the same successful transaction", async () => {
+    const baseline = room([]);
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        transaction: Parameters<typeof applySemanticTransaction>[3];
+      };
+      const result = applySemanticTransaction(baseline, "alice", "agent", body.transaction, NOW + 1);
+      return {
+        ok: true,
+        outcome: "applied",
+        ...result,
+        activity: null,
+        proposal: null,
+      };
+    }) as unknown as WebMcpRequest;
+    let nextId = 0;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId: (prefix) => `${prefix}_${++nextId}`,
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_node", tempRef: "source", label: "Source", nodeType: "component" },
+        { op: "create_node", tempRef: "target", label: "Target", nodeType: "service" },
+        {
+          op: "connect",
+          tempRef: "source_to_target",
+          start: { tempRef: "source" },
+          end: { tempRef: "target" },
+          direction: "end",
+          label: "request",
+        },
+        { op: "create_diagram", tempRef: "diagram", title: "System flow" },
+      ],
+      relationshipAssertions: [{
+        connectorTempRef: "source_to_target",
+        fromTempRef: "source",
+        toTempRef: "target",
+        direction: "end",
+        exactLabel: "request",
+      }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        relationshipAssertionReview: {
+          status: "pass",
+          authority: expect.stringMatching(/caller-authored.*inferred no task facts/i),
+          checkedRelationshipCount: 1,
+          connectorTempRefs: ["source_to_target"],
+        },
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(
+      ((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit).body,
+    ));
+    expect(body).not.toHaveProperty("relationshipAssertions");
+    expect(body.transaction).not.toHaveProperty("relationshipAssertions");
+  });
+
+  it("rejects a reversed relationship assertion before any direct state change", async () => {
+    const baseline = room([]);
+    const request = vi.fn(async () => {
+      throw new Error("A failed assertion must not reach the server.");
+    }) as unknown as WebMcpRequest;
+    let nextId = 0;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId: (prefix) => `${prefix}_${++nextId}`,
+    });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [
+        { op: "create_node", tempRef: "source", label: "Source", nodeType: "component" },
+        { op: "create_node", tempRef: "target", label: "Target", nodeType: "service" },
+        {
+          op: "connect",
+          tempRef: "source_to_target",
+          semanticName: "Source requests Target",
+          start: { tempRef: "target" },
+          end: { tempRef: "source" },
+          direction: "end",
+          label: "request",
+        },
+      ],
+      relationshipAssertions: [{
+        connectorTempRef: "source_to_target",
+        fromTempRef: "source",
+        toTempRef: "target",
+        direction: "end",
+        exactLabel: "request",
+      }],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "RELATIONSHIP_ASSERTION_FAILED",
+        message: expect.stringMatching(/1 mismatch.*no Jazzboard state changed/i),
+        details: {
+          stateChanged: false,
+          authority: expect.stringMatching(/did not infer, reverse, route, or repair/i),
+          violations: [{
+            code: "ENDPOINT_MISMATCH",
+            connectorTempRef: "source_to_target",
+            expected: expect.objectContaining({
+              fromTempRef: "source",
+              toTempRef: "target",
+              direction: "end",
+              exactLabel: "request",
+            }),
+            actual: expect.objectContaining({ direction: "end", label: "request" }),
+          }],
+        },
+        recovery: {
+          retry: "after_correction",
+          instructions: expect.stringMatching(/fromTempRef.*actual start.*changed no state/i),
+          suggestedTools: ["get_canvas_capabilities"],
+        },
+      },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("requires complete, resolvable coverage when relationship assertions are supplied", async () => {
+    const baseline = room([]);
+    const request = vi.fn() as unknown as WebMcpRequest;
+    let nextId = 0;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(baseline).binding, {
+      request,
+      createId: (prefix) => `${prefix}_${++nextId}`,
+    });
+    const operations = [
+      { op: "create_node", tempRef: "source", label: "Source", nodeType: "component" },
+      { op: "create_node", tempRef: "target", label: "Target", nodeType: "service" },
+      { op: "connect", tempRef: "request", start: { tempRef: "source" }, end: { tempRef: "target" } },
+      { op: "connect", tempRef: "response", start: { tempRef: "target" }, end: { tempRef: "source" } },
+    ];
+
+    const incomplete = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations,
+      relationshipAssertions: [{
+        connectorTempRef: "request",
+        fromTempRef: "source",
+        toTempRef: "target",
+        direction: "end",
+      }],
+    });
+    expect(incomplete).toMatchObject({
+      ok: false,
+      error: {
+        code: "RELATIONSHIP_ASSERTION_FAILED",
+        details: {
+          violations: [expect.objectContaining({
+            code: "ASSERTION_MISSING_FOR_CONNECTOR_OPERATION",
+            connectorTempRef: "response",
+          })],
+        },
+      },
+    });
+
+    const unresolved = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: operations.slice(0, 3),
+      relationshipAssertions: [{
+        connectorTempRef: "request",
+        fromTempRef: "missing_source",
+        toTempRef: "target",
+        direction: "end",
+      }],
+    });
+    expect(unresolved).toMatchObject({
+      ok: false,
+      error: {
+        code: "RELATIONSHIP_ASSERTION_FAILED",
+        details: {
+          violations: [expect.objectContaining({
+            code: "TEMP_REF_UNRESOLVED",
+            connectorTempRef: "request",
+            expected: { unresolvedTempRefs: ["missing_source"] },
+          })],
+        },
+      },
+    });
+
+    const semanticMismatch = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: operations.slice(0, 3),
+      relationshipAssertions: [{
+        connectorTempRef: "request",
+        fromTempRef: "source",
+        toTempRef: "target",
+        direction: "both",
+        exactLabel: "different label",
+      }],
+    });
+    expect(semanticMismatch).toMatchObject({
+      ok: false,
+      error: {
+        code: "RELATIONSHIP_ASSERTION_FAILED",
+        details: {
+          violations: [
+            expect.objectContaining({ code: "DIRECTION_MISMATCH", connectorTempRef: "request" }),
+            expect.objectContaining({ code: "LABEL_MISMATCH", connectorTempRef: "request" }),
+          ],
+        },
+      },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched exact draft connector patch without replacing the draft", async () => {
+    const previewApi = { ...node("api", "API", "service", 0), authority: "draft" as const };
+    const previewDb = { ...node("db", "DB", "component", 400), authority: "draft" as const };
+    const previewConnector = { ...connector(), authority: "draft" as const };
+    const existingDraft = agentDraft({
+      temporaryReferences: { api: "api", db: "db", request: "api-db" },
+      previewObjects: [previewApi, previewDb, previewConnector],
+    });
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return { ok: true, draft: existingDraft };
+      throw new Error("A failed assertion must not patch the draft.");
+    }) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(room([])).binding, { request });
+
+    const result = await execute(tool(tools, "apply_canvas_transaction"), {
+      operations: [{
+        op: "update_draft_connector",
+        tempRef: "request",
+        start: { tempRef: "db" },
+        end: { tempRef: "api" },
+      }],
+      relationshipAssertions: [{
+        connectorTempRef: "request",
+        fromTempRef: "api",
+        toTempRef: "db",
+        direction: "end",
+        exactLabel: "writes",
+      }],
+      delivery: {
+        mode: "draft",
+        draftId: existingDraft.id,
+        expectedDraftRevision: existingDraft.revision,
+        updateMode: "patch",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "RELATIONSHIP_ASSERTION_FAILED",
+        details: { stateChanged: false },
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
   });
 
   it("keeps the advertised transaction update patch aligned with strict runtime validation", async () => {
@@ -420,10 +694,10 @@ describe("role-scoped semantic tool registration", () => {
 
     expect(patchSchema).toMatchObject({
       type: "object",
-      description: expect.stringMatching(/path coordinates.*documented conventions/i),
+      description: expect.stringMatching(/patch.*path coordinates.*documented/i),
     });
     expect(transactionSchema.properties?.operations?.items?.properties?.segments?.description)
-      .toMatch(/quadratic.*control.*cubic.*control1.*control2/);
+      .toMatch(/quadratic.*control.*cubic.*controls/);
 
     const accepted = await execute(tool(tools, "apply_canvas_transaction"), {
       operations: [{ op: "update", objectId: "api", expectedRevision: 1, patch: acceptedPatch }],
@@ -740,7 +1014,7 @@ describe("progressive draft delivery", () => {
     expect(transactionTool.description).toMatch(/visible multi-object work.*delivery\.mode=draft/i);
     expect(transactionTool.description).toMatch(/bot-traced.*not review/i);
     expect(transactionTool.description).toMatch(/finish_canvas_draft.*yourself.*no confirmation/i);
-    expect(transactionTool.description).toMatch(/existing corrections/i);
+    expect(transactionTool.description).toMatch(/edits.*omit delivery/i);
     expect(transactionTool.description).toMatch(/root:.*no expectedRoomRevision/i);
     expect(transactionTool.description).toMatch(/per-op intent\/summary.*inert/i);
     expect(transactionTool.description).toMatch(/updateMode=patch.*affected stable tempRefs/i);

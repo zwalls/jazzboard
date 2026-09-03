@@ -57,6 +57,13 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
           "Query the reported semantic ID. Update the existing entity with its exact revision when it is the intended target; otherwise choose a fresh stable ID and retry the complete transaction.",
         suggestedTools: ["query_objects", "find_diagrams"],
       };
+    case "RELATIONSHIP_ASSERTION_FAILED":
+      return {
+        retry: "after_correction",
+        instructions:
+          "Read error.details.violations and correct each named connector operation or its caller-authored assertion so fromTempRef is the actual start, toTempRef is the actual end, direction matches, and exactLabel matches when supplied. Preserve the requested facts and retry the complete call once. Jazzboard inferred no relationship and the rejected call changed no state.",
+        suggestedTools: ["get_canvas_capabilities"],
+      };
     case "OBJECT_BUSY":
       return {
         retry: "after_wait",

@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.21.0");
+    expect(AGENT_DOC_VERSION).toBe("1.22.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -262,6 +262,10 @@ describe("agent-readable content", () => {
       "boundary, container, plane, region, zone, or background",
       "`update_object`",
       "`relationshipReview`",
+      "`relationshipAssertions`",
+      "`relationshipAssertionReview`",
+      "`RELATIONSHIP_ASSERTION_FAILED`",
+      "`stateChanged: false`",
       "Do not invent `update_node`, `changes`, or a root `expectedRoomRevision`",
       "connector prose never overrides endpoints",
       "blocks a completion claim",

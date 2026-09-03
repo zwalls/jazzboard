@@ -228,6 +228,8 @@ const AUTHORING_BUNDLE = {
       "create_diagram",
     ],
     temporaryReferences: "resolve-within-one-atomic-request",
+    relationshipAssertions:
+      "optional-caller-authored-tempRef-facts-checked-before-any-state-change",
     diagramMembership: "omitted-infers-created-objects-explicit-arrays-are-exact",
     progressiveDrafts: "create-only-cumulative-replacement",
     preferredVisibleCompositionDelivery: "delivery.mode=draft",
@@ -300,7 +302,7 @@ const ARCHITECTURE_BUNDLE = {
   workflow: [
     "Write a compact visual contract: audience, required entities, relationships, hierarchy, and readability target.",
     "Read the relevant Diagram or neighborhood; do not load unrelated board state.",
-    "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
+    "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references. When the request supplies explicit relationship facts, include caller-authored relationshipAssertions in the same call so compiled endpoint/direction mistakes fail before mutation; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
     "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
     "Read the live draft only when semantic inspection helps, then autonomously finish the latest exact revision once without asking for confirmation. Progressive delivery is animation, not review. Jazzboard waits for visible construction internally; after finish returns applied, run its recommended exact artifact inspection and, when present, its exact whole-room composition inspection. Judge the screenshot crop plus descriptive scale, whitespace, distribution, and surrounding-content facts against user intent, then patch only identified defects. If finish returns proposed, report the true room review boundary without claiming publication.",
@@ -363,6 +365,13 @@ const ARCHITECTURE_BUNDLE = {
             diagramType: "architecture",
           },
         ],
+        relationshipAssertions: [{
+          connectorTempRef: "request",
+          fromTempRef: "client",
+          toTempRef: "api",
+          direction: "end",
+          exactLabel: "request",
+        }],
         delivery: { mode: "draft" },
       },
       semantics:
@@ -665,6 +674,13 @@ const QUICKSTART_CANONICAL_DRAFT_SKELETON = {
       connectors: [{ tempRef: "source_to_target" }],
     },
   ],
+  relationshipAssertions: [{
+    connectorTempRef: "source_to_target",
+    fromTempRef: "source",
+    toTempRef: "target",
+    direction: "end",
+    exactLabel: "request",
+  }],
   delivery: { mode: "draft" },
   responseDetail: "concise",
   intent: "Create the requested system flow.",
@@ -679,13 +695,6 @@ const QUICKSTART_CANONICAL_DIRECT_CORRECTION = {
       expectedRevision: 1,
       patch: { width: 240 },
     }],
-    responseDetail: "concise",
-  },
-  addCaptionAndMembership: {
-    operations: [
-      { op: "create_text", tempRef: "caption", content: "reads", semanticName: "Reads caption", semanticRole: "architecture.edge_label", x: 320, y: 120, width: 120, height: 28 },
-      { op: "edit_diagram", diagramId: "authoritative_diagram_id", expectedRevision: 1, addMembers: [{ tempRef: "caption" }] },
-    ],
     responseDetail: "concise",
   },
 } as const;
@@ -751,12 +760,12 @@ function canvasQuickstart(
     purpose:
       `Fast path for new ${task} work; do not preload bundles.`,
     fastPath: [
-      "Blank target: skip room-wide read; otherwise read the narrowest Diagram, neighborhood, or region.",
-      "Submit one coherent create-only draft: stable tempRefs, one Diagram, responseDetail=concise; never chunk for animation.",
-      "Schema rejection: correct every path and retry once without deleting Diagram or membership.",
-      "Use draftValidation; patch only affected refs (update_draft_connector for edges), recheck intent.",
-      "Call finish_canvas_draft once with action=commit and latest revision; no user confirmation.",
-      "Inspect pixels via inspect_canvas_scope; make one canonical direct correction, with no extra bundle or guessed fields.",
+      "Blank target: skip room read; otherwise read the narrowest Diagram, neighborhood, or region.",
+      "Submit one coherent draft with stable tempRefs, one Diagram, concise response, and relationshipAssertions for explicit facts; never chunk for animation.",
+      "On schema rejection, correct every path once; preserve Diagram and membership.",
+      "Use draftValidation; patch only affected refs, then recheck intent.",
+      "Call finish_canvas_draft once with action=commit and latest revision; no confirmation.",
+      "Inspect pixels via inspect_canvas_scope; make one direct correction without guessed fields.",
       "Blank capture: follow onBlankCapture once; reframe and recapture.",
     ],
     transactionContract: {
@@ -783,7 +792,7 @@ function canvasQuickstart(
       "New create_diagram: tempRef/title/description/diagramType/category/tags/members/connectors; no spatial/semantic identity. diagramTempRef is only for edit_diagram draft patches, never object creates. Fix errors; keep semantic structure.",
       "Ports are {side:left|right|top|bottom,position:0..1,exact:boolean}, not strings.",
       "Curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
-      "Before finish, compare relationshipReview actual start->end with task facts; names/labels never override endpoints.",
+      "For explicit facts, relationshipAssertions checks endpoint, direction, label, coverage, and tempRefs before mutation without choosing facts. Before finish, compare relationshipReview actual start->end with task facts; prose never overrides endpoints.",
       "Node floors for 1/2/3 lines: 180x88/220x110/260x132; width >= 12*longest visible line characters+48. Deliberate exceptions are valid; correct outward or shorten, never into occupied space.",
       "Straight labeled edge gap >= max(160,12*visible label characters+48); else shorten or use an empty curved/elbow label lane. Keep necessary meaning.",
       "If one row makes the overview microscopic, choose multiple rows/ranks with clear reading order. Guidance only; never imposed layout or creative authority.",
