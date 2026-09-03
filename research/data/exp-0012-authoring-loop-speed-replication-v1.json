@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0012",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-replication",
+  "productChange": {
+    "description": "Same product candidate as EXP-0011: transaction aliases, exact draft Diagram patches by temporary reference, and compact first-pass architecture guidance.",
+    "commit": "3f9a66c82d5b9aaa8eaf7b1966a9be02b543307a"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064ab-018f-7702-8fb1-93d751b07ddc",
+    "turnId": "01a064ab-0389-7f23-8678-614e1827eefa",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 146890,
+      "accountedWallMs": 147000,
+      "hostExecutionMs": 28473,
+      "modelAndCoordinationMs": 118527,
+      "hostExecutionShare": 0.1936938775510204
+    },
+    "calls": {
+      "hostCallCount": 13,
+      "failedHostCallCount": 2,
+      "webMcpCallCount": 7,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 3,
+      "acceptedDraftTransactionCallCount": 3,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 3,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "read_room_state": 1
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 2,
+      "objectCount": 9,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 6,
+      "declaredDiagramConnectorCount": 3,
+      "deterministicGeometryStatus": "pass",
+      "authorPixelCapture": "completed_full_viewport_after_revision_bound_inspection",
+      "independentExactClipCapture": "completed"
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a064af-023e-79d1-867d-42608167ac2b",
+    "turnId": "01a064af-0437-7651-a3ba-6014fdc4ddec",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 31023,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "outputTransport": "yes_no_strings_for_boolean_semantics",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "blockingGeometryViolations": 0,
+      "duplicateSemanticCredit": false,
+      "diagramMembershipCoherent": true,
+      "overall": "pass"
+    }
+  },
+  "mechanismEvidence": {
+    "transactionAliasesNeeded": false,
+    "draftDiagramPatchNeeded": false,
+    "draftValidationProgression": [
+      {
+        "draftRevision": 1,
+        "failCount": 7,
+        "warningCount": 1
+      },
+      {
+        "draftRevision": 2,
+        "failCount": 0,
+        "warningCount": 1
+      },
+      {
+        "draftRevision": 3,
+        "failCount": 0,
+        "warningCount": 0
+      }
+    ],
+    "friction": [
+      {
+        "code": "AUTHOR_SKILL_PATH_MISS",
+        "cause": "The isolated author first tried one obsolete local browser-skill path before resolving the installed path.",
+        "stateChanged": false
+      },
+      {
+        "code": "BROWSER_CAPABILITY_DOCUMENTATION_MISS",
+        "cause": "The author called documentation on the page WebMCP capability object; the call failed, but the live capability handle remained valid and fetchTools succeeded immediately afterward.",
+        "stateChanged": false
+      }
+    ]
+  },
+  "replicatedComparison": {
+    "candidateRuns": [
+      {
+        "sourceExperiment": "EXP-0011",
+        "totalWallMs": 152494,
+        "blindedReview": "pass"
+      },
+      {
+        "sourceExperiment": "EXP-0012",
+        "totalWallMs": 146890,
+        "blindedReview": "pass"
+      }
+    ],
+    "candidateMeanWallMs": 149692,
+    "candidateRangeWallMs": [146890, 152494],
+    "precedingPassingRuns": [
+      {
+        "sourceExperiment": "EXP-0009",
+        "totalWallMs": 269038,
+        "blindedReview": "pass"
+      },
+      {
+        "sourceExperiment": "EXP-0010",
+        "totalWallMs": 270617,
+        "blindedReview": "pass"
+      }
+    ],
+    "precedingPassingMeanWallMs": 269827.5,
+    "descriptiveMeanImprovementMs": 120135.5,
+    "descriptiveMeanImprovementFraction": 0.4452307492749998,
+    "priorBestAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "blindedReview": "pass"
+    },
+    "descriptiveMeanImprovementFromPriorBestMs": 22249,
+    "descriptiveMeanImprovementFromPriorBestFraction": 0.1293990380421191,
+    "interpretation": "Two independent same-commit authors passed blinded review in a tight 146.9-152.5 second range. The candidate pair is descriptively 44.5% faster than the immediately preceding passing pair and 12.9% faster than the earlier best passing checkout run. This replicates the directional mechanism signal but is not a population effect estimate."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "495d2a6b8b7296893fa7760f5e80e339b780f68b379464f60f04494446341314",
+    "cleanPngBytes": 19006,
+    "sanitizedStateSha256": "a98859afff8283ebc5f0ef65335db5d5d833fd891358d1fdbd8f630d487cfd94",
+    "rawAuthorSessionSha256": "7ffa316a7a1fa54eedeb9316a5b1db7d0d628214f77445c275fdc1ec62f377c1",
+    "rawReviewerSessionSha256": "9adb829cce52ce5355cb05a24713fcfbae4556c73571cbf2297b0df47671b7b8",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "acceptedCompletionTimeMs": 146890,
+    "sameCommitSpeedSignalReplicated": true,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Freeze this candidate as the simple-architecture speed baseline. Run a larger architecture task without changing the product to measure scale-dependent authoring, draft-correction, and inspection time before selecting the next intervention."
+  }
+}
