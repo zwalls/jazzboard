@@ -1,0 +1,249 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0030",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-route-conflict-cluster",
+  "productChange": {
+    "description": "Compact route-conflict clusters spanning connector crossings, label-edge collisions, and congested attachments without automatic routing or composition.",
+    "commit": "f3c9ceb9c363911115689118fb714cea171e06cf"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0029": false,
+    "matchedHistoricalCandidate": "EXP-0004"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0666f-ef8b-7f03-a0b8-d73ac7972a08",
+    "turnId": "01a0666f-f0e0-7893-b417-898d78cf5f6c",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 272832,
+      "rawSessionWallMs": 272832,
+      "hostExecutionMs": 38567,
+      "modelAndCoordinationMs": 234433,
+      "hostExecutionShare": 0.141271
+    },
+    "calls": {
+      "hostCallCount": 17,
+      "failedHostCallCount": 2,
+      "webMcpBusinessCallCount": 9,
+      "webMcpDescriptorFetchCount": 1,
+      "webMcpBusinessFailureCount": 2,
+      "acceptedDraftTransactionCallCount": 2,
+      "draftPatchCount": 1,
+      "semanticInspectionCallCount": 3,
+      "browserDomSnapshotCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 1,
+        "apply_canvas_transaction": 2,
+        "inspect_canvas_scope": 3,
+        "finish_canvas_draft": 2
+      }
+    },
+    "result": {
+      "status": "completed_with_failed_visual_quality_gate",
+      "roomRevision": 4,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 70,
+        "y": 51,
+        "width": 870,
+        "height": 489.554
+      },
+      "independentExactViewportCapture": "completed",
+      "qualityGatePassed": false
+    }
+  },
+  "draftCorrectionEvidence": {
+    "routeAmbiguityClusterEvidenceExercised": true,
+    "draftScopedInspectionSucceeded": true,
+    "acceptedDraftResponseBytes": 60564,
+    "acceptedDraftTransactions": [
+      {
+        "draftRevision": 1,
+        "responseBytes": 26354,
+        "findingCount": 25,
+        "failCount": 21,
+        "warningCount": 4,
+        "endpointReentryCount": 2,
+        "routeAmbiguityClusterCount": 1
+      },
+      {
+        "draftRevision": 2,
+        "responseBytes": 34210,
+        "findingCount": 26,
+        "failCount": 17,
+        "warningCount": 9,
+        "endpointReentryCount": 8,
+        "routeAmbiguityClusterCount": 2
+      }
+    ],
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author inspected the draft and saw the candidate's fail-level cluster evidence, but committed with 17 fail-level findings still unresolved and explicitly reported that the artifact needed another routing pass."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "confirmed_or_unobservable_without_mismatch"
+  },
+  "deterministicGeometryAudit": {
+    "status": "fail",
+    "coverage": "complete",
+    "findingCount": 26,
+    "warningCount": 9,
+    "failCount": 17,
+    "findingTypes": {
+      "CONNECTOR_CROSSING": 2,
+      "CONNECTOR_ENDPOINT_REENTRY": 8,
+      "CONNECTOR_LABEL_EDGE_COLLISION": 4,
+      "CONNECTOR_LABEL_LABEL_COLLISION": 1,
+      "CONNECTOR_LABEL_OBJECT_COLLISION": 4,
+      "CONNECTOR_OBJECT_INTRUSION": 2,
+      "CONNECTOR_ROUTE_AMBIGUITY_CLUSTER": 2,
+      "MEMBER_SPACING_TOO_SMALL": 3
+    },
+    "connectorCrossingPairCount": 2,
+    "sharedSegmentPairCount": 0,
+    "endpointReentryCount": 8,
+    "routeAmbiguityClusterCount": 2,
+    "minimumObservedSpacing": 29.732,
+    "outsideLayoutScaffoldConnectorCount": 0
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a06676-1d6c-7141-b925-2cff1ccff20a",
+      "turnId": "01a06676-1ed4-7390-9795-eedd82dfbe3f",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 111995,
+      "verdict": {
+        "denseFacts": "fail",
+        "denseRouting": "fail",
+        "denseAntigaming": "fail",
+        "blockingGeometryViolations": 5,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "The write label was hidden beneath the replication label.",
+        "The Client request label covered its route and destination arrowhead.",
+        "Request and observe routes converged or crossed ambiguously.",
+        "The Gateway-to-Service-B route appeared to originate from Monitor.",
+        "The frame title overlapped central node and route geometry."
+      ]
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a06676-37a0-75b2-b6a8-090508c65478",
+      "turnId": "01a06676-3909-78d3-b1f2-15983accdc13",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 102381,
+      "verdict": {
+        "denseFacts": "fail",
+        "denseRouting": "fail",
+        "denseAntigaming": "fail",
+        "blockingGeometryViolations": 7,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "The write label was not visibly readable.",
+        "The Client request label obscured its connector and direction.",
+        "Request and observe curves crossed and intruded into nearby geometry.",
+        "The Gateway-to-Service-B route crossed the Monitor boundary.",
+        "The write connector intruded through the Primary DB label.",
+        "The System view scaffold label overlapped central geometry."
+      ]
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary verdict: the rendered artifact failed factual readability, routing, and anti-gaming."
+  },
+  "comparisons": {
+    "toExp0029FailedCandidate": {
+      "predecessorWallMs": 301391,
+      "currentWallMs": 272832,
+      "wallDecreaseMs": 28559,
+      "wallDecreaseFraction": 0.094757,
+      "predecessorWebMcpBusinessCalls": 15,
+      "currentWebMcpBusinessCalls": 9,
+      "predecessorAcceptedDraftTransactions": 6,
+      "currentAcceptedDraftTransactions": 2,
+      "predecessorDraftResponseBytes": 144685,
+      "currentDraftResponseBytes": 60564,
+      "draftResponseByteDecreaseFraction": 0.581408,
+      "interpretation": "The lower latency and traffic came from premature commit with 17 fail-level findings, not faster accepted-quality convergence."
+    },
+    "toExp0004AcceptedCandidate": {
+      "predecessorWallMs": 270038,
+      "currentWallMs": 272832,
+      "wallIncreaseMs": 2794,
+      "wallIncreaseFraction": 0.010347,
+      "interpretation": "The current run is not comparable as accepted-completion speed because it failed the visual quality gate."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "75557e5c2657815df8a815819d63c7932b0e33d03c729b771e134c6e5f1b09ab",
+    "primaryASessionSha256": "33255d3a3b28f13b691ff49003dd1b5c4c8e85e6601a3cd2589f1f859f0bd318",
+    "primaryBSessionSha256": "fb80c97255d3b049b9a2c87e8e29b7a7b09d5eeaee0bb2ce0f3c54323afa08ba",
+    "sanitizedStateSha256": "89da59d2e73a0a13d948e7ff7894a5480168d562068f98d5192da2be858a5619",
+    "pixelArtifactSha256": "e2775a77e7051fa89dcd146793a40eaab7e2c709401897d3fc78e5a355ee6b70",
+    "authoritativeAuditArtifactSha256": "bd2be0c9749abd3fdcbde3d244cdca25c1a67e549d04d60577554952e08face3",
+    "deterministicLayoutArtifactSha256": "462d5e4c3b3f6299813596af26b2ba19bb53fa2c2706cafa6751ac84d08d2e00",
+    "primaryAVerdictSha256": "3b3d696cfa02a52f860e1acb8630805290d7930c1cd063985d052567665134cb",
+    "primaryBVerdictSha256": "4b14b32c4d3558ee70abba5529268a671bc2582a077f0b526cc8bed8595ace7e"
+  },
+  "decision": {
+    "status": "evidence_mechanism_passed_quality_adjusted_result_regressed",
+    "retainProductChange": true,
+    "whyRetain": "The candidate exposed two holistic conflict clusters that matched both reviewers' central route-ambiguity concerns and did not constrain author geometry.",
+    "nextIntervention": "Require resolution or explicit per-finding intentional acknowledgement before committing a fail-level draft. Reject stale or incomplete acknowledgement sets without mutating the room; do not auto-route or compose."
+  }
+}
