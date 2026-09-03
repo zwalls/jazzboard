@@ -1,0 +1,297 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0034",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-actionable-route-recovery",
+  "productChange": {
+    "description": "When every agent-authored route candidate still fails deterministic checks, expose an explicit completion gate and recovery branch requiring materially different agent-authored routes or agent-chosen node geometry before rechecking; Jazzboard does not generate, rank, select, apply, lay out, route, or render a candidate.",
+    "commit": "bf72284dcedf0706baaf68de9029fdccd6fd6e27"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0033": false,
+    "initialRoomRevision": 3
+  },
+  "isolatedAuthor": {
+    "taskId": "01a066e3-b4ab-7282-9cd2-e58b188846dc",
+    "turnId": "01a066e3-b617-7240-bd96-0fa5a4abfbaa",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsageAfterAttemptPercent": 95,
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 303113,
+      "rawSessionWallMs": 303113,
+      "hostExecutionMs": 48623,
+      "modelAndCoordinationMs": 254377,
+      "hostExecutionShare": 0.160472
+    },
+    "calls": {
+      "hostCallCount": 21,
+      "failedHostCallCount": 1,
+      "webMcpBusinessCallCount": 13,
+      "webMcpDescriptorFetchCount": 2,
+      "webMcpBusinessFailureCount": 0,
+      "acceptedDraftTransactionCallCount": 4,
+      "draftPatchOrReplacementCount": 3,
+      "semanticInspectionCallCount": 3,
+      "pixelCaptureCount": 3,
+      "routeCandidateComparisonCallCount": 2,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 2,
+        "apply_canvas_transaction": 4,
+        "analyze_diagram_layout": 2,
+        "inspect_canvas_scope": 3,
+        "finish_canvas_draft": 1
+      }
+    },
+    "result": {
+      "status": "completed_with_unanimous_quality_pass",
+      "roomRevision": 4,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 33,
+        "y": 37,
+        "width": 919,
+        "height": 481
+      },
+      "independentExactExport": "completed",
+      "qualityGatePassed": true
+    }
+  },
+  "draftCorrectionEvidence": {
+    "recommendedRouteComparisonExposed": true,
+    "allFailRecoveryBranchExposed": true,
+    "routeComparisonMechanismUsed": true,
+    "acceptedDraftResponseBytes": 108504,
+    "acceptedDraftTransactionCount": 4,
+    "initialDraft": {
+      "draftRevision": 1,
+      "failCount": 11,
+      "warningCount": 7,
+      "findingCount": 18
+    },
+    "nodeGeometryReplacement": {
+      "draftRevision": 2,
+      "failCount": 17,
+      "warningCount": 4,
+      "findingCount": 21
+    },
+    "firstRouteComparison": {
+      "draftRevision": 2,
+      "baselineFailCount": 17,
+      "baselineWarningCount": 4,
+      "allEvaluatedCandidatesHaveFailures": true,
+      "candidates": [
+        {
+          "candidateId": "perimeter_elbows",
+          "failCount": 3,
+          "warningCount": 8,
+          "findingCount": 11,
+          "failFree": false,
+          "applied": false
+        },
+        {
+          "candidateId": "right_lanes",
+          "failCount": 1,
+          "warningCount": 6,
+          "findingCount": 7,
+          "failFree": false,
+          "applied": false
+        }
+      ]
+    },
+    "secondRouteComparison": {
+      "draftRevision": 2,
+      "allEvaluatedCandidatesHaveFailures": false,
+      "candidates": [
+        {
+          "candidateId": "right_lanes",
+          "failCount": 1,
+          "warningCount": 6,
+          "findingCount": 7,
+          "failFree": false,
+          "applied": false
+        },
+        {
+          "candidateId": "separated_service_a_ports",
+          "failCount": 0,
+          "warningCount": 1,
+          "findingCount": 1,
+          "failFree": true,
+          "applied": true
+        }
+      ]
+    },
+    "selectedRoutePatch": {
+      "draftRevision": 3,
+      "failCount": 0,
+      "warningCount": 1,
+      "findingCount": 1
+    },
+    "finalAgentAuthoredCorrection": {
+      "draftRevision": 4,
+      "description": "Kept the remaining event route inside the fixed evaluation frame after inspecting exact draft pixels.",
+      "failCount": 0,
+      "warningCount": 0,
+      "findingCount": 0
+    },
+    "draftRevisionChangedByComparison": false,
+    "authoritativeStateChangedByComparison": false,
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "After the first two alternatives both failed, the author followed the exposed recovery branch, authored a materially different route candidate, found one fail-free alternative without Jazzboard selecting it, applied its own choice, inspected pixels, corrected the remaining warning, and committed."
+  },
+  "authoritativeFactAudit": {
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "confirmed"
+  },
+  "deterministicGeometryAudit": {
+    "status": "pass",
+    "coverage": "complete",
+    "findingCount": 0,
+    "warningCount": 0,
+    "failCount": 0,
+    "connectorCrossingPairCount": 0,
+    "sharedSegmentPairCount": 0,
+    "endpointReentryCount": 0,
+    "routeAmbiguityClusterCount": 0,
+    "minimumObservedSpacing": 72,
+    "outsideLayoutScaffoldConnectorCount": 0,
+    "truncatedConnectorLabelCount": 0,
+    "truncatedShapeLabelCount": 0,
+    "truncatedTextContentCount": 0
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a066ec-5eb6-7a30-a79f-4594ca48e402",
+      "turnId": "01a066ec-6022-7650-a626-89b3486b6adf",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 32205,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "pass",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 0,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a066ec-4aad-7c80-9290-6cbe69da7c28",
+      "turnId": "01a066ec-4c21-79e0-aabc-5fe55e5ef0c3",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 35941,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "pass",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 0,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same passing criterion verdicts and zero blocking geometry violations."
+  },
+  "comparisons": {
+    "toExp0033": {
+      "predecessorWallMs": 287120,
+      "currentWallMs": 303113,
+      "wallDeltaMs": 15993,
+      "wallDeltaFraction": 0.055701,
+      "predecessorWebMcpBusinessCalls": 8,
+      "currentWebMcpBusinessCalls": 13,
+      "interpretation": "The accepted attempt took 5.57% longer than the terminal failed attempt, but converted an uncommitted artifact into a deterministic and unanimous blinded pass; this is not a like-for-like latency regression."
+    },
+    "toExp0032": {
+      "predecessorWallMs": 320287,
+      "currentWallMs": 303113,
+      "wallDeltaMs": -17174,
+      "wallDeltaFraction": -0.053621,
+      "predecessorWebMcpBusinessCalls": 14,
+      "currentWebMcpBusinessCalls": 13,
+      "predecessorAcceptedDraftTransactions": 7,
+      "currentAcceptedDraftTransactions": 4,
+      "predecessorDraftResponseBytes": 146439,
+      "currentDraftResponseBytes": 108504,
+      "draftResponseByteDeltaFraction": -0.25905,
+      "interpretation": "The first unanimously accepted artifact completed 5.36% faster, with one fewer business call, three fewer draft transactions, and 25.90% fewer draft-response bytes than the failed EXP-0032 artifact."
+    },
+    "toExp0031": {
+      "predecessorWallMs": 553909,
+      "currentWallMs": 303113,
+      "wallDeltaMs": -250796,
+      "wallDeltaFraction": -0.452775,
+      "predecessorWebMcpBusinessCalls": 24,
+      "currentWebMcpBusinessCalls": 13,
+      "predecessorAcceptedDraftTransactions": 16,
+      "currentAcceptedDraftTransactions": 4,
+      "predecessorDraftResponseBytes": 253607,
+      "currentDraftResponseBytes": 108504,
+      "draftResponseByteDeltaFraction": -0.572157,
+      "interpretation": "Compared with the previous near-clean but reviewer-failed completion, EXP-0034 was 45.28% faster, used 45.83% fewer business calls, 75% fewer draft transactions, and 57.22% fewer draft-response bytes while eliminating the final blocking crossing."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "1c95bb5b2145407dc7caab4052e67b91beb644cd508d819dcba65b0b1f362079",
+    "sanitizedStateSha256": "53e9f9e031d15b8752efb23708ff6d11e0099482f29cd64a31decdef5b42bdd7",
+    "authoritativeStateSha256": "8d83ab65e212bc573c5d1b95847eb3491692518a43419c2ab96b2f2dbe022307",
+    "deterministicLayoutSha256": "ce2848a7cd8ee2c0b832270b2785ffcb01299d736b31bc655e8f1cd65d672c0f",
+    "finalPixelArtifactSha256": "5bb518f6fbce8c2130fa2d73dd2210aa629c8905839504b5c1c4c3b537ffbd0d",
+    "reviewerASessionSha256": "3d74c4489594b41b0fbe9fa8e71c6d73721591b3b34e1b5a1ce857fa30041673",
+    "reviewerBSessionSha256": "8e2fe481229790f65cb2c664c02eb939950b1c2ec96a0e513bdcca0c12645e02",
+    "reviewerAVerdictSha256": "106b3d6e05e14626fa6ffe0af621612eb6c49389f011e198829ea5613f0d084c",
+    "reviewerBVerdictSha256": "f092f4751fcb04380f4b68fa8c15015efe191e9d0616516f35df91a6cc338537"
+  },
+  "decision": {
+    "status": "accepted_first_unanimous_dense_routing_speed_quality_result",
+    "retainProductChange": true,
+    "nextIntervention": "Replicate the accepted result before estimating a stable effect size. The next speed target is the 105.6 seconds spent in inspection and 99.7 seconds of model/coordination time before the initial draft calls, while preserving exact pixel QA and agent-owned composition."
+  }
+}
