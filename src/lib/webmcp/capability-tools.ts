@@ -617,6 +617,7 @@ export type JazzboardCanvasQuickstart = Readonly<{
   draftPreflight: Readonly<{
     field: "draftValidation";
     losslessCorrectionField: "canonicalDraftCorrectionJson";
+    routeComparisonField: "recommendedRouteComparison";
     authority: string;
     correction: string;
   }>;
@@ -774,13 +775,14 @@ function canvasQuickstart(
     purpose:
       `${task} fast path.`,
     fastPath: [
-      "Blank target: skip read; otherwise read narrowly.",
+      "Blank target: skip read; else read narrow.",
       "Adapt canonicalDraftJson as one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "Schema rejection: fix all paths once; preserve Diagram/membership.",
-      "draftValidation findings: parse canonicalDraftCorrectionJson and combine compatible agent-chosen fixes. failCount=0 does not clear task-relevant warnings.",
+      "draftValidation: parse canonicalDraftCorrectionJson; failCount=0 does not clear task-relevant warnings.",
+      "Connector conflicts: follow recommendedRouteComparison; author 2-8 routes, compare read-only, choose and apply one.",
       "Call finish_canvas_draft once at latest revision; no confirmation.",
       "Inspect pixels once with inspect_canvas_scope; correct identified defects without guessing.",
-      "Blank capture: onBlankCapture once.",
+      "Blank: onBlankCapture.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -788,34 +790,34 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Creates carry semanticName/semanticRole.",
+        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Creates need semantic identity.",
       schemaAuthority:
         "Registered schema is final; fix every path and never retry unchanged.",
     },
     draftPreflight: {
       field: "draftValidation",
       losslessCorrectionField: "canonicalDraftCorrectionJson",
+      routeComparisonField: "recommendedRouteComparison",
       authority:
         "Intent-unaware evidence; never override requested or deliberate geometry.",
       correction:
-        "Parse canonicalDraftCorrectionJson, choose and combine fixes, then recheck once; task-relevant warnings survive failCount=0.",
+        "If canonicalDraftCorrectionJson has recommendedRouteComparison, author 2-8 alternatives in its exact contract, compare read-only with analyze_diagram_layout, choose and apply one, recheck, then inspect pixels. Jazzboard never generates or chooses geometry.",
     },
     canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,
     readabilityHeuristics: [
-      "First draft uses delivery={mode:draft}; patch/replace draftId needs expectedDraftRevision.",
-      "New create_diagram: tempRef/title/description/diagramType/category/tags/members/connectors; no spatial/semantic identity. diagramTempRef is only for edit_diagram draft patches, never object creates. Fix errors; keep semantic structure.",
+      "First draft: delivery.mode=draft; patch/replace draftId needs expectedDraftRevision.",
+      "New create_diagram: tempRef/title/description/type/category/tags/members/connectors; no spatial/semantic identity. diagramTempRef only: edit_diagram draft patches, never object creates. Fix errors; keep semantic structure.",
       "Ports are {side:left|right|top|bottom,position:0..1,exact:boolean}, not strings.",
-      "Curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
-      "For explicit facts, relationshipAssertions checks endpoint, direction, label, coverage, and tempRefs before mutation without choosing facts. Before finish, compare relationshipReview actual start->end with task facts; prose never overrides endpoints.",
-      "Node floors for 1/2/3 lines: 180x88/220x110/260x132; width >= 12*longest visible line characters+48. Deliberate exceptions are valid; correct outward or shorten, never into occupied space.",
+      "Curved: |bend|>=8; midpoints are 0..1.",
+      "relationshipAssertions checks explicit endpoints/direction/label/coverage/tempRefs before mutation without choosing facts. Before finish, compare relationshipReview actual start->end with task facts; prose never overrides endpoints.",
+      "Node floors 1/2/3 lines: 180x88/220x110/260x132; width >= 12*longest visible line characters+48. Deliberate exceptions valid; correct outward or shorten, never into occupied space.",
       "Straight labeled edge gap >= max(160,12*visible label characters+48); else shorten or use an empty curved/elbow label lane. Keep necessary meaning.",
       "If one row makes the overview microscopic, choose multiple rows/ranks with clear reading order. Guidance only; never imposed layout or creative authority.",
       "Shared sides/hubs need distinct ports and empty lanes chosen before creation; layout is not imposed.",
-      "Container/plane: semanticRole boundary/container/plane/region/zone/background; empty shape label; inset title; 72-unit clear header. Containment is ignored; title occlusion reports.",
-      "Draft Diagram metadata/membership: edit_diagram + diagramTempRef + exact patch delivery.",
+      "Container/plane: semanticRole boundary/container/plane/region/zone/background; empty shape label, inset title, 72-unit clear header. Containment ignored; title occlusion reports.",
+      "Draft Diagram edit: edit_diagram + diagramTempRef + exact patch delivery.",
       "Patch unintended failures (update_draft_connector for edges), recheck, then inspect newest revision; geometryQualityStatus=fail blocks conventional completion.",
-      "Criteria-forbidden geometry blocks finish; only deliberate creative overlap may use exact per-key acknowledgements.",
     ],
     completion: {
       tool: "finish_canvas_draft",

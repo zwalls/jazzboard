@@ -1499,8 +1499,33 @@ describe("progressive draft delivery", () => {
           }],
         },
         canonicalDraftCorrectionJson: expect.any(String),
+        recommendedRouteComparison: {
+          tool: "analyze_diagram_layout",
+          mode: "read_only_exact_draft_route_comparison",
+          affectedConnectorTempRefs: ["request"],
+          inputContract: {
+            draftId: "draft_cramped",
+            expectedDraftRevision: 1,
+            routeCandidates: {
+              minItems: 2,
+              maxItems: 8,
+              authoredBy: "agent",
+              itemShape: {
+                candidateId: "<unique agent-authored id>",
+                operations: [{
+                  op: "update_draft_connector",
+                  tempRef: "<affected connector tempRef>",
+                  optionalFields: ["start", "end", "routing", "label"],
+                }],
+                operationLimit: 24,
+              },
+            },
+          },
+          authorityBoundary: expect.stringMatching(/does not generate.*rank.*select.*apply.*route.*render/i),
+          completionRule: expect.stringMatching(/recheck.*inspect pixels/i),
+        },
         nextStep: expect.stringMatching(
-          /relationshipReview.*requested facts.*parse canonicalDraftCorrectionJson once.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
+          /relationshipReview.*requested facts.*parse canonicalDraftCorrectionJson once.*recommendedRouteComparison.*2-8.*analyze_diagram_layout.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
         ),
       },
     });
@@ -1527,6 +1552,15 @@ describe("progressive draft delivery", () => {
       },
       geometryQualityStatus: "fail",
       diagramTempRefs: ["diagram"],
+      recommendedRouteComparison: {
+        tool: "analyze_diagram_layout",
+        affectedConnectorTempRefs: ["request"],
+        inputContract: {
+          draftId: "draft_cramped",
+          expectedDraftRevision: 1,
+          routeCandidates: expect.objectContaining({ minItems: 2, maxItems: 8 }),
+        },
+      },
       findings: expect.arrayContaining([
         expect.objectContaining({
           findingKey: expect.stringMatching(/^diagram:member_object_overlap:[a-f0-9]{8}$/),

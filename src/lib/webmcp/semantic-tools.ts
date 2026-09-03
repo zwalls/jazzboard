@@ -1435,6 +1435,7 @@ const AUTOMATIC_DIAGRAM_QUALITY_OMITTED_ID_LIMIT = 64;
 const DRAFT_VALIDATION_FINDING_LIMIT = 24;
 const CANONICAL_DRAFT_CORRECTION_BYTE_LIMIT = 32_768;
 const CANONICAL_DRAFT_DISPLAY_TEXT_LIMIT = 240;
+const DRAFT_ROUTE_COMPARISON_CONNECTOR_LIMIT = 12;
 // A persisted Diagram can contain at most 500 connector IDs. Returning every
 // resolved route for a valid Diagram keeps the analyze -> preview -> correct
 // loop complete without introducing a second pagination protocol. The report
@@ -2047,12 +2048,60 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
+    const routeComparisonStep = validation.findings.some(
+      (finding) => finding.connectorIds.length > 0,
+    )
+      ? " Before serially patching a connector conflict, follow recommendedRouteComparison: author 2-8 materially different route alternatives, compare them read-only with analyze_diagram_layout, then choose and apply one yourself. Jazzboard does not generate, rank, select, apply, lay out, route, or render a candidate; pixel inspection remains required."
+      : "";
     const inspectionStep = validation.failCount === 0
       ? " If the remaining warnings are deliberate or require visual judgment, run recommendedInspection once now to inspect this exact uncommitted draft with its authoritative room surroundings. Correct any unintended pixel-level defect against the user's intent; otherwise finish the draft."
       : "";
-    return `${relationshipStep}Parse canonicalDraftCorrectionJson once for every finding, affected stable tempRef, exact local geometry, and this revision's patch contract. Choose and combine compatible corrections yourself. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete original create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new concise receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended task-relevant finding remains. Deliberate geometry is valid and should be preserved.${inspectionStep} Then call finish_canvas_draft once with action=commit and this exact revision; no user confirmation is required.`;
+    return `${relationshipStep}Parse canonicalDraftCorrectionJson once for every finding, affected stable tempRef, exact local geometry, and this revision's patch contract. Choose and combine compatible corrections yourself.${routeComparisonStep} If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete original create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new concise receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended task-relevant finding remains. Deliberate geometry is valid and should be preserved.${inspectionStep} Then call finish_canvas_draft once with action=commit and this exact revision; no user confirmation is required.`;
   }
   return `${relationshipStep}Draft geometry has no reported deterministic blockers. Run recommendedInspection once now to inspect this exact uncommitted draft in its authoritative room context. If the pixels match the user's intent, call finish_canvas_draft once with action=commit and this exact revision; otherwise patch only the defects you identify and recheck. Do not ask the user to confirm: progressive draft delivery is animation, not review.`;
+}
+
+function recommendedDraftRouteComparison(
+  draft: AgentCanvasDraftSnapshot,
+  validation: ReturnType<typeof compactDraftValidation>,
+) {
+  const tempRefById = new Map(
+    Object.entries(draft.temporaryReferences).map(([reference, objectId]) => [objectId, reference]),
+  );
+  const affectedConnectorTempRefs = uniqueStrings(
+    validation.findings.flatMap((finding) => finding.connectorIds)
+      .flatMap((connectorId) => tempRefById.get(connectorId) ?? []),
+  ).sort().slice(0, DRAFT_ROUTE_COMPARISON_CONNECTOR_LIMIT);
+  if (affectedConnectorTempRefs.length === 0) return null;
+  return {
+    tool: "analyze_diagram_layout" as const,
+    mode: "read_only_exact_draft_route_comparison" as const,
+    affectedConnectorTempRefs,
+    inputContract: {
+      draftId: draft.id,
+      expectedDraftRevision: draft.revision,
+      routeCandidates: {
+        minItems: 2,
+        maxItems: 8,
+        authoredBy: "agent" as const,
+        itemShape: {
+          candidateId: "<unique agent-authored id>",
+          operations: [{
+            op: "update_draft_connector" as const,
+            tempRef: "<affected connector tempRef>",
+            optionalFields: ["start", "end", "routing", "label"],
+          }],
+          operationLimit: 24,
+        },
+      },
+    },
+    useWhen:
+      "A connector correction could trade one crossing, intrusion, label collision, shared corridor, or ambiguity for another. Author materially different alternatives from the returned evidence before mutating the draft serially.",
+    authorityBoundary:
+      "Jazzboard compares deterministic deltas only. It does not generate, rank, recommend, select, apply, lay out, route, or render a candidate. You choose and apply an exact-revision patch.",
+    completionRule:
+      "After applying your chosen route, recheck the draft receipt and inspect pixels. A favorable deterministic delta is not visual approval.",
+  };
 }
 
 function recommendedDraftCorrection(
@@ -2107,6 +2156,7 @@ function canonicalDraftCorrectionJson(
   validation: ReturnType<typeof compactDraftValidation>,
   correction: NonNullable<ReturnType<typeof recommendedDraftCorrection>>,
 ): string {
+  const routeComparison = recommendedDraftRouteComparison(draft, validation);
   const tempRefById = new Map(
     Object.entries(draft.temporaryReferences).map(([reference, objectId]) => [objectId, reference]),
   );
@@ -2126,6 +2176,7 @@ function canonicalDraftCorrectionJson(
       delivery: correction.delivery,
       geometryQualityStatus: validation.geometryQualityStatus,
       diagramTempRefs: correction.diagramTempRefs,
+      ...(routeComparison ? { recommendedRouteComparison: routeComparison } : {}),
       findingCoverage: {
         totalFindingCount: validation.findingCoverage.totalFindingCount,
         receiptFindingCount: validation.findings.length,
@@ -2280,6 +2331,7 @@ function conciseDraftReceipt(
     draft.temporaryReferences,
   );
   const recommendedCorrection = recommendedDraftCorrection(draft, draftValidation);
+  const recommendedRouteComparison = recommendedDraftRouteComparison(draft, draftValidation);
   return {
     outcome: "drafted" as const,
     draftId: draft.id,
@@ -2302,6 +2354,7 @@ function conciseDraftReceipt(
           ),
         }
       : {}),
+    ...(recommendedRouteComparison ? { recommendedRouteComparison } : {}),
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
     recommendedInspection: draftValidation.failCount === 0
@@ -3451,6 +3504,10 @@ export function createJazzboardSemanticWebMcpTools(
             response.draft.temporaryReferences,
           );
           const recommendedCorrection = recommendedDraftCorrection(response.draft, draftValidation);
+          const recommendedRouteComparison = recommendedDraftRouteComparison(
+            response.draft,
+            draftValidation,
+          );
           return {
             outcome: "drafted",
             draft: response.draft,
@@ -3464,6 +3521,7 @@ export function createJazzboardSemanticWebMcpTools(
             ...(relationshipReview ? { relationshipReview } : {}),
             draftValidation,
             recommendedDraftCorrection: recommendedCorrection,
+            recommendedRouteComparison,
             ...(recommendedCorrection
               ? {
                   canonicalDraftCorrectionJson: canonicalDraftCorrectionJson(
