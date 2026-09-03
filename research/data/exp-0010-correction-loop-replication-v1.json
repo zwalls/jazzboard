@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0010",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-validation",
+  "productChange": {
+    "description": "Report connector-path intersections with semantic-container title bounds, document the solid-only connector contract, and accept update_object as a transaction update alias.",
+    "commit": "b4a4c73ed9a27cf6b17d95dd69f492289f02c3ae"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a0646c-af49-72b1-9c0a-26f37563c35a",
+    "turnId": "01a0646c-b0f9-7ce1-a393-aa34637aec97",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 270617,
+      "accountedWallMs": 271000,
+      "hostExecutionMs": 51028,
+      "modelAndCoordinationMs": 219972,
+      "hostExecutionShare": 0.18829520295202953
+    },
+    "calls": {
+      "hostCallCount": 24,
+      "failedHostCallCount": 2,
+      "webMcpCallCount": 15,
+      "webMcpBusinessFailureCount": 4,
+      "draftTransactionCallCount": 7,
+      "acceptedDraftTransactionCallCount": 4,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 7,
+        "finish_canvas_draft": 1,
+        "edit_diagram": 1,
+        "inspect_canvas_scope": 3,
+        "update_object": 1
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 4,
+      "objectCount": 11,
+      "diagramCount": 1,
+      "diagramRevision": 3,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 8,
+      "declaredDiagramConnectorCount": 3,
+      "deterministicGeometryStatus": "warning",
+      "authorPixelCapture": "completed_after_one_documented_blank_capture_recovery"
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a06474-1b24-78d2-b6b4-37df2c98a94c",
+    "turnId": "01a06474-1cfe-7792-bda5-3691a301a724",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 24195,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "blockingGeometryViolations": 0,
+      "duplicateSemanticCredit": false,
+      "diagramMembershipCoherent": true,
+      "overall": "pass"
+    }
+  },
+  "mechanismEvidence": {
+    "containerPathDetectorAvoidedRegression": true,
+    "unsupportedDashAttempted": false,
+    "transactionUpdateObjectAliasNeeded": false,
+    "draftValidationProgression": [
+      { "draftRevision": 1, "failCount": 5, "warningCount": 7 },
+      { "draftRevision": 2, "failCount": 2, "warningCount": 5 },
+      { "draftRevision": 3, "failCount": 1, "warningCount": 4 },
+      { "draftRevision": 4, "failCount": 0, "warningCount": 2 }
+    ],
+    "friction": [
+      {
+        "code": "STALE_TOOL_SNAPSHOT",
+        "cause": "The room was still connecting when the first capability call used an empty tool snapshot.",
+        "stateChanged": false
+      },
+      {
+        "code": "INVALID_TOOL_INPUT",
+        "cause": "The author used standalone draw_connection as a transaction operation and memberObjectRefs/connectorRefs instead of canonical connect and members/connectors.",
+        "stateChanged": false
+      },
+      {
+        "code": "INVALID_TOOL_INPUT",
+        "cause": "The author tried diagramTempRef on edit_diagram while patching first-class Diagram membership inside a draft.",
+        "stateChanged": false
+      },
+      {
+        "code": "INVALID_TOOL_INPUT",
+        "cause": "The author retried the draft Diagram edit with an authoritative ID even though progressive drafts reject existing-Diagram edits.",
+        "stateChanged": false
+      }
+    ]
+  },
+  "comparison": {
+    "precedingAcceptedCandidate": {
+      "sourceExperiment": "EXP-0009",
+      "totalWallMs": 269038,
+      "blindedReview": "pass"
+    },
+    "priorAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "blindedReview": "pass"
+    },
+    "current": {
+      "totalWallMs": 270617,
+      "blindedReview": "pass"
+    },
+    "descriptiveDeltaFromPrecedingAcceptedCandidateMs": 1579,
+    "descriptiveDeltaFromPriorAcceptedCandidateMs": 98676,
+    "interpretation": "The replicated artifact preserved accepted visual quality but produced no speed gain. Most time remained in model/coordination between calls, amplified by schema recovery and four draft-validation revisions."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "ac0dc0337b79b3c4356efc2a535dc55e524f0e94cbab374526577cb05118ed14",
+    "cleanPngBytes": 44995,
+    "sanitizedStateSha256": "5c0f7613347ac72cad8f294f432172a5ab9e89b97bdc3a63aa35290f45997844",
+    "rawAuthorSessionSha256": "a7394280373fc1b10e46eeb8186549379bf1c050d05e42e1055bae9e802cd00f",
+    "rawReviewerSessionSha256": "6e9ee098aa24b184e4eccb2ea22a60166f38cd71e41014f13663460ed39f4d7b",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "acceptedCompletionTimeMs": 270617,
+    "speedImprovementObserved": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Accept common standalone naming aliases in transactions, make first-class Diagram membership patchable by draft tempRef, and strengthen the quickstart's first-pass spacing guidance without choosing layout for the author."
+  }
+}
