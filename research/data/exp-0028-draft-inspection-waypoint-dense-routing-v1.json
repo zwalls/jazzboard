@@ -1,0 +1,223 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0028",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-draft-inspection-waypoint-dense-routing",
+  "productChange": {
+    "description": "Draft-scoped visual inspection, agent-authored elbow waypoints, containing-scaffold evidence, and exact post-transaction inspection receipts.",
+    "commit": "2c1b30f1b202ac170d640a215209f7c6e5d7b5c8"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0027": false,
+    "matchedHistoricalCandidate": "EXP-0004"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06634-8fdd-7962-ad60-6032571d49eb",
+    "turnId": "01a06634-9147-71e3-966f-b3ae349c7bf5",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 301148,
+      "rawSessionWallMs": 301148,
+      "hostExecutionMs": 49059,
+      "modelAndCoordinationMs": 252089,
+      "hostExecutionShare": 0.162909
+    },
+    "calls": {
+      "hostCallCount": 18,
+      "webMcpBusinessCallCount": 12,
+      "webMcpDescriptorFetchCount": 2,
+      "webMcpBusinessFailureCount": 1,
+      "acceptedDraftTransactionCallCount": 5,
+      "draftPatchCount": 4,
+      "semanticInspectionCallCount": 2,
+      "browserDomSnapshotCount": 1,
+      "screenshotCount": 2,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 2,
+        "apply_canvas_transaction": 6,
+        "inspect_canvas_scope": 2,
+        "finish_canvas_draft": 1
+      },
+      "note": "The first transaction was rejected with actionable INVALID_TOOL_INPUT guidance because nodeMetadata.kind was supplied for component/service nodes. The author recovered without a state change. A single DOM snapshot deviated from the WebMCP-only interaction instruction; all canvas reads and writes used WebMCP."
+    },
+    "result": {
+      "status": "completed_with_failed_visual_quality_gate",
+      "roomRevision": 3,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 33,
+        "y": 37,
+        "width": 882,
+        "height": 505
+      },
+      "independentExactViewportCapture": "completed",
+      "qualityGatePassed": false
+    }
+  },
+  "draftCorrectionEvidence": {
+    "draftScopedInspectionSucceeded": true,
+    "authorAuthoredWaypoints": true,
+    "waypointsPreservedAfterCommit": true,
+    "containingScaffoldEvidenceExercised": true,
+    "acceptedDraftResponseBytes": 116457,
+    "acceptedDraftTransactions": [
+      {"draftRevision": 1, "responseBytes": 23449, "findingCount": 13, "failCount": 11, "warningCount": 2},
+      {"draftRevision": 2, "responseBytes": 21684, "findingCount": 9, "failCount": 5, "warningCount": 4},
+      {"draftRevision": 3, "responseBytes": 24245, "findingCount": 15, "failCount": 1, "warningCount": 14},
+      {"draftRevision": 4, "responseBytes": 23646, "findingCount": 14, "failCount": 1, "warningCount": 13},
+      {"draftRevision": 5, "responseBytes": 23433, "findingCount": 13, "failCount": 0, "warningCount": 13}
+    ],
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author used stable draft revisions, four patch transactions, authored connector waypoints, exact draft inspection before commit, and a final committed inspection. It corrected every fail-level finding exposed by the candidate."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "confirmed"
+  },
+  "deterministicGeometryAudit": {
+    "status": "warning",
+    "coverage": "complete",
+    "findingCount": 13,
+    "warningCount": 13,
+    "failCount": 0,
+    "findingTypes": {
+      "CONNECTOR_CROSSING": 6,
+      "CONNECTOR_LABEL_EDGE_COLLISION": 4,
+      "CONNECTOR_SHARED_SEGMENT": 2,
+      "MEMBER_SPACING_TOO_SMALL": 1
+    },
+    "connectorCrossingPairCount": 6,
+    "sharedSegmentPairCount": 2,
+    "minimumObservedSpacing": 27,
+    "outsideLayoutScaffoldConnectorCount": 0,
+    "note": "The new scaffold evidence covered the predecessor's missing fact and no essential route left the frame. The report still classified long shared corridors and endpoint re-entry too weakly to prevent the final ambiguity detected by both blinded reviewers."
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a0663d-4e90-72e3-81ca-d12b432bc9cf",
+      "turnId": "01a0663d-4fea-7ce1-9b58-55f8eeed5b45",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 89194,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 3,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a0663d-63db-7e40-9bd6-fe94efc04b0e",
+      "turnId": "01a0663d-6538-7c43-95f0-363682459cf9",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 93952,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 3,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary verdict and identified the same endpoint re-entry and three-flow shared-route ambiguity."
+  },
+  "comparisons": {
+    "toExp0027FailedCandidate": {
+      "predecessorWallMs": 381018,
+      "currentWallMs": 301148,
+      "wallDecreaseMs": 79870,
+      "wallDecreaseFraction": 0.209621,
+      "predecessorWebMcpBusinessCalls": 20,
+      "currentWebMcpBusinessCalls": 12,
+      "predecessorAcceptedDraftTransactions": 9,
+      "currentAcceptedDraftTransactions": 5,
+      "predecessorDraftResponseBytes": 186418,
+      "currentDraftResponseBytes": 116457,
+      "draftResponseByteDecreaseFraction": 0.375291,
+      "interpretation": "The candidate improved correction efficiency and solved the predecessor's out-of-frame defect, but both artifacts failed the visual quality gate. This is diagnostic progress, not an accepted speed gain."
+    },
+    "toExp0004AcceptedCandidate": {
+      "predecessorWallMs": 270038,
+      "currentWallMs": 301148,
+      "wallIncreaseMs": 31110,
+      "wallIncreaseFraction": 0.115206,
+      "predecessorWebMcpBusinessCalls": 10,
+      "currentWebMcpBusinessCalls": 12,
+      "predecessorDraftTransactions": 6,
+      "currentAcceptedDraftTransactions": 5,
+      "interpretation": "The current run is not comparable as accepted-completion speed because it failed the visual quality gate."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "1879daa489bedefb04df3bbe152e69a57ded52f2149566f3e237ddd50bfedaa3",
+    "primaryASessionSha256": "31dbbab3122f68f0f6cb7abc6a7dace1912865c7be217311d1ea0ca60e27fdc2",
+    "primaryBSessionSha256": "d2610b630b5150101dcda7acfb881f6949cc15f6eac79723deef293d52406b9e",
+    "sanitizedStateSha256": "a39ebe5322c0063b9d0b1683be45eb0de014dd27f721f0b88bf9b788bcd948c7",
+    "pixelArtifactSha256": "8f86a7f88b0e58954af4a1fa28e3fe7f6a61f7b97be6b68781d81984602e82c7",
+    "authoritativeAuditArtifactSha256": "8b7dbe8fdc5bce730c64ec0a2e58d447ea704354f9258bcbc2676aaede41f84c",
+    "deterministicLayoutArtifactSha256": "4faf1a002eba4089fda0889db01bb99d65c26d949ec6e7dcc2d9f1895a178517",
+    "primaryAVerdictSha256": "ac2ae860c838cd2336d0f4d122c892ace1bb9816b33fe362fd8a2922c77e205e",
+    "primaryBVerdictSha256": "52898c78aac0b49df695b95bbb9efff748b70d33ff45cca792c0260ce6fa06ee"
+  },
+  "decision": {
+    "status": "mixed_mechanism_progress_quality_gate_failed",
+    "retainProductChange": true,
+    "whyRetain": "The intervention exposed and corrected the prior fixed-frame failure, enabled exact pre-commit visual inspection, preserved authored route controls, and reduced failed-run correction cost without constraining creative geometry.",
+    "nextIntervention": "Expose endpoint re-entry and materially ambiguous multi-flow shared corridors as precise intent-unaware evidence, clarify nodeMetadata input constraints, and rerun the identical frozen benchmark. Do not auto-route or choose layout for the author."
+  }
+}
