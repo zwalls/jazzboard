@@ -938,7 +938,7 @@ export function createJazzboardWebMcpTools(
           nodeType: { enum: ["component", "service", "requirement", "decision", "open_question"] },
           nodeMetadata: {
             type: "object",
-            description: "Lifecycle metadata; kind matches nodeType.",
+            description: "Only for decision or open_question lifecycle state; omit for service, component, and requirement nodes. kind matches nodeType.",
           },
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,

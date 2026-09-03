@@ -592,7 +592,9 @@ describe("semantic mutation handlers", () => {
       createNode.inputSchema as object,
     );
     expect((createNode.inputSchema as { properties?: { nodeMetadata?: { description?: string } } })
-      .properties?.nodeMetadata?.description).toMatch(/kind matches nodeType/);
+      .properties?.nodeMetadata?.description).toMatch(
+        /only for decision or open_question.*omit for service.*component.*requirement.*kind matches nodeType/i,
+      );
     const acceptedInputs = [
       {
         label: "Pending decision",

@@ -1060,6 +1060,102 @@ describe("diagram visual quality analysis", () => {
     }));
   });
 
+  it("reports an authored route that enters its own bound endpoint interior", () => {
+    const source = node("reentry-source", 0, 0);
+    const target = node("reentry-target", 360, 0);
+    const reentering: ConnectorObject = {
+      ...edge(
+        "reentering-edge",
+        {
+          x: source.x,
+          y: source.y + source.height / 2,
+          objectId: source.id,
+          normalizedAnchor: { x: 0, y: 0.5 },
+        },
+        {
+          x: target.x,
+          y: target.y + target.height / 2,
+          objectId: target.id,
+          normalizedAnchor: { x: 0, y: 0.5 },
+        },
+        { routing: "elbow" },
+      ),
+      routing: normalizeConnectorRouting({
+        mode: "elbow",
+        waypoints: [{ x: 30, y: 140 }, { x: 320, y: 140 }],
+      }),
+    };
+    const clean: ConnectorObject = {
+      ...edge(
+        "clean-endpoint-edge",
+        {
+          x: source.x + source.width,
+          y: source.y + source.height / 2,
+          objectId: source.id,
+          normalizedAnchor: { x: 1, y: 0.5 },
+        },
+        {
+          x: target.x,
+          y: target.y + target.height / 2,
+          objectId: target.id,
+          normalizedAnchor: { x: 0, y: 0.5 },
+        },
+      ),
+    };
+
+    const report = analyzeDiagramVisualQuality(
+      room([source, target, reentering, clean]),
+      "quality-diagram",
+    );
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_ENDPOINT_REENTRY",
+      status: "fail",
+      objectIds: [source.id],
+      connectorIds: [reentering.id],
+      details: expect.objectContaining({
+        endpoint: "start",
+        intersectingSegmentIndexes: [0],
+      }),
+    }));
+    expect(report.findings).not.toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_ENDPOINT_REENTRY",
+      connectorIds: [clean.id],
+    }));
+    expect(report.metrics.endpointReentryCount).toBe(1);
+  });
+
+  it("tests endpoint re-entry against rotated endpoint geometry", () => {
+    const source = node("rotated-endpoint", 0, 0, {
+      width: 200,
+      height: 20,
+      rotation: Math.PI / 4,
+    });
+    const target = node("rotated-target", 360, 0);
+    const start = { x: 29.289321881, y: -60.710678119 };
+    const connector: ConnectorObject = {
+      ...edge(
+        "rotated-reentry",
+        { ...start, objectId: source.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { x: target.x, y: 35, objectId: target.id, normalizedAnchor: { x: 0, y: 0.5 } },
+        { routing: "elbow" },
+      ),
+      routing: normalizeConnectorRouting({
+        mode: "elbow",
+        waypoints: [{ x: 100, y: 10 }, { x: 300, y: -80 }],
+      }),
+    };
+
+    const report = analyzeDiagramVisualQuality(room([source, target, connector]), "quality-diagram");
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_ENDPOINT_REENTRY",
+      objectIds: [source.id],
+      connectorIds: [connector.id],
+      details: expect.objectContaining({ endpoint: "start" }),
+    }));
+  });
+
   it("reports a connector T-junction when one endpoint lands on another route interior", () => {
     const member = node("member", 500, 500);
     const horizontal = edge("horizontal", { x: 0, y: 100 }, { x: 300, y: 100 });
@@ -1124,6 +1220,46 @@ describe("diagram visual quality analysis", () => {
     expect(shared?.details?.sharedLength).toBeGreaterThanOrEqual(
       DIAGRAM_VISUAL_QUALITY_THRESHOLDS.connectorSharedSegmentMinimumLength,
     );
+  });
+
+  it("reports a substantial corridor shared by three independent flows and honors explicit bus intent", () => {
+    const independent = [
+      edge("corridor-a", { x: 0, y: 0 }, { x: 300, y: 0 }),
+      edge("corridor-b", { x: 80, y: 0 }, { x: 400, y: 0 }),
+      edge("corridor-c", { x: 160, y: 0 }, { x: 500, y: 0 }),
+    ];
+    const report = analyzeDiagramVisualQuality(room(independent), "quality-diagram");
+    const ambiguous = report.findings.find((finding) =>
+      finding.code === "CONNECTOR_AMBIGUOUS_SHARED_ROUTE");
+
+    expect(ambiguous).toMatchObject({
+      status: "fail",
+      connectorIds: ["corridor-a", "corridor-b", "corridor-c"],
+      details: {
+        connectorCount: 3,
+        sharedPairCount: 3,
+        unrelatedSharedPairCount: 3,
+        explicitIntentField: "semanticRole",
+      },
+    });
+    expect(ambiguous?.details?.totalSharedLength).toBeGreaterThanOrEqual(
+      DIAGRAM_VISUAL_QUALITY_THRESHOLDS.ambiguousSharedRouteMinimumTotalLength,
+    );
+    expect(report.metrics.ambiguousSharedRouteGroupCount).toBe(1);
+
+    const deliberateBus = independent.map((connector) => ({
+      ...connector,
+      semanticRole: "shared_route",
+    }));
+    const deliberateReport = analyzeDiagramVisualQuality(
+      room(deliberateBus),
+      "quality-diagram",
+    );
+    expect(deliberateReport.findings).not.toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_AMBIGUOUS_SHARED_ROUTE",
+    }));
+    expect(deliberateReport.metrics.ambiguousSharedRouteGroupCount).toBe(0);
+    expect(deliberateReport.metrics.sharedSegmentPairCount).toBe(3);
   });
 
   it("bounds retained findings and serialized output while preserving exact aggregate counts", () => {

@@ -751,7 +751,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
               owner: { type: ["string", "null"] },
               resolution: { type: ["string", "null"] },
             },
-            description: "Decision/question lifecycle.",
+            description: "Only for decision or open_question lifecycle state; omit for service, component, and requirement nodes. kind must equal nodeType.",
           },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           fill: { $ref: "#/$defs/paint" },

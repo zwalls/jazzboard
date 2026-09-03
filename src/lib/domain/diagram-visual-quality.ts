@@ -46,6 +46,7 @@ export const DIAGRAM_VISUAL_QUALITY_THRESHOLDS = Object.freeze({
   objectOverlapMinimumArea: 4,
   connectorIntrusionInset: 2,
   connectorSharedSegmentMinimumLength: 16,
+  ambiguousSharedRouteMinimumTotalLength: 96,
   sharedInitialCorridorMinimumLength: 24,
   attachmentPortRadius: 12,
   attachmentPortMinimumConnectors: 2,
@@ -65,7 +66,9 @@ export type DiagramVisualQualityStatus = "pass" | "warning" | "fail";
 
 export type DiagramVisualQualityFindingCode =
   | "ATTACHMENT_PORT_CONGESTION"
+  | "CONNECTOR_AMBIGUOUS_SHARED_ROUTE"
   | "CONNECTOR_CROSSING"
+  | "CONNECTOR_ENDPOINT_REENTRY"
   | "CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD"
   | "CONNECTOR_LABEL_EDGE_COLLISION"
   | "CONNECTOR_LABEL_LABEL_COLLISION"
@@ -112,6 +115,8 @@ export type DiagramVisualQualityMetrics = {
   warningCount: number;
   minimumMemberSpacing: number | null;
   crossingPairCount: number;
+  endpointReentryCount: number;
+  ambiguousSharedRouteGroupCount: number;
   sharedSegmentPairCount: number;
   congestedPortCount: number;
   outsideLayoutScaffoldConnectorCount: number;
@@ -167,6 +172,12 @@ type SegmentRelation =
   | { kind: "none" }
   | { kind: "point"; point: Point }
   | { kind: "overlap"; start: Point; end: Point; length: number };
+
+type SharedRouteOverlap = {
+  left: ConnectorObject;
+  right: ConnectorObject;
+  overlap: Extract<SegmentRelation, { kind: "overlap" }>;
+};
 
 type MemberGeometry = {
   polygon: Point[];
@@ -466,6 +477,32 @@ function segmentIntersectsPolygon(segment: Segment, polygon: readonly Point[]): 
     polygonSegments(polygon).some((edge) => segmentRelation(segment, edge).kind !== "none");
 }
 
+/**
+ * True only when a non-zero portion of the segment lies inside a convex
+ * polygon. Unlike the general intersection helper, a near miss outside a long
+ * segment is not accepted through a normalized parameter tolerance. That
+ * distinction matters at connector endpoint outlines: touching the outline is
+ * expected, while proceeding through the inset interior is not.
+ */
+function segmentPenetratesConvexPolygon(segment: Segment, polygon: readonly Point[]): boolean {
+  if (polygon.length < 3) return false;
+  const orientation = polygonSignedArea(polygon) >= 0 ? 1 : -1;
+  let minimum = 0;
+  let maximum = 1;
+  for (const edge of polygonSegments(polygon)) {
+    const edgeVector = subtract(edge.end, edge.start);
+    const startSide = orientation * cross(edgeVector, subtract(segment.start, edge.start));
+    const endSide = orientation * cross(edgeVector, subtract(segment.end, edge.start));
+    if (startSide < 0 && endSide < 0) return false;
+    if ((startSide < 0) === (endSide < 0)) continue;
+    const crossing = startSide / (startSide - endSide);
+    if (startSide < 0) minimum = Math.max(minimum, crossing);
+    else maximum = Math.min(maximum, crossing);
+    if (maximum <= minimum) return false;
+  }
+  return distance(segment.start, segment.end) * (maximum - minimum) > T.geometryEpsilon;
+}
+
 type ConnectorTerminal = {
   objectId: string | null;
 };
@@ -641,6 +678,58 @@ function estimatedShapeLabelBounds(object: CanvasObject): CanvasBounds | null {
 
 function endpointObjectIds(connector: ConnectorObject): Set<string> {
   return new Set([connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)));
+}
+
+function connectorsShareBoundEndpoint(left: ConnectorObject, right: ConnectorObject): boolean {
+  const leftObjectIds = endpointObjectIds(left);
+  return [...endpointObjectIds(right)].some((objectId) => leftObjectIds.has(objectId));
+}
+
+function declaresSharedRouteIntent(connector: ConnectorObject): boolean {
+  const tokens = (connector.semanticRole ?? "")
+    .toLocaleLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (tokens.includes("bus") || tokens.includes("trunk")) return true;
+  const joined = tokens.join("_");
+  return joined.includes("shared_route") ||
+    joined.includes("shared_corridor") ||
+    joined.includes("shared_lane");
+}
+
+function sharedRouteComponents(overlaps: readonly SharedRouteOverlap[]): ConnectorObject[][] {
+  const connectorsById = new Map<string, ConnectorObject>();
+  const adjacency = new Map<string, Set<string>>();
+  for (const { left, right } of overlaps) {
+    connectorsById.set(left.id, left);
+    connectorsById.set(right.id, right);
+    const leftNeighbors = adjacency.get(left.id) ?? new Set<string>();
+    const rightNeighbors = adjacency.get(right.id) ?? new Set<string>();
+    leftNeighbors.add(right.id);
+    rightNeighbors.add(left.id);
+    adjacency.set(left.id, leftNeighbors);
+    adjacency.set(right.id, rightNeighbors);
+  }
+
+  const visited = new Set<string>();
+  const result: ConnectorObject[][] = [];
+  for (const seed of [...connectorsById.keys()].sort()) {
+    if (visited.has(seed)) continue;
+    const pending = [seed];
+    const component: ConnectorObject[] = [];
+    visited.add(seed);
+    while (pending.length) {
+      const connectorId = pending.shift()!;
+      component.push(connectorsById.get(connectorId)!);
+      for (const neighbor of [...(adjacency.get(connectorId) ?? [])].sort()) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+    result.push(component.sort((left, right) => left.id.localeCompare(right.id)));
+  }
+  return result;
 }
 
 function boundsOverflow(inner: CanvasBounds, outer: CanvasBounds) {
@@ -1000,6 +1089,33 @@ export function analyzeDiagramVisualQuality(
     const route = routes[connector.id];
     if (!route) continue;
     const endpoints = endpointObjectIds(connector);
+
+    for (const endpointName of ["start", "end"] as const) {
+      const endpoint = connector[endpointName];
+      if (!endpoint.objectId) continue;
+      const endpointObject = room.objects[endpoint.objectId];
+      if (!endpointObject) continue;
+      const interior = objectPolygon(endpointObject, T.connectorIntrusionInset);
+      if (!interior.length) continue;
+      const intersectingSegmentIndexes = segments(route.points)
+        .filter((segment) => segmentPenetratesConvexPolygon(segment, interior))
+        .map((segment) => segment.index);
+      if (!intersectingSegmentIndexes.length) continue;
+      findings.push(finding({
+        code: "CONNECTOR_ENDPOINT_REENTRY",
+        status: "fail",
+        summary: `If this path through its own endpoint is unintended, move ${connector.id}'s ${endpointName} anchor or adjacent authored waypoint so the route leaves ${endpoint.objectId} outward without entering its interior.`,
+        objectIds: [endpoint.objectId],
+        connectorIds: [connector.id],
+        bounds: memberGeometry.get(endpoint.objectId)?.bounds ?? polygonBounds(interior),
+        details: {
+          endpoint: endpointName,
+          intrusionInset: T.connectorIntrusionInset,
+          intersectingSegmentIndexes,
+        },
+      }));
+    }
+
     for (const member of members) {
       if (endpoints.has(member.id)) continue;
       const memberGeometryValue = memberGeometry.get(member.id);
@@ -1042,6 +1158,7 @@ export function analyzeDiagramVisualQuality(
     }
   }
 
+  const sharedRouteOverlaps: SharedRouteOverlap[] = [];
   for (let leftIndex = 0; leftIndex < connectors.length; leftIndex += 1) {
     const left = connectors[leftIndex];
     const leftRoute = routes[left.id];
@@ -1063,6 +1180,7 @@ export function analyzeDiagramVisualQuality(
         }));
       }
       if (geometry.overlap) {
+        sharedRouteOverlaps.push({ left, right, overlap: geometry.overlap });
         findings.push(finding({
           code: "CONNECTOR_SHARED_SEGMENT",
           status: "warning",
@@ -1074,6 +1192,43 @@ export function analyzeDiagramVisualQuality(
         }));
       }
     }
+  }
+
+  for (const component of sharedRouteComponents(sharedRouteOverlaps)) {
+    if (component.length < 3 || component.every(declaresSharedRouteIntent)) continue;
+    const componentIds = new Set(component.map((connector) => connector.id));
+    const componentOverlaps = sharedRouteOverlaps.filter(({ left, right }) =>
+      componentIds.has(left.id) && componentIds.has(right.id));
+    const unrelatedOverlaps = componentOverlaps.filter(({ left, right }) =>
+      !connectorsShareBoundEndpoint(left, right));
+    const totalSharedLength = componentOverlaps.reduce(
+      (total, { overlap }) => total + overlap.length,
+      0,
+    );
+    if (
+      !unrelatedOverlaps.length ||
+      totalSharedLength < T.ambiguousSharedRouteMinimumTotalLength
+    ) continue;
+    findings.push(finding({
+      code: "CONNECTOR_AMBIGUOUS_SHARED_ROUTE",
+      status: "fail",
+      summary: `If these ${component.length} connectors are independent flows, give them distinct readable lanes. If the shared bus or trunk is deliberate, declare semanticRole shared_route, shared_corridor, shared_lane, bus, or trunk on every participating connector.`,
+      objectIds: [],
+      connectorIds: component.map((connector) => connector.id),
+      bounds: unionBounds(componentOverlaps.flatMap(({ overlap }) => [
+        pointBounds(overlap.start),
+        pointBounds(overlap.end),
+      ])),
+      details: {
+        connectorCount: component.length,
+        sharedPairCount: componentOverlaps.length,
+        unrelatedSharedPairCount: unrelatedOverlaps.length,
+        totalSharedLength: round(totalSharedLength),
+        longestSharedLength: round(Math.max(...componentOverlaps.map(({ overlap }) => overlap.length))),
+        minimumTotalSharedLength: T.ambiguousSharedRouteMinimumTotalLength,
+        explicitIntentField: "semanticRole",
+      },
+    }));
   }
 
   const labeled = connectors.filter((connector) => routes[connector.id]?.labelBounds);
@@ -1342,6 +1497,9 @@ export function analyzeDiagramVisualQuality(
       warningCount,
       minimumMemberSpacing: Number.isFinite(minimumMemberSpacing) ? round(minimumMemberSpacing) : null,
       crossingPairCount: findingsByCode.CONNECTOR_CROSSING ?? 0,
+      endpointReentryCount: findingsByCode.CONNECTOR_ENDPOINT_REENTRY ?? 0,
+      ambiguousSharedRouteGroupCount:
+        findingsByCode.CONNECTOR_AMBIGUOUS_SHARED_ROUTE ?? 0,
       sharedSegmentPairCount: findingsByCode.CONNECTOR_SHARED_SEGMENT ?? 0,
       congestedPortCount: findingsByCode.ATTACHMENT_PORT_CONGESTION ?? 0,
       outsideLayoutScaffoldConnectorCount:

@@ -375,7 +375,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toMatchObject({
       type: "object",
       additionalProperties: false,
-      description: expect.stringMatching(/decision.*question lifecycle/i),
+      description: expect.stringMatching(/only for decision or open_question.*omit for service.*component.*requirement/i),
     });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(["op"]);

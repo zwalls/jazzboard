@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.28.0");
+    expect(AGENT_DOC_VERSION).toBe("1.29.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -242,6 +242,9 @@ describe("agent-readable content", () => {
       "two connector endpoints",
       "never moves the ports",
       "intent-unaware",
+      "endpoint re-entry",
+      "ambiguous-shared-route",
+      "`shared_route`",
       "`straight`",
       "`curved`",
       "`elbow`",
@@ -282,6 +285,7 @@ describe("agent-readable content", () => {
     expect(reference).toContain("Mermaid remains topology-only");
     expect(skill).toContain("Routing and endpoint metadata survive Diagram membership");
     expect(skill).toContain("SVG renders resolved route geometry and labels");
+    expect(skill).toContain("`nodeMetadata` is lifecycle state only");
   });
 
   it("documents the genuine progressive draft lifecycle and its authority boundary", () => {
