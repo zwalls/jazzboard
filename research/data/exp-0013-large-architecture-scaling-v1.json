@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0013",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-architecture-scaling-measurement",
+  "productChange": {
+    "description": "Unchanged speed candidate from EXP-0011 and EXP-0012.",
+    "commit": "3f9a66c82d5b9aaa8eaf7b1966a9be02b543307a"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064b2-8326-7851-b5a2-9c40f2b3d0d6",
+    "turnId": "01a064b2-853f-7cd3-a1bf-ad5b07c86458",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 182384,
+      "accountedWallMs": 182000,
+      "hostExecutionMs": 37939,
+      "modelAndCoordinationMs": 144061,
+      "hostExecutionShare": 0.20845604395604395
+    },
+    "calls": {
+      "hostCallCount": 18,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 10,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 1,
+      "acceptedDraftTransactionCallCount": 1,
+      "postCommitDirectUpdateCount": 2,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "apply_canvas_transaction": 1,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 2,
+        "read_room_state": 2,
+        "update_object": 2
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 4,
+      "objectCount": 18,
+      "diagramCount": 1,
+      "diagramRevision": 3,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 13,
+      "declaredDiagramConnectorCount": 5,
+      "deterministicGeometryStatus": "fail",
+      "independentExactClipCapture": "completed",
+      "authorPixelCorrectionCount": 2
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a064b7-3ce5-7c73-b16e-0a2b9ff65200",
+    "turnId": "01a064b7-3eb5-7742-b2cf-6974486832ed",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 23494,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "outputTransport": "yes_no_strings_for_boolean_semantics",
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": false,
+      "diagramMembershipCoherent": true,
+      "unsupportedAssertion": false,
+      "overall": "pass"
+    }
+  },
+  "scalingComparison": {
+    "simpleArchitectureBaseline": {
+      "sourceExperiments": ["EXP-0011", "EXP-0012"],
+      "meanWallMs": 149692,
+      "meanObjectCount": 9,
+      "meanWebMcpCallCount": 8
+    },
+    "largeArchitecture": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "objectCount": 18,
+      "webMcpCallCount": 10
+    },
+    "objectCountRatio": 2,
+    "descriptiveWallIncreaseMs": 32692,
+    "descriptiveWallIncreaseFraction": 0.21839510461480906,
+    "webMcpCallIncrease": 2,
+    "interpretation": "Doubling the semantic object count increased wall time by 21.8%, not 100%. The author created the complete 18-object composition in one draft transaction. Most additional time came from pixel inspection, authoritative reads, and two evidence-backed post-commit text corrections rather than transaction construction or host execution."
+  },
+  "signalDivergence": {
+    "draftRevision": 1,
+    "draftDeterministicFailCount": 25,
+    "draftDeterministicWarningCount": 4,
+    "finalDeterministicFindingCount": 25,
+    "blindedBlockingGeometryViolationCount": 0,
+    "dominantFalsePositiveCause": "Explicit production, telemetry-platform, and responder plane containers intentionally contain member nodes and relationship paths, but the intent-unaware detector reports those relationships as member overlap, connector intrusion, and connector-label collision.",
+    "authorResponse": "The author preserved the intentional containment, committed the coherent draft, used actual pixels to identify two real clipped text defects, and corrected only those text objects.",
+    "risk": "A less discriminating agent may spend multiple correction loops trying to eliminate valid plane containment or may distort the requested multi-plane composition."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "1659e23bf5dced3be7d99c036df089374c28fe09b41091e4f1f08621c5fc0286",
+    "cleanPngBytes": 19303,
+    "sanitizedStateSha256": "bbdcf732caf0f2e7c85ada6354c839b9da1e6e7fdb0393a1c90c227d0ec3fd2e",
+    "rawAuthorSessionSha256": "2d78b69fd3677592995cf915036460c7d290bae2f4bc821f218ed52a72f08b2f",
+    "rawReviewerSessionSha256": "401ad99586c5f64896bea31c01341f08823bd517cd932ba71807d068bcd34af9",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "largeArchitectureCompletionTimeMs": 182384,
+    "scaleDependentTransactionBottleneckObserved": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Make deterministic geometry evidence aware of explicitly semantic container backgrounds so valid containment does not generate collision and intrusion failures. Preserve title occlusion and all genuine sibling-object, endpoint, label, and route findings. Then rerun this unchanged large task."
+  }
+}
