@@ -1,0 +1,225 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0020",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-relationship-assertion-speed-quality-replication",
+  "productChange": {
+    "description": "Let an author bind its own explicit relationship facts to connector tempRefs so Jazzboard can compare compiled endpoints, direction, and labels before any mutation without inferring or repairing the graph.",
+    "commit": "25a01293f920341169b4517f843ad53e2dafe113"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0019": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06565-a581-7f30-bdd8-8bbcccedf1e3",
+    "turnId": "01a06565-a7ac-71b3-a423-e8dc6486fb93",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 201038,
+      "accountedWallMs": 200902,
+      "hostExecutionMs": 49241,
+      "modelAndCoordinationMs": 151797,
+      "hostExecutionShare": 0.24493777415
+    },
+    "calls": {
+      "hostCallCount": 19,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 13,
+      "webMcpBusinessFailureCount": 2,
+      "draftTransactionCallCount": 7,
+      "acceptedDraftTransactionCallCount": 5,
+      "postCommitCorrectionCallCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 3,
+        "read_room_state": 1,
+        "apply_canvas_transaction": 7,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1
+      },
+      "note": "One failed host command used an obsolete browser-skill path. The first two transaction calls were schema-invalid and changed no state; the author then requested deeper architecture guidance and submitted a valid asserted draft."
+    },
+    "phases": {
+      "setupAndCapabilityDiscoveryMs": 39728,
+      "initialAuthoringAndSchemaRecoveryMs": 84060,
+      "draftCorrectionMs": 51574,
+      "draftFinishMs": 8277,
+      "inspectionMs": 12348,
+      "terminalMs": 4915
+    },
+    "result": {
+      "status": "completed_with_all_quality_gates_passed",
+      "roomRevision": 2,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "pass",
+      "finalDeterministicGeometryCoverage": "complete",
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "relationshipAssertionEvidence": {
+    "validAssertedDraftCount": 1,
+    "checkedRelationshipCount": 5,
+    "status": "pass",
+    "inferredTaskFacts": false,
+    "stateChangedByInvalidAttempts": false,
+    "note": "The accepted initial draft receipt reported relationshipAssertionReview.status=pass for all five caller-authored facts. Later geometry-only draft patches preserved those endpoints."
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "auditDigest": "sha256:caa0d84e9df8bb706cfd2123852b183e0f2db5a9c2b0e9707973c2fa2721160f",
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 5,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a0656e-38b2-7891-8ebd-542e7d060b0d",
+      "turnId": "01a0656e-3afd-7c61-a3ed-a93641e83326",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 22760,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a0656e-4b36-7ee2-9475-29b7b8975f50",
+      "turnId": "01a0656e-4d4e-7f50-9b23-fc6db5ab296c",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 26235,
+      "verdict": {
+        "observabilityFacts": "pass",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "pass",
+        "blockingGeometryViolations": 0,
+        "hiddenOrDuplicateSemanticCredit": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "pass"
+      }
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary acceptance."
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0019",
+      "wallMs": 351598,
+      "factualGatePassed": false,
+      "visualGatePassed": true
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 201038,
+      "factualGatePassed": true,
+      "visualGatePassed": true
+    },
+    "versusExp0019": {
+      "descriptiveDecreaseMs": 150560,
+      "descriptiveDecreaseFraction": 0.428216314087
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 18654,
+      "descriptiveIncreaseFraction": 0.102277392646
+    },
+    "interpretation": "The unchanged author task was 42.8% faster than EXP-0019 while correcting its factual failure and preserving its visual pass. It remained 10.2% slower than the fastest prior passing observability run. This single run is mechanism evidence, not a population effect estimate."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The accepted initial draft checked all five caller-authored relationship assertions and returned a passing relationshipAssertionReview before authoritative mutation.",
+      "The final exact-ID audit matched all six entities and all five directed relationships with no blocking finding.",
+      "Both isolated pixel reviewers passed plane distinction, readability, Diagram coherence, unsupported-assertion, and geometry gates.",
+      "The author committed once and made no post-commit corrections.",
+      "Total wall time fell by 150,560 ms versus the unchanged EXP-0019 task."
+    ],
+    "failureSignals": [
+      "The quickstart result was printed as a nested object, collapsing its canonical skeleton and relationship assertion entries to [Object] in the author-visible transcript.",
+      "The author consequently guessed unsupported type, startTempRef/endTempRef, fromTempRef/toTempRef connector spellings, causing two schema-invalid transactions.",
+      "The author needed two additional architecture capability reads before seeing the canonical connector example in lossless JSON.",
+      "Seven transaction calls and four geometry patches still leave the run 18,654 ms slower than the fastest prior passing run."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "jpeg",
+    "cleanImageSha256": "749b58119fa067b58413cbdb8a0c2421284b4b1e5d70f86600fc14cb9abd6126",
+    "cleanImageBytes": 43307,
+    "sanitizedStateSha256": "ae3a41601c8f6acf0be6f8fe87cb97a319e3a5cd0f9d240c7a5dfb872c25d5d9",
+    "rawAuthorSessionSha256": "95bb7980f2a684d40bf684604f0851e502506bb89e2a2b8bbe1ba70c99a217a3",
+    "rawPrimaryAReviewerSessionSha256": "fda6b5769c98c95fd46e1129ab3ee49d0be46ae8dc9dedb02c553cb59448806b",
+    "rawPrimaryBReviewerSessionSha256": "a3c34dabc2a6e08081dcef8f04ef45e6754b8eaa5eff8b621368f5821c2713f4",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 2,
+    "adjudicatorTasks": 0,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": true,
+    "visualQualityGatePassed": true,
+    "overallQualityGatePassed": true,
+    "descriptiveSpeedImprovementObserved": true,
+    "speedNonInferiorityEstablished": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Expose the quickstart canonical transaction as a lossless copy-ready JSON string in addition to its structured object, so generic object rendering cannot collapse nested op, endpoint, Diagram membership, and relationship assertion fields. Preserve the same schema and author control, then run another unchanged replication."
+  }
+}
