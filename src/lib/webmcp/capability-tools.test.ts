@@ -91,7 +91,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             role,
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
-              expect.stringMatching(/one coherent/i),
+              expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*correct every path.*preserve Diagram and membership/i),
               expect.stringMatching(/draftValidation/i),
               expect.stringMatching(/finish_canvas_draft.*no confirmation/i),
@@ -102,38 +102,15 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               delivery: { mode: "draft" },
               responseDetail: "concise",
               operationLimit: 200,
-              metadataPlacement: expect.stringMatching(/intent and summary.*top level/i),
-              schemaAuthority: expect.stringMatching(/authoritative.*do not invent/i),
+              metadataPlacement: expect.stringMatching(/root.*intent.*summary.*no expectedRoomRevision/i),
+              schemaAuthority: expect.stringMatching(/schema is final.*fix every path.*never retry unchanged/i),
             },
             draftPreflight: {
               field: "draftValidation",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
               correction: expect.stringMatching(/patch.*recheck.*unintended.*update_draft_connector.*tempRef/i),
             },
-            canonicalDraftSkeleton: {
-              operations: expect.arrayContaining([
-                expect.objectContaining({
-                  op: "connect",
-                  start: {
-                    tempRef: "source",
-                    port: { side: "right", position: 0.5, exact: true },
-                  },
-                  end: {
-                    tempRef: "target",
-                    port: { side: "left", position: 0.5, exact: true },
-                  },
-                }),
-              ]),
-              relationshipAssertions: [{
-                connectorTempRef: "source_to_target",
-                fromTempRef: "source",
-                toTempRef: "target",
-                direction: "end",
-                exactLabel: "request",
-              }],
-              delivery: { mode: "draft" },
-              responseDetail: "concise",
-            },
+            canonicalDraftJson: expect.any(String),
             canonicalDirectCorrection: {
               update: {
                 operations: [{
@@ -171,6 +148,34 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             },
           },
         },
+      });
+      const quickstart = (result as {
+        data: { data: { canonicalDraftJson: string } };
+      }).data.data;
+      expect(quickstart.canonicalDraftJson).not.toContain("[Object]");
+      expect(JSON.parse(quickstart.canonicalDraftJson)).toMatchObject({
+        operations: expect.arrayContaining([
+          expect.objectContaining({
+            op: "connect",
+            start: {
+              tempRef: "source",
+              port: { side: "right", position: 0.5, exact: true },
+            },
+            end: {
+              tempRef: "target",
+              port: { side: "left", position: 0.5, exact: true },
+            },
+          }),
+        ]),
+        relationshipAssertions: [{
+          connectorTempRef: "source_to_target",
+          fromTempRef: "source",
+          toTempRef: "target",
+          direction: "end",
+          exactLabel: "request",
+        }],
+        delivery: { mode: "draft" },
+        responseDetail: "concise",
       });
       expect(jsonBytes(result)).toBeLessThan(6_000);
     }

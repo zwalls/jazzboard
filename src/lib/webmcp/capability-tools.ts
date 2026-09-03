@@ -609,7 +609,7 @@ export type JazzboardCanvasQuickstart = Readonly<{
     authority: string;
     correction: string;
   }>;
-  canonicalDraftSkeleton: Readonly<Record<string, unknown>>;
+  canonicalDraftJson: string;
   canonicalDirectCorrection: Readonly<Record<string, unknown>>;
   readabilityHeuristics: readonly string[];
   completion: Readonly<{
@@ -686,6 +686,9 @@ const QUICKSTART_CANONICAL_DRAFT_SKELETON = {
   intent: "Create the requested system flow.",
   summary: "Two semantic nodes and one labeled directed relationship.",
 } as const;
+const QUICKSTART_CANONICAL_DRAFT_JSON = JSON.stringify(
+  QUICKSTART_CANONICAL_DRAFT_SKELETON,
+);
 
 const QUICKSTART_CANONICAL_DIRECT_CORRECTION = {
   update: {
@@ -758,10 +761,10 @@ function canvasQuickstart(
     role,
     roleCanMutateCanvas: role === "participant",
     purpose:
-      `Fast path for new ${task} work; do not preload bundles.`,
+      `${task} fast path; do not preload.`,
     fastPath: [
       "Blank target: skip room read; otherwise read the narrowest Diagram, neighborhood, or region.",
-      "Submit one coherent draft with stable tempRefs, one Diagram, concise response, and relationshipAssertions for explicit facts; never chunk for animation.",
+      "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "On schema rejection, correct every path once; preserve Diagram and membership.",
       "Use draftValidation; patch only affected refs, then recheck intent.",
       "Call finish_canvas_draft once with action=commit and latest revision; no confirmation.",
@@ -774,9 +777,9 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "Root: operations, delivery, responseDetail, intent, summary; intent and summary stay top level, never expectedRoomRevision. Creates carry semanticName/semanticRole.",
+        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Creates carry semanticName/semanticRole.",
       schemaAuthority:
-        "The registered schema is authoritative; do not invent fields or retry a rejection unchanged.",
+        "Registered schema is final; fix every path and never retry unchanged.",
     },
     draftPreflight: {
       field: "draftValidation",
@@ -785,7 +788,7 @@ function canvasQuickstart(
       correction:
         "Patch and recheck unintended findings before finish; use update_draft_connector plus exact tempRef/delivery and never resend unaffected objects.",
     },
-    canonicalDraftSkeleton: QUICKSTART_CANONICAL_DRAFT_SKELETON,
+    canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,
     readabilityHeuristics: [
       "First draft uses delivery={mode:draft}; patch/replace draftId needs expectedDraftRevision.",
