@@ -1939,6 +1939,24 @@ function compactDraftValidation(
   };
 }
 
+function conciseDraftValidation(
+  validation: ReturnType<typeof compactDraftValidation>,
+) {
+  const {
+    findings: _findings,
+    reasoningContext: _reasoningContext,
+    ...summary
+  } = validation;
+  void _findings;
+  void _reasoningContext;
+  return {
+    ...summary,
+    findingEvidenceField: validation.findingCount > 0
+      ? "canonicalDraftCorrectionJson" as const
+      : null,
+  };
+}
+
 function draftNextStep(
   draft: AgentCanvasDraftSnapshot,
   validation: ReturnType<typeof compactDraftValidation>,
@@ -1950,7 +1968,7 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `${relationshipStep}Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    return `${relationshipStep}Parse canonicalDraftCorrectionJson once for every finding, affected stable tempRef, exact local geometry, and this revision's patch contract. Choose and combine compatible corrections yourself. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete original create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new concise receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended task-relevant finding remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
   }
   return `${relationshipStep}Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.`;
 }
@@ -2025,6 +2043,7 @@ function canonicalDraftCorrectionJson(
       tool: correction.tool,
       delivery: correction.delivery,
       geometryQualityStatus: validation.geometryQualityStatus,
+      diagramTempRefs: correction.diagramTempRefs,
       findingCoverage: {
         totalFindingCount: validation.findingCoverage.totalFindingCount,
         receiptFindingCount: validation.findings.length,
@@ -2188,12 +2207,9 @@ function conciseDraftReceipt(
     temporaryReferenceCount: Object.keys(draft.temporaryReferences).length,
     previewObjectCount: draft.previewObjects.length,
     previewDiagramCount: draft.previewDiagrams.length,
-    previewObjects: draft.previewObjects.map(compactMutationObject),
-    previewDiagrams: draft.previewDiagrams.map(compactDiagram),
     ...(relationshipAssertionReview ? { relationshipAssertionReview } : {}),
     ...(relationshipReview ? { relationshipReview } : {}),
-    draftValidation,
-    recommendedDraftCorrection: recommendedCorrection,
+    draftValidation: conciseDraftValidation(draftValidation),
     ...(recommendedCorrection
       ? {
           canonicalDraftCorrectionJson: canonicalDraftCorrectionJson(
@@ -2671,7 +2687,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Canvas transaction",
       description:
-        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review; call finish_canvas_draft yourself with no confirmation. relationshipAssertions checks endpoints/direction/label before mutation; no inference. updateMode=patch sends affected stable tempRefs. Edits: omit delivery. Root: operations/relationshipAssertions/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary is inert.",
+        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review; call finish_canvas_draft yourself; no confirmation. Assertions check facts; no inference. Concise: parse canonicalDraftCorrectionJson once. updateMode=patch sends affected stable tempRefs. Edits omit delivery. Root: operations/relationshipAssertions/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary inert.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },

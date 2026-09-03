@@ -1213,7 +1213,7 @@ describe("progressive draft delivery", () => {
     ]);
   });
 
-  it("defaults draft results to compact preview records while detailed preserves the legacy snapshot", async () => {
+  it("defaults draft results to a scalar-first compact receipt while detailed preserves the legacy snapshot", async () => {
     const previewObject = {
       ...node("node_preview", "Preview API", "service", 40),
       semanticName: "Preview API service",
@@ -1295,34 +1295,21 @@ describe("progressive draft delivery", () => {
           geometryQualityStatus: "pass",
           totalChangedDiagramCount: 1,
           findingCount: 0,
-          findings: [],
+          findingEvidenceField: null,
           authority: expect.stringMatching(/intent-unaware.*preserve deliberate/i),
         },
-        previewObjects: [{
-          id: "node_preview",
-          revision: 1,
-          kind: "shape",
-          semanticName: "Preview API service",
-          semanticRole: "architecture.service",
-          bounds: { x: 40, y: 100, width: 200, height: 100 },
-          authority: "draft",
-        }],
-        previewDiagrams: [{
-          id: "diagram_preview",
-          revision: 1,
-          title: "Preview architecture",
-          memberObjectCount: 1,
-          connectorCount: 0,
-          authority: "draft",
-        }],
         visualInspectionStatus: "not_performed",
       },
     });
     const conciseData = (concise as { ok: true; data: Record<string, unknown> }).data;
     expect(conciseData).not.toHaveProperty("draft");
     expect(conciseData).not.toHaveProperty("canonicalDraftCorrectionJson");
-    expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("label");
-    expect((conciseData.previewObjects as Array<Record<string, unknown>>)[0]).not.toHaveProperty("createdAt");
+    expect(conciseData).toHaveProperty("temporaryReferences");
+    expect(conciseData).not.toHaveProperty("previewObjects");
+    expect(conciseData).not.toHaveProperty("previewDiagrams");
+    expect(conciseData).not.toHaveProperty("recommendedDraftCorrection");
+    expect((conciseData.draftValidation as Record<string, unknown>)).not.toHaveProperty("findings");
+    expect((conciseData.draftValidation as Record<string, unknown>)).not.toHaveProperty("reasoningContext");
 
     const detailed = await execute(tool(tools, "apply_canvas_transaction"), {
       operations,
@@ -1363,6 +1350,7 @@ describe("progressive draft delivery", () => {
         },
       },
     });
+    expect(JSON.stringify(concise).length).toBeLessThan(JSON.stringify(detailed).length / 2);
     expect(getPresentation).toHaveBeenCalledTimes(2);
   });
 
@@ -1419,33 +1407,10 @@ describe("progressive draft delivery", () => {
           geometryQualityStatus: "fail",
           failCount: expect.any(Number),
           authority: expect.stringMatching(/intent-unaware.*correct only unintended/i),
+          findingEvidenceField: "canonicalDraftCorrectionJson",
           findingCoverage: {
             limit: 24,
             truncated: false,
-          },
-          reasoningContext: {
-            objects: expect.arrayContaining([
-              expect.objectContaining({
-                id: "api",
-                semanticName: null,
-                displayText: "Checkout API",
-                bounds: { x: 0, y: 100, width: 200, height: 100 },
-              }),
-              expect.objectContaining({
-                id: "db",
-                displayText: "Orders DB",
-              }),
-            ]),
-            connectors: expect.arrayContaining([
-              expect.objectContaining({
-                id: "api-db",
-                label: "writes",
-                startObjectId: "api",
-                endObjectId: "db",
-                points: expect.any(Array),
-                labelBounds: expect.any(Object),
-              }),
-            ]),
           },
         },
         relationshipReview: {
@@ -1478,24 +1443,9 @@ describe("progressive draft delivery", () => {
             },
           }],
         },
-        recommendedDraftCorrection: {
-          tool: "apply_canvas_transaction",
-          delivery: {
-            mode: "draft",
-            draftId: "draft_cramped",
-            expectedDraftRevision: 1,
-            updateMode: "patch",
-          },
-          affectedTempRefs: expect.arrayContaining(["api", "db", "request"]),
-          connectorTempRefs: ["request"],
-          connectorOperation: {
-            op: "update_draft_connector",
-            rule: expect.stringMatching(/only agent-chosen.*do not use authoritative update/i),
-          },
-        },
         canonicalDraftCorrectionJson: expect.any(String),
         nextStep: expect.stringMatching(
-          /relationshipReview.*requested facts.*review draftValidation.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
+          /relationshipReview.*requested facts.*parse canonicalDraftCorrectionJson once.*update_draft_connector.*updateMode=replace.*deliberate geometry is valid/i,
         ),
       },
     });
@@ -1503,18 +1453,11 @@ describe("progressive draft delivery", () => {
       ok: true;
       data: {
         canonicalDraftCorrectionJson: string;
-        draftValidation: { findings: Array<Record<string, unknown>> };
+        draftValidation: Record<string, unknown>;
       };
     }).data;
-    expect(data.draftValidation.findings.length).toBeLessThanOrEqual(24);
-    expect(data.draftValidation.findings.find((finding) => finding.code === "MEMBER_OBJECT_OVERLAP"))
-      .toMatchObject({
-        diagramId: "architecture",
-        status: "fail",
-        summary: expect.stringMatching(/overlap.*unintended/i),
-        objectIds: expect.arrayContaining(["api", "db"]),
-        details: { overlapArea: expect.any(Number) },
-      });
+    expect(data.draftValidation).not.toHaveProperty("findings");
+    expect(data.draftValidation).not.toHaveProperty("reasoningContext");
     expect(new TextEncoder().encode(data.canonicalDraftCorrectionJson).byteLength).toBeLessThanOrEqual(32_768);
     const canonicalCorrection = JSON.parse(data.canonicalDraftCorrectionJson);
     expect(canonicalCorrection).toMatchObject({
@@ -1528,11 +1471,13 @@ describe("progressive draft delivery", () => {
         updateMode: "patch",
       },
       geometryQualityStatus: "fail",
+      diagramTempRefs: ["diagram"],
       findings: expect.arrayContaining([
         expect.objectContaining({
           code: "MEMBER_OBJECT_OVERLAP",
           status: "fail",
           objectTempRefs: expect.arrayContaining(["api", "db"]),
+          details: { overlapArea: expect.any(Number) },
         }),
       ]),
       objects: expect.arrayContaining([
