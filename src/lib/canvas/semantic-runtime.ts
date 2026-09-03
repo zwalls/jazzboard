@@ -134,6 +134,16 @@ export function createSemanticCanvasRuntime(host: SemanticCanvasRuntimeHost): Ca
           : { publishPresence: options.publishPresence }),
       });
     },
+    isObjectRenderedExact(object) {
+      const projected = host.getScene().objectsById[object.id]?.object;
+      return Boolean(
+        projected &&
+        isSameSemanticObject(object, projected) &&
+        projected.kind === object.kind &&
+        projected.revision === object.revision &&
+        projected.createdAt === object.createdAt,
+      );
+    },
     isObjectProjectionExact(object) {
       const current = host.getRoom().objects[object.id];
       const projected = host.getScene().objectsById[object.id]?.object;
@@ -141,6 +151,7 @@ export function createSemanticCanvasRuntime(host: SemanticCanvasRuntimeHost): Ca
         current &&
         projected &&
         isSameSemanticObject(current, projected) &&
+        isSameSemanticObject(object, projected) &&
         host.isProjectionAuthoritative?.(object.id) !== false &&
         current.kind === object.kind &&
         current.revision === object.revision &&

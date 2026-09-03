@@ -11,6 +11,7 @@ import {
   type JazzboardArtifactV1,
   type JazzboardArtifactWarning,
   type JazzboardTemplateV1,
+  type PortableConnectorRouting,
   type PortableNodeMetadata,
   type TemplateCanvasObject,
   type TemplateCreateIdKind,
@@ -18,6 +19,24 @@ import {
   type TemplateInstantiationOptions,
   type TemplateInstantiationPlan,
 } from "./types";
+
+function copyRouting(
+  routing: PortableConnectorRouting | undefined,
+  offset: { dx: number; dy: number } = { dx: 0, dy: 0 },
+): PortableConnectorRouting {
+  const value = routing ?? LEGACY_STRAIGHT_CONNECTOR_ROUTING;
+  return {
+    ...value,
+    ...(value.waypoints
+      ? {
+          waypoints: value.waypoints.map((point) => ({
+            x: point.x + offset.dx,
+            y: point.y + offset.dy,
+          })),
+        }
+      : {}),
+  };
+}
 
 function selectDiagram(artifact: JazzboardArtifactV1, diagramId?: string) {
   if (diagramId) {
@@ -112,7 +131,7 @@ function stripObject(
     direction: object.direction,
     label: object.label,
     color: object.color,
-    routing: { ...(object.routing ?? LEGACY_STRAIGHT_CONNECTOR_ROUTING) },
+    routing: copyRouting(object.routing),
   };
 }
 
@@ -292,7 +311,7 @@ function createObject(
     direction: object.direction,
     label: object.label,
     color: object.color,
-    routing: { ...(object.routing ?? LEGACY_STRAIGHT_CONNECTOR_ROUTING) },
+    routing: copyRouting(object.routing, { dx, dy }),
   };
 }
 

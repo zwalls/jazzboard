@@ -233,6 +233,122 @@ function denseTwelveNodeFixture(): CanvasObject[] {
 }
 
 describe("diagram visual quality analysis", () => {
+  it("reports a connector route that escapes an explicit containing layout scaffold", () => {
+    const left = node("scaffold-left", 100, 150);
+    const right = node("scaffold-right", 560, 150);
+    const connector: ConnectorObject = {
+      ...edge(
+        "scaffold-route",
+        { x: 220, y: 185, objectId: left.id, normalizedAnchor: { x: 1, y: 0.5 } },
+        { x: 560, y: 185, objectId: right.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      ),
+      routing: normalizeConnectorRouting({ mode: "curved", bend: -250 }),
+    };
+    const scaffold: ShapeObject = {
+      ...node("evaluation-frame", 0, 0, {
+        width: 800,
+        height: 400,
+        semanticRole: "layout_scaffold",
+        zIndex: -1,
+      }),
+      diagramIds: [],
+      nodeType: null,
+      label: "System view",
+    };
+    const sourceDiagram = diagram([left, right, connector]);
+
+    const report = analyzeDiagramVisualQuality(
+      room([left, right, connector, scaffold], sourceDiagram),
+      sourceDiagram.id,
+    );
+
+    const overflow = report.findings.find(
+      (finding) => finding.code === "CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD",
+    );
+    expect(overflow).toMatchObject({
+      status: "warning",
+      objectIds: [scaffold.id],
+      connectorIds: [connector.id],
+      details: {
+        scaffoldSemanticName: null,
+        overflowSides: ["top"],
+        pathOutside: true,
+        labelOutside: false,
+      },
+    });
+    expect(Number(overflow?.details?.maximumOverflow)).toBeGreaterThan(0);
+    expect(report.metrics.outsideLayoutScaffoldConnectorCount).toBe(1);
+  });
+
+  it("does not infer a containing scaffold when any Diagram member is outside it", () => {
+    const left = node("partial-left", 100, 150);
+    const right = node("partial-right", 560, 150);
+    const connector: ConnectorObject = {
+      ...edge(
+        "partial-route",
+        { x: 220, y: 185, objectId: left.id, normalizedAnchor: { x: 1, y: 0.5 } },
+        { x: 560, y: 185, objectId: right.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      ),
+      routing: normalizeConnectorRouting({ mode: "curved", bend: -250 }),
+    };
+    const scaffold: ShapeObject = {
+      ...node("partial-frame", 0, 0, {
+        width: 400,
+        height: 400,
+        semanticRole: "layout_scaffold",
+        zIndex: -1,
+      }),
+      diagramIds: [],
+      nodeType: null,
+    };
+    const sourceDiagram = diagram([left, right, connector]);
+
+    const report = analyzeDiagramVisualQuality(
+      room([left, right, connector, scaffold], sourceDiagram),
+      sourceDiagram.id,
+    );
+
+    expect(codes(report)).not.toContain("CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD");
+    expect(report.metrics.outsideLayoutScaffoldConnectorCount).toBe(0);
+  });
+
+  it("reports a connector that crosses the visible label of an external layout scaffold", () => {
+    const left = node("frame-label-left", 80, 165);
+    const right = node("frame-label-right", 600, 165);
+    const connector = edge(
+      "frame-label-route",
+      { x: 200, y: 200, objectId: left.id, normalizedAnchor: { x: 1, y: 0.5 } },
+      { x: 600, y: 200, objectId: right.id, normalizedAnchor: { x: 0, y: 0.5 } },
+    );
+    const scaffold: ShapeObject = {
+      ...node("labeled-frame", 0, 0, {
+        width: 800,
+        height: 400,
+        semanticRole: "layout_scaffold",
+        zIndex: -1,
+      }),
+      diagramIds: [],
+      nodeType: null,
+      label: "System view",
+    };
+    const sourceDiagram = diagram([left, right, connector]);
+
+    const report = analyzeDiagramVisualQuality(
+      room([left, right, connector, scaffold], sourceDiagram),
+      sourceDiagram.id,
+    );
+
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "CONNECTOR_OBJECT_INTRUSION",
+        status: "fail",
+        objectIds: [scaffold.id],
+        connectorIds: [connector.id],
+        details: { collisionTarget: "layout_scaffold_label" },
+      }),
+    ]));
+  });
+
   it("passes a realistic, comfortably spaced twelve-node architecture", () => {
     const objects = cleanTwelveNodeFixture();
     const report = analyzeDiagramVisualQuality(room(objects), "quality-diagram");

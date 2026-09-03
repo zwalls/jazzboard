@@ -163,6 +163,7 @@ export type SemanticCanvasProps = Pick<
   | "boardMenuActions"
   | "persistentChromeHost"
   | "cleanInspectionId"
+  | "cleanInspectionDraftScope"
   | "room"
   | "agentDrafts"
   | "initialAgentDraftIds"
@@ -461,6 +462,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   boardMenuActions,
   persistentChromeHost = null,
   cleanInspectionId = null,
+  cleanInspectionDraftScope = null,
   room,
   agentDrafts = [],
   initialAgentDraftIds = [],
@@ -598,6 +600,20 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   );
   const [activeTextEditor, setActiveTextEditor] = useState<ActiveTextEditor | null>(null);
   const renderedRoom = useMemo<RoomState>(() => {
+    const inspectedDraft = cleanInspectionActive && cleanInspectionDraftScope
+      ? agentDrafts.find((draft) => (
+          draft.roomId === projectedRoom.id
+          && draft.id === cleanInspectionDraftScope.draftId
+          && draft.revision === cleanInspectionDraftScope.expectedDraftRevision
+        ))
+      : null;
+    if (inspectedDraft) {
+      const objects = { ...projectedRoom.objects };
+      for (const object of inspectedDraft.previewObjects) objects[object.id] = object;
+      const diagrams = { ...projectedRoom.diagrams };
+      for (const diagram of inspectedDraft.previewDiagrams) diagrams[diagram.id] = diagram;
+      return { ...projectedRoom, objects, diagrams };
+    }
     if (activeTextEditor?.mode !== "create" || activeTextEditor.session.draft.kind !== "text") {
       return projectedRoom;
     }
@@ -621,7 +637,16 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       ...projectedRoom,
       objects: { ...projectedRoom.objects, [draft.id]: provisional },
     };
-  }, [activeTextEditor, projectedRoom, self.color, self.displayName, self.participantId]);
+  }, [
+    activeTextEditor,
+    agentDrafts,
+    cleanInspectionActive,
+    cleanInspectionDraftScope,
+    projectedRoom,
+    self.color,
+    self.displayName,
+    self.participantId,
+  ]);
   const roomRef = useRef(controller?.getAuthoritativeRoom() ?? room);
   const scene = useSemanticSceneProjection(
     renderedRoom,

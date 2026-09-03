@@ -191,7 +191,13 @@ describe("Jazzboard semantic WebMCP surface", () => {
     const drawProperties = (toolByName(tools, "draw_connection").inputSchema as unknown as {
       properties?: Record<string, { description?: string; maxLength?: number }>;
     }).properties;
-    expect(drawProperties?.routing?.description).toMatch(/auto\|straight\|curved\|elbow/);
+    expect(drawProperties?.routing).toMatchObject({
+      properties: {
+        mode: { enum: ["auto", "straight", "curved", "elbow"] },
+        bend: { minimum: -10_000, maximum: 10_000 },
+        elbowMidPoint: { minimum: 0, maximum: 1 },
+      },
+    });
     expect(drawProperties?.start?.description).toMatch(/objectId.*port/);
     for (const name of [
       "create_text",
@@ -218,13 +224,31 @@ describe("Jazzboard semantic WebMCP surface", () => {
       });
     }
     const updateProperties = (toolByName(tools, "update_object").inputSchema as unknown as {
-      properties?: { patch?: { properties?: Record<string, { description?: string }> } };
+      properties?: {
+        patch?: {
+          properties?: Record<string, {
+            description?: string;
+            properties?: Record<string, unknown>;
+          }>;
+        };
+      };
     }).properties?.patch?.properties;
-    expect(updateProperties?.routing?.description).toMatch(/auto\/straight\/curved\/elbow/);
+    expect(updateProperties?.routing).toMatchObject({
+      properties: {
+        mode: { enum: ["auto", "straight", "curved", "elbow"] },
+      },
+    });
     expect(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA.properties.mode.description).toContain(
       "delegates routing",
     );
-    expect(updateProperties?.end?.description).toMatch(/attachment metadata is optional/);
+    expect(CONNECTOR_ROUTING_INPUT_JSON_SCHEMA.properties.waypoints).toMatchObject({
+      minItems: 1,
+      maxItems: 30,
+      description: expect.stringMatching(/agent-authored.*absolute canvas.*never generated/i),
+    });
+    expect(updateProperties?.end).toMatchObject({
+      description: expect.stringMatching(/attachment metadata is optional/),
+    });
     expect(updateProperties?.semanticName?.description).toMatch(/revise or clear/i);
     expect(updateProperties?.semanticRole?.description).toMatch(/revise or clear/i);
 
@@ -240,6 +264,21 @@ describe("Jazzboard semantic WebMCP surface", () => {
       objectId: "path-a",
       expectedRevision: 2,
       patch: { fill: "chartreuse" },
+    })).toBe(false);
+    expect(validatesUpdate({
+      objectId: "connector-a",
+      expectedRevision: 2,
+      patch: {
+        routing: {
+          mode: "elbow",
+          waypoints: [{ x: 160, y: -80 }, { x: 440, y: -80 }],
+        },
+      },
+    })).toBe(true);
+    expect(validatesUpdate({
+      objectId: "connector-a",
+      expectedRevision: 2,
+      patch: { routing: { mode: "auto", waypoints: [{ x: 160, y: -80 }] } },
     })).toBe(false);
   });
 });
@@ -986,6 +1025,39 @@ describe("semantic mutation handlers", () => {
             bend: -72,
             elbowMidPoint: 0.5,
             labelPosition: 0.4,
+          },
+        },
+      },
+    });
+  });
+
+  it("preserves agent-authored elbow waypoints through revision-safe mutations", async () => {
+    const fixture = contextFixture();
+    const request = successfulRequest();
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
+    const waypoints = [{ x: 320, y: 120 }, { x: 520, y: 120 }];
+
+    const result = await execute(toolByName(tools, "update_object"), {
+      objectId: "connector-a",
+      expectedRevision: 4,
+      operation: "connect",
+      patch: { routing: { mode: "elbow", waypoints, labelPosition: 0.65 } },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toMatchObject({
+      command: {
+        type: "update",
+        objectId: "connector-a",
+        expectedRevision: 4,
+        patch: {
+          routing: {
+            mode: "elbow",
+            kind: "elbow",
+            bend: 0,
+            elbowMidPoint: 0.5,
+            labelPosition: 0.65,
+            waypoints,
           },
         },
       },

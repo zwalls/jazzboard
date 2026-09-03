@@ -81,7 +81,18 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
             representation: "overview" as const,
           },
         }
-      : source.kind === "diagram"
+      : source.kind === "draft"
+        ? {
+            tool: "inspect_canvas_scope" as const,
+            arguments: {
+              scope: {
+                kind: "draft" as const,
+                draftId: source.draftId,
+                expectedDraftRevision: source.expectedDraftRevision,
+              },
+            },
+          }
+        : source.kind === "diagram"
         ? {
             tool: "render_canvas_preview" as const,
             arguments: {
@@ -299,14 +310,21 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
             ? { kind: source.kind }
             : source.kind === "room"
               ? { kind: source.kind, expectedRevision: source.expectedRevision }
-            : {
-                kind: source.kind,
-                diagramId: source.diagramId,
-                expectedRevision: source.expectedRevision,
-              },
+              : source.kind === "draft"
+                ? {
+                    kind: source.kind,
+                    draftId: source.draftId,
+                    expectedDraftRevision: source.expectedDraftRevision,
+                  }
+                : {
+                    kind: source.kind,
+                    diagramId: source.diagramId,
+                    expectedRevision: source.expectedRevision,
+                  },
         sourceRevisions: {
           roomRevision: source.roomRevision,
           diagramRevision: source.kind === "diagram" ? source.expectedRevision : null,
+          draftRevision: source.kind === "draft" ? source.expectedDraftRevision : null,
           objects: source.objectRevisions,
           visualContributors: source.visualContributorRevisions ?? source.objectRevisions,
         },

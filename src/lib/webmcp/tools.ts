@@ -44,6 +44,7 @@ import type {
   WebMcpRequest,
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 
 const idSchema = z.string().min(1).max(128);
 const finite = z.number().finite();
@@ -1222,7 +1223,7 @@ export function createJazzboardWebMcpTools(
           direction: { enum: ["none", "end", "both"] },
           label: { type: "string", maxLength: 2_000 },
           color: COLOR_JSON_SCHEMA,
-          routing: { type: "object", description: "{mode:auto|straight|curved|elbow,...}." },
+          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
           zIndex: { type: "integer", minimum: 0, maximum: 1_000_000 },
           ...ACTIVITY_METADATA_PROPERTIES,
         },
@@ -1308,7 +1309,7 @@ export function createJazzboardWebMcpTools(
               },
               end: { type: "object", description: "Connector {x,y,objectId}; attachment metadata is optional." },
               direction: { enum: ["none", "end", "both"] },
-              routing: { type: "object", description: "auto/straight/curved/elbow routing." },
+              routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
               url: { type: "string" },
               assetId: { type: ["string", "null"] },
               alt: { type: "string" },

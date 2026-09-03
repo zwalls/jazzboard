@@ -152,6 +152,8 @@ export type ConnectorRoutingInput = {
   bend?: number;
   elbowMidPoint?: number;
   labelPosition?: number;
+  /** Explicit elbow vertices in absolute canvas coordinates. Never solver-generated. */
+  waypoints?: Point[];
 };
 
 /** Canonical persisted intent plus its concrete renderer-neutral resolution. */
@@ -161,6 +163,8 @@ export type ConnectorRouting = {
   bend: number;
   elbowMidPoint: number;
   labelPosition: number;
+  /** Explicit elbow vertices in absolute canvas coordinates. Never solver-generated. */
+  waypoints?: Point[];
   /**
    * Distinguishes an automatic solver result from an explicit caller choice.
    * Optional so rooms persisted before this marker remain readable.

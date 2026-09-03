@@ -104,6 +104,8 @@ export type PortableConnectorRouting = {
   bend: number;
   elbowMidPoint: number;
   labelPosition: number;
+  /** Explicit elbow vertices in absolute canvas coordinates. Never solver-generated. */
+  waypoints?: Point[];
   /** Whether an automatic route's label position came from the solver or the author. */
   labelPositionSource?: "generated" | "authored";
 };

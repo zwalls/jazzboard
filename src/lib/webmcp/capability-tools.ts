@@ -8,6 +8,7 @@ import {
   SEMANTIC_SHAPE_STROKE_WIDTH,
   SEMANTIC_TEXT_FONT_SIZES,
 } from "@/lib/canvas/semantic-visual-style";
+import { CONNECTOR_ROUTING_LIMITS } from "@/lib/domain/connector-routing";
 import { VECTOR_PATH_LIMITS } from "@/lib/domain/vector-path";
 
 import type {
@@ -111,6 +112,7 @@ const CORE_CAPABILITIES = {
     persistedDrawingPointSpace: "object-local-canvas-units",
     persistedPathAndPolygonPointSpace: "normalized-object-local-0-to-1",
     connectorPointSpace: "absolute-canvas",
+    connectorWaypointSpace: "absolute-canvas",
   },
   paintOrder: {
     field: "zIndex",
@@ -125,6 +127,7 @@ const CORE_CAPABILITIES = {
     maximumDrawingPointsPerStroke: 2_000,
     maximumPathSegments: VECTOR_PATH_LIMITS.maxSegments,
     maximumPolygonPoints: 2_001,
+    maximumConnectorWaypoints: CONNECTOR_ROUTING_LIMITS.maxWaypoints,
     maximumPathStrokeWidth: VECTOR_PATH_LIMITS.maxStrokeWidth,
     maximumDiagramMembers: 500,
     maximumDiagramConnectors: 500,
@@ -212,6 +215,13 @@ const AUTHORING_BUNDLE = {
     connector: {
       operation: "connect",
       routingModes: ["auto", "straight", "curved", "elbow"],
+      authoredWaypoints: {
+        field: "routing.waypoints",
+        mode: "elbow-only",
+        pointSpace: "absolute-canvas",
+        generatedAutomatically: false,
+        precedence: "replaces-elbowMidPoint-generated-interior-vertices",
+      },
     },
   },
   transactions: {
@@ -319,7 +329,7 @@ const ARCHITECTURE_BUNDLE = {
   judgment: {
     automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",
     automaticRouting: "delegates-path-choice-but-does-not-certify-readability",
-    explicitRouting: "use-when-ports-curvature-elbows-or-label-position-carry-meaning",
+    explicitRouting: "use-when-ports-curvature-elbows-waypoints-or-label-position-carry-meaning",
     geometryFindings: "intent-unaware-evidence-not-redesign-permission",
   },
   canonicalExamples: {

@@ -216,6 +216,15 @@ describe("dense AI-native diagram WebMCP workflow", () => {
       onDocumentChange: () => () => undefined,
       selectObjects: () => undefined,
       zoomToBounds: () => undefined,
+      isObjectRenderedExact: (object: CanvasObject) => {
+        const current = projected.objects[object.id];
+        return Boolean(
+          current &&
+          current.kind === object.kind &&
+          current.revision === object.revision &&
+          current.createdAt === object.createdAt,
+        );
+      },
       isObjectProjectionExact: (object: CanvasObject) => {
         const current = projected.objects[object.id];
         return Boolean(

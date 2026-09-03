@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import { SEMANTIC_CANVAS_CLIPBOARD_FORMAT } from "@/lib/canvas/semantic-keyboard-session";
 import {
@@ -391,6 +392,56 @@ describe("SemanticCanvas", () => {
     expect(screen.queryByLabelText("Canvas zoom controls")).not.toBeInTheDocument();
     expect(screen.queryByTestId("canvas-presence-overlay")).not.toBeInTheDocument();
     expect(document.querySelector('[data-semantic-selection-controls="true"]')).toBeNull();
+  });
+
+  it("projects only the exact draft candidate into the clean inspection scene", () => {
+    const previewObject = {
+      ...room.objects["node-a"],
+      id: "draft-node",
+      x: 560,
+      label: "Draft worker",
+      authority: "draft" as const,
+    };
+    const candidate: AgentCanvasDraftSnapshot = {
+      schemaVersion: 1,
+      id: "draft_clean",
+      roomId: room.id,
+      ownerParticipantId: self.participantId,
+      author: { ...actor, kind: "agent" },
+      revision: 2,
+      baselineRoomRevision: room.roomRevision,
+      status: "active",
+      temporaryReferences: { worker: previewObject.id },
+      previewObjects: [previewObject],
+      previewDiagrams: [],
+      metadata: null,
+      createdAt: 2,
+      updatedAt: 3,
+      expiresAt: 60_000,
+      hardExpiresAt: 120_000,
+    };
+    render(
+      <SemanticCanvas
+        boardMenuActions={menuActions}
+        cleanInspectionId="preview-draft"
+        cleanInspectionDraftScope={{ draftId: candidate.id, expectedDraftRevision: candidate.revision }}
+        room={room}
+        agentDrafts={[candidate]}
+        self={self}
+        followTarget={null}
+        presence={vi.fn().mockResolvedValue(undefined)}
+        transientPresence={vi.fn(() => true)}
+        connection="live"
+        onSelectionChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
+        onExitFollow={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /service: Draft worker/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /service: Room API/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-draft-layer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-presence-overlay")).not.toBeInTheDocument();
   });
 
   it("removes a pre-existing object focus ring before clean pixels paint", () => {

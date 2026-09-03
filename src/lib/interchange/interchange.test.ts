@@ -419,6 +419,50 @@ describe("Jazzboard portable interchange", () => {
     });
   });
 
+  it("preserves authored elbow waypoints in artifacts and translates them with templates", () => {
+    const room = roomFixture();
+    const source = room.objects.connector_ab;
+    if (source.kind !== "connector") throw new Error("Missing connector fixture.");
+    const waypoints = [{ x: 170, y: -120 }, { x: 340, y: -120 }];
+    source.routing = {
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.6,
+      waypoints,
+    };
+
+    const artifact = projectJazzboardArtifact(room, { kind: "diagram", diagramId: "diagram_flow" });
+    const projected = artifact.objects.find((object) => object.id === source.id);
+    expect(projected).toMatchObject({ kind: "connector", routing: { waypoints } });
+
+    const template = createJazzboardTemplate(artifact);
+    const templateConnector = template.objects.find((object) => object.id === source.id);
+    expect(templateConnector).toMatchObject({ kind: "connector", routing: { waypoints } });
+
+    const origin = { x: 1_000, y: 2_000 };
+    const planned = planTemplateInstantiation(template, {
+      origin,
+      createId: (kind, sourceId) => `waypoint_${kind}_${sourceId}`,
+    });
+    const instantiated = planned.transaction.commands.find(
+      (command) => command.type === "create" && command.object.kind === "connector",
+    );
+    const dx = origin.x - template.bounds.x;
+    const dy = origin.y - template.bounds.y;
+    expect(instantiated).toMatchObject({
+      type: "create",
+      object: {
+        kind: "connector",
+        routing: {
+          mode: "elbow",
+          waypoints: waypoints.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+        },
+      },
+    });
+  });
+
   it("preserves semantic identity through artifacts and template instantiation without requiring it on legacy files", () => {
     const artifact = projectJazzboardArtifact(roomFixture(), {
       kind: "diagram",
@@ -621,6 +665,23 @@ describe("Jazzboard portable interchange", () => {
     expect(viewY).toBeLessThanOrEqual(Number(rawY));
     expect(viewX + viewWidth).toBeGreaterThanOrEqual(Number(rawX) + Number(rawWidth));
     expect(viewY + viewHeight).toBeGreaterThanOrEqual(Number(rawY) + Number(rawHeight));
+
+    connector.routing = {
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+      waypoints: [{ x: 40, y: 160 }, { x: 160, y: 160 }],
+    };
+    const waypointElbow = renderJazzboardSvg(artifact, {
+      padding: 0,
+      maxWidth: 8_192,
+      maxHeight: 8_192,
+    });
+    expect(waypointElbow.svg).toContain(
+      '<path d="M 0 0 L 40 160 L 160 160 L 200 100" fill="none"',
+    );
   });
 
   it("wraps connector labels on a readable background and includes the full label box in view bounds", () => {
@@ -878,6 +939,24 @@ describe("Jazzboard portable interchange", () => {
       };
     }
     expect(() => parseJazzboardTemplateV1(subMinimumCurve)).toThrowError(
+      expect.objectContaining({ code: "TEMPLATE_INVALID" }),
+    );
+
+    const automaticWaypoints = structuredClone(template);
+    const automaticWaypointConnector = automaticWaypoints.objects.find(
+      (object) => object.kind === "connector",
+    );
+    if (automaticWaypointConnector?.kind === "connector") {
+      automaticWaypointConnector.routing = {
+        mode: "auto",
+        kind: "elbow",
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+        waypoints: [{ x: 100, y: 100 }],
+      };
+    }
+    expect(() => parseJazzboardTemplateV1(automaticWaypoints)).toThrowError(
       expect.objectContaining({ code: "TEMPLATE_INVALID" }),
     );
 

@@ -162,6 +162,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const [selection, setSelection] = useState<string[]>([]);
   const [canvasRuntime, setCanvasRuntime] = useState<CanvasRuntime | null>(null);
   const [cleanInspectionId, setCleanInspectionId] = useState<string | null>(null);
+  const [cleanInspectionDraftScope, setCleanInspectionDraftScope] = useState<{
+    draftId: string;
+    expectedDraftRevision: number;
+  } | null>(null);
   const [persistentChromeHost, setPersistentChromeHost] = useState<HTMLDivElement | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -308,6 +312,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           getCanvasRuntime: () => canvasRuntimeRef.current,
           getCanvasElement: () => canvasRef.current?.getCanvasElement() ?? null,
           getRoom: () => roomStateRef.current,
+          getAgentDraft: (draftId) => agentDraftsRef.current.find((draft) => draft.id === draftId) ?? null,
           isCameraFollowActive: () => Boolean(
             followTargetRef.current
             || (
@@ -315,7 +320,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
               && roomStateRef.current?.spotlight?.followingParticipantIds.includes(participantId)
             )
           ),
-          setCleanInspection: setCleanInspectionId,
+          setCleanInspection: (previewId, draftScope) => {
+            setCleanInspectionId(previewId);
+            setCleanInspectionDraftScope(previewId ? draftScope ?? null : null);
+          },
         },
         artifact,
         signal,
@@ -970,6 +978,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         boardMenuActions={boardMenuActions}
         persistentChromeHost={persistentChromeHost}
         cleanInspectionId={cleanInspectionId}
+        cleanInspectionDraftScope={cleanInspectionDraftScope}
         room={room}
         agentDrafts={controller.agentDrafts}
         initialAgentDraftIds={controller.initialAgentDraftIds}

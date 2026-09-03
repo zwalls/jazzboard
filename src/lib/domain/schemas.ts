@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isCanvasImageUrl } from "@/lib/assets/policy";
+import { CONNECTOR_ROUTING_LIMITS } from "@/lib/domain/connector-routing";
 import { normalizeRoomCode } from "@/lib/domain/room-code";
 
 export const roomRoleSchema = z.enum(["participant", "spectator"]);
@@ -120,6 +121,15 @@ export const objectLeaseActionSchema = z.discriminatedUnion("action", [
 
 const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
 
+const connectorWaypointSchema = z.object({
+  x: z.number().finite()
+    .min(-CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate)
+    .max(CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate),
+  y: z.number().finite()
+    .min(-CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate)
+    .max(CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate),
+}).strict();
+
 const normalizedPathPointSchema = z.object({
   x: z.number().finite().min(0).max(1),
   y: z.number().finite().min(0).max(1),
@@ -158,6 +168,10 @@ export const connectorRoutingInputSchema = z
     bend: z.number().finite().min(-10_000).max(10_000).optional(),
     elbowMidPoint: z.number().finite().min(0).max(1).optional(),
     labelPosition: z.number().finite().min(0).max(1).optional(),
+    waypoints: z.array(connectorWaypointSchema)
+      .min(1)
+      .max(CONNECTOR_ROUTING_LIMITS.maxWaypoints)
+      .optional(),
   })
   .strict()
   .superRefine((routing, context) => {
@@ -173,6 +187,9 @@ export const connectorRoutingInputSchema = z
     if (routing.mode !== "elbow" && routing.elbowMidPoint !== undefined) {
       context.addIssue({ code: "custom", path: ["elbowMidPoint"], message: "Only elbow routing accepts elbowMidPoint." });
     }
+    if (routing.mode !== "elbow" && routing.waypoints !== undefined) {
+      context.addIssue({ code: "custom", path: ["waypoints"], message: "Only explicit elbow routing accepts waypoints." });
+    }
   });
 
 export const connectorRoutingSchema = z
@@ -182,6 +199,10 @@ export const connectorRoutingSchema = z
     bend: z.number().finite().min(-10_000).max(10_000),
     elbowMidPoint: z.number().finite().min(0).max(1),
     labelPosition: z.number().finite().min(0).max(1),
+    waypoints: z.array(connectorWaypointSchema)
+      .min(1)
+      .max(CONNECTOR_ROUTING_LIMITS.maxWaypoints)
+      .optional(),
     labelPositionSource: z.enum(["generated", "authored"]).optional(),
   })
   .strict()
@@ -194,6 +215,9 @@ export const connectorRoutingSchema = z
     }
     if (routing.kind === "curved" && Math.abs(routing.bend) < 8) {
       context.addIssue({ code: "custom", path: ["bend"], message: "Canonical curved routing bend must be at least 8 canvas units from zero." });
+    }
+    if (routing.mode !== "elbow" && routing.waypoints !== undefined) {
+      context.addIssue({ code: "custom", path: ["waypoints"], message: "Only explicit elbow routing may carry waypoints." });
     }
   });
 

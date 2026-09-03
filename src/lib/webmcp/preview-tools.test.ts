@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { ActorRef, CanvasObject, Diagram, Participant, RoomState } from "@/lib/domain/types";
 
 import { InRoomCanvasPreviewTransport } from "./in-room-preview-transport";
@@ -156,6 +157,40 @@ function room(): RoomState {
   };
 }
 
+function draft(currentRoom = room(), revision = 2): AgentCanvasDraftSnapshot {
+  const previewObject = {
+    ...object("draft-object", 1),
+    x: 260,
+    diagramIds: ["draft-diagram"],
+    authority: "draft" as const,
+  };
+  const previewDiagram = {
+    ...diagram(1),
+    id: "draft-diagram",
+    memberObjectIds: [previewObject.id],
+    connectorIds: [],
+    authority: "draft" as const,
+  };
+  return {
+    schemaVersion: 1,
+    id: "draft_architecture",
+    roomId: currentRoom.id,
+    ownerParticipantId: "alice",
+    author: actor(),
+    revision,
+    baselineRoomRevision: currentRoom.roomRevision,
+    status: "active",
+    temporaryReferences: { node: previewObject.id, diagram: previewDiagram.id },
+    previewObjects: [previewObject],
+    previewDiagrams: [previewDiagram],
+    metadata: null,
+    createdAt: NOW - 100,
+    updatedAt: NOW,
+    expiresAt: NOW + 60_000,
+    hardExpiresAt: NOW + 120_000,
+  };
+}
+
 function artifact(
   visualQuality: CanvasPreviewArtifact["metadata"]["visualQuality"] = null,
 ): CanvasPreviewArtifact {
@@ -193,6 +228,7 @@ function inspectionArtifact(): CanvasInspectionArtifact {
       identity: "scope:v2:fixture",
       kind: "objects",
       diagramId: null,
+      draftId: null,
       focusObjectIds: [],
       identityBasis: "created_at_incarnations",
     },
@@ -200,6 +236,7 @@ function inspectionArtifact(): CanvasInspectionArtifact {
     revisions: {
       roomRevision: 12,
       diagramRevision: null,
+      draftRevision: null,
       explicitObjectRevisions: [{ objectId: "object-a", revision: 3 }],
       explicitObjectRevisionCoverage: {
         totalCount: 1,
@@ -309,6 +346,7 @@ function fixture(options: {
   withInspector?: boolean;
 } = {}) {
   let accepted: RoomState | null = null;
+  const acceptedDrafts: AgentCanvasDraftSnapshot[] = [];
   const renderCanvasPreview = vi.fn(async () => artifact());
   const inspectCanvasScope = vi.fn(async () => inspectionArtifact());
   const presentCanvasPreview = vi.fn(async () => ({
@@ -332,6 +370,7 @@ function fixture(options: {
     acceptRoom: (next) => {
       accepted = next;
     },
+    acceptAgentDraft: (next) => acceptedDrafts.push(next),
     setFollowTarget: () => undefined,
     setDeclinedSpotlight: () => undefined,
     leaveRoomView: () => undefined,
@@ -342,7 +381,14 @@ function fixture(options: {
     role: options.role ?? "participant",
     context,
   };
-  return { binding, renderCanvasPreview, inspectCanvasScope, presentCanvasPreview, accepted: () => accepted };
+  return {
+    binding,
+    renderCanvasPreview,
+    inspectCanvasScope,
+    presentCanvasPreview,
+    accepted: () => accepted,
+    acceptedDrafts,
+  };
 }
 
 function requestMock(authoritative = room()) {
@@ -354,6 +400,70 @@ async function execute(tool: WebMCP.ModelContextTool, input: Record<string, unkn
 }
 
 describe("render_canvas_preview WebMCP tool", () => {
+  it("keeps blank-capture recovery on the same exact draft scope", async () => {
+    const currentDraft = draft();
+    const candidateArtifact = inspectionArtifact();
+    candidateArtifact.metadata.source = {
+      kind: "draft",
+      draftId: currentDraft.id,
+      expectedDraftRevision: currentDraft.revision,
+      roomRevision: 12,
+      objectRevisions: currentDraft.previewObjects.map((item) => ({
+        objectId: item.id,
+        revision: item.revision,
+      })),
+    };
+    candidateArtifact.metadata.inspectionEvidence = {
+      ...candidateArtifact.metadata.inspectionEvidence!,
+      scope: {
+        ...candidateArtifact.metadata.inspectionEvidence!.scope,
+        kind: "draft",
+        diagramId: null,
+        draftId: currentDraft.id,
+      },
+      revisions: {
+        ...candidateArtifact.metadata.inspectionEvidence!.revisions,
+        diagramRevision: null,
+        draftRevision: currentDraft.revision,
+      },
+    };
+
+    const result = await new InRoomCanvasPreviewTransport().emit(
+      candidateArtifact,
+      async () => ({
+        previewId: "preview-draft",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 20_000,
+      }),
+      new AbortController().signal,
+      "inspect_canvas_scope",
+    ) as JazzboardToolResult<Record<string, unknown>>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        pixelCaptureProtocol: {
+          onBlankCapture: {
+            steps: [
+              expect.objectContaining({
+                tool: "inspect_canvas_scope",
+                arguments: {
+                  scope: {
+                    kind: "draft",
+                    draftId: currentDraft.id,
+                    expectedDraftRevision: currentDraft.revision,
+                  },
+                },
+              }),
+              expect.any(Object),
+              expect.any(Object),
+            ],
+          },
+        },
+      },
+    });
+  });
+
   it("reports deterministic Diagram geometry without claiming that pixels were inspected", async () => {
     const transport = new InRoomCanvasPreviewTransport();
     const visualQuality: NonNullable<CanvasPreviewArtifact["metadata"]["visualQuality"]> = {
@@ -381,6 +491,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         unsupportedDrawMemberCount: 0,
         unsupportedPathMemberCount: 0,
         connectorCount: 0,
+        outsideLayoutScaffoldConnectorCount: 0,
         findingCount: 0,
         returnedFindingCount: 0,
         omittedFindingCount: 0,
@@ -463,6 +574,7 @@ describe("render_canvas_preview WebMCP tool", () => {
         unsupportedDrawMemberCount: 1,
         unsupportedPathMemberCount: 0,
         connectorCount: 0,
+        outsideLayoutScaffoldConnectorCount: 0,
         findingCount: 0,
         returnedFindingCount: 0,
         omittedFindingCount: 0,
@@ -656,6 +768,96 @@ describe("render_canvas_preview WebMCP tool", () => {
     expect(state.renderCanvasPreview).not.toHaveBeenCalled();
   });
 
+  it.each(["participant", "spectator"] as const)(
+    "authorizes and resolves an exact participant-visible draft for a %s without mutation",
+    async (role) => {
+      const currentRoom = room();
+      const currentDraft = draft(currentRoom);
+      const state = fixture({ role, withRenderer: false });
+      const request = vi.fn(async (url: string) => {
+        if (url.endsWith(`/drafts/${currentDraft.id}`)) {
+          return { ok: true, draft: currentDraft, serverTime: NOW };
+        }
+        return { ok: true, room: currentRoom };
+      }) as unknown as WebMcpRequest;
+      const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
+        request,
+        canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+      });
+
+      const result = await execute(inspect, {
+        scope: {
+          kind: "draft",
+          draftId: currentDraft.id,
+          expectedDraftRevision: currentDraft.revision,
+        },
+        representation: "working_set",
+      });
+
+      expect(result).toMatchObject({ ok: true, tool: "inspect_canvas_scope" });
+      expect(request).toHaveBeenNthCalledWith(1, "/api/rooms/room%2Fa%20b", {
+        method: "GET",
+        signal: expect.any(AbortSignal),
+      });
+      expect(request).toHaveBeenNthCalledWith(
+        2,
+        `/api/rooms/room%2Fa%20b/drafts/${currentDraft.id}`,
+        { method: "GET", signal: expect.any(AbortSignal) },
+      );
+      expect(request).not.toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+        method: expect.stringMatching(/POST|PUT|PATCH|DELETE/),
+      }));
+      expect(state.accepted()).toBe(currentRoom);
+      expect(state.acceptedDrafts).toEqual([currentDraft]);
+      expect(state.inspectCanvasScope).toHaveBeenCalledWith(
+        expect.objectContaining({
+          roomId: currentRoom.id,
+          authoritativeRoomRevision: currentRoom.roomRevision,
+          source: {
+            kind: "draft",
+            draftId: currentDraft.id,
+            expectedDraftRevision: currentDraft.revision,
+          },
+          draft: currentDraft,
+          diagram: currentDraft.previewDiagrams[0],
+          objects: currentDraft.previewObjects,
+        }),
+        expect.any(AbortSignal),
+      );
+      expect(state.renderCanvasPreview).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects stale or malformed draft inspection scopes before presentation", async () => {
+    const currentRoom = room();
+    const currentDraft = draft(currentRoom, 3);
+    const state = fixture({ withRenderer: false });
+    const request = vi.fn(async (url: string) => url.includes("/drafts/")
+      ? { ok: true, draft: currentDraft, serverTime: NOW }
+      : { ok: true, room: currentRoom }) as unknown as WebMcpRequest;
+    const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
+      request,
+      canvasPreviewTransport: new InRoomCanvasPreviewTransport(),
+    });
+
+    await expect(execute(inspect, {
+      scope: { kind: "draft", draftId: currentDraft.id, expectedDraftRevision: 2 },
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "DRAFT_REVISION_CONFLICT",
+        details: { expectedDraftRevision: 2, actualDraftRevision: 3 },
+      },
+    });
+    expect(state.inspectCanvasScope).not.toHaveBeenCalled();
+
+    (request as unknown as ReturnType<typeof vi.fn>).mockClear();
+    await expect(execute(inspect, {
+      scope: { kind: "draft", draftId: "not-a-draft", expectedDraftRevision: 3 },
+    })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("advertises exact whole-room inspection without adding room scope to legacy rendering", async () => {
     const state = fixture({ withRenderer: false });
     const [inspect] = createJazzboardPreviewWebMcpTools(state.binding, {
@@ -675,16 +877,24 @@ describe("render_canvas_preview WebMCP tool", () => {
     const registeredScope = inputSchema.properties.scope as {
       oneOf: Array<{ properties: Record<string, unknown>; additionalProperties: boolean }>;
     };
-    expect(registeredScope.oneOf).toHaveLength(3);
+    expect(registeredScope.oneOf).toHaveLength(4);
     expect(registeredScope.oneOf[0]).toMatchObject({
       properties: { kind: { const: "room" }, expectedRevision: { minimum: 1 } },
       additionalProperties: false,
     });
     expect(registeredScope.oneOf[1]).toMatchObject({
-      properties: { kind: { const: "objects" }, targets: { type: "array", minItems: 1, maxItems: 1_000 } },
+      properties: {
+        kind: { const: "draft" },
+        draftId: { pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
+        expectedDraftRevision: { minimum: 1 },
+      },
       additionalProperties: false,
     });
     expect(registeredScope.oneOf[2]).toMatchObject({
+      properties: { kind: { const: "objects" }, targets: { type: "array", minItems: 1, maxItems: 1_000 } },
+      additionalProperties: false,
+    });
+    expect(registeredScope.oneOf[3]).toMatchObject({
       properties: { kind: { const: "diagram" }, diagramId: { type: "string" }, expectedRevision: { minimum: 1 } },
       additionalProperties: false,
     });

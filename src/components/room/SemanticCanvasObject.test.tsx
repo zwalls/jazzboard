@@ -293,6 +293,57 @@ describe("SemanticCanvasObject", () => {
     ).toBeNull();
   });
 
+  it("renders authored elbow waypoints from the supplied resolved live route", () => {
+    const waypoints = [{ x: 180, y: 40 }, { x: 300, y: 40 }];
+    const connector: CanvasObject = {
+      ...base("connector-waypoint", "connector"),
+      kind: "connector",
+      rotation: 0,
+      start: { x: 100, y: 120, objectId: null },
+      end: { x: 380, y: 120, objectId: null },
+      routing: {
+        mode: "elbow",
+        kind: "elbow",
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.6,
+        waypoints,
+      },
+      direction: "end",
+      label: "routed request",
+      color: "blue",
+    };
+    const points = [connector.start, ...waypoints, connector.end];
+    const route: ResolvedConnectorRoute = {
+      connectorId: connector.id,
+      routing: connector.routing!,
+      start: connector.start,
+      end: connector.end,
+      points,
+      arc: null,
+      labelPoint: { x: 276, y: 40 },
+      pathLength: 440,
+      pathBounds: { x: 100, y: 40, width: 280, height: 80 },
+      labelBounds: { x: 210, y: 20, width: 132, height: 40 },
+      bounds: { x: 100, y: 20, width: 280, height: 100 },
+      collisionObjectIds: [],
+      crossingCount: 0,
+      laneIndex: 0,
+      candidateCount: 1,
+    };
+
+    const { container } = inSvg(
+      <SemanticCanvasObject object={connector} connectorRoute={route} />,
+    );
+    expect(container.querySelector(".semantic-canvas-object__connector-path")).toHaveAttribute(
+      "d",
+      "M 100 120 L 180 40 L 300 40 L 380 120",
+    );
+    expect(container.querySelectorAll(".semantic-canvas-object__arrowhead")).toHaveLength(1);
+    expect(container.querySelector(".semantic-canvas-object__connector-label-text"))
+      .toHaveTextContent(/routed\s*request/);
+  });
+
   it("uses the shared twenty-line live-render limit for connector labels", () => {
     const label = Array.from({ length: 21 }, (_, index) =>
       String.fromCharCode(97 + index)).join("\n");

@@ -248,6 +248,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             persistedDrawingPointSpace: "object-local-canvas-units",
             persistedPathAndPolygonPointSpace:
               "normalized-object-local-0-to-1",
+            connectorWaypointSpace: "absolute-canvas",
             rotation: {
               unit: "radian",
               positiveDirectionOnScreen: "clockwise",
@@ -263,6 +264,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             maximumDrawingPointsPerStroke: 2_000,
             maximumPathSegments: 2_000,
             maximumPolygonPoints: 2_001,
+            maximumConnectorWaypoints: 30,
             maximumProgressiveDraftRequestBytes: 256 * 1024,
             maximumRetainedProgressiveDraftBytes: 192 * 1024,
             recommendedRetainedDraftHeadroomBytes: 16 * 1024,
@@ -315,6 +317,14 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               segments: ["line", "quadratic", "cubic"],
               persistedPointSpace: "normalized-object-local-0-to-1",
             },
+            connector: {
+              authoredWaypoints: {
+                field: "routing.waypoints",
+                mode: "elbow-only",
+                pointSpace: "absolute-canvas",
+                generatedAutomatically: false,
+              },
+            },
           },
           transactions: {
             atomic: true,
@@ -357,6 +367,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           judgment: {
             automaticLayout:
               "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",
+            explicitRouting: expect.stringMatching(/waypoints/),
             geometryFindings:
               "intent-unaware-evidence-not-redesign-permission",
           },

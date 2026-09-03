@@ -319,7 +319,16 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.responseDetail).toEqual({ enum: ["concise", "detailed"] });
     expect(transactionSchema.properties?.operations?.items?.properties?.routing).toMatchObject({
       type: "object",
-      description: expect.stringMatching(/curved.*bend.*elbowMidPoint/i),
+      properties: {
+        mode: { enum: ["auto", "straight", "curved", "elbow"] },
+        bend: { minimum: -10_000, maximum: 10_000 },
+        elbowMidPoint: { minimum: 0, maximum: 1 },
+        waypoints: {
+          minItems: 1,
+          maxItems: 30,
+          description: expect.stringMatching(/agent-authored.*never generated/i),
+        },
+      },
     });
     expect(transactionSchema.properties?.operations?.items?.properties?.semanticName).toMatchObject({
       type: "string",
@@ -679,7 +688,12 @@ describe("role-scoped semantic tool registration", () => {
       stroke: "black",
       start: { x: 10, y: 20, objectId: null },
       end: { x: 30, y: 40, objectId: "db" },
-      routing: { mode: "elbow", elbowMidPoint: 0.35, labelPosition: 0.62 },
+      routing: {
+        mode: "elbow",
+        elbowMidPoint: 0.35,
+        labelPosition: 0.62,
+        waypoints: [{ x: 280, y: 120 }, { x: 520, y: 120 }],
+      },
       direction: "both",
       alt: "Accessible description",
       locked: true,
@@ -714,6 +728,7 @@ describe("role-scoped semantic tool registration", () => {
         bend: 0,
         elbowMidPoint: 0.35,
         labelPosition: 0.62,
+        waypoints: [{ x: 280, y: 120 }, { x: 520, y: 120 }],
       },
     });
 
@@ -1289,7 +1304,7 @@ describe("progressive draft delivery", () => {
           authorityBoundary: expect.stringMatching(/not human review.*finish autonomously/i),
         },
         nextStep: expect.stringMatching(
-          /call finish_canvas_draft once.*exact recommended inspection/i,
+          /run recommendedInspection once.*call finish_canvas_draft once/i,
         ),
         draftValidation: {
           geometryQualityStatus: "pass",
@@ -1299,6 +1314,18 @@ describe("progressive draft delivery", () => {
           authority: expect.stringMatching(/intent-unaware.*preserve deliberate/i),
         },
         visualInspectionStatus: "not_performed",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: {
+              kind: "draft",
+              draftId: "draft_preview",
+              expectedDraftRevision: 4,
+            },
+            padding: 24,
+            representation: "working_set",
+          },
+        },
       },
     });
     const conciseData = (concise as { ok: true; data: Record<string, unknown> }).data;
@@ -1341,12 +1368,25 @@ describe("progressive draft delivery", () => {
           userConfirmationRequired: false,
         },
         nextStep: expect.stringMatching(
-          /call finish_canvas_draft once.*exact recommended inspection/i,
+          /run recommendedInspection once.*call finish_canvas_draft once/i,
         ),
         draftValidation: {
           geometryQualityStatus: "pass",
           findingCount: 0,
           findings: [],
+        },
+        visualInspectionStatus: "not_performed",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: {
+              kind: "draft",
+              draftId: "draft_preview",
+              expectedDraftRevision: 4,
+            },
+            padding: 24,
+            representation: "working_set",
+          },
         },
       },
     });
@@ -1731,12 +1771,13 @@ describe("progressive draft delivery", () => {
       "apply_canvas_transaction",
     );
 
+    const waypoints = [{ x: 180, y: 80 }, { x: 520, y: 80 }];
     await expect(execute(transactionTool, {
       operations: [{
         op: "update_draft_connector",
         tempRef: "request",
         label: "query",
-        routing: { mode: "curved", bend: 120, labelPosition: 0.35 },
+        routing: { mode: "elbow", waypoints, labelPosition: 0.35 },
       }],
       delivery: {
         mode: "draft",
@@ -1761,7 +1802,7 @@ describe("progressive draft delivery", () => {
         label: "query",
         start: previewConnector.start,
         end: previewConnector.end,
-        routing: expect.objectContaining({ mode: "curved", bend: 120, labelPosition: 0.35 }),
+        routing: expect.objectContaining({ mode: "elbow", waypoints, labelPosition: 0.35 }),
       }),
     }]);
   });

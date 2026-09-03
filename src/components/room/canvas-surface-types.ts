@@ -27,6 +27,11 @@ export type CanvasSurfaceProps = {
   persistentChromeHost?: HTMLElement | null;
   /** Short-lived local-only clean evidence presentation. */
   cleanInspectionId?: string | null;
+  /** Exact non-authoritative candidate projected only for its clean inspection lease. */
+  cleanInspectionDraftScope?: {
+    draftId: string;
+    expectedDraftRevision: number;
+  } | null;
   room: RoomState;
   /** Ephemeral, presentation-only agent previews; never part of RoomState. */
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];

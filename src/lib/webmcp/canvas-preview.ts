@@ -1,4 +1,6 @@
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
+import { buildSemanticScene, type SemanticScene } from "@/lib/canvas/semantic-scene";
 import {
   analyzeDiagramVisualQuality,
   type DiagramVisualQualityReport,
@@ -37,6 +39,11 @@ export type CanvasPreviewSource =
   | {
       kind: "room";
       expectedRevision: number;
+    }
+  | {
+      kind: "draft";
+      draftId: string;
+      expectedDraftRevision: number;
     }
   | {
       kind: "objects";
@@ -81,6 +88,8 @@ export type CanvasPreviewRenderRequest = {
   source: CanvasPreviewSource;
   objects: CanvasObject[];
   diagram: Diagram | null;
+  /** Exact authorized snapshot for draft inspection; absent from authoritative scopes. */
+  draft?: AgentCanvasDraftSnapshot;
   options: CanvasPreviewRenderOptions;
   /** Present only for inspect_canvas_scope; legacy render keeps its existing input surface. */
   inspection?: CanvasInspectionRequest;
@@ -105,6 +114,10 @@ export type CanvasPreviewMetadata = {
     visualContributorRevisions?: Array<{ objectId: string; revision: number }>;
     /** Internal identity fence for visual contributors. */
     visualContributorIncarnations?: Array<{ objectId: string; revision: number; createdAt: number }>;
+    /** Internal exact-draft fences; never serialized into the WebMCP result. */
+    draftCreatedAt?: number;
+    draftExpiresAt?: number;
+    draftHardExpiresAt?: number;
   };
   warnings: string[];
   /** Deterministic geometry QA for Diagram scope; null for arbitrary object scope. */
@@ -225,6 +238,7 @@ export type CanvasInspectionEvidence = {
     identity: string;
     kind: CanvasPreviewSource["kind"];
     diagramId: string | null;
+    draftId: string | null;
     focusObjectIds: string[];
     identityBasis: "created_at_incarnations";
   };
@@ -232,6 +246,7 @@ export type CanvasInspectionEvidence = {
   revisions: {
     roomRevision: number;
     diagramRevision: number | null;
+    draftRevision: number | null;
     explicitObjectRevisions: Array<{ objectId: string; revision: number }>;
     explicitObjectRevisionCoverage: {
       totalCount: number;
@@ -510,6 +525,41 @@ function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** Mirrors draft validation: candidate previews override the current authorized room clone. */
+function roomWithDraftPreview(
+  room: RoomState,
+  draft: AgentCanvasDraftSnapshot,
+): RoomState {
+  const objects = { ...room.objects };
+  for (const object of draft.previewObjects) objects[object.id] = object;
+  const diagrams = { ...room.diagrams };
+  for (const diagram of draft.previewDiagrams) diagrams[diagram.id] = diagram;
+  return { ...room, objects, diagrams };
+}
+
+function exactDraftRequest(
+  request: CanvasPreviewRenderRequest,
+): AgentCanvasDraftSnapshot | null {
+  if (request.source.kind !== "draft") return null;
+  const draft = request.draft;
+  if (
+    !draft
+    || draft.roomId !== request.roomId
+    || draft.id !== request.source.draftId
+    || draft.revision !== request.source.expectedDraftRevision
+  ) {
+    throw new CanvasPreviewError(
+      "DRAFT_SCOPE_CHANGED",
+      "The authorized canvas draft no longer matches the requested exact scope.",
+      {
+        draftId: request.source.draftId,
+        expectedDraftRevision: request.source.expectedDraftRevision,
+      },
+    );
+  }
+  return draft;
+}
+
 function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRenderRequest): void {
   if (room.id !== request.roomId) {
     throw new CanvasPreviewError("PREVIEW_ROOM_CHANGED", "The open Jazzboard room changed before it could be rendered.", {
@@ -541,6 +591,25 @@ function assertScopeHasNotAdvanced(room: RoomState, request: CanvasPreviewRender
         actualRevision: room.roomRevision,
       },
     );
+  }
+
+  if (
+    request.source.kind === "draft"
+    && room.roomRevision !== request.authoritativeRoomRevision
+  ) {
+    throw new CanvasPreviewError(
+      "ROOM_REVISION_CONFLICT",
+      "The authoritative room surrounding the canvas draft changed before inspection.",
+      {
+        draftId: request.source.draftId,
+        expectedRevision: request.authoritativeRoomRevision,
+        actualRevision: room.roomRevision,
+      },
+    );
+  }
+  if (request.source.kind === "draft") {
+    exactDraftRequest(request);
+    return;
   }
 
   if (request.source.kind === "diagram") {
@@ -606,6 +675,11 @@ function isAuthoritativeScopeProjected(
     && room.createdAt !== request.authoritativeRoomCreatedAt
   ) return false;
   if (request.source.kind === "room" && room.roomRevision !== request.source.expectedRevision) return false;
+  if (request.source.kind === "draft") {
+    exactDraftRequest(request);
+    return room.roomRevision === request.authoritativeRoomRevision
+      && Object.values(room.objects).every((object) => canvas.isObjectProjectionExact(object));
+  }
   if (request.source.kind === "diagram") {
     const currentDiagram = room.diagrams[request.source.diagramId];
     if (
@@ -1323,7 +1397,8 @@ function buildInspectionEvidence(
   const candidateObjects = new Map(contributors.map((object) => [object.id, object]));
   if (
     inspection.representation === "focus"
-    || (request.source.kind === "objects" && inspection.representation !== "overview")
+    || ((request.source.kind === "objects" || request.source.kind === "draft")
+      && inspection.representation !== "overview")
   ) {
     for (const object of request.objects) candidateObjects.set(object.id, object);
   }
@@ -1359,6 +1434,7 @@ function buildInspectionEvidence(
     })
     .sort((left, right) => left.zIndex - right.zIndex || left.objectId.localeCompare(right.objectId));
   const allExplicitTargetsRepresented = request.source.kind !== "objects"
+    && request.source.kind !== "draft"
     || inspection.representation === "overview"
     || request.objects.every((object) => workingSet.some((record) => record.objectId === object.id));
   if (!isLegacyPreview && inspection.representation === "working_set" && !allExplicitTargetsRepresented) {
@@ -1408,6 +1484,12 @@ function buildInspectionEvidence(
             .map((object) => ({ objectId: object.id, createdAt: object.createdAt }))
             .sort((left, right) => left.objectId.localeCompare(right.objectId)),
         }
+      : request.source.kind === "draft"
+        ? {
+            kind: request.source.kind,
+            draftId: request.source.draftId,
+            createdAt: request.draft?.createdAt ?? null,
+          }
       : { kind: request.source.kind };
   const scopeObjectIncarnations = request.objects
     .map((object) => ({ objectId: object.id, createdAt: object.createdAt }))
@@ -1643,6 +1725,7 @@ function buildInspectionEvidence(
   );
   const sameScopeCallerSuppliedSorted = [...sameScopeCallerSupplied].sort();
   const allExplicitObjectRevisions = request.source.kind === "objects"
+    || request.source.kind === "draft"
     ? request.objects
         .map((object) => ({ objectId: object.id, revision: object.revision }))
         .sort((left, right) => left.objectId.localeCompare(right.objectId))
@@ -1659,6 +1742,7 @@ function buildInspectionEvidence(
       identity: scopeIdentity,
       kind: request.source.kind,
       diagramId: request.source.kind === "diagram" ? request.source.diagramId : null,
+      draftId: request.source.kind === "draft" ? request.source.draftId : null,
       focusObjectIds: [...focusIds].sort(),
       identityBasis: "created_at_incarnations",
     },
@@ -1666,6 +1750,7 @@ function buildInspectionEvidence(
     revisions: {
       roomRevision: room.roomRevision,
       diagramRevision: request.source.kind === "diagram" ? request.source.expectedRevision : null,
+      draftRevision: request.source.kind === "draft" ? request.source.expectedDraftRevision : null,
       explicitObjectRevisions,
       explicitObjectRevisionCoverage: {
         totalCount: allExplicitObjectRevisions.length,
@@ -1753,20 +1838,26 @@ function inspectionMetadata(
   request: CanvasPreviewRenderRequest,
   scopeBounds: { x: number; y: number; width: number; height: number },
   renderedBounds: { x: number; y: number; width: number; height: number },
+  draftScene: SemanticScene | null = null,
 ): CanvasInspectionMetadata {
   const boundsByObjectId = new Map<
     string,
     { x: number; y: number; width: number; height: number }
   >();
-  const contributors = canvas.getDocumentObjectIds().flatMap((objectId) => {
-    const object = room.objects[objectId];
-    const objectBounds = canvas.getObjectBounds(objectId);
-    if (objectBounds) boundsByObjectId.set(objectId, objectBounds);
-    return object && objectBounds && intersects(objectBounds, renderedBounds) ? [object] : [];
-  });
+  const contributors = draftScene
+    ? draftScene.objects.flatMap(({ object, bounds }) => {
+        boundsByObjectId.set(object.id, bounds);
+        return intersects(bounds, renderedBounds) ? [object] : [];
+      })
+    : canvas.getDocumentObjectIds().flatMap((objectId) => {
+        const object = room.objects[objectId];
+        const objectBounds = canvas.getObjectBounds(objectId);
+        if (objectBounds) boundsByObjectId.set(objectId, objectBounds);
+        return object && objectBounds && intersects(objectBounds, renderedBounds) ? [object] : [];
+      });
   for (const object of request.objects) {
     if (boundsByObjectId.has(object.id)) continue;
-    const objectBounds = canvas.getObjectBounds(object.id);
+    const objectBounds = draftScene?.objectsById[object.id]?.bounds ?? canvas.getObjectBounds(object.id);
     if (objectBounds) boundsByObjectId.set(object.id, objectBounds);
   }
   if (contributors.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
@@ -1803,6 +1894,13 @@ function inspectionMetadata(
         revision: object.revision,
         createdAt: object.createdAt,
       })),
+      ...(request.draft
+        ? {
+            draftCreatedAt: request.draft.createdAt,
+            draftExpiresAt: request.draft.expiresAt,
+            draftHardExpiresAt: request.draft.hardExpiresAt,
+          }
+        : {}),
     },
     warnings: [],
     visualQuality,
@@ -1836,7 +1934,12 @@ export async function prepareCanvasInspection(
     );
   }
   const { canvas, room } = await waitForAuthoritativeProjection(runtime, request, signal);
-  const scopeBounds = canvas.getVisibleBounds(request.objects.map((object) => object.id));
+  const draft = exactDraftRequest(request);
+  const inspectionRoom = draft ? roomWithDraftPreview(room, draft) : room;
+  const draftScene = draft ? buildSemanticScene(inspectionRoom) : null;
+  const scopeBounds = draftScene
+    ? unionBounds(request.objects.flatMap((object) => draftScene.objectsById[object.id]?.bounds ?? []))
+    : canvas.getVisibleBounds(request.objects.map((object) => object.id));
   if (!scopeBounds || scopeBounds.width <= 0 || scopeBounds.height <= 0) {
     throw new CanvasPreviewError(
       "PREVIEW_BOUNDS_UNAVAILABLE",
@@ -1849,7 +1952,9 @@ export async function prepareCanvasInspection(
     : request.objects.map((object) => object.id);
   const bounds = frameObjectIds.length === request.objects.length
     ? scopeBounds
-    : canvas.getVisibleBounds(frameObjectIds);
+    : draftScene
+      ? unionBounds(frameObjectIds.flatMap((objectId) => draftScene.objectsById[objectId]?.bounds ?? []))
+      : canvas.getVisibleBounds(frameObjectIds);
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     throw new CanvasPreviewError(
       "PREVIEW_FOCUS_UNAVAILABLE",
@@ -1863,7 +1968,14 @@ export async function prepareCanvasInspection(
     width: bounds.width + request.options.padding * 2,
     height: bounds.height + request.options.padding * 2,
   };
-  const metadata = inspectionMetadata(canvas, room, request, scopeBounds, renderedBounds);
+  const metadata = inspectionMetadata(
+    canvas,
+    inspectionRoom,
+    request,
+    scopeBounds,
+    renderedBounds,
+    draftScene,
+  );
   assertStillProjected(runtime, request, canvas);
   return { metadata };
 }

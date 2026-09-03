@@ -7,6 +7,7 @@ import {
   layoutCommandSchema,
   semanticTransactionSchema,
 } from "./schemas";
+import { CONNECTOR_ROUTING_LIMITS } from "./connector-routing";
 
 describe("semantic transaction schemas", () => {
   it("parses classified nodes and first-class diagram membership in one transaction", () => {
@@ -75,12 +76,39 @@ describe("connector routing schemas", () => {
         labelPosition: 0.42,
       }),
     ).toMatchObject({ mode: "auto", kind: "elbow" });
+    expect(
+      connectorRoutingInputSchema.parse({
+        mode: "elbow",
+        waypoints: [{ x: 120, y: -45 }, { x: 360, y: -45 }],
+      }),
+    ).toEqual({
+      mode: "elbow",
+      waypoints: [{ x: 120, y: -45 }, { x: 360, y: -45 }],
+    });
   });
 
   it("rejects ambiguous or internally inconsistent route controls", () => {
     expect(connectorRoutingInputSchema.safeParse({ mode: "curved" }).success).toBe(false);
     expect(connectorRoutingInputSchema.safeParse({ mode: "straight", bend: 48 }).success).toBe(false);
     expect(connectorRoutingInputSchema.safeParse({ mode: "auto", elbowMidPoint: 0.2 }).success).toBe(false);
+    expect(connectorRoutingInputSchema.safeParse({ mode: "auto", waypoints: [{ x: 0, y: 0 }] }).success).toBe(false);
+    expect(connectorRoutingInputSchema.safeParse({ mode: "straight", waypoints: [{ x: 0, y: 0 }] }).success).toBe(false);
+    expect(connectorRoutingInputSchema.safeParse({ mode: "elbow", waypoints: [] }).success).toBe(false);
+    expect(
+      connectorRoutingInputSchema.safeParse({
+        mode: "elbow",
+        waypoints: Array.from(
+          { length: CONNECTOR_ROUTING_LIMITS.maxWaypoints + 1 },
+          (_, index) => ({ x: index, y: 0 }),
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      connectorRoutingInputSchema.safeParse({
+        mode: "elbow",
+        waypoints: [{ x: CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate + 1, y: 0 }],
+      }).success,
+    ).toBe(false);
     expect(
       connectorRoutingSchema.safeParse({
         mode: "straight",
@@ -88,6 +116,16 @@ describe("connector routing schemas", () => {
         bend: 48,
         elbowMidPoint: 0.5,
         labelPosition: 0.5,
+      }).success,
+    ).toBe(false);
+    expect(
+      connectorRoutingSchema.safeParse({
+        mode: "auto",
+        kind: "elbow",
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.5,
+        waypoints: [{ x: 10, y: 20 }],
       }).success,
     ).toBe(false);
   });

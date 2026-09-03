@@ -16,6 +16,9 @@ export const CONNECTOR_ROUTING_LIMITS = {
   minCurvedBend: 8,
   maxCandidates: 96,
   maxRoutePoints: 32,
+  /** Leaves room for the two resolved endpoints in the route-point budget. */
+  maxWaypoints: 30,
+  maxWaypointCoordinate: 1_000_000,
   obstaclePadding: 16,
   laneSpacing: 24,
   elbowLegLength: 36,
@@ -134,6 +137,31 @@ function validKind(value: unknown): value is ConnectorRoutingKind {
   return value === "straight" || value === "curved" || value === "elbow";
 }
 
+function normalizeAuthoredWaypoints(
+  input: ConnectorRoutingInput | ConnectorRouting,
+): Point[] | undefined {
+  if (input.mode !== "elbow" || !Array.isArray(input.waypoints)) return undefined;
+  const waypoints = input.waypoints
+    .slice(0, CONNECTOR_ROUTING_LIMITS.maxWaypoints)
+    .flatMap((point) =>
+      point && Number.isFinite(point.x) && Number.isFinite(point.y)
+        ? [{
+            x: clamp(
+              point.x,
+              -CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate,
+              CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate,
+            ),
+            y: clamp(
+              point.y,
+              -CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate,
+              CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate,
+            ),
+          }]
+        : [],
+    );
+  return waypoints.length ? waypoints : undefined;
+}
+
 /**
  * Canonicalize routing without consulting canvas geometry. Missing persisted
  * state is deliberately straight for backward compatibility; callers that
@@ -169,6 +197,7 @@ export function normalizeConnectorRouting(
         ? Math.abs(labelPosition - 0.5) > EPSILON ? "authored" : "generated"
         : Object.prototype.hasOwnProperty.call(input, "labelPosition") ? "authored" : "generated"
     : undefined;
+  const waypoints = normalizeAuthoredWaypoints(input);
 
   return {
     mode,
@@ -176,6 +205,7 @@ export function normalizeConnectorRouting(
     bend,
     elbowMidPoint: clamp(finiteOr(input.elbowMidPoint, 0.5), 0, 1),
     labelPosition,
+    ...(waypoints ? { waypoints } : {}),
     ...(labelPositionSource ? { labelPositionSource } : {}),
   };
 }
@@ -524,6 +554,20 @@ function compactPoints(points: readonly Point[]): Point[] {
       result.pop();
     }
     result.push(point);
+  }
+  return result.length === 1 ? [result[0], { x: result[0].x + 1, y: result[0].y }] : result;
+}
+
+/** Retain authored vertices, removing only zero-length segments that break arrow direction. */
+function authoredElbowPoints(
+  start: ConnectorEndpoint,
+  waypoints: readonly Point[],
+  end: ConnectorEndpoint,
+): Point[] {
+  const result: Point[] = [];
+  for (const source of [start, ...waypoints, end]) {
+    const point = { x: source.x, y: source.y };
+    if (!result.length || !samePoint(result[result.length - 1], point)) result.push(point);
   }
   return result.length === 1 ? [result[0], { x: result[0].x + 1, y: result[0].y }] : result;
 }
@@ -1229,17 +1273,19 @@ export function resolveConnectorRoute(
           if (candidates.length >= context.options.maxCandidates || boundedClearCandidate) return;
           const start = resolveEndpoint(connector.start, startObject, startSide, portPosition("start", startSide), "elbow");
           const end = resolveEndpoint(connector.end, endObject, endSide, portPosition("end", endSide), "elbow");
-          const points = elbowPoints({
-            start,
-            end,
-            startSide,
-            endSide,
-            startRotation: startObject?.rotation ?? 0,
-            endRotation: endObject?.rotation ?? 0,
-            midpoint,
-            // Jazzboard's canonical elbow expansion is 36 page-space pixels.
-            legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
-          });
+          const points = sourceRouting.waypoints
+            ? authoredElbowPoints(start, sourceRouting.waypoints, end)
+            : elbowPoints({
+                start,
+                end,
+                startSide,
+                endSide,
+                startRotation: startObject?.rotation ?? 0,
+                endRotation: endObject?.rotation ?? 0,
+                midpoint,
+                // Jazzboard's canonical elbow expansion is 36 page-space pixels.
+                legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
+              });
           addCandidate({ kind: "elbow", bend: 0, elbowMidPoint: midpoint, start, end, points, arc: null });
         }
       }
@@ -1303,6 +1349,9 @@ export function resolveConnectorRoute(
     bend: chosen.kind === "curved" ? chosen.bend : 0,
     elbowMidPoint: chosen.kind === "elbow" ? chosen.elbowMidPoint : sourceRouting.elbowMidPoint,
     labelPosition: chosen.labelPosition,
+    ...(sourceRouting.mode === "elbow" && sourceRouting.waypoints
+      ? { waypoints: sourceRouting.waypoints.map((point) => ({ ...point })) }
+      : {}),
     ...(sourceRouting.labelPositionSource
       ? { labelPositionSource: sourceRouting.labelPositionSource }
       : {}),
@@ -1390,16 +1439,18 @@ export function materializeConnectorRoute(
     points = curve.points;
     arc = curve.arc;
   } else if (routing.kind === "elbow") {
-    points = elbowPoints({
-      start,
-      end,
-      startSide,
-      endSide,
-      startRotation: startObject?.rotation ?? 0,
-      endRotation: endObject?.rotation ?? 0,
-      midpoint: routing.elbowMidPoint,
-      legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
-    });
+    points = routing.waypoints
+      ? authoredElbowPoints(start, routing.waypoints, end)
+      : elbowPoints({
+          start,
+          end,
+          startSide,
+          endSide,
+          startRotation: startObject?.rotation ?? 0,
+          endRotation: endObject?.rotation ?? 0,
+          midpoint: routing.elbowMidPoint,
+          legLength: CONNECTOR_ROUTING_LIMITS.elbowLegLength,
+        });
   } else {
     points = compactPoints([start, end]);
   }

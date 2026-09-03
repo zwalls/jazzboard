@@ -61,6 +61,8 @@ export interface CanvasRuntime {
   selectObjects(objectIds: readonly string[]): void;
   zoomToBounds(bounds: CanvasBounds, options?: CanvasZoomOptions): void;
 
+  /** Exact current renderer content, including an intentionally local-only draft projection. */
+  isObjectRenderedExact(object: CanvasObject): boolean;
   isObjectProjectionExact(object: CanvasObject): boolean;
   renderPng(
     objectIds: readonly string[],

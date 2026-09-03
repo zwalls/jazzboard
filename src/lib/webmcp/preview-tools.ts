@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import type { CanvasObject, Diagram, RoomState } from "@/lib/domain/types";
 
@@ -57,6 +58,14 @@ const diagramScopeSchema = z
   })
   .strict();
 
+const draftScopeSchema = z
+  .object({
+    kind: z.literal("draft"),
+    draftId: z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/),
+    expectedDraftRevision: revisionSchema,
+  })
+  .strict();
+
 const roomScopeSchema = z
   .object({
     kind: z.literal("room"),
@@ -101,7 +110,12 @@ const previewScopeInputShape = {
 };
 
 const inspectionScopeInputShape = {
-  scope: z.discriminatedUnion("kind", [roomScopeSchema, objectScopeSchema, diagramScopeSchema]),
+  scope: z.discriminatedUnion("kind", [
+    roomScopeSchema,
+    draftScopeSchema,
+    objectScopeSchema,
+    diagramScopeSchema,
+  ]),
   padding: z.number().finite().min(0).max(CANVAS_PREVIEW_LIMITS.maxPadding).optional(),
 };
 
@@ -144,6 +158,7 @@ const previewInputSchema = z
   .strict();
 
 type AuthorizedRoomResponse = { ok: true; room: RoomState };
+type AuthorizedDraftResponse = { ok: true; draft: AgentCanvasDraftSnapshot; serverTime?: number };
 
 export {
   JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
@@ -152,6 +167,10 @@ export {
 
 function authorizedRoomRoute(roomId: string): string {
   return `/api/rooms/${encodeURIComponent(roomId)}`;
+}
+
+function authorizedDraftRoute(roomId: string, draftId: string): string {
+  return `/api/rooms/${encodeURIComponent(roomId)}/drafts/${encodeURIComponent(draftId)}`;
 }
 
 function failure(
@@ -168,7 +187,7 @@ function failure(
       error: {
         code: "INVALID_TOOL_INPUT",
         message: tool === "inspect_canvas_scope"
-          ? "The inspection input must identify one exact room, object, or Diagram revision scope."
+          ? "The inspection input must identify one exact room, draft, object, or Diagram revision scope."
           : "The preview input must identify one exact object or Diagram revision scope.",
         details: {
           issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
@@ -327,6 +346,63 @@ function resolveRoomScope(
   return { source: scope, objects, diagram: null };
 }
 
+function resolveDraftScope(
+  room: RoomState,
+  draft: AgentCanvasDraftSnapshot,
+  scope: z.output<typeof draftScopeSchema>,
+): {
+  source: CanvasPreviewSource;
+  objects: CanvasObject[];
+  diagram: Diagram | null;
+  draft: AgentCanvasDraftSnapshot;
+} {
+  if (draft.roomId !== room.id || draft.id !== scope.draftId) {
+    throw new CanvasPreviewError(
+      "DRAFT_SCOPE_CHANGED",
+      `Canvas draft ${scope.draftId} does not belong to the authorized room.`,
+      { draftId: scope.draftId },
+    );
+  }
+  if (draft.revision !== scope.expectedDraftRevision) {
+    throw new CanvasPreviewError(
+      "DRAFT_REVISION_CONFLICT",
+      `Canvas draft ${scope.draftId} is not at the requested revision.`,
+      {
+        draftId: scope.draftId,
+        expectedDraftRevision: scope.expectedDraftRevision,
+        actualDraftRevision: draft.revision,
+      },
+    );
+  }
+  if (!draft.previewObjects.length) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_EMPTY",
+      `Canvas draft ${scope.draftId} has no visible preview objects to inspect.`,
+      { draftId: scope.draftId },
+    );
+  }
+  if (draft.previewObjects.length > CANVAS_PREVIEW_LIMITS.maxTargets) {
+    throw new CanvasPreviewError(
+      "PREVIEW_SCOPE_TOO_LARGE",
+      `Canvas draft ${scope.draftId} exceeds the bounded inspection target count.`,
+      {
+        draftId: scope.draftId,
+        targetCount: draft.previewObjects.length,
+        maxTargets: CANVAS_PREVIEW_LIMITS.maxTargets,
+      },
+    );
+  }
+  return {
+    source: scope,
+    objects: draft.previewObjects,
+    // A singular preview Diagram can reuse the existing deterministic Diagram
+    // evidence. Multi-Diagram drafts remain one exact draft scope rather than
+    // silently selecting an arbitrary Diagram.
+    diagram: draft.previewDiagrams.length === 1 ? draft.previewDiagrams[0] : null,
+    draft,
+  };
+}
+
 function inspectionRequest(
   input: z.output<typeof inspectionInputSchema>,
   resolved: { objects: CanvasObject[] },
@@ -424,6 +500,16 @@ const inspectionScopeInputJsonSchema = {
       required: ["kind", "expectedRevision"],
       additionalProperties: false,
     },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "draft" },
+        draftId: { type: "string", pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
+        expectedDraftRevision: { type: "integer", minimum: 1 },
+      },
+      required: ["kind", "draftId", "expectedDraftRevision"],
+      additionalProperties: false,
+    },
     ...previewScopeInputJsonSchema.oneOf,
   ],
 };
@@ -446,7 +532,7 @@ export function createJazzboardPreviewWebMcpTools(
         ? "Inspect exact canvas evidence"
         : "Inspect an exact Jazzboard canvas region",
       description: toolName === "inspect_canvas_scope"
-        ? "Return bounded exact room, Diagram, or object evidence plus a live inspection clip. Exact room scope exposes descriptive whole-board scale and distribution context; it never makes composition choices or quality verdicts. Prior finding keys are unverified caller comparison input."
+        ? "Return bounded exact room, draft, Diagram, or object evidence plus a live inspection clip. Draft scope combines one authorized exact draft revision with its current authoritative room surroundings without publishing it. Exact room scope exposes descriptive whole-board scale and distribution context; it never makes composition choices or quality verdicts. Prior finding keys are unverified caller comparison input."
         : "Frame an exact live canvas inspection scope.",
       inputSchema: {
         type: "object",
@@ -545,12 +631,21 @@ export function createJazzboardPreviewWebMcpTools(
             method: "GET",
             signal,
           });
+          const authorizedDraft = input.scope.kind === "draft"
+            ? await request<AuthorizedDraftResponse>(
+                authorizedDraftRoute(binding.roomId, input.scope.draftId),
+                { method: "GET", signal },
+              )
+            : null;
           const resolved = input.scope.kind === "room"
             ? resolveRoomScope(response.room, input.scope)
-            : input.scope.kind === "objects"
-              ? resolveObjectScope(response.room, input.scope)
-              : resolveDiagramScope(response.room, input.scope);
+            : input.scope.kind === "draft"
+              ? resolveDraftScope(response.room, authorizedDraft!.draft, input.scope)
+              : input.scope.kind === "objects"
+                ? resolveObjectScope(response.room, input.scope)
+                : resolveDiagramScope(response.room, input.scope);
           binding.context.acceptRoom(response.room);
+          if (authorizedDraft) binding.context.acceptAgentDraft?.(authorizedDraft.draft);
           const prepare = toolName === "inspect_canvas_scope" ? inspect : render;
           if (!prepare) {
             throw new CanvasPreviewError(

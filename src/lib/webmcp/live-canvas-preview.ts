@@ -1,3 +1,4 @@
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { CanvasBounds, RoomState, Viewport } from "@/lib/domain/types";
 
@@ -41,9 +42,13 @@ export type LiveCanvasPreviewHost = {
   getCanvasRuntime(): CanvasRuntime | null;
   getCanvasElement(): HTMLElement | null;
   getRoom(): RoomState | null;
+  getAgentDraft?(draftId: string): AgentCanvasDraftSnapshot | null;
   isCameraFollowActive(): boolean;
   /** Locally suppress all non-authoritative canvas and room chrome. */
-  setCleanInspection?(previewId: string | null): void;
+  setCleanInspection?(
+    previewId: string | null,
+    draftScope?: { draftId: string; expectedDraftRevision: number },
+  ): void;
   now?: () => number;
 };
 
@@ -166,6 +171,26 @@ function assertLiveScopeIsExact(
     }
   }
 
+  const now = host.now ?? Date.now;
+  const draft = source.kind === "draft" ? host.getAgentDraft?.(source.draftId) ?? null : null;
+  if (source.kind === "draft") {
+    if (
+      room.roomRevision !== source.roomRevision
+      || !draft
+      || draft.roomId !== room.id
+      || draft.revision !== source.expectedDraftRevision
+      || (source.draftCreatedAt !== undefined && draft.createdAt !== source.draftCreatedAt)
+      || draft.expiresAt <= now()
+      || draft.hardExpiresAt <= now()
+    ) {
+      throw new CanvasPreviewError(
+        "PREVIEW_SCOPE_CHANGED_DURING_PRESENTATION",
+        `Canvas draft ${source.draftId} changed while the live canvas was being framed.`,
+      );
+    }
+  }
+
+  const draftObjects = new Map(draft?.previewObjects.map((object) => [object.id, object]) ?? []);
   const expectedObjects = new Map([
     ...source.objectRevisions,
     ...(source.visualContributorRevisions ?? []),
@@ -175,18 +200,30 @@ function assertLiveScopeIsExact(
     ...(source.visualContributorIncarnations ?? []),
   ].map((item) => [item.objectId, item]));
   for (const expected of expectedObjects.values()) {
-    const current = room.objects[expected.objectId];
+    const draftObject = draftObjects.get(expected.objectId);
+    const current = draftObject ?? room.objects[expected.objectId];
     const incarnation = incarnationById.get(expected.objectId);
+    const renderedExact = current
+      ? draftObject
+        ? runtime.isObjectRenderedExact(current)
+        : runtime.isObjectProjectionExact(current)
+      : false;
     if (
       !current
       || current.revision !== expected.revision
       || (incarnation && current.createdAt !== incarnation.createdAt)
-      || !runtime.isObjectProjectionExact(current)
+      || !renderedExact
     ) {
       throw new CanvasPreviewError(
         "PREVIEW_SCOPE_CHANGED_DURING_PRESENTATION",
         `Canvas object ${expected.objectId} changed while the live canvas was being framed.`,
-        { objectId: expected.objectId, expectedRevision: expected.revision },
+        {
+          objectId: expected.objectId,
+          expectedRevision: expected.revision,
+          draftObject: Boolean(draftObject),
+          renderedObject: runtime.hasObject(expected.objectId),
+          renderedExact,
+        },
       );
     }
   }
@@ -408,7 +445,14 @@ export async function presentLiveCanvasPreview(
     leasesByCanvas.get(canvasElement)?.cleanup();
     canvasElement.dataset.canvasInspectionToken = previewId;
     if (inspectionRoot) inspectionRoot.dataset.cleanCanvasInspectionToken = previewId;
-    host.setCleanInspection?.(previewId);
+    if (artifact.metadata.source.kind === "draft") {
+      host.setCleanInspection?.(previewId, {
+        draftId: artifact.metadata.source.draftId,
+        expectedDraftRevision: artifact.metadata.source.expectedDraftRevision,
+      });
+    } else {
+      host.setCleanInspection?.(previewId);
+    }
     cleanInspectionApplied = true;
     runtime.zoomToBounds(renderedBounds, {
       inset,
@@ -437,7 +481,14 @@ export async function presentLiveCanvasPreview(
 
     const now = host.now ?? Date.now;
     const clip = liveCanvasClip(runtime, canvasElement, renderedBounds);
-    const ttlMs = "blob" in artifact ? LIVE_CANVAS_CLIP_TTL_MS : CLEAN_INSPECTION_CLIP_TTL_MS;
+    const baseTtlMs = "blob" in artifact ? LIVE_CANVAS_CLIP_TTL_MS : CLEAN_INSPECTION_CLIP_TTL_MS;
+    const draftExpiry = artifact.metadata.source.kind === "draft"
+      ? Math.min(
+          artifact.metadata.source.draftExpiresAt ?? Number.POSITIVE_INFINITY,
+          artifact.metadata.source.draftHardExpiresAt ?? Number.POSITIVE_INFINITY,
+        )
+      : Number.POSITIVE_INFINITY;
+    const ttlMs = Math.min(baseTtlMs, Math.max(1, draftExpiry - now()));
     installInspectionLease({ canvasElement, host, previewId, previousViewport, runtime, ttlMs });
     return {
       previewId,

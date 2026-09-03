@@ -66,6 +66,7 @@ export type DiagramVisualQualityStatus = "pass" | "warning" | "fail";
 export type DiagramVisualQualityFindingCode =
   | "ATTACHMENT_PORT_CONGESTION"
   | "CONNECTOR_CROSSING"
+  | "CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD"
   | "CONNECTOR_LABEL_EDGE_COLLISION"
   | "CONNECTOR_LABEL_LABEL_COLLISION"
   | "CONNECTOR_LABEL_LIKELY_TRUNCATED"
@@ -113,6 +114,7 @@ export type DiagramVisualQualityMetrics = {
   crossingPairCount: number;
   sharedSegmentPairCount: number;
   congestedPortCount: number;
+  outsideLayoutScaffoldConnectorCount: number;
   truncatedConnectorLabelCount: number;
   truncatedShapeLabelCount: number;
   truncatedTextContentCount: number;
@@ -544,15 +546,28 @@ const SEMANTIC_CONTAINER_ROLE_TOKENS = new Set([
   "container",
   "plane",
   "region",
+  "scaffold",
   "zone",
 ]);
 
+function semanticRoleTokens(object: CanvasObject): Set<string> {
+  return new Set(
+    (object.semanticRole ?? "")
+      .toLocaleLowerCase()
+      .split(/[.:/_-]+/)
+      .filter(Boolean),
+  );
+}
+
 function isExplicitSemanticContainer(object: CanvasObject): boolean {
   if (object.kind !== "shape" || !object.semanticRole) return false;
-  return object.semanticRole
-    .toLocaleLowerCase()
-    .split(/[.:/_-]+/)
+  return [...semanticRoleTokens(object)]
     .some((token) => SEMANTIC_CONTAINER_ROLE_TOKENS.has(token));
+}
+
+function isAxisAlignedLayoutScaffold(object: CanvasObject): boolean {
+  return object.kind === "shape" && object.shape === "rectangle" && object.rotation === 0 &&
+    semanticRoleTokens(object).has("scaffold");
 }
 
 function paintsBefore(background: CanvasObject, foreground: CanvasObject): boolean {
@@ -626,6 +641,26 @@ function estimatedShapeLabelBounds(object: CanvasObject): CanvasBounds | null {
 
 function endpointObjectIds(connector: ConnectorObject): Set<string> {
   return new Set([connector.start.objectId, connector.end.objectId].filter((id): id is string => Boolean(id)));
+}
+
+function boundsOverflow(inner: CanvasBounds, outer: CanvasBounds) {
+  const left = Math.max(0, outer.x - inner.x);
+  const top = Math.max(0, outer.y - inner.y);
+  const right = Math.max(0, inner.x + inner.width - (outer.x + outer.width));
+  const bottom = Math.max(0, inner.y + inner.height - (outer.y + outer.height));
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    maximum: Math.max(left, top, right, bottom),
+    sides: [
+      ...(left > T.geometryEpsilon ? ["left"] : []),
+      ...(top > T.geometryEpsilon ? ["top"] : []),
+      ...(right > T.geometryEpsilon ? ["right"] : []),
+      ...(bottom > T.geometryEpsilon ? ["bottom"] : []),
+    ],
+  };
 }
 
 function finding(input: DiagramVisualQualityFinding): DiagramVisualQualityFinding {
@@ -837,6 +872,89 @@ export function analyzeDiagramVisualQuality(
       connectorIds: connectors.map((connector) => connector.id),
       details: { declaredMemberCount: diagram.memberObjectIds.length },
     }));
+  }
+
+  // A separately supplied layout scaffold is context, not a Diagram member.
+  // When every supported member sits inside one such rectangle, report route
+  // overflow as an objective fact so an agent can compare it with the user's
+  // requested composition. This never changes a route and remains warning-only
+  // because intentional cropping and exterior lanes are valid canvas choices.
+  const diagramObjectIds = new Set([...members, ...connectors].map((object) => object.id));
+  const containingLayoutScaffold = Object.values(room.objects)
+    .filter((object) => !diagramObjectIds.has(object.id))
+    .filter(isAxisAlignedLayoutScaffold)
+    .filter((scaffold) => members.length > 0 && members.every((member) => {
+      const geometry = memberGeometry.get(member.id);
+      return geometry && boundsOverflow(geometry.bounds, scaffold).maximum <= T.geometryEpsilon;
+    }))
+    .filter((scaffold) => [...members, ...connectors].every((object) => paintsBefore(scaffold, object)))
+    .sort((left, right) =>
+      left.width * left.height - right.width * right.height || left.id.localeCompare(right.id),
+    )[0];
+
+  if (containingLayoutScaffold) {
+    const scaffoldLabelBounds = estimatedShapeLabelBounds(containingLayoutScaffold);
+    for (const connector of connectors) {
+      const route = routes[connector.id];
+      if (!route) continue;
+      if (
+        scaffoldLabelBounds &&
+        segments(route.points).some((segment) => segmentIntersectsBounds(segment, scaffoldLabelBounds))
+      ) {
+        findings.push(finding({
+          code: "CONNECTOR_OBJECT_INTRUSION",
+          status: "fail",
+          summary: `Reroute ${connector.id} so its path no longer crosses the visible label of containing layout scaffold ${containingLayoutScaffold.id}.`,
+          objectIds: [containingLayoutScaffold.id],
+          connectorIds: [connector.id],
+          bounds: scaffoldLabelBounds,
+          details: { collisionTarget: "layout_scaffold_label" },
+        }));
+      }
+      const scaffoldLabelOverlap = route.labelBounds && scaffoldLabelBounds
+        ? intersectionBounds(route.labelBounds, scaffoldLabelBounds)
+        : null;
+      if (scaffoldLabelOverlap) {
+        findings.push(finding({
+          code: "CONNECTOR_LABEL_OBJECT_COLLISION",
+          status: "fail",
+          summary: `Move the label for ${connector.id} so it no longer obscures the visible label of containing layout scaffold ${containingLayoutScaffold.id}.`,
+          objectIds: [containingLayoutScaffold.id],
+          connectorIds: [connector.id],
+          bounds: scaffoldLabelOverlap,
+          details: { collisionTarget: "layout_scaffold_label" },
+        }));
+      }
+      const pathOverflow = boundsOverflow(route.pathBounds, containingLayoutScaffold);
+      const labelOverflow = route.labelBounds
+        ? boundsOverflow(route.labelBounds, containingLayoutScaffold)
+        : null;
+      const maximumOverflow = Math.max(pathOverflow.maximum, labelOverflow?.maximum ?? 0);
+      if (maximumOverflow <= T.geometryEpsilon) continue;
+      const overflowSides = [...new Set([
+        ...pathOverflow.sides,
+        ...(labelOverflow?.sides ?? []),
+      ])].sort();
+      findings.push(finding({
+        code: "CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD",
+        status: "warning",
+        summary: `If ${connector.id} should remain inside the containing layout scaffold ${containingLayoutScaffold.id}, move its agent-authored route or label so the complete rendered bounds fit inside that scaffold.`,
+        objectIds: [containingLayoutScaffold.id],
+        connectorIds: [connector.id],
+        bounds: route.bounds,
+        details: {
+          scaffoldSemanticName: containingLayoutScaffold.semanticName ?? null,
+          scaffoldX: round(containingLayoutScaffold.x),
+          scaffoldY: round(containingLayoutScaffold.y),
+          scaffoldWidth: round(containingLayoutScaffold.width),
+          scaffoldHeight: round(containingLayoutScaffold.height),
+          overflowSides,
+          maximumOverflow: round(maximumOverflow),
+          pathOutside: pathOverflow.maximum > T.geometryEpsilon,
+          labelOutside: (labelOverflow?.maximum ?? 0) > T.geometryEpsilon,
+        },
+      }));
+    }
   }
 
   for (let leftIndex = 0; leftIndex < members.length; leftIndex += 1) {
@@ -1226,6 +1344,8 @@ export function analyzeDiagramVisualQuality(
       crossingPairCount: findingsByCode.CONNECTOR_CROSSING ?? 0,
       sharedSegmentPairCount: findingsByCode.CONNECTOR_SHARED_SEGMENT ?? 0,
       congestedPortCount: findingsByCode.ATTACHMENT_PORT_CONGESTION ?? 0,
+      outsideLayoutScaffoldConnectorCount:
+        findingsByCode.CONNECTOR_OUTSIDE_LAYOUT_SCAFFOLD ?? 0,
       truncatedConnectorLabelCount: findingsByCode.CONNECTOR_LABEL_LIKELY_TRUNCATED ?? 0,
       truncatedShapeLabelCount: findingsByCode.SHAPE_LABEL_LIKELY_TRUNCATED ?? 0,
       truncatedTextContentCount: findingsByCode.TEXT_CONTENT_LIKELY_TRUNCATED ?? 0,

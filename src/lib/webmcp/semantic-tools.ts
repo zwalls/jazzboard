@@ -60,8 +60,10 @@ import type {
 import { withActionableRecovery } from "./actionable-failure";
 import {
   recommendedCanvasInspection,
+  recommendedDraftInspection,
   recommendedRoomCompositionInspection,
 } from "./inspection-recommendation";
+import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 
 const id = z.string().min(1).max(128);
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
@@ -774,10 +776,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           fillRule: { enum: ["nonzero", "evenodd"] },
           start: { type: "object", description: "Point|object|tempRef endpoint." },
           end: { type: "object" },
-          routing: {
-            type: "object",
-            description: "curved:bend; elbowMidPoint:0..1.",
-          },
+          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
           direction: { enum: ["none", "end", "both"] },
           diagramId: { type: "string" },
           title: { type: "string" },
@@ -1968,9 +1967,12 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `${relationshipStep}Parse canonicalDraftCorrectionJson once for every finding, affected stable tempRef, exact local geometry, and this revision's patch contract. Choose and combine compatible corrections yourself. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete original create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new concise receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended task-relevant finding remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    const inspectionStep = validation.failCount === 0
+      ? " If the remaining warnings are deliberate or require visual judgment, run recommendedInspection once now to inspect this exact uncommitted draft with its authoritative room surroundings. Correct any unintended pixel-level defect against the user's intent; otherwise finish the draft."
+      : "";
+    return `${relationshipStep}Parse canonicalDraftCorrectionJson once for every finding, affected stable tempRef, exact local geometry, and this revision's patch contract. Choose and combine compatible corrections yourself. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete original create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new concise receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended task-relevant finding remains. Deliberate geometry is valid and should be preserved.${inspectionStep} Then call finish_canvas_draft once with action=commit and this exact revision; no user confirmation is required.`;
   }
-  return `${relationshipStep}Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.`;
+  return `${relationshipStep}Draft geometry has no reported deterministic blockers. Run recommendedInspection once now to inspect this exact uncommitted draft in its authoritative room context. If the pixels match the user's intent, call finish_canvas_draft once with action=commit and this exact revision; otherwise patch only the defects you identify and recheck. Do not ask the user to confirm: progressive draft delivery is animation, not review.`;
 }
 
 function recommendedDraftCorrection(
@@ -2221,6 +2223,9 @@ function conciseDraftReceipt(
       : {}),
     ...(presentation ? { presentation } : {}),
     visualInspectionStatus: "not_performed" as const,
+    recommendedInspection: draftValidation.failCount === 0
+      ? recommendedDraftInspection(draft)
+      : null,
     completion: {
       requiredTool: "finish_canvas_draft" as const,
       action: "commit" as const,
@@ -3323,6 +3328,10 @@ export function createJazzboardSemanticWebMcpTools(
                 }
               : {}),
             ...(presentation ? { presentation } : {}),
+            visualInspectionStatus: "not_performed" as const,
+            recommendedInspection: draftValidation.failCount === 0
+              ? recommendedDraftInspection(response.draft)
+              : null,
             completion: {
               requiredTool: "finish_canvas_draft",
               action: "commit",

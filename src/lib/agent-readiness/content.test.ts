@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.27.0");
+    expect(AGENT_DOC_VERSION).toBe("1.28.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -245,6 +245,9 @@ describe("agent-readable content", () => {
       "`straight`",
       "`curved`",
       "`elbow`",
+      "`waypoints`",
+      "absolute canvas coordinates",
+      "automatic routing never generates them",
       "`normalizedAnchor`",
       "`isPrecise`",
       "`isExact`",

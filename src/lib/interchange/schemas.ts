@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CONNECTOR_ROUTING_LIMITS } from "@/lib/domain/connector-routing";
+
 import {
   JAZZBOARD_ARTIFACT_FORMAT,
   JAZZBOARD_ARTIFACT_SCHEMA_URL,
@@ -131,6 +133,14 @@ const connectorRouting = z
     bend: finite.min(-10_000).max(10_000),
     elbowMidPoint: finite.min(0).max(1),
     labelPosition: finite.min(0).max(1),
+    waypoints: z.array(z.object({
+      x: finite
+        .min(-CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate)
+        .max(CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate),
+      y: finite
+        .min(-CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate)
+        .max(CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate),
+    }).strict()).min(1).max(CONNECTOR_ROUTING_LIMITS.maxWaypoints).optional(),
     labelPositionSource: z.enum(["generated", "authored"]).optional(),
   })
   .strict()
@@ -161,6 +171,13 @@ const connectorRouting = z
         code: "custom",
         path: ["labelPositionSource"],
         message: "Only automatic routing may carry label-position provenance.",
+      });
+    }
+    if (routing.mode !== "elbow" && routing.waypoints !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["waypoints"],
+        message: "Only explicit elbow routing may carry waypoints.",
       });
     }
   });

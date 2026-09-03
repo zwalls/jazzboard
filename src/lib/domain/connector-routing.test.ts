@@ -161,6 +161,26 @@ describe("canonical connector routing", () => {
     expect(cardinalNormalizedAnchor("bottom", 0.75)).toEqual({ x: 0.75, y: 1 });
     expect(cardinalNormalizedAnchor("left", 0.75)).toEqual({ x: 0, y: 0.75 });
   });
+
+  it("retains bounded authored waypoints only for explicit elbow routing", () => {
+    const waypoints = [{ x: 120, y: -40 }, { x: 360, y: -40 }];
+    expect(normalizeConnectorRouting({ mode: "elbow", waypoints })).toMatchObject({
+      mode: "elbow",
+      kind: "elbow",
+      waypoints,
+    });
+    expect(normalizeConnectorRouting({ mode: "auto", waypoints })).not.toHaveProperty("waypoints");
+
+    const oversized = Array.from(
+      { length: CONNECTOR_ROUTING_LIMITS.maxWaypoints + 5 },
+      (_, index) => ({ x: index, y: 2_000_000 }),
+    );
+    const normalized = normalizeConnectorRouting({ mode: "elbow", waypoints: oversized });
+    expect(normalized.waypoints).toHaveLength(CONNECTOR_ROUTING_LIMITS.maxWaypoints);
+    expect(normalized.waypoints?.every(
+      (point) => point.y === CONNECTOR_ROUTING_LIMITS.maxWaypointCoordinate,
+    )).toBe(true);
+  });
 });
 
 describe("deterministic route geometry", () => {
@@ -311,6 +331,56 @@ describe("deterministic route geometry", () => {
     expect(second).toEqual(first);
     expect(first.labelPoint).toEqual(pointAlongConnectorRoute(first.points, 0.25));
     expect(first.labelBounds).toEqual(connectorLabelBoundsForRoute("request", first.points, 0.25));
+  });
+
+  it("routes explicit elbows through authored absolute waypoints and materializes the same label path", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const waypoints = [{ x: 180, y: -120 }, { x: 420, y: -120 }];
+    const edge = connector(
+      "waypoint-edge",
+      left.id,
+      right.id,
+      normalizeConnectorRouting({ mode: "elbow", waypoints, labelPosition: 0.6 }),
+    );
+    edge.start = {
+      ...edge.start,
+      normalizedAnchor: { x: 1, y: 0.5 },
+      isPrecise: true,
+      isExact: true,
+      snap: "edge-point",
+    };
+    edge.end = {
+      ...edge.end,
+      normalizedAnchor: { x: 0, y: 0.5 },
+      isPrecise: true,
+      isExact: true,
+      snap: "edge-point",
+    };
+
+    const routingRoom = room([left, right, edge]);
+    const resolved = resolveConnectorRoutes(routingRoom)[edge.id];
+    expect(resolved.start).toMatchObject({ objectId: left.id, isPrecise: true, isExact: true });
+    expect(resolved.end).toMatchObject({ objectId: right.id, isPrecise: true, isExact: true });
+    expect(resolved.routing.waypoints).toEqual(waypoints);
+    expect(resolved.points).toEqual([
+      { x: 100, y: 40 },
+      ...waypoints,
+      { x: 500, y: 40 },
+    ]);
+    expect(resolved.labelPoint).toEqual(pointAlongConnectorRoute(resolved.points, 0.6));
+
+    const persisted = {
+      ...edge,
+      ...connectorRouteBounds(resolved.points, 0),
+      start: resolved.start,
+      end: resolved.end,
+      routing: resolved.routing,
+    };
+    const materialized = materializeConnectorRoutes(room([left, right, persisted]))[edge.id];
+    expect(materialized.points).toEqual(resolved.points);
+    expect(materialized.labelPoint).toEqual(resolved.labelPoint);
+    expect(materialized.labelBounds).toEqual(resolved.labelBounds);
   });
 
   it("materializes persisted straight, curved, elbow, and resolved-auto geometry without choosing a new route", () => {

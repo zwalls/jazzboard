@@ -195,6 +195,40 @@ describe("AgentDraftLayer", () => {
     );
   });
 
+  it("materializes authored elbow waypoints into the draft connector trace", () => {
+    const routed = {
+      ...connector(),
+      start: { x: 40, y: 195, objectId: null },
+      end: { x: 340, y: 195, objectId: null },
+      routing: {
+        mode: "elbow" as const,
+        kind: "elbow" as const,
+        bend: 0,
+        elbowMidPoint: 0.5,
+        labelPosition: 0.6,
+        waypoints: [{ x: 100, y: 80 }, { x: 280, y: 80 }],
+      },
+    };
+    const { container } = render(
+      <AgentDraftLayer
+        authoritativeObjects={{}}
+        drafts={[draft({ previewObjects: [routed] })]}
+        roomId="room-1"
+        viewport={viewport}
+      />,
+    );
+
+    const element = container.querySelector('[data-agent-draft-object-id="draft-connector"]')!;
+    expect(element.querySelector('[data-agent-draft-reveal-part="trace"]')).toHaveAttribute(
+      "d",
+      "M 40 195 L 100 80 L 280 80 L 340 195",
+    );
+    expect(element.querySelector('[data-agent-draft-reveal-part="final"]')).toHaveAttribute(
+      "d",
+      "M 40 195 L 100 80 L 280 80 L 340 195",
+    );
+  });
+
   it("renders draft artwork in authoritative z-order without canonical IDs or interaction semantics", () => {
     const background = { ...shape("draft-zone"), zIndex: 1 };
     const foreground = { ...shape(), zIndex: 4 };

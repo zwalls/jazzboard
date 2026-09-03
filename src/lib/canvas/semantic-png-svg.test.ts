@@ -298,6 +298,43 @@ describe("semantic PNG SVG generation", () => {
     expect(withoutMarkup(connectorLabelMarkup)).toContain("t...");
   });
 
+  it("renders persisted authored elbow waypoints through the faithful PNG SVG scene", () => {
+    const current = scene();
+    const objects = Object.fromEntries(
+      current.objects.map(({ object }) => [object.id, object]),
+    );
+    const source = objects.connector;
+    if (source.kind !== "connector") throw new Error("Missing connector fixture.");
+    const waypointScene = buildSemanticScene({
+      id: current.roomId,
+      roomRevision: current.roomRevision,
+      objects: {
+        ...objects,
+        connector: {
+          ...source,
+          routing: {
+            mode: "elbow",
+            kind: "elbow",
+            bend: 0,
+            elbowMidPoint: 0.5,
+            labelPosition: 0.6,
+            waypoints: [{ x: 180, y: -40 }, { x: 240, y: -40 }],
+          },
+        },
+      },
+      diagrams: {},
+    });
+
+    const result = renderSemanticSceneSvg(waypointScene, ["connector"]);
+    expect(objectMarkup(result.svg, "connector")).toContain(
+      '<path d="M 120 35 L 180 -40 L 240 -40 L 300 35"',
+    );
+    expect(waypointScene.connectorRoutes.connector.routing.waypoints).toEqual([
+      { x: 180, y: -40 },
+      { x: 240, y: -40 },
+    ]);
+  });
+
   it("ellipsizes PNG text at the height-aware baseline limit", () => {
     const shortText: CanvasObject = {
       ...base("png-short-text", 0, 0, 0, 160, 96),

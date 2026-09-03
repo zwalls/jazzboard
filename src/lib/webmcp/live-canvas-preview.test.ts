@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { CanvasObject, RoomState } from "@/lib/domain/types";
 
@@ -96,6 +97,61 @@ function inspectionArtifact(): CanvasInspectionArtifact {
   };
 }
 
+function draft(): AgentCanvasDraftSnapshot {
+  return {
+    schemaVersion: 1,
+    id: "draft_exact",
+    roomId: "room-1",
+    ownerParticipantId: "alice",
+    author: {
+      participantId: "alice",
+      displayName: "Alice",
+      color: "#5965e8",
+      kind: "agent",
+    },
+    revision: 2,
+    baselineRoomRevision: 12,
+    status: "active",
+    temporaryReferences: { node: "draft-object" },
+    previewObjects: [{ ...object(), id: "draft-object", authority: "draft" }],
+    previewDiagrams: [],
+    metadata: null,
+    createdAt: CREATED_AT - 100,
+    updatedAt: CREATED_AT,
+    expiresAt: 40_000,
+    hardExpiresAt: 80_000,
+  };
+}
+
+function draftInspectionArtifact(candidate = draft()): CanvasInspectionArtifact {
+  return {
+    metadata: {
+      renderedBounds: { x: 10, y: 20, width: 320, height: 180 },
+      padding: 32,
+      source: {
+        kind: "draft",
+        draftId: candidate.id,
+        expectedDraftRevision: candidate.revision,
+        roomRevision: 12,
+        objectRevisions: candidate.previewObjects.map((item) => ({
+          objectId: item.id,
+          revision: item.revision,
+        })),
+        objectIncarnations: candidate.previewObjects.map((item) => ({
+          objectId: item.id,
+          revision: item.revision,
+          createdAt: item.createdAt,
+        })),
+        draftCreatedAt: candidate.createdAt,
+        draftExpiresAt: candidate.expiresAt,
+        draftHardExpiresAt: candidate.hardExpiresAt,
+      },
+      warnings: [],
+      visualQuality: null,
+    },
+  };
+}
+
 function runtime(overrides: Partial<CanvasRuntime> = {}): CanvasRuntime {
   return {
     rendererId: "jazzboard-semantic-v1",
@@ -114,6 +170,7 @@ function runtime(overrides: Partial<CanvasRuntime> = {}): CanvasRuntime {
     onDocumentChange: () => () => undefined,
     selectObjects: () => undefined,
     zoomToBounds: vi.fn(),
+    isObjectRenderedExact: () => true,
     isObjectProjectionExact: () => true,
     renderPng: vi.fn(),
     ...overrides,
@@ -142,15 +199,20 @@ function host(
   element: HTMLElement,
   options: {
     getRoom?: () => RoomState | null;
+    getAgentDraft?: (draftId: string) => AgentCanvasDraftSnapshot | null;
     isCameraFollowActive?: () => boolean;
     now?: () => number;
-    setCleanInspection?: (previewId: string | null) => void;
+    setCleanInspection?: (
+      previewId: string | null,
+      draftScope?: { draftId: string; expectedDraftRevision: number },
+    ) => void;
   } = {},
 ) {
   return {
     getCanvasRuntime: () => canvas,
     getCanvasElement: () => element,
     getRoom: options.getRoom ?? (() => room()),
+    ...(options.getAgentDraft ? { getAgentDraft: options.getAgentDraft } : {}),
     isCameraFollowActive: options.isCameraFollowActive ?? (() => false),
     ...(options.setCleanInspection ? { setCleanInspection: options.setCleanInspection } : {}),
     ...(options.now ? { now: options.now } : {}),
@@ -231,6 +293,58 @@ describe("presentLiveCanvasPreview", () => {
       expiresAt: 70_000,
       validation: { status: "valid_until_invalidated" },
     });
+  });
+
+  it("presents an exact draft as a clean local scene and bounds the lease by draft expiry", async () => {
+    const candidate = draft();
+    const canvas = runtime({
+      isObjectProjectionExact: (current) => current.id === candidate.previewObjects[0].id,
+    });
+    const element = canvasElement();
+    const setCleanInspection = vi.fn();
+    const presentation = presentLiveCanvasPreview(
+      host(canvas, element, {
+        getAgentDraft: () => candidate,
+        now: () => 10_000,
+        setCleanInspection,
+      }),
+      draftInspectionArtifact(candidate),
+      new AbortController().signal,
+    );
+    await paintTwice();
+
+    await expect(presentation).resolves.toMatchObject({ expiresAt: candidate.expiresAt });
+    expect(setCleanInspection).toHaveBeenCalledWith("preview_11111111-2222-4333-8444-555555555555", {
+      draftId: candidate.id,
+      expectedDraftRevision: candidate.revision,
+    });
+  });
+
+  it("discards draft inspection framing when the visible candidate revision changes before paint", async () => {
+    const candidate = draft();
+    let visibleDraft = candidate;
+    const canvas = runtime({ isObjectProjectionExact: () => true });
+    const element = canvasElement();
+    const setCleanInspection = vi.fn();
+    const presentation = presentLiveCanvasPreview(
+      host(canvas, element, {
+        getAgentDraft: () => visibleDraft,
+        now: () => 10_000,
+        setCleanInspection,
+      }),
+      draftInspectionArtifact(candidate),
+      new AbortController().signal,
+    );
+    frames.shift()?.(performance.now());
+    await Promise.resolve();
+    visibleDraft = { ...candidate, revision: candidate.revision + 1 };
+    frames.shift()?.(performance.now());
+    await Promise.resolve();
+
+    await expect(presentation).rejects.toMatchObject({
+      code: "PREVIEW_SCOPE_CHANGED_DURING_PRESENTATION",
+    });
+    expect(setCleanInspection).toHaveBeenLastCalledWith(null);
   });
 
   it("rejects rather than returning a clip that omits part of the requested scope", async () => {

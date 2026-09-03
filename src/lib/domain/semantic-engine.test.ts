@@ -560,6 +560,53 @@ describe("atomic semantic transactions", () => {
     );
   });
 
+  it("preserves authored elbow waypoints when a connector becomes authoritative", () => {
+    const waypoints = [{ x: 280, y: -120 }, { x: 520, y: -120 }];
+    const result = applySemanticTransaction(
+      room([node("source", 0, 0), node("target", 600, 200)]),
+      "alice",
+      "agent",
+      {
+        commands: [{
+          type: "create",
+          object: {
+            id: "authored-edge",
+            kind: "connector",
+            x: 200,
+            y: 50,
+            width: 400,
+            height: 200,
+            rotation: 0,
+            zIndex: 2,
+            groupId: null,
+            start: { x: 200, y: 50, objectId: "source" },
+            end: { x: 600, y: 250, objectId: "target" },
+            routing: normalizeConnectorRouting({
+              mode: "elbow",
+              waypoints,
+              labelPosition: 0.4,
+            }),
+            direction: "end",
+            label: "authored route",
+            color: "black",
+          },
+        }],
+        diagramCommands: [],
+      },
+      NOW + 118,
+    );
+
+    expect(result.room.objects["authored-edge"]).toMatchObject({
+      revision: 1,
+      routing: {
+        mode: "elbow",
+        kind: "elbow",
+        waypoints,
+        labelPosition: 0.4,
+      },
+    });
+  });
+
   it("rolls back a blocker move when its derived auto-route change is foreign-leased", () => {
     const edge = connector("edge", "source", "target");
     if (edge.kind !== "connector") throw new Error("Expected connector fixture.");

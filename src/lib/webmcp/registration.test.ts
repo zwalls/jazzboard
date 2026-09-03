@@ -135,7 +135,9 @@ describe("JazzboardWebMcpRegistrar", () => {
     expect(
       descriptorBytes,
       `Production-shaped descriptors use ${descriptorBytes} bytes. Largest: ${JSON.stringify(largestDescriptors)}`,
-    ).toBeLessThanOrEqual(53_000);
+    // Draft inspection and explicit waypoint control add bounded schemas while
+    // keeping the complete registered surface below a single 57 KB envelope.
+    ).toBeLessThanOrEqual(57_000);
 
     const collectDescriptions = (value: unknown): string[] => {
       if (Array.isArray(value)) return value.flatMap(collectDescriptions);

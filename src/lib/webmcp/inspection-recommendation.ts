@@ -1,3 +1,4 @@
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { RoomState } from "@/lib/domain/types";
 
 import { CANVAS_PREVIEW_LIMITS } from "./preview-contract";
@@ -47,6 +48,23 @@ export function recommendedCanvasInspection(
         },
       }
     : null;
+}
+
+export function recommendedDraftInspection(draft: AgentCanvasDraftSnapshot) {
+  return {
+    tool: "inspect_canvas_scope" as const,
+    input: {
+      scope: {
+        kind: "draft" as const,
+        draftId: draft.id,
+        expectedDraftRevision: draft.revision,
+      },
+      padding: INSPECTION_PADDING,
+      representation: draft.previewObjects.length > CANVAS_PREVIEW_LIMITS.maxWorkingSetRecords
+        ? "overview" as const
+        : "working_set" as const,
+    },
+  };
 }
 
 export function recommendedRoomCompositionInspection(

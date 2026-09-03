@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { ActorRef, CanvasObject, Diagram, Participant, RoomState } from "@/lib/domain/types";
 
@@ -153,6 +154,116 @@ function canvasFor(
 }
 
 describe("exact canvas preview renderer", () => {
+  it("builds exact draft evidence from preview objects plus authoritative room surroundings", async () => {
+    const authoritative = { ...object("a"), x: 0, y: 0, width: 100, height: 80 };
+    const previewObject = {
+      ...object("draft-b"),
+      x: 80,
+      y: 0,
+      width: 120,
+      height: 80,
+      diagramIds: ["draft-diagram"],
+      authority: "draft" as const,
+    };
+    const previewDiagram = {
+      id: "draft-diagram",
+      title: "Draft system",
+      description: "",
+      diagramType: "architecture" as const,
+      category: null,
+      tags: [],
+      memberObjectIds: [authoritative.id, previewObject.id],
+      connectorIds: [],
+      bounds: { x: 0, y: 0, width: 200, height: 80 },
+      revision: 1,
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: actor(),
+      lastEditedBy: actor(),
+      authority: "draft" as const,
+    };
+    const currentRoom = room([authoritative]);
+    const currentDraft: AgentCanvasDraftSnapshot = {
+      schemaVersion: 1,
+      id: "draft_exact",
+      roomId: currentRoom.id,
+      ownerParticipantId: "alice",
+      author: actor(),
+      revision: 4,
+      baselineRoomRevision: currentRoom.roomRevision,
+      status: "active",
+      temporaryReferences: { node: previewObject.id, diagram: previewDiagram.id },
+      previewObjects: [previewObject],
+      previewDiagrams: [previewDiagram],
+      metadata: null,
+      createdAt: NOW - 100,
+      updatedAt: NOW,
+      expiresAt: NOW + 60_000,
+      hardExpiresAt: NOW + 120_000,
+    };
+    const draftRequest: CanvasPreviewRenderRequest = {
+      ...request([previewObject]),
+      source: {
+        kind: "draft",
+        draftId: currentDraft.id,
+        expectedDraftRevision: currentDraft.revision,
+      },
+      authoritativeRoomCreatedAt: currentRoom.createdAt,
+      draft: currentDraft,
+      diagram: previewDiagram,
+      objects: currentDraft.previewObjects,
+    };
+    const { canvas } = canvasFor([authoritative], undefined, [], {
+      a: { x: 0, y: 0, width: 100, height: 80 },
+    });
+
+    const result = await prepareCanvasInspection(
+      { getCanvasRuntime: () => canvas, getRoom: () => currentRoom },
+      draftRequest,
+      new AbortController().signal,
+    );
+    const evidence = result.metadata.inspectionEvidence!;
+
+    expect(evidence).toMatchObject({
+      scope: {
+        kind: "draft",
+        draftId: currentDraft.id,
+        diagramId: null,
+      },
+      revisions: {
+        roomRevision: currentRoom.roomRevision,
+        draftRevision: currentDraft.revision,
+        diagramRevision: null,
+      },
+      coverage: {
+        scopeObjectCount: 1,
+        visualContributorCount: 2,
+        allExplicitTargetsRepresented: true,
+      },
+      overview: { objectCount: 1, kinds: { shape: 1 } },
+      workingSet: expect.arrayContaining([
+        expect.objectContaining({ objectId: "a", inRequestedScope: false }),
+        expect.objectContaining({ objectId: "draft-b", inRequestedScope: true }),
+      ]),
+    });
+    expect(result.metadata.source).toMatchObject({
+      kind: "draft",
+      draftId: currentDraft.id,
+      expectedDraftRevision: currentDraft.revision,
+      roomRevision: currentRoom.roomRevision,
+      draftCreatedAt: currentDraft.createdAt,
+      draftExpiresAt: currentDraft.expiresAt,
+      draftHardExpiresAt: currentDraft.hardExpiresAt,
+    });
+    expect(result.metadata.visualQuality).toMatchObject({
+      diagramId: previewDiagram.id,
+      diagramRevision: previewDiagram.revision,
+      roomRevision: currentRoom.roomRevision,
+    });
+    expect(currentRoom.objects).toEqual({ a: authoritative });
+    expect(currentRoom.diagrams).toEqual({});
+  });
+
   it("prepares semantic evidence without creating a duplicate PNG surface", async () => {
     const objects = [object("a"), object("b")];
     const currentRoom = room(objects);
