@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0033",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-surfaced-route-comparison",
+  "productChange": {
+    "description": "Expose exact-draft route comparison directly in connector-conflict receipts, canonical correction JSON, and the architecture quickstart without generating, ranking, selecting, applying, laying out, routing, or rendering alternatives.",
+    "commit": "55f4a71748f1b670d82a25def8b099e28b3a15de"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0032": false,
+    "initialRoomRevision": 3
+  },
+  "isolatedAuthor": {
+    "taskId": "01a066d4-85b0-75c3-a52a-57286722c7cf",
+    "turnId": "01a066d4-8742-7263-a0a8-3ee5f7ba6b3d",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsageAfterAttemptPercent": 95,
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 287120
+    },
+    "calls": {
+      "hostCallCount": 17,
+      "failedHostCallCount": 2,
+      "webMcpBusinessCallCount": 8,
+      "webMcpDescriptorFetchCount": 10,
+      "webMcpBusinessFailureCount": 3,
+      "acceptedDraftTransactionCallCount": 1,
+      "draftPatchOrReplacementCount": 0,
+      "semanticInspectionCallCount": 2,
+      "routeCandidateComparisonCallCount": 1,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 1,
+        "apply_canvas_transaction": 2,
+        "analyze_diagram_layout": 1,
+        "inspect_canvas_scope": 2,
+        "finish_canvas_draft": 1
+      }
+    },
+    "result": {
+      "status": "terminated_with_uncommitted_failed_draft",
+      "authoritativeRoomRevision": 3,
+      "authoritativeArtifactCreated": false,
+      "draftRevision": 1,
+      "draftObjectCount": 18,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "draftBounds": {
+        "x": 50,
+        "y": 80,
+        "width": 860,
+        "height": 438
+      },
+      "qualityGatePassed": false,
+      "completionGatePassed": false
+    }
+  },
+  "draftCorrectionEvidence": {
+    "recommendedRouteComparisonExposed": true,
+    "routeComparisonMechanismUsed": true,
+    "acceptedDraftResponseBytes": 30285,
+    "acceptedDraftTransactionCount": 1,
+    "initialDraft": {
+      "draftRevision": 1,
+      "failCount": 21,
+      "warningCount": 3,
+      "findingCount": 24
+    },
+    "routeCandidates": [
+      {
+        "candidateId": "outer-lanes",
+        "failCount": 20,
+        "warningCount": 3,
+        "findingCount": 23,
+        "applied": false
+      },
+      {
+        "candidateId": "elbow-lanes",
+        "failCount": 13,
+        "warningCount": 1,
+        "findingCount": 14,
+        "applied": false
+      }
+    ],
+    "draftRevisionChangedByComparison": false,
+    "authoritativeStateChangedByComparison": false,
+    "subsequentCorrectionApplied": false,
+    "commitAttemptRejected": true,
+    "commitRejectionCode": "UNRESOLVED_DRAFT_FINDINGS",
+    "reportedFailFindingCount": 21,
+    "returnedFailFindingCount": 14,
+    "omittedFailFindingCount": 7,
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author supplied two agent-authored routeCandidates to analyze_diagram_layout, but did not apply or iterate after both candidates remained fail-level."
+  },
+  "authoritativeFactAudit": {
+    "requiredEntityCount": 9,
+    "matchedEntityCountInDraft": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCountInDraft": 9,
+    "factualGatePassedInDraft": true,
+    "authoritativeArtifactFactGatePassed": false
+  },
+  "reviewStage": {
+    "released": false,
+    "reason": "The author failed the predeclared completion endpoint and produced no authoritative committed artifact."
+  },
+  "comparisons": {
+    "toExp0032": {
+      "predecessorWallMs": 320287,
+      "currentWallMs": 287120,
+      "wallDeltaMs": -33167,
+      "wallDeltaFraction": -0.103554,
+      "predecessorWebMcpBusinessCalls": 14,
+      "currentWebMcpBusinessCalls": 8,
+      "predecessorAcceptedDraftTransactions": 7,
+      "currentAcceptedDraftTransactions": 1,
+      "predecessorDraftResponseBytes": 146439,
+      "currentDraftResponseBytes": 30285,
+      "interpretation": "The surfaced recommendation achieved evaluator uptake and fewer calls, but the author stopped before correction or commit, so the latency reduction is not an accepted efficiency gain."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "a7bf65c28c7770cd17255a70a1c46d8213ff5488962ae393465fedb4ffebf09c",
+    "draftInspectionSha256": "d9a8cd33025ccbdfde5aec22861f537e9e55d54d97d72dd8f9a6a5cfadd3349d",
+    "draftPixelArtifactSha256": "29db513f2cfd8c45ec79a61888fc55f8545a30ef4cec9c256a888d30edb7f940"
+  },
+  "decision": {
+    "status": "discoverability_succeeded_recovery_failed_result_not_accepted",
+    "retainProductChange": true,
+    "nextIntervention": "Return an explicit no-passing-candidate completion gate and recovery branch, tell agents when node spacing must change before connector-only comparison, and state that failure to find a passing route is not evidence that conventional readability defects are deliberate."
+  }
+}
