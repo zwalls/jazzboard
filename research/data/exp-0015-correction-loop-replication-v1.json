@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0015",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-correction-loop-replication",
+  "productChange": {
+    "description": "Make the architecture quickstart self-contained for revision-safe direct corrections, require clearance and visible relationship semantics to survive correction, and make final deterministic failures explicit completion blockers.",
+    "commit": "8a1a018f25a362400e24bd490aaf9aa8d492b34d"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0014": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064df-a847-7271-bc9d-456f75672057",
+    "turnId": "01a064df-aa4d-7a42-bb29-18fe86d2b58b",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 298952,
+      "accountedWallMs": 299000,
+      "hostExecutionMs": 64590,
+      "modelAndCoordinationMs": 234410,
+      "hostExecutionShare": 0.2160200668896321
+    },
+    "calls": {
+      "hostCallCount": 17,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 15,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 3,
+      "acceptedDraftTransactionCallCount": 3,
+      "postCommitCorrectionCallCount": 3,
+      "acceptedPostCommitCorrectionCallCount": 3,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "read_room_state": 3,
+        "read_collaboration_state": 1,
+        "apply_canvas_transaction": 3,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "create_text": 1,
+        "edit_diagram": 1,
+        "update_object": 1
+      }
+    },
+    "phases": {
+      "capabilityDiscoveryMs": 63187,
+      "initialAuthoringMs": 145214,
+      "draftFinishMs": 9082,
+      "inspectionMs": 19383,
+      "postCommitCorrectionAndStateReadsMs": 56863,
+      "terminalMs": 5271
+    },
+    "draftValidationProgression": [
+      { "draftRevision": 1, "failCount": 10, "warningCount": 15, "findingCount": 25 },
+      { "draftRevision": 2, "failCount": 2, "warningCount": 5, "findingCount": 7 },
+      { "draftRevision": 3, "failCount": 0, "warningCount": 4, "findingCount": 4 }
+    ],
+    "result": {
+      "status": "completed_with_passed_quality_gate",
+      "terminalClaim": "Final inspection has no blocking geometry findings; remaining warnings are intentional container/title proximity.",
+      "roomRevision": 5,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 3,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 15,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "warning",
+      "finalDeterministicFailCount": 0,
+      "finalDeterministicWarningCount": 4,
+      "finalDeterministicFindingCount": 4,
+      "independentExactClipCapture": "completed",
+      "visibleRelationshipLabelCount": 5
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a064e8-4acf-7783-912c-f6ea4a5b600f",
+    "turnId": "01a064e8-4c9f-7de0-87e3-57aa0ede5320",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "sanitizedStateTransport": "inline",
+    "exactPngTransport": "localhost_url",
+    "totalWallMs": 47339,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "outputTransport": "yes_no_strings_for_boolean_semantics",
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "overall": "pass"
+    }
+  },
+  "timingComparison": {
+    "qualityFailureBaseline": {
+      "sourceExperiment": "EXP-0014",
+      "wallMs": 267384,
+      "qualityGatePassed": false
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 298952,
+      "qualityGatePassed": true
+    },
+    "versusExp0014": {
+      "descriptiveIncreaseMs": 31568,
+      "descriptiveIncreaseFraction": 0.11806241211142028,
+      "hostExecutionIncreaseMs": 11982,
+      "modelAndCoordinationIncreaseMs": 20018
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 116568,
+      "descriptiveIncreaseFraction": 0.6391350118431441
+    },
+    "interpretation": "The correction-safety intervention recovered the blinded quality gate and eliminated rejected WebMCP correction schemas, but it did not improve speed. Three draft revisions and three separate post-commit calls dominated the run."
+  },
+  "mechanismEvidence": {
+    "qualityRecovery": [
+      "All five relationship meanings remained visibly available.",
+      "No post-commit correction introduced an overlap, truncation, hidden route, or unsupported assertion.",
+      "The author did not claim completion while a deterministic failure remained."
+    ],
+    "remainingLatencyCauses": [
+      "The first draft produced ten avoidable label and spacing failures despite otherwise coherent semantics.",
+      "The author needed two draft patches before reaching zero failures.",
+      "A missing visible evaluates caption was created, added to Diagram membership, and moved in three separate post-commit calls.",
+      "Capability discovery printed the large room tool inventory, truncated the first quickstart response, and caused a second quickstart call."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "f821374a101300a2bbd312d56f25acc93e33748fd03cb7bf94f551fa2be7c543",
+    "cleanPngBytes": 52718,
+    "sanitizedStateSha256": "29803bbb826c783630bbdbfad17c4f58ce08e29465eaeff2d724c7ca0a61c29c",
+    "rawAuthorSessionSha256": "2f6efb54b7e14f89c4d152240333081f0b650dde2c2318329663430e79f2d611",
+    "rawReviewerSessionSha256": "202e4605513cd6718fe3cfaab7c7a072d7c563be2c9cfb0a6ca9dcbdfb2f178c",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "authorQualityGatePassed": true,
+    "speedGatePassed": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Teach one-pass conventional-diagram clearance planning with conservative node-size floors, a label-width-derived connector-gap rule, and empty routing lanes. Add one canonical atomic post-commit correction example that can create visible semantic text and update Diagram membership in the same transaction. Do not choose layout for the author. Then run an unchanged replication."
+  }
+}
