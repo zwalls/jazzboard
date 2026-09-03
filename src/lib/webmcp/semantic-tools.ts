@@ -395,8 +395,9 @@ const createDiagramOperation = z
 const editDiagramOperation = z
   .object({
     op: z.literal("edit_diagram"),
-    diagramId: id,
-    expectedRevision: z.number().int().positive(),
+    diagramId: id.optional(),
+    expectedRevision: z.number().int().positive().optional(),
+    diagramTempRef: tempRef.optional(),
     title: z.string().trim().min(1).max(160).optional(),
     description: z.string().max(10_000).optional(),
     diagramType: diagramType.optional(),
@@ -407,10 +408,29 @@ const editDiagramOperation = z
     ...activityMetadataFields,
   })
   .strict()
-  .refine(
-    (value) => Object.keys(value).some((key) => !["op", "diagramId", "expectedRevision", "intent", "summary"].includes(key)),
-    "At least one diagram field must be updated.",
-  );
+  .superRefine((value, context) => {
+    const hasAuthoritativeId = value.diagramId !== undefined;
+    const hasAuthoritativeRevision = value.expectedRevision !== undefined;
+    if (hasAuthoritativeId !== hasAuthoritativeRevision) {
+      context.addIssue({
+        code: "custom",
+        path: [hasAuthoritativeId ? "expectedRevision" : "diagramId"],
+        message: "diagramId and expectedRevision must be supplied together for an authoritative Diagram edit.",
+      });
+    }
+    if (Number(hasAuthoritativeId) + Number(value.diagramTempRef !== undefined) !== 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["diagramTempRef"],
+        message: "Use either diagramId with expectedRevision, or diagramTempRef for an exact draft patch.",
+      });
+    }
+    if (!Object.keys(value).some((key) =>
+      !["op", "diagramId", "expectedRevision", "diagramTempRef", "intent", "summary"].includes(key)
+    )) {
+      context.addIssue({ code: "custom", message: "At least one Diagram field must be updated." });
+    }
+  });
 
 const autoLayoutOperation = z
   .object({
@@ -466,7 +486,47 @@ const draftDelivery = z
     }
   });
 
-const transactionInput = z
+function inputRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function aliasObjectReferences(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((reference) => typeof reference === "string" ? { tempRef: reference } : reference);
+}
+
+/**
+ * Tolerate predictable standalone-to-transaction vocabulary without weakening
+ * the canonical schema or its exact revision/draft authority checks.
+ */
+function normalizeTransactionAliases(value: unknown): unknown {
+  const input = inputRecord(value);
+  if (!input || !Array.isArray(input.operations)) return value;
+  return {
+    ...input,
+    operations: input.operations.map((candidate) => {
+      const operation = inputRecord(candidate);
+      if (!operation) return candidate;
+      const normalized = { ...operation };
+      if (normalized.op === "draw_connection") normalized.op = "connect";
+      if (normalized.op === "create_diagram") {
+        if (normalized.members === undefined && normalized.memberObjectRefs !== undefined) {
+          normalized.members = aliasObjectReferences(normalized.memberObjectRefs);
+          delete normalized.memberObjectRefs;
+        }
+        if (normalized.connectors === undefined && normalized.connectorRefs !== undefined) {
+          normalized.connectors = aliasObjectReferences(normalized.connectorRefs);
+          delete normalized.connectorRefs;
+        }
+      }
+      return normalized;
+    }),
+  };
+}
+
+const canonicalTransactionInput = z
   .object({
     operations: z.array(transactionOperation).min(1).max(200),
     delivery: draftDelivery.optional(),
@@ -477,12 +537,38 @@ const transactionInput = z
   .superRefine((input, context) => {
     if (input.delivery) {
       input.operations.forEach((operation, index) => {
-        if (operation.op === "update" || operation.op === "update_object" || operation.op === "edit_diagram") {
+        if (operation.op === "update" || operation.op === "update_object") {
           context.addIssue({
             code: "custom",
             path: ["operations", index],
             message:
-              "Progressive drafts currently support create-only operations. Apply existing-object or existing-Diagram edits directly without delivery.",
+              "Progressive drafts currently support create-only objects. Apply existing-object edits directly without delivery.",
+          });
+        }
+        if (
+          operation.op === "edit_diagram" &&
+          (
+            operation.diagramTempRef === undefined ||
+            operation.diagramId !== undefined ||
+            !input.delivery?.draftId ||
+            input.delivery.updateMode !== "patch"
+          )
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["operations", index],
+            message:
+              "A draft Diagram edit requires diagramTempRef plus the exact draftId, expectedDraftRevision, and updateMode=patch. Use diagramId with expectedRevision only for authoritative edits without delivery.",
+          });
+        }
+      });
+    } else {
+      input.operations.forEach((operation, index) => {
+        if (operation.op === "edit_diagram" && operation.diagramTempRef !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["operations", index],
+            message: "diagramTempRef edits are valid only for an exact progressive-draft patch.",
           });
         }
       });
@@ -580,19 +666,20 @@ const transactionInput = z
     });
   });
 
+const transactionInput = z.preprocess(normalizeTransactionAliases, canonicalTransactionInput);
+
 const SEMANTIC_COLOR_JSON_SCHEMA = {
   type: "string",
   pattern: `^(?:${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Named Jazzboard color or #RGB/#RRGGBB/#RRGGBBAA.",
+  description: "Named color or #RGB/#RRGGBB/#RRGGBBAA.",
 } as const;
 const SEMANTIC_PAINT_JSON_SCHEMA = {
   type: "string",
   pattern: `^(?:none|${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Color format above, or none for no paint.",
+  description: "Color above, or none.",
 } as const;
 const WORLD_PATH_SEGMENT_JSON_SCHEMA = {
   type: "object",
-  description: "World line/quadratic/cubic segment.",
 } as const;
 // Zod is the authoritative op-specific validator. The registered schema keeps
 // the complete field vocabulary and the coordinate/reference rules visible,
@@ -612,15 +699,15 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         required: ["op"],
         properties: {
           op: {
-            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"],
-            description: "update_draft_connector patches draft; update/update_object edit objects.",
+            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "draw_connection", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"],
+            description: "Aliases: draw_connection=connect; update_object=update.",
           },
           tempRef: { type: "string", description: "Stable draft/create alias." },
           objectId: { type: "string", description: "Authoritative object ID." },
           expectedRevision: { type: "integer" },
           leaseId: { type: "string" },
           operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
-          patch: { type: "object", description: "Object patch; path coordinates follow the documented conventions." },
+          patch: { type: "object", description: "Object patch; path coordinates use documented conventions." },
           semanticName: { type: "string", minLength: 1, maxLength: 160 },
           semanticRole: { type: "string", minLength: 1, maxLength: 128 },
           label: { type: "string" },
@@ -651,7 +738,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           },
           segments: {
             type: "array",
-            description: "World segments: line{to}; quadratic{to,control}; cubic{to,control1,control2}.",
+            description: "line{to}; quadratic{to,control}; cubic{to,control1,control2}.",
             items: WORLD_PATH_SEGMENT_JSON_SCHEMA,
           },
           closed: { type: "boolean" },
@@ -660,11 +747,11 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           lineCap: { enum: ["butt", "round", "square"] },
           lineJoin: { enum: ["miter", "round", "bevel"] },
           fillRule: { enum: ["nonzero", "evenodd"] },
-          start: { type: "object", description: "World point or {objectId|tempRef,port?} endpoint." },
-          end: { type: "object", description: "World point or object/tempRef endpoint." },
+          start: { type: "object", description: "Point or {objectId|tempRef,port?}." },
+          end: { type: "object", description: "Point or object/tempRef." },
           routing: {
             type: "object",
-            description: "mode auto|straight|elbow|curved; curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
+            description: "auto|straight|elbow|curved; curved needs bend>=8; elbowMidPoint/labelPosition 0..1.",
           },
           direction: { enum: ["none", "end", "both"] },
           diagramId: { type: "string" },
@@ -677,6 +764,8 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
           tags: { type: "array", items: { type: "string" } },
           members: { type: "array", items: { type: "object" } },
           connectors: { type: "array", items: { type: "object" }, description: "Exact refs; omit=infer; []=empty." },
+          memberObjectRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
+          connectorRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
           x: { type: "number" },
           y: { type: "number" },
           width: { type: "number" },
@@ -1580,7 +1669,7 @@ function draftNextStep(
     validation.geometryQualityStatus === "fail" ||
     validation.geometryQualityStatus === "warning"
   ) {
-    return `Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use update or resend the whole draft. For other objects, patch by resubmitting the complete create operation for only the affected stable tempRefs. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
+    return `Review draftValidation findings before publication. If a connector finding is unintended, call apply_canvas_transaction with op=update_draft_connector, that connector's stable tempRef, only the fields you choose to change, and delivery={mode:draft,draftId:${draft.id},expectedDraftRevision:${draft.revision},updateMode:patch}; do not use authoritative update or resend the whole draft. For another object, resubmit only its complete create operation with the same tempRef. To change draft Diagram metadata or membership, use op=edit_diagram with diagramTempRef and the same exact patch delivery. Recheck the new receipt; use updateMode=replace only to remove or fully replace candidate content. Do not finish while an unintended fail remains. Deliberate geometry is valid and should be preserved. Otherwise call finish_canvas_draft once now with action=commit and this exact revision; no user confirmation is required.`;
   }
   return "Draft geometry has no reported deterministic blockers. Call finish_canvas_draft once now with action=commit and this exact revision. Do not ask the user to confirm: progressive draft delivery is animation, not review. Jazzboard waits for visible construction internally, then returns the authoritative outcome and exact recommended inspection.";
 }
@@ -1601,6 +1690,9 @@ function recommendedDraftCorrection(
     validation.findings.flatMap((finding) => finding.connectorIds)
       .flatMap((objectId) => tempRefById.get(objectId) ?? []),
   ).sort();
+  const diagramTempRefs = uniqueStrings(
+    draft.previewDiagrams.flatMap((diagram) => tempRefById.get(diagram.id) ?? []),
+  ).sort();
   return {
     tool: "apply_canvas_transaction" as const,
     delivery: {
@@ -1611,6 +1703,7 @@ function recommendedDraftCorrection(
     },
     affectedTempRefs,
     connectorTempRefs,
+    diagramTempRefs,
     connectorOperation: {
       op: "update_draft_connector" as const,
       rule:
@@ -1618,6 +1711,11 @@ function recommendedDraftCorrection(
     },
     otherObjectRule:
       "For a non-connector candidate, resend its complete original create operation with the same tempRef and corrected fields.",
+    diagramOperation: {
+      op: "edit_diagram" as const,
+      rule:
+        "When corrected objects change Diagram membership or metadata, send diagramTempRef plus only the changed fields in this same exact draft patch. Do not use an authoritative Diagram ID or expectedRevision.",
+    },
     validationRule:
       "Inspect the new draftValidation receipt and repeat only when an unintended task-relevant finding remains.",
   };
@@ -2147,7 +2245,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Apply or draft a semantic canvas transaction",
       description:
-        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Per-op intent/summary tolerated; inert. Visible multi-object work uses delivery.mode=draft: bot-traced, not review. updateMode=patch sends affected stable tempRefs; use update_draft_connector for one connector. Then finish_canvas_draft yourself—no confirmation. Replace for removal/full replacement. Omit delivery for existing corrections.",
+        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review. updateMode=patch sends affected stable tempRefs. Then finish_canvas_draft yourself—no confirmation. Omit delivery for existing corrections. Root: operations/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary are inert." + REVIEW_MODE_RESULT_NOTE,
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
@@ -2246,6 +2344,9 @@ export function createJazzboardSemanticWebMcpTools(
         for (const object of existingDraft?.previewObjects ?? []) geometry.set(object.id, object);
         const existingPreviewObjects = new Map(
           (existingDraft?.previewObjects ?? []).map((object) => [object.id, object]),
+        );
+        const existingPreviewDiagrams = new Map(
+          (existingDraft?.previewDiagrams ?? []).map((diagram) => [diagram.id, diagram]),
         );
         const commands: CanvasCommand[] = [];
         const diagramCommands: DiagramCommand[] = [];
@@ -2582,6 +2683,41 @@ export function createJazzboardSemanticWebMcpTools(
               },
             });
           } else {
+            if (operation.diagramTempRef !== undefined) {
+              const diagramId = refs.get(operation.diagramTempRef);
+              const existing = diagramId ? existingPreviewDiagrams.get(diagramId) : undefined;
+              if (!diagramId || !existing) {
+                throw new SemanticToolError(
+                  "DIAGRAM_NOT_FOUND",
+                  `Draft Diagram reference ${operation.diagramTempRef} is not present in the current draft preview.`,
+                  {
+                    diagramTempRef: operation.diagramTempRef,
+                    availableDiagramTempRefs: [...refs]
+                      .filter(([, candidateId]) => existingPreviewDiagrams.has(candidateId))
+                      .map(([reference]) => reference)
+                      .sort(),
+                  },
+                );
+              }
+              diagramCommands.push({
+                type: "diagram.create",
+                diagram: {
+                  id: diagramId,
+                  title: operation.title ?? existing.title,
+                  description: operation.description ?? existing.description,
+                  diagramType: operation.diagramType ?? existing.diagramType,
+                  category: operation.category !== undefined ? operation.category : existing.category,
+                  tags: operation.tags ?? existing.tags,
+                  memberObjectIds: operation.members !== undefined
+                    ? operation.members.map(idFor)
+                    : existing.memberObjectIds,
+                  connectorIds: operation.connectors !== undefined
+                    ? operation.connectors.map(idFor)
+                    : existing.connectorIds,
+                },
+              });
+              continue;
+            }
             const patch: Record<string, unknown> = {};
             for (const field of ["title", "description", "diagramType", "category", "tags"] as const) {
               if (operation[field] !== undefined) patch[field] = operation[field];
@@ -2590,8 +2726,8 @@ export function createJazzboardSemanticWebMcpTools(
             if (operation.connectors !== undefined) patch.connectorIds = operation.connectors.map(idFor);
             diagramCommands.push({
               type: "diagram.update",
-              diagramId: operation.diagramId,
-              expectedRevision: operation.expectedRevision,
+              diagramId: operation.diagramId!,
+              expectedRevision: operation.expectedRevision!,
               patch,
             });
           }

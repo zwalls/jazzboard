@@ -313,6 +313,79 @@ describe("agent canvas draft service", () => {
     });
   });
 
+  it("replaces one stable unpublished Diagram create candidate in patch mode", async () => {
+    const { store, room } = await seedRoom();
+    const initial = stageRequest(room.roomRevision);
+    initial.transaction.diagramCommands = [{
+      type: "diagram.create",
+      diagram: {
+        id: "draft_diagram",
+        title: "Initial draft Diagram",
+        description: "One progressive draft object.",
+        diagramType: "architecture",
+        category: null,
+        tags: [],
+        memberObjectIds: ["draft_note"],
+        connectorIds: [],
+      },
+    }];
+    initial.temporaryReferences.diagram = "draft_diagram";
+    const staged = await stageAgentCanvasDraft({
+      roomId: room.id,
+      participantId: "p_owner",
+      request: initial,
+    });
+
+    const patched = await replaceAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: {
+        expectedDraftRevision: staged.revision,
+        updateMode: "patch",
+        baselineRoomRevision: room.roomRevision,
+        transaction: {
+          commands: [],
+          diagramCommands: [{
+            type: "diagram.create",
+            diagram: {
+              id: "draft_diagram",
+              title: "Refined draft Diagram",
+              description: "One progressive draft object.",
+              diagramType: "architecture",
+              category: null,
+              tags: ["refined"],
+              memberObjectIds: ["draft_note"],
+              connectorIds: [],
+            },
+          }],
+        },
+        temporaryReferences: { diagram: "draft_diagram" },
+      },
+    });
+
+    expect(patched).toMatchObject({
+      revision: 2,
+      previewDiagrams: [{
+        id: "draft_diagram",
+        title: "Refined draft Diagram",
+        tags: ["refined"],
+        memberObjectIds: ["draft_note"],
+      }],
+    });
+    await commitAgentCanvasDraft({
+      roomId: room.id,
+      draftId: staged.id,
+      participantId: "p_owner",
+      request: { expectedDraftRevision: patched.revision },
+    });
+    expect((await store.getRoom(room.id))?.diagrams?.draft_diagram).toMatchObject({
+      title: "Refined draft Diagram",
+      tags: ["refined"],
+      memberObjectIds: ["draft_note"],
+    });
+  });
+
   it("keeps an owner draft alive without mutating the canvas or draft revision", async () => {
     const { store, room } = await seedRoom();
     const staged = await stageAgentCanvasDraft({

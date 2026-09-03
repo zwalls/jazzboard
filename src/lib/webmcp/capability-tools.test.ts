@@ -129,7 +129,10 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             readabilityHeuristics: expect.arrayContaining([
               expect.stringMatching(/first draft.*never supply draftId without expectedDraftRevision/i),
               expect.stringMatching(/connector ports are objects/i),
-              expect.stringMatching(/measurable labeled corridor.*90-110/i),
+              expect.stringMatching(/label-fit planning.*180x88.*260x132/i),
+              expect.stringMatching(/edge labels short.*120-180.*220-280/i),
+              expect.stringMatching(/large semantic containers.*top-left inset text/i),
+              expect.stringMatching(/draft Diagram.*edit_diagram.*diagramTempRef/i),
               expect.stringMatching(/unintended failures.*patch.*update_draft_connector.*recheck.*finish/i),
             ]),
             completion: {

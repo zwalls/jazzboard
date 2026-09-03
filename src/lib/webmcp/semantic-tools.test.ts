@@ -329,6 +329,14 @@ describe("role-scoped semantic tool registration", () => {
       type: "string",
       maxLength: 128,
     });
+    expect(transactionSchema.properties?.operations?.items?.properties?.op?.enum).toEqual(
+      expect.arrayContaining(["connect", "draw_connection", "update", "update_object"]),
+    );
+    expect(transactionSchema.properties?.operations?.items?.properties).toEqual(expect.objectContaining({
+      memberObjectRefs: expect.objectContaining({ type: "array" }),
+      connectorRefs: expect.objectContaining({ type: "array" }),
+      diagramTempRef: { type: "string" },
+    }));
     expect(transactionSchema.properties?.operations?.items?.properties?.intent).toEqual({ type: "string" });
     expect(transactionSchema.properties?.operations?.items?.properties?.summary).toEqual({ type: "string" });
     const connectionRequired = operationSchema(transactionSchema, "connect").required ?? [];
@@ -860,6 +868,75 @@ describe("progressive draft delivery", () => {
     expect(state.acceptedDrafts).toHaveLength(1);
   });
 
+  it("normalizes standalone-derived transaction aliases before strict validation", async () => {
+    const state = fixture(room([]));
+    let idCounter = 0;
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        draftId: string;
+        baselineRoomRevision: number;
+        temporaryReferences: Record<string, string>;
+      };
+      return {
+        ok: true,
+        draft: agentDraft({
+          id: body.draftId,
+          revision: 1,
+          baselineRoomRevision: body.baselineRoomRevision,
+          temporaryReferences: body.temporaryReferences,
+        }),
+      };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(state.binding, {
+        request,
+        createId: (prefix) => `${prefix}_alias_${++idCounter}`,
+      }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [
+        { op: "create_node", tempRef: "source", label: "Source", nodeType: "component", x: 0, y: 0 },
+        { op: "create_node", tempRef: "target", label: "Target", nodeType: "service", x: 400, y: 0 },
+        {
+          op: "draw_connection",
+          tempRef: "request",
+          start: { tempRef: "source" },
+          end: { tempRef: "target" },
+          label: "request",
+        },
+        {
+          op: "create_diagram",
+          tempRef: "diagram",
+          title: "Aliased flow",
+          memberObjectRefs: ["source", "target"],
+          connectorRefs: ["request"],
+        },
+      ],
+      delivery: { mode: "draft" },
+    })).resolves.toMatchObject({ ok: true, data: { outcome: "drafted" } });
+
+    const post = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(post.body));
+    expect(body.transaction.commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "create", object: expect.objectContaining({ kind: "connector", label: "request" }) }),
+    ]));
+    expect(body.transaction.diagramCommands).toEqual([
+      expect.objectContaining({
+        type: "diagram.create",
+        diagram: expect.objectContaining({
+          title: "Aliased flow",
+          memberObjectIds: expect.arrayContaining([
+            body.temporaryReferences.source,
+            body.temporaryReferences.target,
+          ]),
+          connectorIds: [body.temporaryReferences.request],
+        }),
+      }),
+    ]);
+  });
+
   it("defaults draft results to compact preview records while detailed preserves the legacy snapshot", async () => {
     const previewObject = {
       ...node("node_preview", "Preview API", "service", 40),
@@ -1384,6 +1461,88 @@ describe("progressive draft delivery", () => {
         routing: expect.objectContaining({ mode: "curved", bend: 120, labelPosition: 0.35 }),
       }),
     }]);
+  });
+
+  it("patches one unpublished Diagram by stable tempRef without an authoritative edit", async () => {
+    const previewApi = { ...node("api", "Checkout API", "service", 0), authority: "draft" as const };
+    const previewDb = { ...node("db", "Orders DB", "component", 400), authority: "draft" as const };
+    const previewDiagram = { ...diagram(), authority: "draft" as const };
+    const existing = agentDraft({
+      revision: 3,
+      temporaryReferences: { api: "api", db: "db", diagram: "architecture" },
+      previewObjects: [previewApi, previewDb],
+      previewDiagrams: [previewDiagram],
+    });
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return { ok: true, draft: existing };
+      return {
+        ok: true,
+        draft: agentDraft({
+          ...existing,
+          revision: 4,
+          previewDiagrams: [{
+            ...previewDiagram,
+            title: "Checkout path",
+            memberObjectIds: ["api"],
+          }],
+        }),
+      };
+    }) as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture(room([])).binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "edit_diagram",
+        diagramTempRef: "diagram",
+        title: "Checkout path",
+        members: [{ tempRef: "api" }],
+      }],
+      delivery: {
+        mode: "draft",
+        draftId: existing.id,
+        expectedDraftRevision: existing.revision,
+        updateMode: "patch",
+      },
+    })).resolves.toMatchObject({ ok: true, data: { draftRevision: 4 } });
+
+    const put = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(put.body));
+    expect(body).toMatchObject({
+      expectedDraftRevision: 3,
+      updateMode: "patch",
+      temporaryReferences: {},
+    });
+    expect(body.transaction.commands).toEqual([]);
+    expect(body.transaction.diagramCommands).toEqual([{
+      type: "diagram.create",
+      diagram: expect.objectContaining({
+        id: "architecture",
+        title: "Checkout path",
+        description: previewDiagram.description,
+        memberObjectIds: ["api"],
+        connectorIds: previewDiagram.connectorIds,
+      }),
+    }]);
+  });
+
+  it("rejects draft Diagram tempRef edits without an exact draft patch", async () => {
+    const request = vi.fn() as unknown as WebMcpRequest;
+    const transactionTool = tool(
+      createJazzboardSemanticWebMcpTools(fixture().binding, { request }),
+      "apply_canvas_transaction",
+    );
+
+    await expect(execute(transactionTool, {
+      operations: [{
+        op: "edit_diagram",
+        diagramTempRef: "diagram",
+        title: "Checkout path",
+      }],
+    })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("stops after exact-read when the persisted draft revision has changed", async () => {
