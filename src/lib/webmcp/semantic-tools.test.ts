@@ -1508,6 +1508,7 @@ describe("progressive draft delivery", () => {
         status: "fail",
         summary: expect.stringMatching(/overlap.*unintended/i),
         objectIds: expect.arrayContaining(["api", "db"]),
+        details: { overlapArea: expect.any(Number) },
       });
   });
 

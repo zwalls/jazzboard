@@ -48,6 +48,51 @@ export function semanticTextMaximumLines(height: number, fontSize: number): numb
   );
 }
 
+/**
+ * Return the smallest deterministic width that lets the current text fit
+ * within `maximumLines` under the same wrapping contract as the renderer.
+ * `null` means explicit line breaks or the six-line presentation cap make a
+ * width-only correction impossible.
+ */
+export function semanticTextMinimumWidthForLines(
+  value: string,
+  fontSize: number,
+  maximumLines: number,
+): number | null {
+  const safeMaximumLines = Math.max(
+    1,
+    Math.min(SEMANTIC_TEXT_MAX_LINES, Math.floor(maximumLines)),
+  );
+  const graphemeCount = Array.from(value.replace(/\s+/g, " ").trim()).length;
+  if (!graphemeCount) return 0;
+
+  for (let maximumCharacters = 8; maximumCharacters <= graphemeCount; maximumCharacters += 1) {
+    if (layoutSemanticText(value, maximumCharacters, safeMaximumLines).requiredLineCount <= safeMaximumLines) {
+      return Math.ceil(
+        maximumCharacters * Math.max(1, fontSize) * SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR,
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Return the smallest deterministic height for the requested rendered line
+ * count. `null` means height alone cannot bypass the renderer's six-line cap.
+ */
+export function semanticTextMinimumHeightForLines(
+  requiredLineCount: number,
+  fontSize: number,
+): number | null {
+  const safeLineCount = Math.max(1, Math.ceil(requiredLineCount));
+  if (safeLineCount > SEMANTIC_TEXT_MAX_LINES) return null;
+  const safeFontSize = Math.max(1, fontSize);
+  return Math.ceil(
+    safeFontSize +
+    (safeLineCount - 1) * safeFontSize * SEMANTIC_TEXT_LINE_HEIGHT,
+  );
+}
+
 export function semanticConnectorLabelMaximumCharacters(availableWidth: number): number {
   return Math.max(
     1,

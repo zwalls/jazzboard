@@ -94,6 +94,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*correct every path.*preserve Diagram and membership/i),
               expect.stringMatching(/draftValidation/i),
+              expect.stringMatching(/failCount=0.*task-relevant warnings/i),
               expect.stringMatching(/finish_canvas_draft.*no confirmation/i),
               expect.stringMatching(/inspect_canvas_scope/i),
             ]),
@@ -108,7 +109,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             draftPreflight: {
               field: "draftValidation",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/patch.*recheck.*unintended.*update_draft_connector.*tempRef/i),
+              correction: expect.stringMatching(/patch.*recheck.*unintended.*warnings.*failCount=0.*recommended bounds/i),
             },
             canonicalDraftJson: expect.any(String),
             canonicalDirectCorrection: {

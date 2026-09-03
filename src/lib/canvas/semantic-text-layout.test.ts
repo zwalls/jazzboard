@@ -5,6 +5,8 @@ import {
   SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
   SEMANTIC_TEXT_MAX_LINES,
   semanticConnectorLabelMaximumCharacters,
+  semanticTextMinimumHeightForLines,
+  semanticTextMinimumWidthForLines,
   semanticTextMaximumCharacters,
   semanticTextMaximumLines,
 } from "./semantic-text-layout";
@@ -70,5 +72,21 @@ describe("semantic text layout", () => {
       requiredLineCount: 2,
       truncated: false,
     });
+  });
+
+  it("returns exact non-mutating correction bounds for a truncated heading", () => {
+    const value = "TELEMETRY PLATFORM";
+    const fontSize = 36;
+    const maximumLines = semanticTextMaximumLines(36, fontSize);
+    const currentLayout = layoutSemanticText(
+      value,
+      semanticTextMaximumCharacters(360, fontSize),
+      maximumLines,
+    );
+
+    expect(currentLayout).toMatchObject({ requiredLineCount: 2, truncated: true });
+    expect(semanticTextMinimumWidthForLines(value, fontSize, maximumLines)).toBe(376);
+    expect(semanticTextMinimumHeightForLines(currentLayout.requiredLineCount, fontSize)).toBe(85);
+    expect(semanticTextMinimumHeightForLines(7, fontSize)).toBeNull();
   });
 });

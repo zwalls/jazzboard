@@ -1869,6 +1869,7 @@ function compactDraftValidation(
       objectIds: finding.objectIds,
       connectorIds: finding.connectorIds,
       ...(finding.bounds ? { bounds: finding.bounds } : {}),
+      ...(finding.details ? { details: finding.details } : {}),
     })),
   );
   const returnedFindings = findings.slice(0, DRAFT_VALIDATION_FINDING_LIMIT);
@@ -1991,7 +1992,7 @@ function recommendedDraftCorrection(
         "When corrected objects change Diagram membership or metadata, send diagramTempRef plus only the changed fields in this same exact draft patch. Do not use an authoritative Diagram ID or expectedRevision.",
     },
     validationRule:
-      "Inspect the new draftValidation receipt and repeat only when an unintended task-relevant finding remains.",
+      "Inspect the new draftValidation receipt and repeat while an unintended task-relevant finding remains; failCount=0 does not clear warnings that violate acceptance criteria.",
   };
 }
 

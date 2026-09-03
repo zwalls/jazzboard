@@ -761,15 +761,15 @@ function canvasQuickstart(
     role,
     roleCanMutateCanvas: role === "participant",
     purpose:
-      `${task} fast path; do not preload.`,
+      `${task} fast path.`,
     fastPath: [
-      "Blank target: skip room read; otherwise read the narrowest Diagram, neighborhood, or region.",
+      "Blank target: skip room read; otherwise read the narrowest relevant scope.",
       "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "On schema rejection, correct every path once; preserve Diagram and membership.",
-      "Use draftValidation; patch only affected refs, then recheck intent.",
+      "Use draftValidation; failCount=0 does not clear task-relevant warnings; patch affected refs, then recheck.",
       "Call finish_canvas_draft once with action=commit and latest revision; no confirmation.",
       "Inspect pixels via inspect_canvas_scope; make one direct correction without guessed fields.",
-      "Blank capture: follow onBlankCapture once; reframe and recapture.",
+      "Blank capture: follow onBlankCapture once.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -786,7 +786,7 @@ function canvasQuickstart(
       authority:
         "Intent-unaware evidence; never override requested or deliberate geometry.",
       correction:
-        "Patch and recheck unintended findings before finish; use update_draft_connector plus exact tempRef/delivery and never resend unaffected objects.",
+        "Patch and recheck unintended findings before finish; task-relevant warnings remain unresolved at failCount=0. Use exact recommended bounds when supplied.",
     },
     canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,

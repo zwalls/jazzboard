@@ -10,6 +10,8 @@ import {
   SEMANTIC_CONNECTOR_LABEL_MAX_LINES,
   SEMANTIC_TEXT_GRAPHEME_WIDTH_FACTOR,
   semanticConnectorLabelMaximumCharacters,
+  semanticTextMinimumHeightForLines,
+  semanticTextMinimumWidthForLines,
   semanticTextMaximumCharacters,
   semanticTextMaximumLines,
 } from "@/lib/canvas/semantic-text-layout";
@@ -1103,10 +1105,27 @@ export function analyzeDiagramVisualQuality(
         maximumLines,
       );
       if (textLayout.truncated) {
+        const minimumWidthAtCurrentHeight = semanticTextMinimumWidthForLines(
+          member.content,
+          fontSize,
+          maximumLines,
+        );
+        const minimumHeightAtCurrentWidth = semanticTextMinimumHeightForLines(
+          textLayout.requiredLineCount,
+          fontSize,
+        );
+        const correctionChoices = [
+          minimumWidthAtCurrentHeight === null
+            ? null
+            : `at least ${minimumWidthAtCurrentHeight} canvas units wide at the current height`,
+          minimumHeightAtCurrentWidth === null
+            ? null
+            : `at least ${minimumHeightAtCurrentWidth} canvas units tall at the current width`,
+        ].filter((value): value is string => value !== null);
         findings.push(finding({
           code: "TEXT_CONTENT_LIKELY_TRUNCATED",
           status: "warning",
-          summary: `If the full text should be visible, resize ${member.id} or shorten it to fit within ${maximumLines} rendered line${maximumLines === 1 ? "" : "s"}.`,
+          summary: `If the full text should be visible, make ${member.id} ${correctionChoices.join(" or ") || "larger"}, or shorten it. This task-relevant warning remains unresolved even when failCount is zero.`,
           objectIds: [member.id],
           connectorIds: [],
           bounds: memberGeometry.get(member.id)!.bounds,
@@ -1114,6 +1133,9 @@ export function analyzeDiagramVisualQuality(
             maximumCharactersPerLine: maximumCharacters,
             maximumLines,
             requiredLines: textLayout.requiredLineCount,
+            minimumWidthAtCurrentHeight,
+            minimumHeightAtCurrentWidth,
+            warningPersistsWhenFailCountZero: true,
           },
         }));
       }

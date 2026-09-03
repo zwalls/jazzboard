@@ -309,11 +309,14 @@ describe("diagram visual quality analysis", () => {
       status: "warning",
       objectIds: ["long-text"],
       connectorIds: [],
-      details: {
+      details: expect.objectContaining({
         maximumCharactersPerLine: 8,
         maximumLines: 6,
         requiredLines: 7,
-      },
+        minimumWidthAtCurrentHeight: null,
+        minimumHeightAtCurrentWidth: null,
+        warningPersistsWhenFailCountZero: true,
+      }),
     }));
     expect(report.findings).toContainEqual(expect.objectContaining({
       code: "CONNECTOR_LABEL_LIKELY_TRUNCATED",
@@ -330,6 +333,32 @@ describe("diagram visual quality analysis", () => {
       truncatedTextContentCount: 1,
       truncatedConnectorLabelCount: 1,
     });
+  });
+
+  it("gives exact correction choices for the EXP-0021 truncated heading", () => {
+    const heading = text("telemetry-heading", 0, 0, "TELEMETRY PLATFORM", {
+      width: 360,
+      height: 36,
+      size: "l",
+    });
+    const report = analyzeDiagramVisualQuality(room([heading]), "quality-diagram");
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: "TEXT_CONTENT_LIKELY_TRUNCATED",
+      status: "warning",
+      objectIds: ["telemetry-heading"],
+      summary: expect.stringMatching(
+        /376 canvas units wide.*85 canvas units tall.*failCount is zero/i,
+      ),
+      details: expect.objectContaining({
+        maximumCharactersPerLine: 17,
+        maximumLines: 1,
+        requiredLines: 2,
+        minimumWidthAtCurrentHeight: 376,
+        minimumHeightAtCurrentWidth: 85,
+        warningPersistsWhenFailCountZero: true,
+      }),
+    }));
   });
 
   it("does not warn when text content and connector labels exactly fit renderer limits", () => {
@@ -377,11 +406,11 @@ describe("diagram visual quality analysis", () => {
     expect(report.findings).toContainEqual(expect.objectContaining({
       code: "TEXT_CONTENT_LIKELY_TRUNCATED",
       objectIds: ["short-text"],
-      details: {
+      details: expect.objectContaining({
         maximumCharactersPerLine: 8,
         maximumLines: 3,
         requiredLines: 4,
-      },
+      }),
     }));
     expect(report.findings).not.toContainEqual(expect.objectContaining({
       code: "TEXT_CONTENT_LIKELY_TRUNCATED",
