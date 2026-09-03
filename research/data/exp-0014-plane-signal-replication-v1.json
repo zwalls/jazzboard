@@ -1,0 +1,184 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0014",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-large-architecture-replication",
+  "productChange": {
+    "description": "Recognize explicit semantic planes as container backgrounds and explain that classification in the architecture quickstart.",
+    "commit": "fbcf27c12cf9a4259f13156438c005ad9062d17a"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0013": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064c1-aa11-76c2-be81-870af6c48652",
+    "turnId": "01a064c1-ac2b-77b3-ba12-7744ba101c5e",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 267384,
+      "accountedWallMs": 267000,
+      "hostExecutionMs": 52608,
+      "modelAndCoordinationMs": 214392,
+      "hostExecutionShare": 0.19703370786516855
+    },
+    "calls": {
+      "hostCallCount": 21,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 13,
+      "webMcpBusinessFailureCount": 2,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 4,
+      "postCommitDirectTransactionCallCount": 3,
+      "acceptedPostCommitDirectTransactionCallCount": 1,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 7,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 2,
+        "read_room_state": 1
+      }
+    },
+    "phases": {
+      "capabilityDiscoveryMs": 60015,
+      "initialAuthoringMs": 126614,
+      "draftFinishMs": 8991,
+      "inspectionMs": 22802,
+      "postCommitCorrectionMs": 28519,
+      "stateReadMs": 11265,
+      "terminalMs": 8794
+    },
+    "draftValidationProgression": [
+      { "draftRevision": 1, "failCount": 6, "warningCount": 9, "findingCount": 15 },
+      { "draftRevision": 2, "failCount": 11, "warningCount": 5, "findingCount": 16 },
+      { "draftRevision": 3, "failCount": 7, "warningCount": 6, "findingCount": 13 },
+      { "draftRevision": 4, "failCount": 0, "warningCount": 6, "findingCount": 6 }
+    ],
+    "result": {
+      "status": "completed_with_failed_quality_gate",
+      "terminalClaim": "No unresolved visual issues.",
+      "roomRevision": 3,
+      "objectCount": 18,
+      "diagramCount": 1,
+      "diagramRevision": 2,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 13,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "fail",
+      "finalDeterministicFailCount": 1,
+      "finalDeterministicWarningCount": 4,
+      "finalDeterministicFindingCount": 5,
+      "independentExactClipCapture": "completed_after_one_blank-capture_reframe",
+      "acceptedAuthorPixelCorrectionObjectCount": 2
+    }
+  },
+  "blindedReview": {
+    "firstTransportAttempt": {
+      "taskId": "01a064cb-a5d9-7142-af70-e09fb626da70",
+      "status": "unusable_transport_failure",
+      "reason": "The exact PNG loaded, but direct browser navigation to the localhost JSON evidence requested an approval. No substantive verdict was used."
+    },
+    "replacementReviewer": {
+      "taskId": "01a064cf-4bf1-7db1-978a-4172c7bacda1",
+      "turnId": "01a064cf-4dd1-7d20-81d7-cc2d7db85f7b",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "sanitizedStateTransport": "inline",
+      "exactPngTransport": "localhost_url",
+      "substantiveWallMs": 64205,
+      "formatRepairWallMs": 8931,
+      "resolvedModelSnapshot": "unobservable",
+      "exactTokens": "unobservable",
+      "outputTransport": "yes_no_strings_after_native_boolean_value_omission",
+      "verdict": {
+        "observabilityFacts": "fail",
+        "observabilityPlanes": "pass",
+        "observabilityViewport": "fail",
+        "blockingGeometryViolations": 4,
+        "hiddenOrDuplicateSemanticCredit": "yes",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "overall": "fail"
+      },
+      "findings": [
+        "Telemetry Store overlaps Query UI.",
+        "The Store-to-Query connector is obscured and lacks a visibly clear directed route.",
+        "The Store-to-Alert connector is largely obscured, leaving ambiguous routing.",
+        "The Alert Engine relationship label is truncated as Evaluates...."
+      ]
+    }
+  },
+  "sameArtifactPlaneReanalysis": {
+    "sourceExperiment": "EXP-0013",
+    "before": {
+      "findingCount": 27,
+      "failCount": 25,
+      "warningCount": 2
+    },
+    "after": {
+      "findingCount": 4,
+      "failCount": 2,
+      "warningCount": 2
+    },
+    "removedFalsePositiveCount": 23,
+    "removedFalsePositiveFraction": 0.8518518518518519,
+    "preservedGenuineEvidence": [
+      "A short writes connector label still collides with both endpoints.",
+      "Two 9px spacing warnings remain available for agent judgment."
+    ]
+  },
+  "timingComparison": {
+    "baselineExperiment": "EXP-0013",
+    "baselineWallMs": 182384,
+    "currentWallMs": 267384,
+    "descriptiveIncreaseMs": 85000,
+    "descriptiveIncreaseFraction": 0.4660496534783753,
+    "hostExecutionIncreaseMs": 14669,
+    "modelAndCoordinationIncreaseMs": 70331,
+    "interpretation": "The semantic-plane correction greatly improved finding precision but did not improve author speed in this single replication. Four draft revisions, one capability refetch, two rejected direct-correction schemas, and a final geometry regression dominated the slower run."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "eea118b54e17b3c5967b699cdb2bf8f053aace9f0fe4520246125bac21d73704",
+    "cleanPngBytes": 46483,
+    "sanitizedStateSha256": "0552f8b19c4b41c47be489c228b03430add8ee916a6ec89797c801df7f2311c4",
+    "rawAuthorSessionSha256": "964d449a591e131d4fb34592aee7c4022a3bf63ee86cfbbc5d1d0cab560fd373",
+    "rawReviewerSessionSha256": "17d45c058c682b44ea80d4e35dbe50845b32c4208320c0fdb3085aa0f0d1ca46",
+    "rawFailedReviewerTransportSessionSha256": "d7b3318102a26a676799e5dd481cebd2a4d93f04c5298016d20b81be5a31e976",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "reviewerTasks": 2,
+    "usableReviewerTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "planeSignalPrecisionGatePassed": true,
+    "authorQualityGatePassed": false,
+    "speedGatePassed": false,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Keep the semantic-plane fix. Make the quickstart self-contained for revision-safe direct corrections, warn against solving truncation by moving or widening a node into occupied space, preserve visibly necessary relationship semantics, and make final inspection explicitly block a conventional-diagram completion claim while a deterministic failure remains. Then rerun the unchanged task."
+  }
+}
