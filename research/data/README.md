@@ -12,6 +12,11 @@ verify the exact inputs without committing large or sensitive files.
 Never include guest sessions, room secrets, private repository contents, or
 personally identifying production data.
 
+`exp-0019-paired-port-congestion-replication-v1.json` is the compact,
+secret-free record of the first retained double-reviewer false-pass against an
+authoritative reversed connector. Its raw sessions, state, room credentials,
+and pixels remain under the ignored private evidence root.
+
 `development-execution-manifest-v1.json` freezes the 48 EXP-0001A development
 assignments. `development-runner-profile-v1.json` is a retained, pre-Codex
 provider-era artifact and is not executable authority. The active replacement

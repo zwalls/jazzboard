@@ -78,6 +78,12 @@ Start with these persisted documents after any handoff or context reset:
   records the second completed live A/A pair: two autonomous concurrent-edit
   completions, two accepted artifacts, one visual pairwise preference, and the
   retained exact-terminal-ingestion lesson. It remains descriptive evidence.
+- [`reports/exp-0019-paired-port-congestion-replication.md`](reports/exp-0019-paired-port-congestion-replication.md)
+  records a visually clean but factually invalid observability artifact that
+  two blinded model judges false-passed. The prospective authoritative-fact
+  audit and conjunctive quality gate prevent that evaluator failure from
+  becoming an accepted result while leaving visual judgment and canvas
+  authoring nondeterministic.
 - [`reports/exp0001a-browser-attached-transport-spike-v1.md`](reports/exp0001a-browser-attached-transport-spike-v1.md)
   records the direct-origin Terra/medium production transport pass. A fresh
   browser-attached author self-provisioned a private room and produced an

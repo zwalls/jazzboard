@@ -186,6 +186,17 @@ cannot be averaged away by a composite score.
 
 ## Analysis principles
 
+Exact architecture facts now have a two-part gate. A provenance-bound
+authoritative audit deterministically matches explicit public entity labels to
+semantic objects and checks stored connector endpoint IDs, arrow direction,
+unambiguous cardinality, and first-class Diagram membership. A resolved model
+review separately judges pixels, language-dependent meaning, composition, and
+perceptual quality. Final acceptance is the conjunction: a model acceptance
+can never override a failed authoritative fact audit. The audit cannot choose
+layout, infer synonyms, edit an artifact, or replace visual judgment. This
+prospective correction follows the two reviewer false-passes retained in
+EXP-0019.
+
 The primary report gives the absolute paired pass-rate difference and a 95%
 confidence interval. Confirmatory analysis resamples whole task clusters while
 retaining their repetitions; paired randomization inference or McNemar analysis

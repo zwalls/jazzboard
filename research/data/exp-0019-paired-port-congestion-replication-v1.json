@@ -1,0 +1,218 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0019",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-paired-port-congestion-replication",
+  "productChange": {
+    "description": "Make the passive attachment-port congestion warning detect two nearby connectors, while remaining intent-unaware and never moving endpoints or choosing routes for the author.",
+    "commit": "cb03b6f912dd61b0ad5be52102d0e31e3b160209"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-create-observability",
+    "title": "Observability data plane",
+    "complexity": "large",
+    "initialState": "blank",
+    "taskChangedFromExp0018": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06539-9cfa-77c0-b000-6a21307b8212",
+    "turnId": "01a06539-9edd-7523-a4c5-5eb85e0ad5a6",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 351598,
+      "hostExecutionMs": 71634,
+      "modelAndCoordinationMs": 279366,
+      "hostExecutionShare": 0.203738360286
+    },
+    "calls": {
+      "hostCallCount": 29,
+      "failedHostCallCount": 1,
+      "webMcpCallCount": 20,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 4,
+      "acceptedDraftTransactionCallCount": 4,
+      "postCommitCorrectionCallCount": 4,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 4,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 5,
+        "render_canvas_preview": 1,
+        "read_room_state": 3,
+        "update_object": 4
+      },
+      "note": "The only failed host call was an incorrect browser-skill path read. Every Jazzboard WebMCP call returned successfully."
+    },
+    "phases": {
+      "capabilityDiscoveryMs": 44611,
+      "initialAuthoringMs": 127149,
+      "draftFinishMs": 8672,
+      "inspectionMs": 70058,
+      "stateReadMs": 25745,
+      "otherAndPostCommitUpdateMs": 65502,
+      "terminalMs": 9263
+    },
+    "result": {
+      "status": "completed_with_failed_factual_and_speed_gates",
+      "roomRevision": 6,
+      "objectCount": 17,
+      "diagramCount": 1,
+      "diagramRevision": 5,
+      "requiredNodeCount": 6,
+      "connectorCount": 5,
+      "planeContainerCount": 3,
+      "declaredDiagramMemberCount": 12,
+      "declaredDiagramConnectorCount": 5,
+      "finalDeterministicGeometryStatus": "pass",
+      "finalDeterministicGeometryCoverage": "complete",
+      "independentExactViewportCapture": "completed",
+      "visibleRelationshipLabelCount": 5,
+      "authorClaimedNoUnresolvedIssues": true
+    }
+  },
+  "authoritativeFactAudit": {
+    "source": "sanitized_authoritative_state",
+    "requiredEntityCount": 6,
+    "matchedEntityCount": 6,
+    "requiredRelationshipCount": 5,
+    "matchedDirectedRelationshipCount": 4,
+    "reversedRelationships": [
+      {
+        "relationshipId": "alert-store",
+        "required": "Alert Engine -> Telemetry Store",
+        "actual": "Telemetry Store -> Alert Engine",
+        "label": "evaluate",
+        "connectorId": "connector_5dbe89ce-8f42-483e-affc-3d5cff19112c"
+      }
+    ],
+    "factualGatePassed": false,
+    "note": "This audit was performed from exact object IDs and connector endpoints, not from connector prose or pixels. The connector semanticName describes the required direction, but its authoritative start and end IDs are reversed."
+  },
+  "primaryBlindedReviewer": {
+    "taskId": "01a06540-9206-7183-ac49-bf1420f1dacf",
+    "turnId": "01a06540-9429-7233-b2be-17519537747e",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "totalWallMs": 60848,
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [],
+      "overall": "pass"
+    },
+    "validity": "false_pass_against_authoritative_state"
+  },
+  "blindedAdjudicator": {
+    "taskId": "01a06541-f094-7211-b8ea-b96032defbae",
+    "turnId": "01a06541-f2d9-72a3-b2bf-956636a6fca3",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "primaryDecisionProvided": false,
+    "authorTranscriptProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "totalWallMs": 75804,
+    "verdict": {
+      "observabilityFacts": "pass",
+      "observabilityPlanes": "pass",
+      "observabilityViewport": "pass",
+      "blockingGeometryViolations": 0,
+      "hiddenOrDuplicateSemanticCredit": "no",
+      "diagramMembershipCoherent": "yes",
+      "unsupportedAssertion": "no",
+      "reversedRelationships": [],
+      "overall": "pass"
+    },
+    "validity": "false_pass_against_authoritative_state"
+  },
+  "timingComparison": {
+    "previousRun": {
+      "sourceExperiment": "EXP-0018",
+      "wallMs": 282595,
+      "factualGatePassed": true,
+      "visualGatePassed": false
+    },
+    "fastestPriorPassingRun": {
+      "sourceExperiment": "EXP-0013",
+      "wallMs": 182384,
+      "qualityGatePassed": true
+    },
+    "current": {
+      "wallMs": 351598,
+      "factualGatePassed": false,
+      "visualGatePassed": true
+    },
+    "versusExp0018": {
+      "descriptiveIncreaseMs": 69003,
+      "descriptiveIncreaseFraction": 0.244175586263
+    },
+    "versusExp0013": {
+      "descriptiveIncreaseMs": 169214,
+      "descriptiveIncreaseFraction": 0.927783574326
+    },
+    "interpretation": "The paired-port defect from EXP-0018 was absent, but wall time increased another 24.4% and the final authoritative state reversed one required relationship. Both model judges then false-passed that exact mismatch, so the study also fails evaluator reliability."
+  },
+  "mechanismEvidence": {
+    "positiveSignals": [
+      "The final diagram has no near-coincident connector ports and both blinded pixel inspections reported zero blocking geometry defects.",
+      "All three planes, six required entities, five connector labels, and first-class Diagram membership are present and readable.",
+      "No Jazzboard WebMCP call returned a business failure.",
+      "The passive congestion warning did not impose routing or layout and the author retained full creative control."
+    ],
+    "failureSignals": [
+      "The initial draft relationshipReview explicitly showed store_to_alert with actual start store and end alert, contradicting the requested Alert Engine to Telemetry Store fact.",
+      "The author ignored the contradiction, committed the draft, and later claimed every connector direction was correct.",
+      "The author spent five visual inspections, three authoritative state reads, and four post-commit text updates, reaching 351,598 ms total wall time.",
+      "Both isolated model judges received the authoritative endpoint IDs yet reported no reversed relationship, proving that exact benchmark facts cannot rely on model judgment alone."
+    ]
+  },
+  "artifactEvidence": {
+    "cleanImageFormat": "png",
+    "cleanImageSha256": "8e6957854c932e81d30e28789ab35a096ca65cf70aa9b90413c6dcd766efc2e3",
+    "cleanImageBytes": 37974,
+    "sanitizedStateSha256": "d5d017523915253af73be0c98ccad8fa7add0f06e25ce2e2f193c7b4b599fafb",
+    "rawAuthorSessionSha256": "7e754fb9d6022ac4ebd59c1869130378c46ba659f67ae5f0c0e0cc1299ae35d1",
+    "rawPrimaryReviewerSessionSha256": "ceab4735a4711625729c1652f50e3705598db744e746747590d2f747c3e62b0b",
+    "rawAdjudicatorSessionSha256": "ea2928a556965649317ee3fc29929ebf6bdd4f245f3ad83f2da241ee4d90cb9a",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 3,
+    "authorTasks": 1,
+    "primaryReviewerTasks": 1,
+    "adjudicatorTasks": 1,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "factualQualityGatePassed": false,
+    "visualQualityGatePassed": true,
+    "speedGatePassed": false,
+    "evaluatorReliabilityGatePassed": false,
+    "overallQualityGatePassed": false,
+    "populationPercentageClaimPermitted": false,
+    "keepProductIntervention": true,
+    "nextIntervention": "Add a deterministic, provenance-bound semantic audit that matches public benchmark entities to authoritative objects and verifies actual connector start and end IDs before model review. Exact missing, duplicate, ambiguous, reversed, or type-mismatched facts must fail the factual gate and cannot be overridden by a model judge. Keep model reviewers for visual and perceptual criteria."
+  }
+}
