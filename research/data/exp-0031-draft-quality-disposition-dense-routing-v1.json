@@ -1,0 +1,255 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0031",
+  "completedDate": "2026-09-03",
+  "classification": "public-development-prospective-draft-quality-disposition",
+  "productChange": {
+    "description": "Autonomous draft commit contract requiring resolution or exact agent-authored disposition of current fail-level findings without user approval or automatic composition.",
+    "commit": "da45a40d45fbec5b1213c9e91faad35e8442cad8"
+  },
+  "benchmark": {
+    "taskId": "dev-architecture-stress-dense-routing",
+    "title": "Dense routing under viewport pressure",
+    "complexity": "dense",
+    "initialState": "fixed_evaluation_frame_and_flow_legend",
+    "taskChangedFromExp0030": false
+  },
+  "isolatedAuthor": {
+    "taskId": "01a06694-c266-7d92-8344-512d3b028c68",
+    "turnId": "01a06694-c3d5-7ed3-8b40-89fa69c9951e",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "subscriptionUsage": "unobservable",
+    "usageLimitInterruption": false,
+    "timing": {
+      "totalWallMs": 553909,
+      "rawSessionWallMs": 553909,
+      "hostExecutionMs": 96079,
+      "modelAndCoordinationMs": 457830,
+      "hostExecutionShare": 0.173457
+    },
+    "calls": {
+      "hostCallCount": 30,
+      "failedHostCallCount": 1,
+      "webMcpBusinessCallCount": 24,
+      "webMcpDescriptorFetchCount": 2,
+      "webMcpBusinessFailureCount": 0,
+      "acceptedDraftTransactionCallCount": 16,
+      "draftPatchCount": 15,
+      "semanticInspectionCallCount": 6,
+      "browserDomSnapshotCount": 0,
+      "tools": {
+        "get_canvas_capabilities": 1,
+        "read_room_state": 2,
+        "apply_canvas_transaction": 16,
+        "inspect_canvas_scope": 4,
+        "finish_canvas_draft": 1
+      }
+    },
+    "result": {
+      "status": "completed_with_failed_visual_quality_gate",
+      "roomRevision": 4,
+      "objectCount": 20,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 9,
+      "connectorCount": 9,
+      "fixtureObjectCount": 2,
+      "declaredDiagramMemberCount": 9,
+      "declaredDiagramConnectorCount": 9,
+      "diagramBounds": {
+        "x": 23,
+        "y": 22,
+        "width": 917,
+        "height": 531
+      },
+      "independentExactViewportCapture": "completed",
+      "qualityGatePassed": false
+    }
+  },
+  "draftCorrectionEvidence": {
+    "qualityDispositionContractExercised": true,
+    "commitDisposition": {
+      "status": "passed",
+      "failFindingCount": 0,
+      "acknowledgedFindingCount": 0,
+      "acknowledgedOmittedFindingCount": 0
+    },
+    "draftScopedInspectionSucceeded": true,
+    "acceptedDraftResponseBytes": 253607,
+    "acceptedDraftTransactionCount": 16,
+    "initialDraft": {
+      "draftRevision": 1,
+      "responseBytes": 33515,
+      "failCount": 19,
+      "warningCount": 4
+    },
+    "firstDeterministicPass": {
+      "draftRevision": 5,
+      "responseBytes": 8242,
+      "failCount": 0,
+      "warningCount": 0
+    },
+    "committedDraft": {
+      "draftRevision": 16,
+      "responseBytes": 13784,
+      "failCount": 0,
+      "warningCount": 1
+    },
+    "behavioralUseObserved": true,
+    "behavioralUseBasis": "The author resolved every fail-level finding before commit and used no intentional-failure acknowledgement, but serial route experimentation oscillated for eleven revisions after the first deterministic pass."
+  },
+  "autonomyBoundaryQa": {
+    "unresolvedFailRejectedWithoutMutation": true,
+    "rejectedStateChanged": false,
+    "rejectedDraftRemainedActive": true,
+    "exactFindingKeyReturned": true,
+    "deliberateGeometryCommittedWithoutUserApproval": true,
+    "automaticLayoutOrRoutingUsed": false
+  },
+  "authoritativeFactAudit": {
+    "schemaVersion": "jazzboard-architecture-authoritative-audit/v1",
+    "requiredEntityCount": 9,
+    "matchedEntityCount": 9,
+    "requiredRelationshipCount": 9,
+    "matchedDirectedRelationshipCount": 9,
+    "blockingFindingCount": 0,
+    "factualGatePassed": true,
+    "relationshipTypeEvidence": "confirmed"
+  },
+  "deterministicGeometryAudit": {
+    "status": "warning",
+    "coverage": "complete",
+    "findingCount": 1,
+    "warningCount": 1,
+    "failCount": 0,
+    "findingTypes": {
+      "CONNECTOR_CROSSING": 1
+    },
+    "connectorCrossingPairCount": 1,
+    "sharedSegmentPairCount": 0,
+    "endpointReentryCount": 0,
+    "routeAmbiguityClusterCount": 0,
+    "minimumObservedSpacing": 40,
+    "outsideLayoutScaffoldConnectorCount": 0
+  },
+  "primaryReviewers": [
+    {
+      "reviewerId": "primary-a",
+      "taskId": "01a0669f-ae9d-7c60-b93e-401fd89816d3",
+      "turnId": "01a0669f-affe-7343-bac6-07d871dfa213",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 68471,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 1,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "All nine required entities and nine directed relationships appear exactly once with correct semantic endpoints.",
+        "The Monitor-to-Service-A observe route crosses the Service-A-to-Event-Bus event route beside Service A, tangling the connectors and making the visible routing ambiguous.",
+        "All essential items remain visible and inside the fixed frame."
+      ]
+    },
+    {
+      "reviewerId": "primary-b",
+      "taskId": "01a0669f-c515-77c1-99d7-3377f8492159",
+      "turnId": "01a0669f-c682-75a1-aaff-48bd41bafc95",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "workspace": "fresh_projectless",
+      "authorTranscriptProvided": false,
+      "conditionLabelProvided": false,
+      "roomCredentialProvided": false,
+      "repositoryAccess": false,
+      "pairedResultProvided": false,
+      "totalWallMs": 167689,
+      "verdict": {
+        "denseFacts": "pass",
+        "denseRouting": "fail",
+        "denseAntigaming": "pass",
+        "blockingGeometryViolations": 1,
+        "outOfFrameEssentialRoute": "no",
+        "diagramMembershipCoherent": "yes",
+        "unsupportedAssertion": "no",
+        "reversedRelationships": [],
+        "overall": "fail"
+      },
+      "rationale": [
+        "All nine entities and all nine required directed relationships appear exactly once with correct semantic endpoints.",
+        "The Monitor-to-Service A observe route intersects the Service A-to-Event Bus event connector immediately beside Service A, producing a tangled, directionally ambiguous junction.",
+        "All essential objects remain visible inside the fixed frame and no unsupported architecture claims are shown."
+      ]
+    }
+  ],
+  "adjudication": {
+    "required": false,
+    "reason": "Both independent primary reviewers returned the same binary verdict and identified the same blocking route crossing."
+  },
+  "comparisons": {
+    "toExp0030FailedCandidate": {
+      "predecessorWallMs": 272832,
+      "currentWallMs": 553909,
+      "wallIncreaseMs": 281077,
+      "wallIncreaseFraction": 1.03022,
+      "predecessorWebMcpBusinessCalls": 9,
+      "currentWebMcpBusinessCalls": 24,
+      "predecessorAcceptedDraftTransactions": 2,
+      "currentAcceptedDraftTransactions": 16,
+      "predecessorDraftResponseBytes": 60564,
+      "currentDraftResponseBytes": 253607,
+      "draftResponseByteIncreaseFraction": 3.187422,
+      "interpretation": "Severe geometry improved from 17 fails and 9 warnings to 0 fails and 1 warning, but correction latency and traffic regressed and the final artifact still failed blinded routing review."
+    },
+    "toExp0029FailedCandidate": {
+      "predecessorWallMs": 301391,
+      "currentWallMs": 553909,
+      "wallIncreaseMs": 252518,
+      "wallIncreaseFraction": 0.837842,
+      "predecessorWebMcpBusinessCalls": 15,
+      "currentWebMcpBusinessCalls": 24,
+      "predecessorAcceptedDraftTransactions": 6,
+      "currentAcceptedDraftTransactions": 16,
+      "predecessorDraftResponseBytes": 144685,
+      "currentDraftResponseBytes": 253607,
+      "draftResponseByteIncreaseFraction": 0.752822,
+      "interpretation": "The quality-disposition guard prevented a badly failed commit, but did not improve accepted-completion speed."
+    }
+  },
+  "provenance": {
+    "authorSessionSha256": "ddaaa8a447cace3222bf5c8570897d55d1fc777bd256287fd94266c8b5804bdc",
+    "primaryASessionSha256": "32cc82ef015db22cdc1a078ad9ff14b9d1ad35df169fb36cb461c85e1346d9dc",
+    "primaryBSessionSha256": "23210721ff484cbf3c004d5488bacae90453db1618a4019da0a8cad19c1e1ae3",
+    "sanitizedStateSha256": "d689261847c5984977b620a905b7f8f21ab687d5dd565f6b6f991189e874583f",
+    "pixelArtifactSha256": "0b2dba068d95fd35ff1bdeef715d5efe1ffa2e51615332f98ee52819f5804635",
+    "deterministicLayoutArtifactSha256": "1b8633cf4252eb16b08415f0f5de0d79ce274fa53f0bb41a5db1c179b4779c05",
+    "primaryAVerdictSha256": "174ad8795681d8e6d28535ff95c471766c092fa6d2db6eca9689b8f72d06f5f3",
+    "primaryBVerdictSha256": "7d1db3353a587a9e41f4b822c5a246b8b4e3dc9c31fc93b15abeda661a8d9f14"
+  },
+  "decision": {
+    "status": "quality_mechanism_passed_speed_quality_result_not_accepted",
+    "retainProductChange": true,
+    "whyRetain": "The candidate closed the premature fail-level commit path while preserving autonomous deliberate geometry and produced a large reduction in severe defects.",
+    "nextIntervention": "Add a bounded read-only evaluator for multiple agent-authored draft patch alternatives so the agent can compare deterministic deltas before applying one selected patch. Do not select, route, lay out, or mutate on the agent's behalf."
+  }
+}
