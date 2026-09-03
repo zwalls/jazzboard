@@ -1,0 +1,173 @@
+{
+  "schemaVersion": "jazzboard-mechanism-validation/v1",
+  "experimentId": "EXP-0011",
+  "completedDate": "2026-09-02",
+  "classification": "public-development-prospective-speed-quality-mechanism-validation",
+  "productChange": {
+    "description": "Accept familiar transaction aliases, allow exact draft Diagram patches by temporary reference, and provide compact first-pass label-fit, corridor, and boundary-title guidance without choosing composition for the author.",
+    "commit": "3f9a66c82d5b9aaa8eaf7b1966a9be02b543307a"
+  },
+  "isolatedAuthor": {
+    "taskId": "01a064a2-dba8-7a62-a4a8-cf32f3873240",
+    "turnId": "01a064a2-dda6-77f3-91c4-a92004265430",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "workspace": "fresh_projectless",
+    "repositoryAccess": false,
+    "privateApiAccess": false,
+    "preparedCoordinates": false,
+    "evaluatorContext": false,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "timing": {
+      "totalWallMs": 152494,
+      "accountedWallMs": 152000,
+      "hostExecutionMs": 32280,
+      "modelAndCoordinationMs": 119720,
+      "hostExecutionShare": 0.21236842105263157
+    },
+    "calls": {
+      "hostCallCount": 16,
+      "failedHostCallCount": 2,
+      "webMcpCallCount": 9,
+      "webMcpBusinessFailureCount": 0,
+      "draftTransactionCallCount": 3,
+      "acceptedDraftTransactionCallCount": 3,
+      "tools": {
+        "get_canvas_capabilities": 2,
+        "apply_canvas_transaction": 3,
+        "finish_canvas_draft": 1,
+        "inspect_canvas_scope": 1,
+        "render_canvas_preview": 1,
+        "read_room_state": 1
+      }
+    },
+    "result": {
+      "status": "completed",
+      "roomRevision": 2,
+      "objectCount": 9,
+      "diagramCount": 1,
+      "diagramRevision": 1,
+      "requiredNodeCount": 4,
+      "connectorCount": 3,
+      "declaredDiagramMemberCount": 6,
+      "declaredDiagramConnectorCount": 3,
+      "deterministicGeometryStatus": "pass",
+      "authorPixelCapture": "completed_after_one_documented_reframe"
+    }
+  },
+  "blindedReviewer": {
+    "taskId": "01a064a7-7285-7f11-9118-b391ec79fcfa",
+    "substantiveTurnId": "01a064a7-745b-7c73-aedc-cd10585e9a92",
+    "formatRepairTurnIds": [
+      "01a064a7-e440-7492-a92e-5ffed380dbda",
+      "01a064a8-2638-7d00-8d12-15305edac8dd"
+    ],
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "workspace": "fresh_projectless",
+    "authorTranscriptProvided": false,
+    "conditionLabelProvided": false,
+    "roomCredentialProvided": false,
+    "repositoryAccess": false,
+    "pairedResultProvided": false,
+    "substantiveWallMs": 15390,
+    "formatRepairWallMs": 4533,
+    "totalTaskWallMs": 19923,
+    "resolvedModelSnapshot": "unobservable",
+    "exactTokens": "unobservable",
+    "outputTransportNote": "The reviewer twice omitted raw boolean values from otherwise identical JSON. A format-only follow-up encoded those two unchanged values as strings; no new evidence was provided and the substantive verdict did not change.",
+    "verdict": {
+      "checkoutFacts": "pass",
+      "checkoutBoundary": "pass",
+      "checkoutReadable": "pass",
+      "blockingGeometryViolations": 0,
+      "duplicateSemanticCredit": false,
+      "diagramMembershipCoherent": true,
+      "overall": "pass"
+    }
+  },
+  "mechanismEvidence": {
+    "transactionAliasesNeeded": false,
+    "draftDiagramPatchNeeded": false,
+    "draftValidationProgression": [
+      {
+        "draftRevision": 1,
+        "failCount": 5,
+        "warningCount": 1
+      },
+      {
+        "draftRevision": 2,
+        "failCount": 3,
+        "warningCount": 2
+      },
+      {
+        "draftRevision": 3,
+        "failCount": 0,
+        "warningCount": 0
+      }
+    ],
+    "friction": [
+      {
+        "code": "STALE_TOOL_SNAPSHOT",
+        "cause": "The author called one capability tool from a snapshot captured before room tool registration completed, then refreshed the WebMCP tool snapshot.",
+        "stateChanged": false
+      },
+      {
+        "code": "AUTHOR_SKILL_PATH_MISS",
+        "cause": "The isolated author first tried one obsolete local browser-skill path before resolving the installed path.",
+        "stateChanged": false
+      }
+    ]
+  },
+  "comparison": {
+    "precedingAcceptedCandidate": {
+      "sourceExperiment": "EXP-0010",
+      "totalWallMs": 270617,
+      "blindedReview": "pass"
+    },
+    "priorAcceptedCandidate": {
+      "sourceExperiment": "EXP-0009",
+      "totalWallMs": 269038,
+      "blindedReview": "pass"
+    },
+    "priorBestAcceptedCheckoutCandidate": {
+      "sourceExperiment": "EXP-0005",
+      "totalWallMs": 171941,
+      "blindedReview": "pass"
+    },
+    "current": {
+      "totalWallMs": 152494,
+      "blindedReview": "pass"
+    },
+    "descriptiveImprovementFromPrecedingAcceptedCandidateMs": 118123,
+    "descriptiveImprovementFromPrecedingAcceptedCandidateFraction": 0.43649512041002595,
+    "descriptiveImprovementFromPriorBestAcceptedCheckoutCandidateMs": 19447,
+    "descriptiveImprovementFromPriorBestAcceptedCheckoutCandidateFraction": 0.1131027503620428,
+    "interpretation": "This fresh isolated run preserved the frozen quality gate while using six fewer WebMCP calls and two fewer accepted draft revisions than EXP-0010. It is a strong single-run speed signal, not a population claim; an independent same-commit replication is required before attributing the gain confidently."
+  },
+  "artifactEvidence": {
+    "cleanPngSha256": "1915f134a8c3e3285ec14a171cd4a8fa141a9c4d1f436a01d5a906cd5756d086",
+    "cleanPngBytes": 16100,
+    "sanitizedStateSha256": "14d5f333dd0398be162047f0863d33185d7f82d035247b812adebf635a4f66b7",
+    "rawAuthorSessionSha256": "1b83be3f5a77be410cdad30534298ffe949fe229a0225905c66214c3729a5f3f",
+    "rawReviewerSessionSha256": "5df9f85802f8d8721594f73252c576d0c97319991f3713111ca542aabd69e2ee",
+    "rawArtifacts": "private_and_gitignored"
+  },
+  "accounting": {
+    "codexTaskCount": 2,
+    "authorTasks": 1,
+    "reviewerTasks": 1,
+    "reviewerFormatRepairTurns": 2,
+    "subscriptionUsagePerTask": "unobservable",
+    "usageLimitInterruptions": 0,
+    "resetCreditsConsumed": 0
+  },
+  "decision": {
+    "qualityGatePassed": true,
+    "acceptedCompletionTimeMs": 152494,
+    "singleRunSpeedImprovementObserved": true,
+    "populationPercentageClaimPermitted": false,
+    "nextIntervention": "Do not change the product yet. Run one independent same-commit replication with the frozen author task and blinded rubric, then inspect the remaining model-dominated authoring and capability-discovery time only if the quality-preserving speed gain replicates."
+  }
+}
