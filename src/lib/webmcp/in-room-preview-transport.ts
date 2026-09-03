@@ -200,11 +200,17 @@ export class InRoomCanvasPreviewTransport implements CanvasPreviewTransportAdapt
       },
       visualInspectionStatus: "not_performed" as const,
     };
+    const completePixelInspection =
+      "Execute pixelCaptureProtocol.copyReady.cleanViewport before expiresAt or invalidation and inspect inspectionPixels, including the exact inspectionRegion plus its clean canvas context, for readability, crossings, clearance, endpoints, and labels. Do not substitute an ordinary unclean or invalidated viewport or report visual QA as passed from JSON alone. If the clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope and immediately capture the newly returned cleanViewport. Only if that second clean capture is still blank or unavailable, report pixel inspection unavailable.";
     const nextStep = geometryCoverageStatus === "partial"
       ? visualQuality?.status === "fail"
         ? `Supported deterministic geometry already has a known failure and ${unsupportedGeometryLabel} coverage is partial. Fix every finding, rerun exact-revision analysis, then frame the live canvas again and inspect all pixels including unsupported geometry; framing itself is not visual QA.`
         : `Deterministic geometry coverage is partial because ${unsupportedGeometryLabel} require pixel inspection; report.status is not a complete geometry certification. Execute pixelCaptureProtocol.copyReady.cleanViewport before expiresAt or invalidation and inspect inspectionPixels, including the exact inspectionRegion and its clean canvas context, for readability, crossings, clearance, endpoints, and labels. Do not substitute an ordinary unclean or invalidated viewport. If the clean capture is blank despite visible semantic targets, execute onBlankCapture once and inspect the newly returned clean viewport. Revise and repeat when needed.`
-      : "Framing is not visual QA. Execute pixelCaptureProtocol.copyReady.cleanViewport before expiresAt or invalidation and inspect inspectionPixels, including the exact inspectionRegion plus its clean canvas context, for readability, crossings, clearance, endpoints, and labels. Do not substitute an ordinary unclean or invalidated viewport or report visual QA as passed from JSON alone. If the clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope and immediately capture the newly returned cleanViewport. Only if that second clean capture is still blank or unavailable, report pixel inspection unavailable.";
+      : geometryQualityStatus === "fail"
+        ? `Known deterministic geometry failures remain. For a conventional diagram or any acceptance criterion forbidding overlap, truncation, intrusion, or ambiguous routing, do not claim completion: correct every unintended failure, reinspect the newest exact revisions, then capture pixels. Deliberate user-requested geometry remains valid when explicitly preserved. ${completePixelInspection}`
+        : geometryQualityStatus === "warning"
+          ? `Deterministic geometry warnings remain. Review every warning against the requested intent; any warning matching an explicit no-overlap, no-truncation, no-intrusion, or unambiguous-routing criterion is a blocker until corrected and reinspected. Deliberate user-requested geometry remains valid. ${completePixelInspection}`
+          : `Framing is not visual QA. ${completePixelInspection}`;
     const clipInvalidatedBy = [
       "viewport_change",
       "window_resize",

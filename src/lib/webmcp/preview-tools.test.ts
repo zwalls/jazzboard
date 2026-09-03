@@ -416,6 +416,24 @@ describe("render_canvas_preview WebMCP tool", () => {
         visualInspectionStatus: "not_performed",
       },
     });
+
+    const failedResult = await transport.emit(
+      artifact({ ...visualQuality, status: "fail", summary: "A node overlap remains." }),
+      async () => ({
+        previewId: "preview-quality-fail",
+        clip: { coordinateSpace: "viewport-css-pixels", x: 1, y: 2, width: 3, height: 4 },
+        expiresAt: 90_000,
+      }),
+      new AbortController().signal,
+    );
+    expect(failedResult).toMatchObject({
+      data: {
+        geometryQualityStatus: "fail",
+        geometryCoverageStatus: "complete",
+        visualInspectionStatus: "not_performed",
+        nextStep: expect.stringMatching(/known deterministic geometry failures remain[^]*do not claim completion[^]*reinspect the newest exact revisions/i),
+      },
+    });
   });
 
   it("does not promote partial freehand or vector-path geometry to a quality pass", async () => {

@@ -91,7 +91,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             role,
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
-              expect.stringMatching(/one full-speed coherent/i),
+              expect.stringMatching(/one coherent/i),
               expect.stringMatching(/draftValidation/i),
               expect.stringMatching(/finish_canvas_draft.*no user confirmation/i),
               expect.stringMatching(/inspect_canvas_scope/i),
@@ -107,7 +107,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             draftPreflight: {
               field: "draftValidation",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/unintended.*patch.*recheck.*update_draft_connector.*tempRef/i),
+              correction: expect.stringMatching(/patch.*recheck.*unintended.*update_draft_connector.*tempRef/i),
             },
             canonicalDraftSkeleton: {
               operations: expect.arrayContaining([
@@ -126,20 +126,31 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               delivery: { mode: "draft" },
               responseDetail: "concise",
             },
+            canonicalDirectCorrection: {
+              operations: [{
+                op: "update_object",
+                objectId: "authoritative_object_id",
+                expectedRevision: 1,
+                patch: { width: 240 },
+              }],
+              responseDetail: "concise",
+            },
             readabilityHeuristics: expect.arrayContaining([
-              expect.stringMatching(/first draft.*never supply draftId without expectedDraftRevision/i),
-              expect.stringMatching(/connector ports are objects/i),
+              expect.stringMatching(/first draft.*draftId.*needs expectedDraftRevision/i),
+              expect.stringMatching(/ports are objects/i),
               expect.stringMatching(/label-fit planning.*180x88.*260x132/i),
-              expect.stringMatching(/edge labels short.*120-180.*220-280/i),
+              expect.stringMatching(/edge labels short.*120.*180.*220.*280/i),
+              expect.stringMatching(/do not erase visibly necessary relationship meaning/i),
               expect.stringMatching(/large semantic containers or planes.*semanticRole.*top-left inset text/i),
               expect.stringMatching(/draft Diagram.*edit_diagram.*diagramTempRef/i),
-              expect.stringMatching(/unintended failures.*patch.*update_draft_connector.*recheck.*finish/i),
+              expect.stringMatching(/unintended failures.*patch.*update_draft_connector.*geometryQualityStatus=fail.*blocks/i),
             ]),
             completion: {
               tool: "finish_canvas_draft",
               action: "commit",
               confirmationRequired: false,
               finalInspection: "inspect_canvas_scope",
+              blockingState: expect.stringMatching(/geometryQualityStatus=fail.*not complete/i),
             },
             escalation: {
               capabilityTool: "get_canvas_capabilities",

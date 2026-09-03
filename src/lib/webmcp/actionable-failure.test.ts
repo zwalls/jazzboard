@@ -13,7 +13,7 @@ describe("actionable WebMCP failures", () => {
         recovery: {
           retry: "after_correction",
           suggestedTools: ["get_canvas_capabilities"],
-          instructions: expect.stringMatching(/registered input schema.*issue path.*failed call changed no Jazzboard state/i),
+          instructions: expect.stringMatching(/registered input schema.*update_object.*expectedRevision.*patch.*do not use update_node.*failed call changed no Jazzboard state/i),
         },
       },
     });

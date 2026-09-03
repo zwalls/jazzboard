@@ -23,7 +23,9 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
       return {
         retry: "after_correction",
         instructions:
-          "Inspect error.details and this tool's registered input schema. Correct every reported issue path or invalid field, then retry the corrected call once. The failed call changed no Jazzboard state.",
+          tool === "apply_canvas_transaction"
+            ? "Inspect error.details and the registered input schema, then correct every issue and retry once. For a direct existing-object correction, use operations=[{op:'update_object',objectId,expectedRevision,patch:{...}}]; do not use update_node, changes, or a root expectedRoomRevision. The failed call changed no Jazzboard state."
+            : "Inspect error.details and this tool's registered input schema. Correct every reported issue path or invalid field, then retry the corrected call once. The failed call changed no Jazzboard state.",
         suggestedTools: tool === "get_canvas_capabilities" ? [] : ["get_canvas_capabilities"],
       };
     case "DRAFT_REVISION_CONFLICT":

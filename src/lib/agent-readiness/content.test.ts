@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.16.0");
+    expect(AGENT_DOC_VERSION).toBe("1.17.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -258,6 +258,9 @@ describe("agent-readable content", () => {
       "`analyze_diagram_layout`",
       "`render_canvas_preview`",
       "boundary, container, plane, region, zone, or background",
+      "`update_object`",
+      "Do not invent `update_node`, `changes`, or a root `expectedRoomRevision`",
+      "blocks a completion claim",
     ]) {
       expect(corpus).toContain(phrase);
     }

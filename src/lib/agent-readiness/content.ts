@@ -24,7 +24,7 @@ import {
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 export const JAZZBOARD_ORIGIN = "https://jazzboard-rho.vercel.app";
-export const AGENT_DOC_VERSION = "1.16.0";
+export const AGENT_DOC_VERSION = "1.17.0";
 export const AGENT_DOC_LAST_UPDATED = "2026-09-02";
 export const JAZZBOARD_SKILL_DESCRIPTION =
   "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, drawing, routing, laying out, analyzing and visually checking, reviewing, reverting, exporting, or templating its general semantic canvas and optional diagrams; answering participant Ask messages; or managing Follow and Spotlight without visual browser automation.";
@@ -386,6 +386,8 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "## Diagram quality and visual verification contract",
     "",
     "`layout_objects` hierarchy mode is graph-aware: it uses directed semantic connectors for ranks, separates disconnected components, centers ranks with different sizes, and deterministically reduces crossings. `flow` and `grid` remain deterministic non-graph placement choices. Exact coordinates and explicit routes remain available for deliberate overlap and freeform work.",
+    "",
+    "For a direct evidence-backed correction, keep the transaction shape exact: `operations: [{ op: \"update_object\", objectId, expectedRevision, patch: { ... } }]`. Do not invent `update_node`, `changes`, or a root `expectedRoomRevision`. Correct label fit without moving or widening an object into occupied space, collapsing a relationship route, or reducing existing clearance. Do not erase visibly necessary relationship meaning merely to silence a collision; deliberately choose spacing, a shorter label, routing, or redundant visible semantics. After every authoritative correction, inspect the newest exact revision again. For a conventional diagram, `geometryQualityStatus: \"fail\"` blocks a completion claim until every unintended failure is corrected; deliberate user-requested geometry remains valid.",
     "",
     "`analyze_diagram_layout` is a passive, exact-revision read available to authorized participants and spectators. It returns every resolved route permitted by the Diagram schema (up to 500), plus intent-unaware conventional geometry signals for overlap, connector conflicts, ports, labels, spacing, and likely truncation. Read those signals alongside `read_diagram`, exact endpoint anchors, routing intent, revisions, and the user's request. Shapes explicitly classified by `semanticRole` as a boundary, container, plane, region, zone, or background and painted behind their contents remain valid Diagram members: intentional containment and connector passage are excluded from generic overlap/intrusion findings, while connector paths or labels crossing the container's own visible label still report. For a conventional diagram-readability goal, correct every unintended finding before sign-off; for illustration or freeform work, preserve deliberate geometry regardless of conventional status. Open freehand strokes set `geometryCoverage.status` to `partial` and always require pixel inspection. This is evidence for agent judgment, not permission to redesign.",
     "",

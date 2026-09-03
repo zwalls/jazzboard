@@ -601,12 +601,14 @@ export type JazzboardCanvasQuickstart = Readonly<{
     correction: string;
   }>;
   canonicalDraftSkeleton: Readonly<Record<string, unknown>>;
+  canonicalDirectCorrection: Readonly<Record<string, unknown>>;
   readabilityHeuristics: readonly string[];
   completion: Readonly<{
     tool: "finish_canvas_draft";
     action: "commit";
     confirmationRequired: false;
     finalInspection: "inspect_canvas_scope";
+    blockingState: string;
   }>;
   escalation: Readonly<{
     capabilityTool: "get_canvas_capabilities";
@@ -669,6 +671,18 @@ const QUICKSTART_CANONICAL_DRAFT_SKELETON = {
   summary: "Two semantic nodes and one labeled directed relationship.",
 } as const;
 
+const QUICKSTART_CANONICAL_DIRECT_CORRECTION = {
+  operations: [{
+    op: "update_object",
+    objectId: "authoritative_object_id",
+    expectedRevision: 1,
+    patch: { width: 240 },
+  }],
+  responseDetail: "concise",
+  intent: "Correct one pixel-evidenced issue while preserving surrounding geometry.",
+  summary: "Revision-safe targeted correction.",
+} as const;
+
 function authority(role: JazzboardWebMcpBinding["role"]): CapabilityAuthority {
   return {
     currentPageToolRegistryIsAuthoritative: true,
@@ -728,14 +742,14 @@ function canvasQuickstart(
     role,
     roleCanMutateCanvas: role === "participant",
     purpose:
-      `Fast complete path for new ${task} work. Use this response instead of preloading core, authoring, and inspection bundles.`,
+      `Complete fast path for new ${task} work; do not preload other bundles.`,
     fastPath: [
-      "Read only the exact existing Diagram, neighborhood, or region that affects the requested work; skip a room-wide read for a clearly empty target area.",
-      "Submit one full-speed coherent create-only candidate with stable tempRefs, one first-class Diagram, delivery.mode=draft, and responseDetail=concise. Do not split work to pace the visible animation.",
-      "Check draftValidation. Patch only affected tempRefs; use recommendedDraftCorrection/update_draft_connector for connectors. Recheck and preserve deliberate geometry.",
-      "Call finish_canvas_draft once with action=commit and the latest exact draft revision. No user confirmation is required.",
-      "Use the returned recommended inspect_canvas_scope request, inspect the exact cropped pixels, and make only evidence-backed direct corrections.",
-      "If the clean capture is blank, follow onBlankCapture once: reframe and capture immediately before reporting pixels unavailable.",
+      "Read the narrowest relevant Diagram, neighborhood, or region; skip a room-wide read for a blank target.",
+      "Submit one coherent create-only draft with stable tempRefs, one Diagram, and responseDetail=concise; never split work to pace animation.",
+      "Read draftValidation; patch only affected tempRefs (update_draft_connector for edges), recheck, and preserve intent.",
+      "Call finish_canvas_draft once with action=commit and the latest revision; no user confirmation.",
+      "Capture the returned inspect_canvas_scope pixels; make one consolidated direct correction with canonicalDirectCorrection, without another bundle or guessed fields.",
+      "On a blank clean capture, follow onBlankCapture once: reframe and recapture immediately.",
     ],
     transactionContract: {
       tool: "apply_canvas_transaction",
@@ -743,40 +757,43 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Put intent and summary at top level and semanticName/semanticRole on creates. nodeMetadata is only for decision/open_question. Canonical connect and members/connectors accept draw_connection and memberObjectRefs/connectorRefs aliases.",
+        "Root: operations, delivery, responseDetail, intent, summary; intent and summary stay top level, never expectedRoomRevision. Creates carry semanticName/semanticRole.",
       schemaAuthority:
-        "The registered apply_canvas_transaction input schema is authoritative. Do not invent operation fields; follow actionable recovery instead of retrying blindly.",
+        "The registered schema is authoritative; do not invent fields or retry a rejection unchanged.",
     },
     draftPreflight: {
       field: "draftValidation",
       authority:
-        "Intent-unaware deterministic evidence only; it must never override the requested composition or deliberate geometry.",
+        "Intent-unaware evidence; never override requested or deliberate geometry.",
       correction:
-        "For unintended findings, patch and recheck before finish. Use update_draft_connector with the connector tempRef and returned exact delivery; never use authoritative update or resend unaffected objects.",
+        "Patch and recheck unintended findings before finish; use update_draft_connector plus exact tempRef/delivery and never resend unaffected objects.",
     },
     canonicalDraftSkeleton: QUICKSTART_CANONICAL_DRAFT_SKELETON,
+    canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,
     readabilityHeuristics: [
-      "First draft: delivery={mode:draft}; never supply draftId without expectedDraftRevision on patch/replace.",
-      "Connector ports are objects: {side:left|right|top|bottom,position:0..1,exact:boolean}; never a side string.",
-      "Connectors are solid: use color/label/route, not dash. Curved: |bend|>=8; elbowMidPoint/labelPosition:0..1.",
-      "Label-fit planning, not enforced layout: one/two/three-line nodes ≈180x88/220x110/260x132.",
-      "Keep edge labels short when semanticRole or a legend carries type. Clear gap ≈120-180 for one line; 220-280 for two.",
-      "Shared sides: choose distinct ports or lanes; Jazzboard never imposes layout.",
-      "Large semantic containers or planes: classify the background shape with a semanticRole token such as boundary, container, plane, region, zone, or background; use an empty shape label plus top-left inset text member and keep routes below it. Intentional containment is excluded from generic collision findings; title occlusion still reports.",
-      "Draft Diagram metadata/membership: edit_diagram with diagramTempRef and exact patch delivery; authoritative IDs only after commit.",
-      "For unintended failures, patch affected tempRefs with update_draft_connector where applicable; recheck, then finish.",
-      "When the user's acceptance criteria explicitly forbid collisions, intrusion, or ambiguous routing, every corresponding draftValidation warning or failure is a blocker. Patch it before finish rather than treating warning status as permission to publish. This does not apply to creative work that intentionally overlaps.",
+      "First draft: delivery={mode:draft}; patch/replace draftId always needs expectedDraftRevision.",
+      "Ports are objects: {side:left|right|top|bottom,position:0..1,exact:boolean}, never side strings.",
+      "Connectors are solid; curved needs |bend|>=8; elbowMidPoint/labelPosition are 0..1.",
+      "Label-fit planning: one/two/three-line nodes ≈180x88/220x110/260x132. Correct outward or shorten; never move/widen into occupied space, collapse a route, or reduce clearance.",
+      "Keep edge labels short; clear gap ≈120-180 for one line, 220-280 for two. Do not erase visibly necessary relationship meaning: choose spacing, shorter text, routing, or redundant visible semantics.",
+      "Shared sides need distinct ports or lanes; Jazzboard does not impose layout.",
+      "Large semantic containers or planes: give the background semanticRole boundary/container/plane/region/zone/background, an empty shape label, and a top-left inset text. Containment is ignored; title occlusion reports.",
+      "Draft Diagram metadata/membership uses edit_diagram, diagramTempRef, and exact patch delivery.",
+      "For unintended failures, patch affected tempRefs with update_draft_connector when applicable and recheck. After direct correction, inspect the newest revision; geometryQualityStatus=fail blocks conventional completion.",
+      "If criteria forbid collision, intrusion, or ambiguous routing, matching draftValidation warnings/failures block finish; deliberate creative overlap remains valid.",
     ],
     completion: {
       tool: "finish_canvas_draft",
       action: "commit",
       confirmationRequired: false,
       finalInspection: "inspect_canvas_scope",
+      blockingState:
+        "geometryQualityStatus=fail is not complete for conventional diagrams; correct unintended failures, then reinspect newest revisions and pixels.",
     },
     escalation: {
       capabilityTool: "get_canvas_capabilities",
       useOnlyWhen:
-        `Call at most the ${task} bundle when an unfamiliar mechanic is genuinely needed, or the quick path is rejected with actionable recovery. Do not preload multiple bundles.`,
+        `At most load ${task} for an unfamiliar or rejected mechanic; do not preload multiple bundles.`,
     },
   };
 }
