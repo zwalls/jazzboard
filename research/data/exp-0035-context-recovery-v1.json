@@ -1,0 +1,521 @@
+{
+  "schemaVersion": "jazzboard-exp0035-public-results/v1",
+  "status": "paused_mac_locked",
+  "improvementDemonstrated": false,
+  "frozenAt": "2026-09-04T20:42:51.989Z",
+  "freezeDigests": {
+    "protocolDigest": "sha256:7a817ca2a6ec767c689eaaa71ba480cb4848835a040898fced0c5d77ef5ef83b",
+    "fixtureSourceDigest": "sha256:07f51991c2d408591412d15d5a1fa76fd5af0edb6a25d3e9961864bf82bd52fe",
+    "authorPacketSourceDigest": "sha256:cf5b0b90646b68e04f1fdab0624a1cf2675659c16c90d4704e28789534eaed35"
+  },
+  "runtime": {
+    "node": "v25.5.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "attempts": [
+    {
+      "attemptId": "attempt01",
+      "pairId": "pair01",
+      "family": "inventory",
+      "seed": "20260904-inventory-1",
+      "arm": "A0",
+      "commit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+      "fixtureDigest": "sha256:ac70bf406e3b921a14f0e798b966a303f561ad20adad5472a305eb6c11152241",
+      "beforeRoomDigest": "sha256:79dea43370e62036dbaa3dc3c3005dbdc207e595a7faf68fc2a4ab41ea185b8e",
+      "status": "completed",
+      "gradeFileDigest": "sha256:6b49bc4d995e55e76dd652e1a18b3fc1f42d6a33b37259b2d710126269640a5f",
+      "evidenceDigests": {
+        "frozenManifestFile": "sha256:b64f7b8f3a52a19ee1daebf3e7941df042af50bbecc1358bdae470c60fd5393a",
+        "privateEvidenceFile": "sha256:445f8128f62fb4a6514e2df27ecb13d9276fd2534c7e5b0915c6302254dfd0e8",
+        "beforeRoomCanonical": "sha256:79dea43370e62036dbaa3dc3c3005dbdc207e595a7faf68fc2a4ab41ea185b8e",
+        "afterSnapshotFile": "sha256:f18242987bd5a8bc51a6def49f2fac12c4f2730c8c0086d446c6f77f931e1335",
+        "afterRoomCanonical": "sha256:09319b1e63869f198866b44665c2058b9959f0b56694db9448a419efb866d447",
+        "sessionTraceFile": "sha256:2eb190c95b0ec7469508c5ea49fd57b7b4f8ae4224bf0bd65891c8a95108b0a8",
+        "releaseReceiptFile": "sha256:ecf7f8ad8df93c7176f8447f54fd32a25de758e61fa02dcea6f5b1a66a89d94f",
+        "scorerSourceFile": "sha256:07f51991c2d408591412d15d5a1fa76fd5af0edb6a25d3e9961864bf82bd52fe",
+        "metricsParserSourceFile": "sha256:1d570be0eb35a71cec2f23c9c045aa720e02d2a956a84d56d63653ae1c573305",
+        "metricsFile": "sha256:982681e26b34e8b3e1327794ee881145d5fb09437e4a8faadb725de9f85abad7"
+      },
+      "metrics": {
+        "schemaVersion": "jazzboard-exp0035-session-metrics/v1",
+        "attemptId": "attempt01",
+        "threadId": "01a06e29-7cae-7d40-bc31-9d88a09ada71",
+        "turnId": "01a06e29-7e17-7520-9b6e-18a98698ab46",
+        "status": "completed",
+        "finalText": {
+          "status": "observed",
+          "source": "response_item.message",
+          "utf8Bytes": 337,
+          "text": "{\"objectCounts\":{\"path\":90,\"shape\":180,\"text\":90},\"diagramCount\":6,\"openQuestionNames\":[\"inventory-51197671.shape.027\",\"inventory-51197671.shape.032\",\"inventory-51197671.shape.036\",\"inventory-51197671.shape.083\",\"inventory-51197671.shape.084\",\"inventory-51197671.shape.104\",\"inventory-51197671.shape.139\",\"inventory-51197671.shape.151\"]}"
+        },
+        "timing": {
+          "totalWallMs": 49377,
+          "accountedWallMs": 49000,
+          "clockDeltaMs": 377,
+          "hostExecutionMs": 20898,
+          "modelAndCoordinationMs": 28102,
+          "hostExecutionShare": 0.42648979591836733
+        },
+        "hostCalls": {
+          "completedCount": 5,
+          "failedCount": 1,
+          "byHostTool": {
+            "cua_repl.js": 5
+          },
+          "errors": [
+            {
+              "hostCallOrdinal": 3,
+              "hostTool": "cua_repl.js",
+              "status": "failed",
+              "errorTextStatus": "unavailable"
+            }
+          ]
+        },
+        "webMcp": {
+          "runtimeCallCount": null,
+          "runtimeCallCountStatus": "unobservable_from_host_session",
+          "nativeMetadata": {
+            "status": "observed_without_completeness_signal",
+            "observedEntryCount": 12,
+            "observedHostCallCount": 3,
+            "byName": {
+              "webmcp_list_tools": 2,
+              "join_room": 1,
+              "query_objects": 7,
+              "read_room_state": 1,
+              "find_diagrams": 1
+            },
+            "completeOutputCount": 8,
+            "completeOutputUtf8Bytes": 103031,
+            "truncatedInputCount": 1,
+            "truncatedOutputCount": 4,
+            "hostCalls": [
+              {
+                "hostCallOrdinal": 1,
+                "status": "absent",
+                "observedEntryCount": 0
+              },
+              {
+                "hostCallOrdinal": 2,
+                "status": "observed",
+                "observedEntryCount": 2
+              },
+              {
+                "hostCallOrdinal": 3,
+                "status": "absent",
+                "observedEntryCount": 0
+              },
+              {
+                "hostCallOrdinal": 4,
+                "status": "observed",
+                "observedEntryCount": 4
+              },
+              {
+                "hostCallOrdinal": 5,
+                "status": "observed",
+                "observedEntryCount": 6
+              }
+            ],
+            "entries": [
+              {
+                "hostCallOrdinal": 2,
+                "nativeEntryOrdinal": 1,
+                "name": "webmcp_list_tools",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "unavailable",
+                  "utf8Bytes": null
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 3592
+                }
+              },
+              {
+                "hostCallOrdinal": 2,
+                "nativeEntryOrdinal": 2,
+                "name": "join_room",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 67
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 468
+                }
+              },
+              {
+                "hostCallOrdinal": 4,
+                "nativeEntryOrdinal": 1,
+                "name": "webmcp_list_tools",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "unavailable",
+                  "utf8Bytes": null
+                },
+                "output": {
+                  "status": "truncated",
+                  "utf8Bytes": null
+                }
+              },
+              {
+                "hostCallOrdinal": 4,
+                "nativeEntryOrdinal": 2,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "truncated",
+                  "utf8Bytes": null
+                },
+                "output": {
+                  "status": "truncated",
+                  "utf8Bytes": null
+                }
+              },
+              {
+                "hostCallOrdinal": 4,
+                "nativeEntryOrdinal": 3,
+                "name": "read_room_state",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 2
+                },
+                "output": {
+                  "status": "truncated",
+                  "utf8Bytes": null
+                }
+              },
+              {
+                "hostCallOrdinal": 4,
+                "nativeEntryOrdinal": 4,
+                "name": "find_diagrams",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 13
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 10251
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 1,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 50
+                },
+                "output": {
+                  "status": "truncated",
+                  "utf8Bytes": null
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 2,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 54
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 318
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 3,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 49
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 40546
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 4,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 50
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 318
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 5,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 49
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 318
+                }
+              },
+              {
+                "hostCallOrdinal": 5,
+                "nativeEntryOrdinal": 6,
+                "name": "query_objects",
+                "sourceHostname": "127.0.0.1",
+                "input": {
+                  "status": "complete",
+                  "utf8Bytes": 49
+                },
+                "output": {
+                  "status": "complete",
+                  "utf8Bytes": 47220
+                }
+              }
+            ]
+          },
+          "readOutput": {
+            "status": "unavailable",
+            "observedHostCallCount": 0,
+            "observedUtf8Bytes": null,
+            "hostCalls": [
+              {
+                "hostCallOrdinal": 5,
+                "readToolReferenced": "query_objects",
+                "outputStatus": "truncated",
+                "outputSourceField": "result",
+                "utf8Bytes": null
+              }
+            ]
+          }
+        },
+        "observability": {
+          "hostCalls": "exact_completed_item_events",
+          "webMcpCalls": "Native tool-surface metadata entries are reported as observed entries, but runtimeCallCount stays null because the metadata provides no completeness or capping signal.",
+          "nativeOutputBytes": "Counts retained outputJson UTF-8 bytes only when the corresponding native metadata entry is not marked outputTruncated; this is additive evidence and not a complete-attempt byte total.",
+          "readOutputBytes": "Counts only the canonical result field (or output when result is absent) when complete textual host output is retained for a host call that references exactly one read tool; excludes structured-only, hidden, and explicitly truncated payloads.",
+          "exactTokens": "unobservable"
+        }
+      },
+      "grade": {
+        "schemaVersion": "jazzboard-exp0035-context-grade/v1",
+        "family": "inventory",
+        "passed": true,
+        "score": 1,
+        "checks": [
+          {
+            "name": "inventory fixture cardinality",
+            "passed": true
+          },
+          {
+            "name": "authoritative document unchanged",
+            "passed": true
+          },
+          {
+            "name": "exact structured answer",
+            "passed": true
+          }
+        ],
+        "failedCheckCount": 0
+      }
+    },
+    {
+      "attemptId": "attempt02",
+      "pairId": "pair01",
+      "family": "inventory",
+      "seed": "20260904-inventory-1",
+      "arm": "A1",
+      "commit": "55ed2446fa0b8b91c9602d50881ebc38a61d3514",
+      "fixtureDigest": "sha256:ac70bf406e3b921a14f0e798b966a303f561ad20adad5472a305eb6c11152241",
+      "beforeRoomDigest": "sha256:b9cba1d0d8e6a66b59415870d0a7261486575c6c312a0394f383d0141258b0b5",
+      "status": "blocked_mac_locked",
+      "gradeFileDigest": "sha256:54f1e4269ecae3f2261e806c83deea15bcc04f22c17866a3730db42348eb613e",
+      "evidenceDigests": {
+        "frozenManifestFile": "sha256:b64f7b8f3a52a19ee1daebf3e7941df042af50bbecc1358bdae470c60fd5393a",
+        "privateEvidenceFile": "sha256:d64b2de7b00b6d9188aa19c083b58f1f205665a6d3e5f900a0962e9e703b9a97",
+        "beforeRoomCanonical": "sha256:b9cba1d0d8e6a66b59415870d0a7261486575c6c312a0394f383d0141258b0b5",
+        "afterSnapshotFile": "sha256:eabfffe12524181fdf68d8fc0cd3f2c14815abedd8cba8797575e624623eeb92",
+        "afterRoomCanonical": "sha256:b87addd7f23241c666540bb260e1c0dd3d288436f29491f984eb6dd3b12af543",
+        "sessionTraceFile": "sha256:2e5fd5a0f14735a64f5c1a338387c57f92f623e9deaa793a6172bccfd82ec56b",
+        "releaseReceiptFile": "sha256:3030445a4f3eaa952f34c34773009eb681ce7a6da8ddd9f9d6bd660f2c50082e",
+        "scorerSourceFile": "sha256:07f51991c2d408591412d15d5a1fa76fd5af0edb6a25d3e9961864bf82bd52fe",
+        "metricsParserSourceFile": "sha256:1d570be0eb35a71cec2f23c9c045aa720e02d2a956a84d56d63653ae1c573305",
+        "metricsFile": "sha256:f7b3728fef020e08b099873ca81cfcc886e61c5c55ae3c4008def464468e2133"
+      },
+      "metrics": {
+        "schemaVersion": "jazzboard-exp0035-session-metrics/v1",
+        "attemptId": "attempt02",
+        "threadId": "01a06e2a-67c8-75a0-a5ba-1588e7f1da7e",
+        "turnId": "01a06e2a-6961-72f0-9540-10a0470d4cf0",
+        "status": "completed",
+        "finalText": {
+          "status": "observed",
+          "source": "response_item.message",
+          "utf8Bytes": 96,
+          "text": "{\"blocker\":\"The Mac is locked; please unlock it so I can access the authorized Jazzboard room.\"}"
+        },
+        "timing": {
+          "totalWallMs": 8216,
+          "accountedWallMs": 8000,
+          "clockDeltaMs": 216,
+          "hostExecutionMs": 453,
+          "modelAndCoordinationMs": 7547,
+          "hostExecutionShare": 0.056625
+        },
+        "hostCalls": {
+          "completedCount": 1,
+          "failedCount": 1,
+          "byHostTool": {
+            "cua_repl.js": 1
+          },
+          "errors": [
+            {
+              "hostCallOrdinal": 1,
+              "hostTool": "cua_repl.js",
+              "status": "failed",
+              "errorTextStatus": "unavailable"
+            }
+          ]
+        },
+        "webMcp": {
+          "runtimeCallCount": null,
+          "runtimeCallCountStatus": "unobservable_from_host_session",
+          "nativeMetadata": {
+            "status": "unavailable",
+            "observedEntryCount": 0,
+            "observedHostCallCount": 0,
+            "byName": {},
+            "completeOutputCount": 0,
+            "completeOutputUtf8Bytes": null,
+            "truncatedInputCount": 0,
+            "truncatedOutputCount": 0,
+            "hostCalls": [
+              {
+                "hostCallOrdinal": 1,
+                "status": "absent",
+                "observedEntryCount": 0
+              }
+            ],
+            "entries": []
+          },
+          "readOutput": {
+            "status": "unavailable",
+            "observedHostCallCount": 0,
+            "observedUtf8Bytes": null,
+            "hostCalls": []
+          }
+        },
+        "observability": {
+          "hostCalls": "exact_completed_item_events",
+          "webMcpCalls": "Native tool-surface metadata entries are reported as observed entries, but runtimeCallCount stays null because the metadata provides no completeness or capping signal.",
+          "nativeOutputBytes": "Counts retained outputJson UTF-8 bytes only when the corresponding native metadata entry is not marked outputTruncated; this is additive evidence and not a complete-attempt byte total.",
+          "readOutputBytes": "Counts only the canonical result field (or output when result is absent) when complete textual host output is retained for a host call that references exactly one read tool; excludes structured-only, hidden, and explicitly truncated payloads.",
+          "exactTokens": "unobservable"
+        }
+      },
+      "grade": {
+        "schemaVersion": "jazzboard-exp0035-context-grade/v1",
+        "family": "inventory",
+        "passed": false,
+        "score": 0,
+        "checks": [
+          {
+            "name": "inventory fixture cardinality",
+            "passed": true
+          },
+          {
+            "name": "authoritative document unchanged",
+            "passed": true
+          },
+          {
+            "name": "exact structured answer",
+            "passed": false,
+            "detail": "The final JSON does not exactly match authoritative counts, Diagram count, and sorted Mira open-question names."
+          }
+        ],
+        "failedCheckCount": 1
+      }
+    },
+    {
+      "attemptId": "attempt03",
+      "pairId": "pair02",
+      "family": "repair",
+      "seed": "20260904-repair-1",
+      "arm": "A1",
+      "commit": "55ed2446fa0b8b91c9602d50881ebc38a61d3514",
+      "fixtureDigest": "sha256:13180247390d470a4e25b0cf22a6357e01eb8994301f185b6c7d0f2139d8f8bf",
+      "beforeRoomDigest": "sha256:9141beae3b1bd7da8c70b1ed1ef065c4d33a69fe91ef0c359da931d7f21ad825",
+      "status": "not_released_paused"
+    },
+    {
+      "attemptId": "attempt04",
+      "pairId": "pair02",
+      "family": "repair",
+      "seed": "20260904-repair-1",
+      "arm": "A0",
+      "commit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+      "fixtureDigest": "sha256:13180247390d470a4e25b0cf22a6357e01eb8994301f185b6c7d0f2139d8f8bf",
+      "beforeRoomDigest": "sha256:d85fa74d1abda1c8b3d8fcc2433a8d3dd057e1edb42039e80c8a8fa9028dffe6",
+      "status": "not_released_paused"
+    },
+    {
+      "attemptId": "attempt05",
+      "pairId": "pair03",
+      "family": "inventory",
+      "seed": "20260904-inventory-2",
+      "arm": "A1",
+      "commit": "55ed2446fa0b8b91c9602d50881ebc38a61d3514",
+      "fixtureDigest": "sha256:6ad8a9acfcc1ad5fc9d1f2a874796950a3088f9a644954fbc533bad9a9e26baf",
+      "beforeRoomDigest": "sha256:6d4964919dbad6563e74d632fc8d7ae29bee07613e119cefcef8a13766aaf067",
+      "status": "not_released_paused"
+    },
+    {
+      "attemptId": "attempt06",
+      "pairId": "pair03",
+      "family": "inventory",
+      "seed": "20260904-inventory-2",
+      "arm": "A0",
+      "commit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+      "fixtureDigest": "sha256:6ad8a9acfcc1ad5fc9d1f2a874796950a3088f9a644954fbc533bad9a9e26baf",
+      "beforeRoomDigest": "sha256:f594661d852cf5f3fcda035d4a45ee21e8e9ddb03861b572fdf31e80eacc54ed",
+      "status": "not_released_paused"
+    },
+    {
+      "attemptId": "attempt07",
+      "pairId": "pair04",
+      "family": "repair",
+      "seed": "20260904-repair-2",
+      "arm": "A0",
+      "commit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+      "fixtureDigest": "sha256:9b03d149633ed69217661ef30f0d63a56b5a9487fef1affa9c3242b945a5264b",
+      "beforeRoomDigest": "sha256:5f345a7df73c546a611a1103faf1ffe23e89dbb521cc79c3cb7944c339ceb32d",
+      "status": "not_released_paused"
+    },
+    {
+      "attemptId": "attempt08",
+      "pairId": "pair04",
+      "family": "repair",
+      "seed": "20260904-repair-2",
+      "arm": "A1",
+      "commit": "55ed2446fa0b8b91c9602d50881ebc38a61d3514",
+      "fixtureDigest": "sha256:9b03d149633ed69217661ef30f0d63a56b5a9487fef1affa9c3242b945a5264b",
+      "beforeRoomDigest": "sha256:641f90f316aae25507abc7b43c3e843421989d266892af258eaff7169123691b",
+      "status": "not_released_paused"
+    }
+  ],
+  "decision": "Inconclusive; one baseline pass, one retained host-blocked candidate attempt, six unstarted. No replacement attempt."
+}
