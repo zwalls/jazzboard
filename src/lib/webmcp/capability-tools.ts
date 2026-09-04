@@ -83,8 +83,8 @@ const BUNDLE_INDEX = [
 const UNIVERSAL_AGENT_PRINCIPLES = [
   "The user's requested meaning, composition, and acceptance criteria control the work.",
   "Read the narrowest authoritative semantic scope and preserve exact revisions before editing.",
-  "For every user-visible new multi-object composition, use a progressive draft by default so collaborators see the agent trace each part before one atomic commit. Reserve direct transactions for revision-checked corrections, explicitly instant work, or work with no live audience.",
-  "Author at full speed: submit the largest coherent candidate that fits the transaction limits, and never split, pause, or delay draft replacements merely to pace animation. The client presentation queue absorbs rapid cumulative revisions; call finish once and let Jazzboard wait for visible completion internally.",
+  "Use a progressive draft by default for visible new compositions. Direct transactions serve revision-checked corrections, explicitly instant work, or work without a live audience.",
+  "Author at full speed within transaction limits; never split or pause for animation. The client queues rapid cumulative revisions; finish once and Jazzboard waits for presentation.",
   "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
   "Preserve deliberate overlap, asymmetry, cropping, routing, spacing, and layering.",
   "A successful mutation or geometry report is not visual QA; inspect the final exact-revision pixels.",
@@ -92,6 +92,12 @@ const UNIVERSAL_AGENT_PRINCIPLES = [
 ] as const;
 
 const CORE_CAPABILITIES = {
+  retrieval: {
+    orient: { tool: "read_room_state", input: { detail: "summary" } },
+    recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
+    focusedObjects: "query_objects: exact objectIds; full for needed geometry.",
+    pagination: "query_objects/find_diagrams: follow nextPageInput until null. Restart on revision conflict; never mix revisions.",
+  },
   coordinateSystem: {
     space: "canvas",
     unit: "canvas-unit",
@@ -143,7 +149,7 @@ const CORE_CAPABILITIES = {
     pixelCaptureCompletionGate: "inspect_clean_viewport_pixels_and_scoped_region_before_claiming_visual_qa",
     pixelCaptureForbiddenSubstitute: "ordinary_unclean_or_invalidated_full_viewport",
     blankCaptureRecovery:
-      "If the clean capture is blank despite visible semantic targets, execute pixelCaptureProtocol.onBlankCapture once: reframe the exact scope, immediately capture the newly returned cleanViewport, and inspect it. Only the second blank or unavailable clean capture is terminal.",
+      "If a clean capture is blank despite semantic targets, run pixelCaptureProtocol.onBlankCapture once and inspect the new cleanViewport. Only a second blank or unavailable capture is terminal.",
     exactScopes: ["room", "diagram", "objects"],
     roomScopePurpose:
       "Use an exact room revision after adding to an existing board to judge relative scale, whitespace, spatial distribution, and integration with surrounding content.",

@@ -21,7 +21,11 @@ import {
 } from "./inspection-recommendation";
 
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
-const readDraftsInput = z.object({ draftId: draftId.optional() }).strict();
+const readDraftsInput = z.object({
+  draftId: draftId.optional(),
+  detail: z.enum(["summary", "full"]).default("full"),
+  owner: z.enum(["self", "all"]).default("all"),
+}).strict();
 const finishDraftInput = z
   .object({
     draftId,
@@ -40,6 +44,8 @@ const READ_DRAFTS_INPUT_SCHEMA = {
   additionalProperties: false,
   properties: {
     draftId: { type: "string", pattern: "^draft_[A-Za-z0-9_-]{1,120}$" },
+    detail: { enum: ["summary", "full"], default: "full" },
+    owner: { enum: ["self", "all"], default: "all" },
   },
 } as const;
 
@@ -76,6 +82,55 @@ type DraftListResponse = {
   drafts: AgentCanvasDraftSnapshot[];
   serverTime: number;
 };
+
+const DRAFT_SUMMARY_LIST_LIMIT = 32;
+const DRAFT_SUMMARY_METADATA_TEXT_LIMIT = 240;
+
+function boundedDraftMetadata(metadata: AgentCanvasDraftSnapshot["metadata"]): {
+  value: AgentCanvasDraftSnapshot["metadata"];
+  truncated: boolean;
+} {
+  if (!metadata) return { value: null, truncated: false };
+  let truncated = false;
+  const bound = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    if (value.length <= DRAFT_SUMMARY_METADATA_TEXT_LIMIT) return value;
+    truncated = true;
+    return value.slice(0, DRAFT_SUMMARY_METADATA_TEXT_LIMIT);
+  };
+  return {
+    value: {
+      ...(metadata.intent !== undefined ? { intent: bound(metadata.intent) } : {}),
+      ...(metadata.summary !== undefined ? { summary: bound(metadata.summary) } : {}),
+    },
+    truncated,
+  };
+}
+
+function exactFullDraftReadNextStep(candidateDraftId: string): string {
+  return `Call read_canvas_drafts with {"draftId":"${candidateDraftId}","detail":"full"} for the exact render-ready candidate, including preview geometry and stable temporary references.`;
+}
+
+function summarizeDraft(draft: AgentCanvasDraftSnapshot) {
+  const metadata = boundedDraftMetadata(draft.metadata);
+  return {
+    id: draft.id,
+    revision: draft.revision,
+    baselineRoomRevision: draft.baselineRoomRevision,
+    status: draft.status,
+    ownerParticipantId: draft.ownerParticipantId,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    expiresAt: draft.expiresAt,
+    hardExpiresAt: draft.hardExpiresAt,
+    metadata: metadata.value,
+    metadataTruncated: metadata.truncated,
+    previewObjectCount: draft.previewObjects.length,
+    previewDiagramCount: draft.previewDiagrams.length,
+    temporaryReferenceCount: Object.keys(draft.temporaryReferences).length,
+    nextStep: exactFullDraftReadNextStep(draft.id),
+  };
+}
 
 type DraftCommitMutation = {
   room: RoomState;
@@ -282,7 +337,7 @@ export function createJazzboardDraftWebMcpTools(
       name: "read_canvas_drafts",
       title: "Read canvas drafts",
       description:
-        "Read active agent drafts in this authorized room, or one exact draft by ID, including preview objects, stable temporary references, and browser-local presentation state. presentation.state=complete means both every object reveal and the exact revision's closing inspection motion have finished.",
+        "Read room drafts or one draftId. detail=summary: bounded status/counts; full (default): geometry/tempRefs. owner=self filters owned work. Presentation is browser-local and revision-exact.",
       schema: readDraftsInput,
       inputSchema: READ_DRAFTS_INPUT_SCHEMA,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -293,8 +348,18 @@ export function createJazzboardDraftWebMcpTools(
             { method: "GET", signal },
           );
           binding.context.acceptAgentDraft?.(response.draft);
+          const ownerMatches = input.owner === "all" ||
+            response.draft.ownerParticipantId === binding.participantId;
+          if (!ownerMatches) {
+            return {
+              draft: null,
+              serverTime: response.serverTime,
+              presentation: null,
+              filteredByOwner: true,
+            };
+          }
           return {
-            draft: response.draft,
+            draft: input.detail === "summary" ? summarizeDraft(response.draft) : response.draft,
             serverTime: response.serverTime,
             presentation: presentationStatus(binding, response.draft),
           };
@@ -304,10 +369,25 @@ export function createJazzboardDraftWebMcpTools(
           signal,
         });
         response.drafts.forEach((draft) => binding.context.acceptAgentDraft?.(draft));
+        const matchingDrafts = input.owner === "self"
+          ? response.drafts.filter((draft) => draft.ownerParticipantId === binding.participantId)
+          : response.drafts;
+        const visibleDrafts = input.detail === "summary"
+          ? matchingDrafts.slice(0, DRAFT_SUMMARY_LIST_LIMIT)
+          : matchingDrafts;
         return {
-          drafts: response.drafts,
+          drafts: input.detail === "summary"
+            ? visibleDrafts.map(summarizeDraft)
+            : visibleDrafts,
           serverTime: response.serverTime,
-          presentations: response.drafts.map((draft) => presentationStatus(binding, draft)),
+          presentations: visibleDrafts.map((draft) => presentationStatus(binding, draft)),
+          ...(input.detail === "summary"
+            ? {
+                totalMatched: matchingDrafts.length,
+                returnedCount: visibleDrafts.length,
+                truncated: visibleDrafts.length < matchingDrafts.length,
+              }
+            : {}),
         };
       },
     }),
@@ -321,7 +401,7 @@ export function createJazzboardDraftWebMcpTools(
       name: "finish_canvas_draft",
       title: "Finish a canvas draft",
       description:
-        "Commit is autonomous and needs no extra user confirmation. Resolve fail findings, or for deliberate geometry pass intentionalFindingAcknowledgements as a findingKey-to-rationale object containing every current key. It keeps the draft alive, waits inside this call, then applies atomically. Presentation failure sends no authoritative canvas mutation and the draft remains recoverable. Discard cancels. outcome=proposed means review, not apply.",
+        "Commit autonomously; no extra confirmation. Resolve fail findings or acknowledge deliberate geometry with every current findingKey mapped to a rationale. Keeps the draft alive, waits inside this call, then applies atomically. Presentation failure leaves the draft recoverable and canvas unchanged. Discard cancels. outcome=proposed means review, not apply.",
       schema: finishDraftInput,
       inputSchema: FINISH_DRAFT_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },

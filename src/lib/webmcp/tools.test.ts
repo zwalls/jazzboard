@@ -334,6 +334,86 @@ describe("authenticated read tools", () => {
     });
   });
 
+  it("orients on a large room with bounded summary context and no geometry or presence payloads", async () => {
+    const objects = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => {
+      const id = `node-${index}`;
+      return [id, object(id, index * 220, 100)];
+    }));
+    const diagrams = Object.fromEntries(Array.from({ length: 500 }, (_, index) => {
+      const id = `diagram-${String(index).padStart(3, "0")}`;
+      return [id, {
+        id, revision: 1, title: "A".repeat(200), description: "Large diagram description",
+        diagramType: "architecture" as const, category: null, tags: [],
+        memberObjectIds: Array.from({ length: 10 }, (_, offset) => `node-${index * 10 + offset}`),
+        connectorIds: [], bounds: { x: 0, y: 0, width: 500, height: 400 },
+        createdAt: NOW, updatedAt: NOW, createdBy: actor("alice"), lastEditedBy: actor("alice"),
+      }];
+    }));
+    for (const diagram of Object.values(diagrams)) {
+      for (const id of diagram.memberObjectIds) objects[id].diagramIds = [diagram.id];
+    }
+    const authoritative = room({ objects, diagrams });
+    const fixture = contextFixture(authoritative, Object.keys(objects).slice(0, 100));
+    const request = requestMock(async () => ({ ok: true, room: authoritative }));
+    const tool = toolByName(createJazzboardWebMcpTools(binding(fixture.context), { request }), "read_room_state");
+    const summary = await execute(tool, { detail: "summary" });
+    const full = await execute(tool, {});
+    expect(summary).toMatchObject({
+      ok: true,
+      data: {
+        detail: "summary", scope: "room", objectCount: 5_000,
+        objectKinds: { shape: 5_000, connector: 0 }, diagramCount: 500, diagramsTruncated: true,
+        selection: { count: 100, truncated: true },
+        room: { selfRole: "participant", roomRevision: 9, agentEditPolicy: "live" },
+        nextReads: {
+          objects: { tool: "query_objects", input: { expectedRoomRevision: 9 } },
+          ownedDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
+        },
+      },
+    });
+    if (!summary.ok || !full.ok) throw new Error("read failed");
+    const data = summary.data as { diagrams: unknown[]; selection: { objectIds: string[] } };
+    expect(data.diagrams).toHaveLength(20);
+    expect(data.selection.objectIds).toHaveLength(20);
+    for (const omitted of ["objects", "participants", "leases", "spotlight"]) expect(summary.data).not.toHaveProperty(omitted);
+    const summaryBytes = Buffer.byteLength(JSON.stringify(summary));
+    expect(summaryBytes).toBeLessThan(16_000);
+    expect(summaryBytes).toBeLessThan(Buffer.byteLength(JSON.stringify(full)) / 100);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.accepted).toEqual([authoritative, authoritative]);
+  });
+
+  it("scopes a summary to unique requested objects and reports missing IDs", async () => {
+    const fixture = contextFixture();
+    const request = requestMock(async () => ({ ok: true, room: room() }));
+    const tool = toolByName(createJazzboardWebMcpTools(binding(fixture.context, "spectator"), { request }), "read_room_state");
+    expect(await execute(tool, { detail: "summary", objectIds: ["service-a", "service-a", "missing"] })).toMatchObject({
+      ok: true,
+      data: { scope: "objects", objectCount: 1, missingObjectIds: ["missing"], missingObjectCount: 1, room: { selfRole: "spectator" } },
+    });
+    expect(tool.annotations?.readOnlyHint).toBe(true);
+    expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "GET" }));
+  });
+
+  it("guards exact room reads against revision changes and validates discovery inputs", async () => {
+    const fixture = contextFixture();
+    const request = requestMock(async () => ({ ok: true, room: room() }));
+    const tool = toolByName(createJazzboardWebMcpTools(binding(fixture.context), { request }), "read_room_state");
+    const validate = new Ajv({ strict: false }).compile(tool.inputSchema as object);
+    const validInput = { detail: "summary", expectedRoomRevision: 9 };
+    expect(validate(validInput)).toBe(true);
+    expect(await execute(tool, validInput)).toMatchObject({ ok: true });
+    expect(await execute(tool, { objectIds: ["service-a"], expectedRoomRevision: 8 })).toMatchObject({
+      ok: false,
+      error: { code: "ROOM_REVISION_CONFLICT", details: { expectedRoomRevision: 8, actualRoomRevision: 9 } },
+    });
+    for (const input of [{ detail: "invalid" }, { expectedRoomRevision: -1 }, { expectedRoomRevision: 1.5 }]) {
+      expect(validate(input)).toBe(false);
+      expect(await execute(tool, input)).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    }
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("returns a structured authorization error and does not accept room state on failed reads", async () => {
     const fixture = contextFixture();
     const request = requestMock(async () => {
@@ -473,7 +553,7 @@ describe("semantic mutation handlers", () => {
         proposal: { id: "proposal_1", status: "pending" },
       },
     });
-    expect(toolByName(tools, "update_object").description).toContain("outcome `proposed`");
+    expect(toolByName(tools, "update_object").description).toContain("`proposed` is not applied");
   });
 
   it.each([
@@ -593,7 +673,7 @@ describe("semantic mutation handlers", () => {
     );
     expect((createNode.inputSchema as { properties?: { nodeMetadata?: { description?: string } } })
       .properties?.nodeMetadata?.description).toMatch(
-        /only for decision or open_question.*omit for service.*component.*requirement.*kind matches nodeType/i,
+        /decision\/open_question lifecycle only.*kind must match nodeType/i,
       );
     const acceptedInputs = [
       {

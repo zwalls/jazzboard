@@ -224,6 +224,11 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           exactRevisionsGuardExistingEntityEdits: true,
         },
         data: {
+          retrieval: {
+            orient: { tool: "read_room_state", input: { detail: "summary" } },
+            recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
+            pagination: expect.stringContaining("nextPageInput"),
+          },
           bundleIndex: [
             { bundle: "quickstart_architecture", call: { bundle: "quickstart_architecture" } },
             { bundle: "quickstart_illustration", call: { bundle: "quickstart_illustration" } },

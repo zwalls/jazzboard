@@ -26,7 +26,7 @@ export const CONNECTOR_ROUTING_INPUT_JSON_SCHEMA = {
       minItems: 1,
       maxItems: 30,
       description:
-        "Ordered, agent-authored elbow vertices in absolute canvas coordinates. Never generated automatically.",
+        "Agent-authored absolute canvas elbow vertices; never generated.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -48,11 +48,7 @@ export const CONNECTOR_ROUTING_INPUT_JSON_SCHEMA = {
     },
     {
       if: { properties: { mode: { const: "elbow" } } },
-      else: { not: { required: ["elbowMidPoint"] } },
-    },
-    {
-      if: { properties: { mode: { const: "elbow" } } },
-      else: { not: { required: ["waypoints"] } },
+      else: { properties: { elbowMidPoint: false, waypoints: false } },
     },
   ],
 } as const;

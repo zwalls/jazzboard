@@ -107,7 +107,7 @@ const normalizedVectorPathSegment = z.discriminatedUnion("kind", [
 const nodeType = z.enum(["service", "component", "requirement", "decision", "open_question"]);
 const nodeStatus = z.enum(["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"]);
 const REVIEW_MODE_RESULT_NOTE =
-  " Review outcome `proposed` is not applied.";
+  " Review `proposed` is not applied.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
 const objectKind = z.enum(["text", "shape", "connector", "image", "draw", "path"]);
 const responseDetail = z.enum(["concise", "detailed"]);
@@ -771,7 +771,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
               owner: { type: ["string", "null"] },
               resolution: { type: ["string", "null"] },
             },
-            description: "Only for decision or open_question lifecycle state; omit for service, component, and requirement nodes. kind must equal nodeType.",
+            description: "Decision/open_question lifecycle only; kind must match nodeType.",
           },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           fill: { $ref: "#/$defs/paint" },
@@ -982,6 +982,7 @@ const queryInput = z
     text: z.string().trim().min(1).max(500).optional(),
     semanticName: semanticNameSchema.optional(),
     semanticRole: semanticRoleSchema.optional(),
+    objectIds: z.array(id).min(1).max(200).optional(),
     kinds: z.array(objectKind).min(1).max(5).optional(),
     nodeTypes: z.array(nodeType).min(1).max(5).optional(),
     nodeStatuses: z.array(nodeStatus).min(1).max(8).optional(),
@@ -991,9 +992,15 @@ const queryInput = z
     relationship: relationshipFilter.optional(),
     region: regionFilter.optional(),
     limit: z.number().int().min(1).max(200).default(50),
+    offset: z.number().int().min(0).max(5_000).default(0),
+    expectedRoomRevision: z.number().int().nonnegative().optional(),
     detail: readDetail.default("summary"),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.offset === 0 || value.expectedRoomRevision !== undefined,
+    { path: ["expectedRoomRevision"], message: "expectedRoomRevision is required when offset is greater than 0." },
+  );
 
 const QUERY_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -1002,6 +1009,12 @@ const QUERY_TOOL_INPUT_SCHEMA = {
     text: { type: "string" },
     semanticName: { type: "string", minLength: 1, maxLength: 160 },
     semanticRole: { type: "string", minLength: 1, maxLength: 128 },
+    objectIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 200,
+      items: { type: "string", minLength: 1, maxLength: 128 },
+    },
     kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw", "path"] } },
     nodeTypes: { type: "array", items: { enum: ["service", "component", "requirement", "decision", "open_question"] } },
     nodeStatuses: { type: "array", items: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] } },
@@ -1031,8 +1044,21 @@ const QUERY_TOOL_INPUT_SCHEMA = {
       },
     },
     limit: { type: "integer", minimum: 1, maximum: 200 },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      maximum: 5_000,
+    },
+    expectedRoomRevision: {
+      type: "integer",
+      minimum: 0,
+    },
     detail: { enum: ["summary", "full"] },
   },
+  anyOf: [
+    { properties: { offset: { maximum: 0 } } },
+    { required: ["expectedRoomRevision"] },
+  ],
 } as const;
 
 const neighborhoodInput = z
@@ -1068,8 +1094,14 @@ const findDiagramsInput = z
     tags: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     containsObjectId: id.optional(),
     limit: z.number().int().min(1).max(100).default(30),
+    offset: z.number().int().min(0).max(500).default(0),
+    expectedRoomRevision: z.number().int().nonnegative().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.offset === 0 || value.expectedRoomRevision !== undefined,
+    { path: ["expectedRoomRevision"], message: "expectedRoomRevision is required when offset is greater than 0." },
+  );
 
 const FIND_DIAGRAMS_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -1081,7 +1113,20 @@ const FIND_DIAGRAMS_TOOL_INPUT_SCHEMA = {
     tags: { type: "array", maxItems: 32, items: { type: "string" } },
     containsObjectId: { type: "string" },
     limit: { type: "integer", minimum: 1, maximum: 100 },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      maximum: 500,
+    },
+    expectedRoomRevision: {
+      type: "integer",
+      minimum: 0,
+    },
   },
+  anyOf: [
+    { properties: { offset: { maximum: 0 } } },
+    { required: ["expectedRoomRevision"] },
+  ],
 } as const;
 
 const readDiagramInput = z
@@ -1266,6 +1311,22 @@ class SemanticToolError extends Error {
   ) {
     super(message);
     this.name = "SemanticToolError";
+  }
+}
+
+function assertExpectedRoomRevision(
+  room: RoomState,
+  expectedRoomRevision: number | undefined,
+): void {
+  if (expectedRoomRevision !== undefined && room.roomRevision !== expectedRoomRevision) {
+    throw new SemanticToolError(
+      "ROOM_REVISION_CONFLICT",
+      "The Jazzboard room is not at the requested revision.",
+      {
+        expectedRoomRevision,
+        actualRoomRevision: room.roomRevision,
+      },
+    );
   }
 }
 
@@ -2491,17 +2552,23 @@ export function createJazzboardSemanticWebMcpTools(
       name: "query_objects",
       title: "Query semantic canvas objects",
       description:
-        "Find bounded objects by content, kind, node type, group, Diagram, relationship, or canvas region.",
+        "Find bounded objects by exact ID, content, type, group, Diagram, relationship, or region. Continue with nextPageInput.",
       schema: queryInput,
       inputSchema: QUERY_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
+        assertExpectedRoomRevision(room, input.expectedRoomRevision);
+        const requestedObjectIds = input.objectIds ? new Set(input.objectIds) : null;
+        const missingObjectIds = [...new Set(
+          input.objectIds?.filter((objectId) => !room.objects[objectId]) ?? [],
+        )];
         const related = input.relationship ? relationshipIds(room, input.relationship) : null;
         const query = input.text?.toLocaleLowerCase();
         const semanticName = input.semanticName?.toLocaleLowerCase();
         const semanticRole = input.semanticRole?.toLocaleLowerCase();
         const matches = Object.values(room.objects)
+          .filter((object) => !requestedObjectIds || requestedObjectIds.has(object.id))
           .filter((object) => !query || objectText(object).toLocaleLowerCase().includes(query))
           .filter((object) => !semanticName || object.semanticName?.toLocaleLowerCase().includes(semanticName))
           .filter((object) => !semanticRole || object.semanticRole?.toLocaleLowerCase().includes(semanticRole))
@@ -2529,20 +2596,34 @@ export function createJazzboardSemanticWebMcpTools(
           .filter((object) => !related || related.has(object.id))
           .filter((object) => !input.region || intersects(object, input.region))
           .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id));
-        const selected = matches.slice(0, input.limit);
+        const nextOffset = input.offset + input.limit < matches.length
+          ? input.offset + input.limit
+          : null;
+        const selected = matches.slice(input.offset, input.offset + input.limit);
+        const nextPageInput = nextOffset === null
+          ? null
+          : { ...input, offset: nextOffset, expectedRoomRevision: room.roomRevision };
         if (input.detail === "full") {
           return {
             roomRevision: room.roomRevision,
+            offset: input.offset,
+            nextOffset,
             totalMatched: matches.length,
-            truncated: matches.length > input.limit,
+            truncated: nextOffset !== null,
+            missingObjectIds,
+            nextPageInput,
             objects: selected,
           };
         }
         const diagramIds = selected.flatMap((object) => object.diagramIds);
         return {
           roomRevision: room.roomRevision,
+          offset: input.offset,
+          nextOffset,
           totalMatched: matches.length,
-          truncated: matches.length > input.limit,
+          truncated: nextOffset !== null,
+          missingObjectIds,
+          nextPageInput,
           objects: selected.map((object) => compactReadObject(room, object)),
           ...compactDiagramSummaries(room, diagramIds),
         };
@@ -2649,12 +2730,13 @@ export function createJazzboardSemanticWebMcpTools(
       name: "find_diagrams",
       title: "Find first-class diagrams",
       description:
-        "Find Diagrams by metadata or member ID without returning unrelated canvas objects.",
+        "Find Diagrams by metadata or member ID. Continue with nextPageInput.",
       schema: findDiagramsInput,
       inputSchema: FIND_DIAGRAMS_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
+        assertExpectedRoomRevision(room, input.expectedRoomRevision);
         const query = input.text?.toLocaleLowerCase();
         const diagrams = Object.values(room.diagrams ?? {})
           .filter(
@@ -2671,11 +2753,19 @@ export function createJazzboardSemanticWebMcpTools(
               diagram.connectorIds.includes(input.containsObjectId),
           )
           .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id));
+        const nextOffset = input.offset + input.limit < diagrams.length
+          ? input.offset + input.limit
+          : null;
         return {
           roomRevision: room.roomRevision,
+          offset: input.offset,
+          nextOffset,
           totalMatched: diagrams.length,
-          truncated: diagrams.length > input.limit,
-          diagrams: diagrams.slice(0, input.limit),
+          truncated: nextOffset !== null,
+          nextPageInput: nextOffset === null
+            ? null
+            : { ...input, offset: nextOffset, expectedRoomRevision: room.roomRevision },
+          diagrams: diagrams.slice(input.offset, input.offset + input.limit),
         };
       },
     }),

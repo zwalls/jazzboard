@@ -45,6 +45,7 @@ import type {
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
 import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
+import { roomOverview } from "./room-overview";
 
 const idSchema = z.string().min(1).max(128);
 const finite = z.number().finite();
@@ -108,7 +109,7 @@ const PAINT_FROM_COLOR_JSON_SCHEMA = {
   anyOf: [{ $ref: "#/$defs/color" }, { const: "none" }],
 } as const;
 const REVIEW_MODE_RESULT_NOTE =
-  " Review outcome `proposed` is not applied.";
+  " Review `proposed` is not applied.";
 const REVIEW_GATED_TOOL_NAMES = new Set([
   "create_text",
   "create_shape",
@@ -414,7 +415,11 @@ const deleteObjectsInputSchema = z
   .strict();
 
 const readRoomInputSchema = z
-  .object({ objectIds: z.array(idSchema).max(500).optional() })
+  .object({
+    objectIds: z.array(idSchema).max(500).optional(),
+    detail: z.enum(["summary", "full"]).default("full"),
+    expectedRoomRevision: z.number().int().nonnegative().optional(),
+  })
   .strict();
 
 const readSelectionInputSchema = z.object({}).strict();
@@ -770,29 +775,46 @@ export function createJazzboardWebMcpTools(
       name: "read_room_state",
       title: "Read Jazzboard room state",
       description:
-        "Read authoritative room objects and revisions, optionally by object ID.",
+        "detail=summary: bounded overview and next reads. Full (default): objects, optionally by ID. expectedRoomRevision pins a consistent read.",
       inputSchema: {
         type: "object",
-        properties: { objectIds: { type: "array", items: ID, maxItems: 500 } },
+        properties: {
+          objectIds: { type: "array", items: ID, maxItems: 500 },
+          detail: { enum: ["summary", "full"] },
+          expectedRoomRevision: { type: "integer", minimum: 0 },
+        },
         additionalProperties: false,
       },
       schema: readRoomInputSchema,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       async execute(input, signal) {
         const room = await readAuthorizedRoom(signal);
+        if (input.expectedRoomRevision !== undefined && input.expectedRoomRevision !== room.roomRevision) {
+          throw new ToolInputFailure("ROOM_REVISION_CONFLICT", "The room changed since the requested read revision.", {
+            expectedRoomRevision: input.expectedRoomRevision,
+            actualRoomRevision: room.roomRevision,
+          });
+        }
         const objects = input.objectIds
-          ? input.objectIds.flatMap((id) => room.objects[id] ?? [])
+          ? [...new Set(input.objectIds)].flatMap((id) => room.objects[id] ?? [])
           : Object.values(room.objects);
+        const roomSummary = {
+          id: room.id,
+          code: room.code,
+          title: room.title,
+          roomRevision: room.roomRevision,
+          selfParticipantId: binding.participantId,
+          agentEditPolicy: room.agentEditPolicy,
+          pendingAgentEditProposalCount: room.reviewProposals.filter((proposal) => proposal.status === "pending").length,
+        };
+        if (input.detail === "summary") {
+          return {
+            room: { ...roomSummary, selfRole: binding.role },
+            ...roomOverview(room, objects, binding.context.getSelection(), input.objectIds),
+          };
+        }
         return {
-          room: {
-            id: room.id,
-            code: room.code,
-            title: room.title,
-            roomRevision: room.roomRevision,
-            selfParticipantId: binding.participantId,
-            agentEditPolicy: room.agentEditPolicy,
-            pendingAgentEditProposalCount: room.reviewProposals.filter((proposal) => proposal.status === "pending").length,
-          },
+          room: roomSummary,
           objects,
           diagrams: Object.values(room.diagrams ?? {}),
           participants: Object.values(room.participants).map((participant) => ({
@@ -938,7 +960,7 @@ export function createJazzboardWebMcpTools(
           nodeType: { enum: ["component", "service", "requirement", "decision", "open_question"] },
           nodeMetadata: {
             type: "object",
-            description: "Only for decision or open_question lifecycle state; omit for service, component, and requirement nodes. kind matches nodeType.",
+            description: "Decision/open_question lifecycle only; kind must match nodeType.",
           },
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,

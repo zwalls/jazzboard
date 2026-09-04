@@ -971,6 +971,74 @@ async function readAndAssertRenderedRoutes(
 }
 
 test.describe("WebMCP browser acceptance", () => {
+  test("orients, paginates, rejects stale pages, and recovers compact drafts through registered tools", async ({ page }) => {
+    await installWebMcpShim(page);
+    await page.goto("/");
+    await expectRegisteredSurface(page, LANDING_WEBMCP_TOOL_NAMES);
+    successData(await callNavigationTool<LandingRoomData>(page, "create_room", {
+      displayName: "Context harness reader", title: "Context recovery regression",
+    }, /\/room\/room_[^/?#]+$/));
+    await expectRegisteredSurface(page, PARTICIPANT_ROOM_TOOL_NAMES);
+
+    // Instant fixture creation keeps this transport test independent of animation.
+    successData(await callWebMcpTool<TransactionData>(page, "apply_canvas_transaction", {
+      operations: [
+        ...[0, 1, 2].map((index) => ({
+          op: "create_node", nodeType: "component", tempRef: `context-${index}`, label: `Context ${index}`,
+          x: index * 350, y: 100,
+        })),
+        { op: "create_diagram", tempRef: "context-diagram", title: "Context map" },
+      ],
+    }));
+    const overview = successData(await callWebMcpTool<{
+      room: { roomRevision: number }; objectCount: number; diagrams: unknown[];
+    }>(page, "read_room_state", { detail: "summary" }));
+    expect(overview.objectCount).toBe(3);
+    expect(overview.diagrams).toHaveLength(1);
+    expect(overview).not.toHaveProperty("objects");
+
+    type ObjectPage = { objects: Array<{ id: string }>; nextPageInput: Record<string, unknown> | null };
+    const first = successData(await callWebMcpTool<ObjectPage>(page, "query_objects", {
+      limit: 1, expectedRoomRevision: overview.room.roomRevision,
+    }));
+    const ids = first.objects.map((object) => object.id);
+    let next = first.nextPageInput;
+    while (next) {
+      const result: ObjectPage = successData(await callWebMcpTool<ObjectPage>(page, "query_objects", next));
+      ids.push(...result.objects.map((object) => object.id));
+      next = result.nextPageInput;
+    }
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).toHaveLength(3);
+    const focused = successData(await callWebMcpTool<{ objects: Array<{ id: string }> }>(page, "query_objects", {
+      objectIds: [ids[1]], detail: "full", expectedRoomRevision: overview.room.roomRevision,
+    }));
+    expect(focused.objects.map((object) => object.id)).toEqual([ids[1]]);
+
+    successData(await callWebMcpTool(page, "create_text", { content: "Concurrent edit", x: 0, y: 400 }));
+    expect(await callWebMcpTool(page, "query_objects", first.nextPageInput!)).toMatchObject({
+      ok: false, error: { code: "ROOM_REVISION_CONFLICT", recovery: { retry: "after_refresh" } },
+    });
+
+    const staged = successData(await callWebMcpTool<{ draftId: string; draftRevision: number }>(page, "apply_canvas_transaction", {
+      operations: [{ op: "create_node", nodeType: "component", tempRef: "recoverable", label: "Recoverable", x: 1_200, y: 100 }],
+      delivery: { mode: "draft" },
+    }));
+    const summaries = successData(await callWebMcpTool<{ drafts: Array<{ id: string; revision: number }> }>(page, "read_canvas_drafts", {
+      detail: "summary", owner: "self",
+    }));
+    expect(summaries.drafts).toHaveLength(1);
+    expect(summaries.drafts[0]).toMatchObject({ id: staged.draftId, revision: staged.draftRevision });
+    expect(summaries.drafts[0]).not.toHaveProperty("previewObjects");
+    const exact = successData(await callWebMcpTool<{ draft: { previewObjects: unknown[] } }>(page, "read_canvas_drafts", {
+      draftId: staged.draftId, detail: "full",
+    }));
+    expect(exact.draft.previewObjects).toHaveLength(1);
+    successData(await callWebMcpTool(page, "finish_canvas_draft", {
+      draftId: staged.draftId, expectedDraftRevision: staged.draftRevision, action: "discard",
+    }));
+  });
+
   test("covers private landing actions, 54 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
