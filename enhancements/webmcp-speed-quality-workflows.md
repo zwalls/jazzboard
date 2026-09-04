@@ -1,7 +1,9 @@
 # WebMCP workflows: speed with correctness and visual quality
 
-Experimental successor to the context-recovery candidate, on
-`codex/webmcp-context-recovery`. No merge or deployment.
+Retained by user decision on `codex/webmcp-context-recovery` for now.
+No merge or deployment. EXP-0036 completed; observed times were lower, but
+measurement gaps and baseline visual preferences prevented advancement.
+See [the completed report](../research/reports/exp-0036-speed-quality.md).
 
 ## Product change
 
