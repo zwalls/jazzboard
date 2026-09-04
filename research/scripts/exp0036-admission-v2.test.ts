@@ -264,11 +264,14 @@ function admissionInput() {
       joinNativeProof: {
         ...nativeProof("join_room"),
         participantIdentitySha256: identitySha256,
+        identityBindingMethod: "controller_delta_bracketing_native_join",
+        outputContainsParticipantIdentity: false,
         requestedAt: "2026-09-04T21:50:03.000Z",
         respondedAt: "2026-09-04T21:50:04.000Z",
       },
       firstNaturalRoomToolProof: {
         ...nativeProof("query_objects"),
+        firstRoomScopedInvocationAfterJoin: true,
         promptDirected: false,
         requiredToolName: null,
       },

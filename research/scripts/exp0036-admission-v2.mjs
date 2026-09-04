@@ -26,6 +26,9 @@ const FORBIDDEN_COOKIE_OBSERVATION_KEYS = new Set([
   "postJoinCookieDomain",
   "postJoinCookieHttpOnly",
 ]);
+const LANDING_TOOL_NAMES = new Set([
+  "create_room", "join_room", "list_recent_rooms", "open_recent_room", "remove_recent_room",
+]);
 
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -499,13 +502,16 @@ export function evaluateExp0036AttemptAdmissionV2(input, options = {}) {
     && join.invocationSequence > preJoin.invocationSequence
     && completedWithinWindow(join, taskStartedMs, observedMs, taskWindowMs)
     && SHA256.test(join.participantIdentitySha256 ?? "")
+    && join.identityBindingMethod === "controller_delta_bracketing_native_join"
+    && join.outputContainsParticipantIdentity === false
     && !priorSessionIdentitySha256s?.includes(join.participantIdentitySha256),
   "FRESH_NATIVE_JOIN_MISSING_V2", failures);
   const naturalRoomToolFresh = gate(validNativeProof(firstRoomTool, expected, hostname)
-    && !["join_room", "list_recent_rooms"].includes(firstRoomTool.toolName)
+    && !LANDING_TOOL_NAMES.has(firstRoomTool.toolName)
     && firstRoomTool.outcome === "success"
     && firstRoomTool.invocationSequence > join.invocationSequence
     && completedWithinWindow(firstRoomTool, taskStartedMs, observedMs, taskWindowMs)
+    && firstRoomTool.firstRoomScopedInvocationAfterJoin === true
     && firstRoomTool.promptDirected === false && firstRoomTool.requiredToolName === null,
   "FIRST_NATURAL_ROOM_TOOL_MISSING_V2", failures);
   const participantDeltaBound = gate(delta.method === "controller_room_snapshot_before_after_join"
