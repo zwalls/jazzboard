@@ -35,6 +35,17 @@ function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+function documentState(room) {
+  const document = { ...room };
+  delete document.stateRevision;
+  delete document.participants;
+  return document;
+}
+
+function changedRoomKeys(left, right) {
+  return Object.keys({ ...left, ...right }).filter((key) => canonical(left?.[key]) !== canonical(right?.[key])).sort();
+}
+
 function parseArgs(argv) {
   const values = {};
   for (let index = 0; index < argv.length; index += 2) {
@@ -91,6 +102,16 @@ async function executeTool(page, name, input, timeoutMs = TIMEOUT_MS) {
       clearTimeout(timer);
     }
   }, { toolName: name, toolInput: input, toolTimeoutMs: timeoutMs });
+}
+
+async function supportedToolInput(page, name, preferred) {
+  return page.evaluate(({ toolName, preferredInput }) => {
+    const tool = window.__jazzboardExp0036CaptureTools?.get(toolName);
+    if (!tool) throw new Error(`EXP0036_CAPTURE_TOOL_NOT_REGISTERED:${toolName}`);
+    const properties = tool.inputSchema?.properties;
+    if (!properties || typeof properties !== "object") return {};
+    return Object.fromEntries(Object.entries(preferredInput).filter(([key]) => key in properties));
+  }, { toolName: name, preferredInput: preferred });
 }
 
 function successfulTool(result, name) {
@@ -172,8 +193,9 @@ async function capture(args) {
   const snapshotBytes = await readFile(snapshotPath);
   const snapshot = JSON.parse(snapshotBytes.toString("utf8"));
   const before = await authoritativeRoom(args.origin, controller.beforeRoom.id, controller.controllerCookie);
-  assert(snapshot?.id === controller.beforeRoom.id && canonical(snapshot) === canonical(before),
-    "Controller after snapshot is absent, stale, or for a different room.");
+  assert(snapshot?.id === controller.beforeRoom.id
+    && canonical(documentState(snapshot)) === canonical(documentState(before)),
+  "Controller after snapshot is absent, stale, or has different document state.");
   const revision = before.roomRevision;
   assert(Number.isSafeInteger(revision) && revision > 0 && Object.keys(before.objects ?? {}).length > 0,
     "Creation capture requires a non-empty positive-revision room.");
@@ -211,10 +233,11 @@ async function capture(args) {
       return tools?.has("read_room_state") && tools.has("inspect_canvas_scope") && tools.has("export_canvas_png");
     }, undefined, { timeout: 30_000 });
 
-    const openingRead = await executeTool(page, "read_room_state", {
+    const readRoomStateInput = await supportedToolInput(page, "read_room_state", {
       detail: "full",
       expectedRoomRevision: revision,
-    }, 30_000);
+    });
+    const openingRead = await executeTool(page, "read_room_state", readRoomStateInput, 30_000);
     const openingData = successfulTool(openingRead, "read_room_state");
     assert(openingData.room?.roomRevision === revision, "Browser opening read does not match the authoritative revision.");
 
@@ -256,20 +279,19 @@ async function capture(args) {
       && download.suggestedFilename() === exportData.filename,
     "Exported PNG bytes or revision provenance do not match the tool receipt.");
 
-    const closingRead = await executeTool(page, "read_room_state", {
-      detail: "full",
-      expectedRoomRevision: revision,
-    }, 30_000);
+    const closingRead = await executeTool(page, "read_room_state", readRoomStateInput, 30_000);
     const closingData = successfulTool(closingRead, "read_room_state");
     assert(closingData.room?.roomRevision === revision, "Browser closing read observed a revision change.");
     const after = await authoritativeRoom(args.origin, controller.beforeRoom.id, controller.controllerCookie);
-    assert(canonical(after) === canonical(before), "Authoritative room changed during final evidence capture.");
+    assert(canonical(documentState(after)) === canonical(documentState(before)),
+      "Authoritative document changed during final evidence capture.");
 
     const finalPngPath = path.join(privateDirectory, `final-r${revision}.png`);
     const cleanViewportPath = path.join(privateDirectory, `clean-viewport-r${revision}.png`);
     const finalStatePath = path.join(privateDirectory, "final-state.json");
     const sanitizedStatePath = path.join(privateDirectory, "sanitized-final-state.json");
     const inspectionPath = path.join(privateDirectory, "inspection.json");
+    const roomStateDiffPath = path.join(privateDirectory, "capture-room-state-diff.json");
     const pngDigest = sha256(png);
     const bindings = reviewBindings(args.attemptId).map(({ reviewSlotId, side }) => ({
       reviewSlotId,
@@ -293,6 +315,17 @@ async function capture(args) {
     await saveExclusive(finalStatePath, after);
     await saveExclusive(sanitizedStatePath, sanitizeExp0036FinalState(after));
     await saveExclusive(inspectionPath, { openingRead, inspection, exportResult, closingRead });
+    const roomStateDiff = {
+      schemaVersion: "jazzboard-exp0036-capture-room-state-diff/v1",
+      documentStateUnchanged: true,
+      documentStateSha256: sha256(Buffer.from(canonical(documentState(after)), "utf8")),
+      snapshotToOpeningChangedKeys: changedRoomKeys(snapshot, before),
+      openingToClosingChangedKeys: changedRoomKeys(before, after),
+      snapshot: { stateRevision: snapshot.stateRevision, participants: snapshot.participants },
+      opening: { stateRevision: before.stateRevision, participants: before.participants },
+      closing: { stateRevision: after.stateRevision, participants: after.participants },
+    };
+    await saveExclusive(roomStateDiffPath, roomStateDiff);
     const bindingReceipts = [];
     for (const binding of bindings) {
       const metadataPath = path.join(
@@ -330,6 +363,10 @@ async function capture(args) {
       reviewerArtifactMetadata: bindingReceipts,
       controllerEvidenceFileSha256: sha256(controllerBytes),
       controllerAfterSnapshotFileSha256: sha256(snapshotBytes),
+      captureRoomStateDiff: {
+        path: roomStateDiffPath,
+        sha256: sha256(Buffer.from(`${JSON.stringify(roomStateDiff, null, 2)}\n`, "utf8")),
+      },
       browser: { engine: "chromium", version: browser.version() },
       capturedAt: new Date().toISOString(),
     };
