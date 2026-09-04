@@ -45,6 +45,10 @@ function ledgerFromReceipt(receipt) {
 }
 
 function admissionCalls(receipt) {
+  if ((receipt?.transport?.rejectedEventCount ?? 0) > 0
+      || receipt?.transport?.zeroDrops === false) {
+    throw new Error("Collector stream became incomplete before admission evidence was captured.");
+  }
   const ledger = ledgerFromReceipt(receipt);
   const calls = ledger?.calls ?? [];
   const preJoin = calls.find((call) => call.sequence === 1 && call.toolName === "list_recent_rooms"
@@ -232,6 +236,10 @@ export async function watchExp0036Admission(config) {
   while (!calls && Date.now() < deadline) {
     collectorResponse = await fetchStatus(launch);
     calls = admissionCalls(receiptFrom(collectorResponse));
+    const sessionText = await readFile(path.resolve(config.sessionLogPath), "utf8");
+    if (!calls && sessionText.includes('"type":"task_complete"')) {
+      throw new Error("Task completed before ordered native admission calls were captured.");
+    }
     if (!calls) await delay(pollMs);
   }
   if (!calls) throw new Error("Timed out waiting for ordered native admission calls.");

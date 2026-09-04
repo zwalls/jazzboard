@@ -389,6 +389,8 @@ export async function assembleExp0036IncompleteEvidence(config) {
   const eventTypes = receipt.transport?.events?.map((event) => event.eventType ?? event.event?.type) ?? [];
   const reasons = [];
   if (receipt.seal?.complete !== true) reasons.push("COLLECTOR_RECEIPT_NOT_SEALED");
+  if ((receipt.transport?.rejectedEventCount ?? 0) > 0) reasons.push("COLLECTOR_EVENT_REJECTIONS_PRESENT");
+  if (receipt.transport?.zeroDrops !== true) reasons.push("COLLECTOR_ZERO_DROPS_NOT_ESTABLISHED");
   if (receipt.seal?.ledgerSealed !== true || ledger.lifecycle?.state !== "sealed") {
     reasons.push("NATIVE_LEDGER_NOT_SEALED");
   }
