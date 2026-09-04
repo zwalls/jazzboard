@@ -46,43 +46,43 @@ export type JazzboardCanvasCapabilityBundle =
 const BUNDLE_INDEX = [
   {
     bundle: "quickstart_architecture",
-    useWhen: "Starting new relationship-heavy architecture or flow work.",
+    useWhen: "Start a relationship-heavy diagram.",
     call: { bundle: "quickstart_architecture" },
   },
   {
     bundle: "quickstart_illustration",
-    useWhen: "Starting new freeform illustration or visual-art work.",
+    useWhen: "Start freeform visual art.",
     call: { bundle: "quickstart_illustration" },
   },
   {
     bundle: "authoring",
     useWhen:
-      "Exact primitive, color, transparency, point-space, transaction, or update mechanics are needed.",
+      "Need exact primitive, paint, point-space, transaction, or update mechanics.",
     call: { bundle: "authoring" },
   },
   {
     bundle: "architecture",
     useWhen:
-      "Creating or revising a system, flow, hierarchy, process, or other relationship-heavy Diagram.",
+      "Create or revise a relationship-heavy Diagram.",
     call: { bundle: "architecture" },
   },
   {
     bundle: "illustration",
     useWhen:
-      "Creating a portrait, scene, storyboard, annotation, path-heavy drawing, or layered freeform composition.",
+      "Create or revise layered freeform art.",
     call: { bundle: "illustration" },
   },
   {
     bundle: "inspection",
     useWhen:
-      "Reviewing an exact rendered scope, diagnosing visual defects, or deciding whether work is complete.",
+      "Inspect exact pixels or diagnose visual defects.",
     call: { bundle: "inspection" },
   },
 ] as const;
 
 const UNIVERSAL_AGENT_PRINCIPLES = [
   "The user's requested meaning, composition, and acceptance criteria control the work.",
-  "Read the narrowest authoritative semantic scope and preserve exact revisions before editing.",
+  "Existing board: room summary first, then scoped reads; preserve exact revisions.",
   "Use a progressive draft by default for visible new compositions. Direct transactions serve revision-checked corrections, explicitly instant work, or work without a live audience.",
   "Author at full speed within transaction limits; never split or pause for animation. The client queues rapid cumulative revisions; finish once and Jazzboard waits for presentation.",
   "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
@@ -93,9 +93,13 @@ const UNIVERSAL_AGENT_PRINCIPLES = [
 
 const CORE_CAPABILITIES = {
   retrieval: {
-    orient: { tool: "read_room_state", input: { detail: "summary" } },
+    orient: {
+      tool: "read_room_state",
+      input: { detail: "summary" },
+      next: "Then use copy-ready scoped reads; avoid legacy full state.",
+    },
     recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
-    focusedObjects: "query_objects: exact objectIds; full for needed geometry.",
+    focusedObjects: "query_objects exact IDs/filters at summary; full if required content/geometry is absent.",
     pagination: "query_objects/find_diagrams: follow nextPageInput until null. Restart on revision conflict; never mix revisions.",
   },
   coordinateSystem: {
@@ -709,14 +713,21 @@ const QUICKSTART_CANONICAL_DRAFT_JSON = JSON.stringify(
 );
 
 const QUICKSTART_CANONICAL_DIRECT_CORRECTION = {
-  update: {
-    operations: [{
-      op: "update_object",
-      objectId: "authoritative_object_id",
-      expectedRevision: 1,
-      patch: { width: 240 },
-    }],
-    responseDetail: "concise",
+  batch: {
+    operations: [
+      {
+        op: "update_object",
+        objectId: "a",
+        expectedRevision: 3,
+        patch: { semanticRole: "role" },
+      },
+      {
+        op: "update_object",
+        objectId: "b",
+        expectedRevision: 5,
+        patch: { semanticRole: "role" },
+      },
+    ],
   },
 } as const;
 
@@ -779,10 +790,11 @@ function canvasQuickstart(
     role,
     roleCanMutateCanvas: role === "participant",
     purpose:
-      `${task} fast path.`,
+      `${task} path.`,
     fastPath: [
-      "Blank target: skip read; else read.",
-      "Adapt canonicalDraftJson as one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
+      "Blank: skip read. Existing board: read_room_state summary first, then scoped query_objects/read_diagram/read_neighborhood; full if required content/geometry is absent.",
+      "Batch existing-object metadata: <=200 revision-guarded update_object ops per direct apply_canvas_transaction; no delivery or serial calls.",
+      "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "Schema rejection: fix all paths once; preserve Diagram/membership.",
       "draftValidation: parse canonicalDraftCorrectionJson; failCount=0 does not clear task-relevant warnings.",
       "Connector conflicts: recommendedRouteComparison; if all routes fail, change node spacing/routes and retry.",
@@ -796,34 +808,33 @@ function canvasQuickstart(
       responseDetail: "concise",
       operationLimit: 200,
       metadataPlacement:
-        "Root: operations, delivery, responseDetail, intent, summary; no expectedRoomRevision. Creates need semantic identity.",
+        "Root: operations/delivery/responseDetail/intent/summary; no expectedRoomRevision. Creates need identity.",
       schemaAuthority:
-        "Registered schema is final; fix every path and never retry unchanged.",
+        "Schema is final: fix every path; never retry unchanged.",
     },
     draftPreflight: {
       field: "draftValidation",
       losslessCorrectionField: "canonicalDraftCorrectionJson",
       routeComparisonField: "recommendedRouteComparison",
       authority:
-        "Intent-unaware evidence; never override requested or deliberate geometry.",
+        "Intent-unaware; never override requested or deliberate geometry.",
       correction:
-        "Parse canonicalDraftCorrectionJson. recommendedRouteComparison: author 2-8 exact alternatives; analyze_diagram_layout compares read-only. If all fail, change node spacing/routes and compare again; else choose/apply one, recheck, inspect pixels. Jazzboard chooses no geometry.",
+        "Parse canonicalDraftCorrectionJson. recommendedRouteComparison: author 2-8 alternatives; analyze_diagram_layout compares read-only. If all fail, alter node spacing/routes and compare again; else choose/apply one. Recheck pixels. Jazzboard chooses no geometry.",
     },
     canonicalDraftJson: QUICKSTART_CANONICAL_DRAFT_JSON,
     canonicalDirectCorrection: QUICKSTART_CANONICAL_DIRECT_CORRECTION,
     readabilityHeuristics: [
-      "First draft: delivery.mode=draft; patch/replace draftId needs expectedDraftRevision.",
-      "New create_diagram: tempRef/title/description/type/category/tags/members/connectors; no spatial/semantic identity. diagramTempRef only: edit_diagram draft patches, never object creates. Fix errors; keep semantic structure.",
+      "Draft create: delivery.mode=draft; patches need draftId+expectedDraftRevision.",
+      "create_diagram needs tempRef/title/description/type/category/tags/members/connectors, never geometry/semantic identity. diagramTempRef is only for edit_diagram draft patches. Fix errors; keep semantic structure.",
       "Ports are {side:left|right|top|bottom,position:0..1,exact:boolean}, not strings.",
       "Curved: |bend|>=8; midpoints are 0..1.",
-      "relationshipAssertions checks explicit endpoints/direction/label/coverage/tempRefs before mutation without choosing facts. Before finish, compare relationshipReview actual start->end with task facts; prose never overrides endpoints.",
-      "Node floors 1/2/3 lines: 180x88/220x110/260x132; width >= 12*longest visible line characters+48. Deliberate exceptions valid; correct outward or shorten, never into occupied space.",
-      "Straight labeled edge gap >= max(160,12*visible label characters+48); else shorten or use an empty curved/elbow label lane. Keep necessary meaning.",
-      "If one row makes the overview microscopic, choose multiple rows/ranks with clear reading order. Guidance only; never imposed layout or creative authority.",
-      "Shared sides/hubs need distinct ports and empty lanes chosen before creation; layout is not imposed.",
-      "Container/plane: semanticRole boundary/container/plane/region/zone/background; empty shape label, inset title, 72-unit clear header. Containment ignored; title occlusion reports.",
-      "Draft Diagram edit: edit_diagram + diagramTempRef + exact patch delivery.",
-      "Patch unintended failures (update_draft_connector for edges), recheck, then inspect newest revision; geometryQualityStatus=fail blocks conventional completion.",
+      "relationshipAssertions checks explicit endpoints/direction/label/coverage/tempRefs before mutation without choosing facts. Before finish, compare relationshipReview start->end with task facts; prose cannot override endpoints.",
+      "Node floors 1/2/3 lines: 180x88/220x110/260x132; width>=12*longest line+48. Deliberate exceptions valid; correct outward/shorten, never into occupied space.",
+      "Straight label gap>=max(160,12*characters+48); else shorten or use an empty curved/elbow lane. Keep necessary meaning.",
+      "If one row makes the overview microscopic, use clear rows/ranks. Guidance only, never imposed layout or creative authority.",
+      "Shared sides/hubs: choose distinct ports and empty lanes before creation; layout is not imposed.",
+      "Container/plane roles: boundary/container/plane/region/zone/background; empty label, inset title, 72-unit clear header. Containment ignored; title occlusion reports.",
+      "Patch unintended failures (update_draft_connector for edges), recheck, inspect newest revision; geometryQualityStatus=fail blocks conventional completion.",
     ],
     completion: {
       tool: "finish_canvas_draft",
@@ -831,12 +842,12 @@ function canvasQuickstart(
       confirmationRequired: false,
       finalInspection: "inspect_canvas_scope",
       blockingState:
-        "geometryQualityStatus=fail is not complete; correct it. Deliberate freeform geometry requires exact per-key rationales, never user approval.",
+        "geometryQualityStatus=fail is not complete. Deliberate freeform findings need exact rationales, never approval.",
     },
     escalation: {
       capabilityTool: "get_canvas_capabilities",
       useOnlyWhen:
-        `At most load ${task} for an unfamiliar or rejected mechanic; do not preload multiple bundles.`,
+        `Load at most ${task} for recovery; never preload bundles.`,
     },
   };
 }

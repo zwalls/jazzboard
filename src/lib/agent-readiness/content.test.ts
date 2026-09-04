@@ -221,7 +221,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.35.0");
+    expect(AGENT_DOC_VERSION).toBe("1.36.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -541,6 +541,27 @@ describe("agent-readable content", () => {
     expect(corpus).toContain("private participant");
     expect(corpus).toContain("submission-time snapshot");
     expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
+  });
+
+  it("makes existing-board discovery summary-first and batches repeated metadata edits", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      guide: makeAgentGuideMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits the summary-first existing-board sequence`).toMatch(
+        /existing board[^\n]*read_room_state[^\n]*summary[^\n]*scoped[^\n]*full[^\n]*required content or geometry[^\n]*absent/i,
+      );
+      expect(body, `${name} omits bounded atomic metadata batching`).toMatch(
+        /metadata change[^\n]*200[^\n]*update_object[^\n]*serial/i,
+      );
+      expect(body, `${name} omits atomic transaction guidance`).toMatch(
+        /atomic transaction|apply_canvas_transaction/i,
+      );
+    }
   });
 
   it("makes progressive completion autonomous and gives agents actionable failure recovery", () => {

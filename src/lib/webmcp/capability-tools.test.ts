@@ -91,6 +91,8 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             role,
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
+              expect.stringMatching(/existing board.*read_room_state.*summary first.*scoped query_objects.*full.*required content\/geometry.*absent/i),
+              expect.stringMatching(/batch existing-object metadata.*<=200.*revision-guarded update_object.*direct apply_canvas_transaction.*no delivery or serial/i),
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*fix all paths.*preserve Diagram\/membership/i),
               expect.stringMatching(/draftValidation/i),
@@ -112,32 +114,38 @@ describe("get_canvas_capabilities WebMCP tool", () => {
               losslessCorrectionField: "canonicalDraftCorrectionJson",
               routeComparisonField: "recommendedRouteComparison",
               authority: expect.stringMatching(/intent-unaware.*never override/i),
-              correction: expect.stringMatching(/canonicalDraftCorrectionJson.*recommendedRouteComparison.*author 2-8.*analyze_diagram_layout.*read-only.*all fail.*node spacing\/routes.*compare again.*choose\/apply.*inspect pixels.*chooses no geometry/i),
+              correction: expect.stringMatching(/canonicalDraftCorrectionJson.*recommendedRouteComparison.*author 2-8.*analyze_diagram_layout.*read-only.*all fail.*node spacing\/routes.*compare again.*choose\/apply.*recheck pixels.*chooses no geometry/i),
             },
             canonicalDraftJson: expect.any(String),
             canonicalDirectCorrection: {
-              update: {
-                operations: [{
-                  op: "update_object",
-                  objectId: "authoritative_object_id",
-                  expectedRevision: 1,
-                  patch: { width: 240 },
-                }],
-                responseDetail: "concise",
+              batch: {
+                operations: [
+                  expect.objectContaining({
+                    op: "update_object",
+                    objectId: "a",
+                    expectedRevision: 3,
+                    patch: { semanticRole: "role" },
+                  }),
+                  expect.objectContaining({
+                    op: "update_object",
+                    objectId: "b",
+                    expectedRevision: 5,
+                    patch: { semanticRole: "role" },
+                  }),
+                ],
               },
             },
             readabilityHeuristics: expect.arrayContaining([
-              expect.stringMatching(/first draft.*draftId.*needs expectedDraftRevision/i),
-              expect.stringMatching(/new create_diagram.*no spatial\/semantic identity.*diagramTempRef.*only.*edit_diagram.*never object creates.*keep semantic structure/i),
+              expect.stringMatching(/draft create.*draftId\+expectedDraftRevision/i),
+              expect.stringMatching(/create_diagram.*never geometry\/semantic identity.*diagramTempRef.*only.*edit_diagram.*keep semantic structure/i),
               expect.stringMatching(/ports are.*side:left.*not strings/i),
-              expect.stringMatching(/relationshipAssertions.*endpoint.*direction.*label.*before mutation.*without choosing facts.*relationshipReview.*actual start->end.*task facts.*prose never overrides endpoints/i),
-              expect.stringMatching(/node floors.*180x88.*260x132.*12\*longest visible line characters\+48.*deliberate exceptions/i),
-              expect.stringMatching(/straight labeled edge.*max\(160.*12\*visible label characters\+48\).*keep necessary meaning/i),
-              expect.stringMatching(/one row.*overview microscopic.*multiple rows\/ranks.*never imposed layout or creative authority/i),
+              expect.stringMatching(/relationshipAssertions.*endpoint.*direction.*label.*before mutation.*without choosing facts.*relationshipReview.*start->end.*task facts.*prose.*override endpoints/i),
+              expect.stringMatching(/node floors.*180x88.*260x132.*12\*longest line\+48.*deliberate exceptions/i),
+              expect.stringMatching(/straight label.*max\(160.*12\*characters\+48\).*keep necessary meaning/i),
+              expect.stringMatching(/one row.*overview microscopic.*rows\/ranks.*never imposed layout or creative authority/i),
               expect.stringMatching(/hubs.*distinct ports.*empty lanes.*layout is not imposed/i),
-              expect.stringMatching(/container\/plane.*semanticRole.*inset title.*72-unit clear header/i),
-              expect.stringMatching(/draft Diagram.*edit_diagram.*diagramTempRef/i),
-              expect.stringMatching(/patch unintended failures.*update_draft_connector.*geometryQualityStatus=fail.*blocks/i),
+              expect.stringMatching(/container\/plane roles.*inset title.*72-unit clear header.*containment ignored.*title occlusion/i),
+              expect.stringMatching(/patch unintended failures.*update_draft_connector.*newest revision.*geometryQualityStatus=fail.*blocks/i),
             ]),
             completion: {
               tool: "finish_canvas_draft",
@@ -148,7 +156,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             },
             escalation: {
               capabilityTool: "get_canvas_capabilities",
-              useOnlyWhen: expect.stringMatching(/at most.*architecture.*do not preload multiple/i),
+              useOnlyWhen: expect.stringMatching(/at most architecture.*recovery.*never preload bundles/i),
             },
           },
         },
@@ -225,8 +233,13 @@ describe("get_canvas_capabilities WebMCP tool", () => {
         },
         data: {
           retrieval: {
-            orient: { tool: "read_room_state", input: { detail: "summary" } },
+            orient: {
+              tool: "read_room_state",
+              input: { detail: "summary" },
+              next: expect.stringMatching(/copy-ready scoped reads.*avoid legacy full/i),
+            },
             recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
+            focusedObjects: expect.stringMatching(/query_objects.*exact IDs\/filters.*summary.*full.*required content\/geometry.*absent/i),
             pagination: expect.stringContaining("nextPageInput"),
           },
           bundleIndex: [

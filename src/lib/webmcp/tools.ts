@@ -775,7 +775,7 @@ export function createJazzboardWebMcpTools(
       name: "read_room_state",
       title: "Read Jazzboard room state",
       description:
-        "detail=summary: bounded overview and next reads. Full (default): objects, optionally by ID. expectedRoomRevision pins a consistent read.",
+        "Start existing-board work with detail=summary for counts/next reads. Full (default): complete records; scope by objectIds. expectedRoomRevision pins reads.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1288,7 +1288,7 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "update_object",
       title: "Update a semantic canvas object",
-      description: "Edit one revision-checked object.",
+      description: "Edit one revision-checked object. Batch related multi-object edits with apply_canvas_transaction.",
       inputSchema: {
         type: "object",
         properties: {

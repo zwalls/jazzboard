@@ -2983,7 +2983,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Canvas transaction",
       description:
-        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review; call finish_canvas_draft yourself; no confirmation. Assertions check facts; no inference. Concise: parse canonicalDraftCorrectionJson once. updateMode=patch sends affected stable tempRefs. Edits omit delivery. Root: operations/relationshipAssertions/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary inert.",
+        "Visible multi-object work: delivery.mode=draft, bot-traced not review; finish_canvas_draft yourself, no confirmation. Batch existing-object edits; omit delivery. Assertions check facts, not inference. Parse canonicalDraftCorrectionJson once. updateMode=patch: affected stable tempRefs. Root: no expectedRoomRevision. Per-op intent/summary inert.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },
