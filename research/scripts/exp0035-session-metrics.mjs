@@ -58,6 +58,13 @@ function explicitErrorText(item) {
       return candidateRecord.message;
     }
   }
+  if (item.status === "failed") {
+    const output = visibleHostOutput(item);
+    if (output.status === "observed") {
+      const text = output.fragments.join("\n").trim();
+      if (text) return text;
+    }
+  }
   return null;
 }
 

@@ -40,6 +40,19 @@ function hostCall(item: Record<string, unknown>, startedAtMs: number, completedA
 }
 
 describe("EXP0035 retained-session metrics", () => {
+  it("retains host failures reported as tool-result text", () => {
+    const result = summarizeExp0035Session(boundaries([
+      hostCall({
+        type: "McpToolCall",
+        status: "failed",
+        result: { isError: true, content: [{ type: "text", text: "The Mac is locked." }] },
+      }, 101_000, 102_000),
+    ]));
+    expect(result.hostCalls.errors).toMatchObject([
+      { errorTextStatus: "observed", errorText: "The Mac is locked." },
+    ]);
+  });
+
   it("reports exact host events, final text, errors, and observed UTF-8 read output", () => {
     const readText = '{"objects":["Mira","café","🎷"]}';
     const raw = boundaries([
