@@ -91,7 +91,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             role,
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
-              expect.stringMatching(/existing board.*read_room_state.*summary first.*scoped query_objects.*full.*required content\/geometry.*absent/i),
+              expect.stringMatching(/broad\/unfamiliar board.*read_room_state summary.*scoped reads.*known IDs\/narrow scope.*query directly.*full.*required content\/geometry.*absent/i),
               expect.stringMatching(/batch existing-object metadata.*<=200.*revision-guarded update_object.*direct apply_canvas_transaction.*no delivery or serial/i),
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*fix all paths.*preserve Diagram\/membership/i),
@@ -236,7 +236,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             orient: {
               tool: "read_room_state",
               input: { detail: "summary" },
-              next: expect.stringMatching(/copy-ready scoped reads.*avoid legacy full/i),
+              next: expect.stringMatching(/broad\/unfamiliar scope.*known IDs\/narrow scope.*query directly/i),
             },
             recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
             focusedObjects: expect.stringMatching(/query_objects.*exact IDs\/filters.*summary.*full.*required content\/geometry.*absent/i),
@@ -252,6 +252,7 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           ],
           universalAgentPrinciples: expect.arrayContaining([
             expect.stringMatching(/user's requested meaning/i),
+            expect.stringMatching(/broad\/unfamiliar scope.*room summary first.*known IDs\/narrow scope.*directly/i),
             expect.stringMatching(/preserve deliberate|deliberate.*geometry/i),
             expect.stringMatching(/pixels/i),
             expect.stringMatching(/retrying blindly/i),

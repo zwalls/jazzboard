@@ -82,7 +82,7 @@ const BUNDLE_INDEX = [
 
 const UNIVERSAL_AGENT_PRINCIPLES = [
   "The user's requested meaning, composition, and acceptance criteria control the work.",
-  "Existing board: room summary first, then scoped reads; preserve exact revisions.",
+  "Existing board: broad/unfamiliar scope uses room summary first; known IDs/narrow scope reads directly. Preserve revisions.",
   "Use a progressive draft by default for visible new compositions. Direct transactions serve revision-checked corrections, explicitly instant work, or work without a live audience.",
   "Author at full speed within transaction limits; never split or pause for animation. The client queues rapid cumulative revisions; finish once and Jazzboard waits for presentation.",
   "Automatic layout, routing, and deterministic findings are optional evidence, not creative authority.",
@@ -96,7 +96,7 @@ const CORE_CAPABILITIES = {
     orient: {
       tool: "read_room_state",
       input: { detail: "summary" },
-      next: "Then use copy-ready scoped reads; avoid legacy full state.",
+      next: "Use first for broad/unfamiliar scope; known IDs/narrow scope query directly.",
     },
     recoverDrafts: { tool: "read_canvas_drafts", input: { detail: "summary", owner: "self" } },
     focusedObjects: "query_objects exact IDs/filters at summary; full if required content/geometry is absent.",
@@ -790,9 +790,9 @@ function canvasQuickstart(
     role,
     roleCanMutateCanvas: role === "participant",
     purpose:
-      `${task} path.`,
+      `${task}.`,
     fastPath: [
-      "Blank: skip read. Existing board: read_room_state summary first, then scoped query_objects/read_diagram/read_neighborhood; full if required content/geometry is absent.",
+      "Blank: skip read. Broad/unfamiliar board: read_room_state summary, then scoped reads. Known IDs/narrow scope: query directly. Full if required content/geometry is absent.",
       "Batch existing-object metadata: <=200 revision-guarded update_object ops per direct apply_canvas_transaction; no delivery or serial calls.",
       "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "Schema rejection: fix all paths once; preserve Diagram/membership.",

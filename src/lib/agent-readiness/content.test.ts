@@ -543,7 +543,7 @@ describe("agent-readable content", () => {
     expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
   });
 
-  it("makes existing-board discovery summary-first and batches repeated metadata edits", () => {
+  it("makes existing-board discovery task-aware and batches repeated metadata edits", () => {
     const documents = {
       llms: makeLlmsTxt(),
       guide: makeAgentGuideMarkdown(),
@@ -552,8 +552,8 @@ describe("agent-readable content", () => {
     };
 
     for (const [name, body] of Object.entries(documents)) {
-      expect(body, `${name} omits the summary-first existing-board sequence`).toMatch(
-        /existing board[^\n]*read_room_state[^\n]*summary[^\n]*scoped[^\n]*full[^\n]*required content or geometry[^\n]*absent/i,
+      expect(body, `${name} omits task-aware existing-board discovery`).toMatch(
+        /existing board[^\n]*read_room_state[^\n]*summary[^\n]*broad inventory or unfamiliar scope[^\n]*(?:known exact IDs|exact IDs)[^\n]*narrow semantic scope[^\n]*(?:query (?:that scope )?directly|query_objects)[^\n]*summary[^\n]*full[^\n]*required content or geometry[^\n]*absent/i,
       );
       expect(body, `${name} omits bounded atomic metadata batching`).toMatch(
         /metadata change[^\n]*200[^\n]*update_object[^\n]*serial/i,

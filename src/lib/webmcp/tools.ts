@@ -775,7 +775,7 @@ export function createJazzboardWebMcpTools(
       name: "read_room_state",
       title: "Read Jazzboard room state",
       description:
-        "Start existing-board work with detail=summary for counts/next reads. Full (default): complete records; scope by objectIds. expectedRoomRevision pins reads.",
+        "Orientation/counts: detail=summary. Known scope: query_objects directly. Full(default): narrow by objectIds. expectedRoomRevision pins reads.",
       inputSchema: {
         type: "object",
         properties: {
