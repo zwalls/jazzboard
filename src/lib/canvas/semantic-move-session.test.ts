@@ -104,6 +104,21 @@ function connector(
   };
 }
 
+function authoredConnector(
+  id: string,
+  startObjectId: string | null,
+  endObjectId: string | null,
+  groupId: string | null = null,
+): ConnectorObject {
+  return {
+    ...connector(id, startObjectId, endObjectId, groupId),
+    routing: normalizeConnectorRouting({
+      mode: "elbow",
+      waypoints: [{ x: 260, y: 40 }, { x: 260, y: 180 }],
+    }),
+  };
+}
+
 function diagram(
   id: string,
   memberObjectIds: readonly string[],
@@ -256,6 +271,75 @@ describe("SemanticMoveSessionEngine", () => {
     expect(source.objects.right).toMatchObject({ x: 310, y: 220 });
     expect(source.objects.edge).toMatchObject(originalEndpoints);
     expect("edge" in updated.session.positionOverrides).toBe(false);
+  });
+
+  it("previews absolute authored waypoints with a common bound-node translation", () => {
+    const left = shape("left", 10, 20, 1, "pair");
+    const right = shape("right", 310, 220, 1, "pair");
+    // Imported connectors are not guaranteed to carry the nodes' group ID.
+    const edge = authoredConnector("edge", "left", "right");
+    const source = room([left, right, edge]);
+    const engine = new SemanticMoveSessionEngine();
+    const started = begin(engine, source, ["left"]);
+
+    const updated = engine.updatePointer(started.session.token, { x: 65, y: 45 });
+    expect(updated.status).toBe("updated");
+    if (updated.status !== "updated") return;
+    expect(updated.lifecycleEvents).toHaveLength(1);
+    expect(updated.lifecycleEvents[0]).toMatchObject({
+      type: "objects.changed",
+      changes: [
+        { draft: { id: "left", x: 35, y: 5 }, operation: "move" },
+        { draft: { id: "right", x: 335, y: 205 }, operation: "move" },
+        {
+          draft: {
+            id: "edge",
+            x: 145,
+            y: 25,
+            start: { x: 145, y: 25 },
+            end: { x: 525, y: 25 },
+            routing: {
+              waypoints: [{ x: 285, y: 25 }, { x: 285, y: 165 }],
+            },
+          },
+          operation: "connect",
+        },
+      ],
+    });
+    expect(source.objects.edge).toMatchObject({
+      routing: { waypoints: [{ x: 260, y: 40 }, { x: 260, y: 180 }] },
+    });
+
+    const returned = engine.updatePointer(started.session.token, started.session.pointerStart);
+    expect(returned.status).toBe("updated");
+    if (returned.status !== "updated") return;
+    expect(returned.lifecycleEvents[0]).toMatchObject({
+      changes: [
+        { draft: { id: "left", x: 10, y: 20 } },
+        { draft: { id: "right", x: 310, y: 220 } },
+        {
+          draft: {
+            id: "edge",
+            routing: { waypoints: [{ x: 260, y: 40 }, { x: 260, y: 180 }] },
+          },
+        },
+      ],
+    });
+  });
+
+  it("leaves authored waypoints fixed when only one bound endpoint moves", () => {
+    const left = shape("left", 10, 20);
+    const right = shape("right", 310, 220);
+    const edge = authoredConnector("edge", "left", "right");
+    const engine = new SemanticMoveSessionEngine();
+    const started = begin(engine, room([left, right, edge]), ["left"]);
+
+    const updated = engine.updatePointer(started.session.token, { x: 65, y: 45 });
+    expect(updated.status).toBe("updated");
+    if (updated.status !== "updated") return;
+    expect(updated.lifecycleEvents[0]).toMatchObject({
+      changes: [{ draft: { id: "left", x: 35, y: 5 }, operation: "move" }],
+    });
   });
 
   it("marks a move-away-and-return frame as an authoritative no-op", () => {

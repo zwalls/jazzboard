@@ -31,6 +31,11 @@ import {
 } from "@/lib/client/agent-draft-keepalive";
 import { downloadBlobFile } from "@/lib/client/download";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
+import {
+  reconcileGuidedWalkthrough,
+  type GuidedWalkthrough,
+  type GuidedWalkthroughDisplay,
+} from "@/lib/canvas/guided-walkthrough";
 import type {
   ActorKind,
   CanvasObject,
@@ -49,6 +54,7 @@ import { useRoomActivity } from "@/hooks/use-room-activity";
 import {
   InRoomCanvasPreviewTransport,
   JazzboardWebMcpRegistrar,
+  LocalWebMcpToolActivityTracker,
   prepareCanvasInspection,
   presentLiveCanvasPreview,
   renderCanvasPreview,
@@ -166,6 +172,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     draftId: string;
     expectedDraftRevision: number;
   } | null>(null);
+  const [guidedWalkthrough, setGuidedWalkthrough] = useState<GuidedWalkthrough | null>(null);
+  const [localToolActivityActive, setLocalToolActivityActive] = useState(false);
   const [persistentChromeHost, setPersistentChromeHost] = useState<HTMLDivElement | null>(null);
   const [toast, setToast] = useState<{ message: string; details?: unknown } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -176,9 +184,15 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const canvasRuntimeRef = useRef(canvasRuntime);
   const followTargetRef = useRef(followTarget);
   const agentDraftsRef = useRef(controller.agentDrafts);
+  const guidedWalkthroughRef = useRef<GuidedWalkthrough | null>(null);
+  const guidedWalkthroughDisplayRef = useRef<GuidedWalkthroughDisplay | null>(null);
+  const guidedWalkthroughWaitersRef = useRef(new Map<string, Set<(displayed: boolean) => void>>());
   const followPopoverAnchorRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<CanvasSurfaceHandle | null>(null);
   const [previewTransport] = useState(() => new InRoomCanvasPreviewTransport());
+  const [webMcpToolActivityTracker] = useState(
+    () => new LocalWebMcpToolActivityTracker((snapshot) => setLocalToolActivityActive(snapshot.active)),
+  );
   const [webMcpRegistrar] = useState(
     () => new JazzboardWebMcpRegistrar({ canvasPreviewTransport: previewTransport }),
   );
@@ -202,6 +216,101 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   const leaveRoomView = useCallback(() => {
     router.push("/");
   }, [router]);
+
+  const settleGuidedWalkthroughWaiters = useCallback((displayed: boolean, key?: string) => {
+    for (const [waiterKey, waiters] of guidedWalkthroughWaitersRef.current) {
+      if (key && waiterKey !== key) continue;
+      guidedWalkthroughWaitersRef.current.delete(waiterKey);
+      for (const settle of waiters) settle(displayed);
+    }
+  }, []);
+
+  const presentGuidedWalkthrough = useCallback((walkthrough: GuidedWalkthrough) => {
+    settleGuidedWalkthroughWaiters(false);
+    guidedWalkthroughDisplayRef.current = null;
+    guidedWalkthroughRef.current = walkthrough;
+    setGuidedWalkthrough(walkthrough);
+  }, [settleGuidedWalkthroughWaiters]);
+
+  const stopGuidedWalkthrough = useCallback((walkthroughId?: string) => {
+    const current = guidedWalkthroughRef.current;
+    if (walkthroughId && current?.id !== walkthroughId) return;
+    settleGuidedWalkthroughWaiters(false);
+    guidedWalkthroughDisplayRef.current = null;
+    guidedWalkthroughRef.current = null;
+    setGuidedWalkthrough(null);
+  }, [settleGuidedWalkthroughWaiters]);
+
+  const changeGuidedWalkthroughStep = useCallback((index: number) => {
+    const active = guidedWalkthroughRef.current;
+    const currentRoom = roomStateRef.current;
+    const current = active && currentRoom && active.roomId === currentRoom.id
+      ? reconcileGuidedWalkthrough(active, currentRoom)
+      : null;
+    if (!current) return;
+    const currentStepIndex = Math.max(0, Math.min(Math.trunc(index), current.steps.length - 1));
+    const next = currentStepIndex === current.currentStepIndex
+      ? current
+      : { ...current, currentStepIndex, revision: current.revision + 1 };
+    if (next !== current) presentGuidedWalkthrough(next);
+  }, [presentGuidedWalkthrough]);
+
+  const acknowledgeGuidedWalkthroughDisplay = useCallback((display: GuidedWalkthroughDisplay) => {
+    const current = guidedWalkthroughRef.current;
+    if (
+      !current
+      || current.id !== display.walkthroughId
+      || current.revision !== display.revision
+      || current.currentStepIndex !== display.stepIndex
+    ) return;
+    guidedWalkthroughDisplayRef.current = display;
+    settleGuidedWalkthroughWaiters(true, `${display.walkthroughId}:${display.revision}`);
+  }, [settleGuidedWalkthroughWaiters]);
+
+  const waitForGuidedWalkthroughDisplay = useCallback((
+    walkthroughId: string,
+    revision: number,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    const current = guidedWalkthroughRef.current;
+    if (!current || current.id !== walkthroughId || current.revision !== revision) {
+      return Promise.resolve(false);
+    }
+    const displayed = guidedWalkthroughDisplayRef.current;
+    if (displayed?.walkthroughId === walkthroughId && displayed.revision === revision) {
+      return Promise.resolve(true);
+    }
+    if (signal.aborted) return Promise.reject(new DOMException("The walkthrough wait was cancelled.", "AbortError"));
+    const key = `${walkthroughId}:${revision}`;
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      let timer = 0;
+      const finish = (result: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        const waiters = guidedWalkthroughWaitersRef.current.get(key);
+        waiters?.delete(finish);
+        if (waiters && !waiters.size) guidedWalkthroughWaitersRef.current.delete(key);
+        resolve(result);
+      };
+      const abort = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        const waiters = guidedWalkthroughWaitersRef.current.get(key);
+        waiters?.delete(finish);
+        if (waiters && !waiters.size) guidedWalkthroughWaitersRef.current.delete(key);
+        reject(new DOMException("The walkthrough wait was cancelled.", "AbortError"));
+      };
+      const waiters = guidedWalkthroughWaitersRef.current.get(key) ?? new Set();
+      waiters.add(finish);
+      guidedWalkthroughWaitersRef.current.set(key, waiters);
+      signal.addEventListener("abort", abort, { once: true });
+      timer = window.setTimeout(() => finish(false), 2_000);
+    });
+  }, []);
 
   const closeAskPanel = useCallback(() => {
     setAskSelection(null);
@@ -249,7 +358,8 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     canvasRuntimeRef.current = canvasRuntime;
     followTargetRef.current = followTarget;
     agentDraftsRef.current = controller.agentDrafts;
-  }, [canvasRuntime, controller.agentDrafts, followTarget, room, selection]);
+    guidedWalkthroughRef.current = guidedWalkthrough;
+  }, [canvasRuntime, controller.agentDrafts, followTarget, guidedWalkthrough, room, selection]);
 
   useEffect(() => {
     if (!participantId || webMcpRole !== "participant") return;
@@ -295,12 +405,25 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
   }, [acceptAgentDraft, participantId, refreshAgentDrafts, roomId, webMcpRole]);
 
   useEffect(() => {
+    webMcpToolActivityTracker.activate();
     const canRenderPng = canvasRuntimeRef.current?.capabilities.renderPng === true;
     const context: JazzboardWebMcpContext = {
       getRoom: () => roomStateRef.current,
       getSelection: () => selectionRef.current,
       getViewport: () => canvasRuntimeRef.current?.getViewport() ?? null,
+      getCanvasRuntime: () => canvasRuntimeRef.current,
       getFollowTarget: () => followTargetRef.current,
+      getGuidedWalkthrough: () => {
+        const current = guidedWalkthroughRef.current;
+        const currentRoom = roomStateRef.current;
+        if (!current || !currentRoom || current.roomId !== currentRoom.id) return null;
+        return reconcileGuidedWalkthrough(current, currentRoom);
+      },
+      getGuidedWalkthroughDisplay: () => guidedWalkthroughDisplayRef.current,
+      beginWebMcpToolActivity: (toolName) => webMcpToolActivityTracker.begin(toolName),
+      presentGuidedWalkthrough,
+      stopGuidedWalkthrough,
+      waitForGuidedWalkthroughDisplay,
       inspectCanvasScope: (request, signal) =>
         prepareCanvasInspection(
           { getCanvasRuntime: () => canvasRuntimeRef.current, getRoom: () => roomStateRef.current },
@@ -373,6 +496,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     void webMcpRegistrar.update(binding).catch(() => undefined);
     return () => {
       webMcpRegistrar.dispose();
+      webMcpToolActivityTracker.dispose();
     };
   }, [
     controller.acceptRoom,
@@ -382,9 +506,13 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
     canvasRuntime?.rendererId,
     leaveRoomView,
     participantId,
+    presentGuidedWalkthrough,
     retireCommittedAgentDraft,
+    stopGuidedWalkthrough,
+    waitForGuidedWalkthroughDisplay,
     updateDeclinedSpotlight,
     updateFollowTarget,
+    webMcpToolActivityTracker,
     webMcpRegistrar,
     webMcpRole,
     webMcpRoomId,
@@ -459,6 +587,10 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       </main>
     );
   }
+
+  const renderedGuidedWalkthrough = guidedWalkthrough?.roomId === room.id
+    ? reconcileGuidedWalkthrough(guidedWalkthrough, room)
+    : null;
 
   const participants = Object.values(room.participants).filter((participant) => participant.role === "participant");
   const followedAgentWorking = followedParticipant
@@ -979,6 +1111,11 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
         persistentChromeHost={persistentChromeHost}
         cleanInspectionId={cleanInspectionId}
         cleanInspectionDraftScope={cleanInspectionDraftScope}
+        guidedWalkthrough={renderedGuidedWalkthrough}
+        localToolActivityActive={localToolActivityActive}
+        onGuidedWalkthroughStepChange={changeGuidedWalkthroughStep}
+        onGuidedWalkthroughExit={stopGuidedWalkthrough}
+        onGuidedWalkthroughDisplayed={acknowledgeGuidedWalkthroughDisplay}
         room={room}
         agentDrafts={controller.agentDrafts}
         initialAgentDraftIds={controller.initialAgentDraftIds}

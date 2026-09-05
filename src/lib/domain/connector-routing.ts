@@ -210,6 +210,62 @@ export function normalizeConnectorRouting(
   };
 }
 
+/**
+ * Return the common page-space translation of both bound connector endpoints.
+ * Authored elbow vertices form part of that frame only when both endpoint
+ * objects participate in the move; a one-ended move deliberately returns null.
+ */
+export function commonBoundConnectorTranslation(
+  connector: ConnectorObject,
+  baselineObjects: Readonly<Record<string, CanvasObject>>,
+  currentObjects: Readonly<Record<string, CanvasObject>>,
+  movedObjectIds: ReadonlySet<string>,
+): Point | null {
+  const startObjectId = connector.start.objectId;
+  const endObjectId = connector.end.objectId;
+  if (
+    !startObjectId
+    || !endObjectId
+    || !movedObjectIds.has(startObjectId)
+    || !movedObjectIds.has(endObjectId)
+  ) {
+    return null;
+  }
+
+  const startBefore = baselineObjects[startObjectId];
+  const startAfter = currentObjects[startObjectId];
+  const endBefore = baselineObjects[endObjectId];
+  const endAfter = currentObjects[endObjectId];
+  if (!startBefore || !startAfter || !endBefore || !endAfter) return null;
+
+  const startDelta = {
+    x: startAfter.x - startBefore.x,
+    y: startAfter.y - startBefore.y,
+  };
+  const endDelta = {
+    x: endAfter.x - endBefore.x,
+    y: endAfter.y - endBefore.y,
+  };
+  if (startDelta.x !== endDelta.x || startDelta.y !== endDelta.y) return null;
+  return startDelta;
+}
+
+/** Translate absolute authored elbow vertices while retaining canonical routing. */
+export function translateAuthoredConnectorRouting(
+  input: ConnectorRoutingInput | ConnectorRouting | null | undefined,
+  delta: Readonly<Point>,
+): ConnectorRouting {
+  const routing = normalizeConnectorRouting(input);
+  if (!routing.waypoints) return routing;
+  return normalizeConnectorRouting({
+    ...routing,
+    waypoints: routing.waypoints.map((point) => ({
+      x: point.x + delta.x,
+      y: point.y + delta.y,
+    })),
+  });
+}
+
 /** Position runs left-to-right on horizontal sides and top-to-bottom on vertical sides. */
 export function cardinalNormalizedAnchor(
   side: ConnectorPortSide,

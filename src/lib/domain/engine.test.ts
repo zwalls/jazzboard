@@ -23,6 +23,7 @@ import type {
   ActorRef,
   CanvasCommand,
   CanvasObject,
+  ConnectorObject,
   Participant,
   RoomRole,
   RoomState,
@@ -99,6 +100,51 @@ function textObject(
     size: "m",
     align: "start",
     ...overrides,
+  };
+}
+
+function elbowConnector(
+  id: string,
+  start: TextObject,
+  end: TextObject,
+): ConnectorObject {
+  return {
+    id,
+    kind: "connector",
+    x: start.x + start.width,
+    y: start.y + start.height / 2,
+    width: Math.max(end.x - start.x - start.width, 1),
+    height: Math.max(end.y - start.y, 1),
+    rotation: 0,
+    zIndex: 1,
+    revision: 1,
+    groupId: null,
+    diagramIds: [],
+    createdAt: START,
+    updatedAt: START,
+    createdBy: actor(alice),
+    lastEditedBy: actor(alice),
+    start: {
+      x: start.x + start.width,
+      y: start.y + start.height / 2,
+      objectId: start.id,
+    },
+    end: {
+      x: end.x,
+      y: end.y + end.height / 2,
+      objectId: end.id,
+    },
+    routing: {
+      mode: "elbow",
+      kind: "elbow",
+      bend: 0,
+      elbowMidPoint: 0.5,
+      labelPosition: 0.5,
+      waypoints: [{ x: 275, y: 60 }, { x: 275, y: 180 }],
+    },
+    direction: "end",
+    label: id,
+    color: "black",
   };
 }
 
@@ -459,6 +505,50 @@ describe("canvas commands", () => {
     expect(result.room.objects.a.lastEditedBy).toEqual(actor(bob));
     expect(result.room.roomRevision).toBe(source.roomRevision + 1);
     expect(result.room.stateRevision).toBe((source.stateRevision ?? source.roomRevision) + 1);
+  });
+
+  it("translates authored connector waypoints when both bound objects move together", () => {
+    const left = textObject("left", { x: 10, y: 20 });
+    const right = textObject("right", { x: 410, y: 140 });
+    const edge = elbowConnector("edge", left, right);
+    const source = roomWith(left, right, edge);
+    const result = applyCanvasCommand(source, "bob", "human", {
+      type: "move",
+      targets: [
+        { objectId: left.id, expectedRevision: 1, x: 50, y: 10 },
+        { objectId: right.id, expectedRevision: 1, x: 450, y: 130 },
+      ],
+    }, START + 350);
+
+    expect(result.changedObjectIds).toEqual(["left", "right", "edge"]);
+    expect(result.room.objects.edge).toMatchObject({
+      revision: 2,
+      routing: {
+        waypoints: [{ x: 315, y: 50 }, { x: 315, y: 170 }],
+      },
+    });
+    expect(source.objects.edge).toMatchObject({
+      revision: 1,
+      routing: {
+        waypoints: [{ x: 275, y: 60 }, { x: 275, y: 180 }],
+      },
+    });
+  });
+
+  it("retains authored connector waypoints when only one bound object moves", () => {
+    const left = textObject("left", { x: 10, y: 20 });
+    const right = textObject("right", { x: 410, y: 140 });
+    const edge = elbowConnector("edge", left, right);
+    const result = applyCanvasCommand(roomWith(left, right, edge), "bob", "human", {
+      type: "move",
+      targets: [{ objectId: left.id, expectedRevision: 1, x: 50, y: 10 }],
+    }, START + 360);
+
+    expect(result.room.objects.edge).toMatchObject({
+      routing: {
+        waypoints: [{ x: 275, y: 60 }, { x: 275, y: 180 }],
+      },
+    });
   });
 
   it("groups and ungroups multiple objects", () => {

@@ -1214,13 +1214,21 @@ const ANALYZE_DIAGRAM_LAYOUT_INPUT_SCHEMA = {
   },
 } as const;
 
-const describeDiagramInput = z.object({ diagramId: id }).strict();
+const describeDiagramInput = z
+  .object({
+    diagramId: id,
+    detail: z.enum(["structure", "full"]).default("full"),
+  })
+  .strict();
 
 const DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["diagramId"],
-  properties: { diagramId: { type: "string" } },
+  properties: {
+    diagramId: { type: "string" },
+    detail: { enum: ["structure", "full"] },
+  },
 } as const;
 
 const createDiagramInput = createDiagramOperation.omit({ op: true, tempRef: true }).extend({
@@ -1371,7 +1379,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
   schema: TSchema;
   inputSchema?: WebMCP.ModelContextTool["inputSchema"];
   annotations?: WebMCP.ToolAnnotations;
-  execute: (value: z.output<TSchema>, signal: AbortSignal) => Promise<unknown>;
+  execute: (value: z.output<TSchema>, signal: AbortSignal, executionStartedAt: number) => Promise<unknown>;
 }): WebMCP.ModelContextTool {
   return {
     name: input.name,
@@ -1386,14 +1394,24 @@ function defineTool<TSchema extends z.ZodType>(input: {
       }) as WebMCP.ModelContextTool["inputSchema"]),
     annotations: input.annotations,
     async execute(rawInput, options): Promise<JazzboardToolResult> {
+      const executionStartedAt = performance.now();
       try {
         const parsed = input.schema.parse(rawInput);
         const signal = options?.signal ?? new AbortController().signal;
-        return { ok: true, tool: input.name, data: await input.execute(parsed, signal) };
+        return { ok: true, tool: input.name, data: await input.execute(parsed, signal, executionStartedAt) };
       } catch (error) {
         return withActionableRecovery(toolFailure(input.name, error));
       }
     },
+  };
+}
+
+function semanticReadExecutionTiming(executionStartedAt: number) {
+  return {
+    handlerDurationMs: performance.now() - executionStartedAt,
+    measurement: "execute_entry_to_result_preparation",
+    includes: ["authoritative_room_fetch"],
+    excludes: ["webmcp_transport"],
   };
 }
 
@@ -2777,7 +2795,7 @@ export function createJazzboardSemanticWebMcpTools(
       schema: readDiagramInput,
       inputSchema: READ_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
-      async execute(input, signal) {
+      async execute(input, signal, executionStartedAt) {
         const room = await readRoom(signal);
         const diagram = diagramOrThrow(room, input.diagramId);
         return {
@@ -2785,6 +2803,7 @@ export function createJazzboardSemanticWebMcpTools(
           diagram,
           objects: input.includeObjects ? diagram.memberObjectIds.flatMap((objectId) => room.objects[objectId] ?? []) : [],
           connectors: input.includeConnectors ? diagram.connectorIds.flatMap((objectId) => room.objects[objectId] ?? []) : [],
+          executionTiming: semanticReadExecutionTiming(executionStartedAt),
         };
       },
     }),
@@ -2792,11 +2811,11 @@ export function createJazzboardSemanticWebMcpTools(
       name: "describe_diagram",
       title: "Describe a diagram's semantic structure",
       description:
-        "Summarize one Diagram's nodes, relationships, metadata, bounds, and revisions.",
+        "Describe one Diagram by stable ID. Use detail 'structure' for complete semantic structure without visual geometry; the default 'full' retains metadata, bounds, and routing.",
       schema: describeDiagramInput,
       inputSchema: DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
-      async execute(input, signal) {
+      async execute(input, signal, executionStartedAt) {
         const room = await readRoom(signal);
         const diagram = diagramOrThrow(room, input.diagramId);
         const members = diagram.memberObjectIds.flatMap((objectId) => room.objects[objectId] ?? []);
@@ -2815,15 +2834,53 @@ export function createJazzboardSemanticWebMcpTools(
             members.filter((object) => object.kind === "shape" && object.nodeMetadata?.status === status).length,
           ]),
         );
+        const counts = {
+          members: members.length,
+          connectors: connectors.length,
+          nodeTypes: nodeTypeCounts,
+          nodeStatuses: nodeStatusCounts,
+        };
+        if (input.detail === "structure") {
+          return {
+            roomRevision: room.roomRevision,
+            diagramId: diagram.id,
+            title: diagram.title,
+            revision: diagram.revision,
+            description: diagram.description,
+            diagramType: diagram.diagramType,
+            category: diagram.category,
+            tags: diagram.tags,
+            memberObjectIds: diagram.memberObjectIds,
+            connectorIds: diagram.connectorIds,
+            counts,
+            members: members.map((object) => ({
+              id: object.id,
+              kind: object.kind,
+              label: objectVisibleText(object),
+              semanticName: object.semanticName ?? null,
+              semanticRole: object.semanticRole ?? null,
+              groupId: object.groupId,
+              nodeType: object.kind === "shape" ? object.nodeType : null,
+              nodeMetadata: object.kind === "shape" ? object.nodeMetadata ?? null : null,
+              revision: object.revision,
+            })),
+            connectors: connectors.map((connector) => ({
+              id: connector.id,
+              label: connector.label,
+              semanticName: connector.semanticName ?? null,
+              semanticRole: connector.semanticRole ?? null,
+              direction: connector.direction,
+              startObjectId: connector.start.objectId,
+              endObjectId: connector.end.objectId,
+              revision: connector.revision,
+            })),
+            executionTiming: semanticReadExecutionTiming(executionStartedAt),
+          };
+        }
         return {
           roomRevision: room.roomRevision,
           diagram,
-          counts: {
-            members: members.length,
-            connectors: connectors.length,
-            nodeTypes: nodeTypeCounts,
-            nodeStatuses: nodeStatusCounts,
-          },
+          counts,
           members: members.map((object) => ({
             id: object.id,
             kind: object.kind,
@@ -2848,6 +2905,7 @@ export function createJazzboardSemanticWebMcpTools(
             endObjectId: connector.end.objectId,
             revision: connector.revision,
           })),
+          executionTiming: semanticReadExecutionTiming(executionStartedAt),
         };
       },
     }),
