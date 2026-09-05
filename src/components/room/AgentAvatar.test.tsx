@@ -26,9 +26,12 @@ describe("AgentAvatar", () => {
 
   it("uses unique native SVG gradient ids for co-located instances", () => {
     const { container } = render(<><AgentAvatar displayName="Mira" motion="none" /><AgentAvatar displayName="Kai" motion="none" /></>);
-    const ids = Array.from(container.querySelectorAll("radialGradient"), (gradient) => gradient.id);
+    const ids = Array.from(
+      container.querySelectorAll("linearGradient, radialGradient"),
+      (gradient) => gradient.id,
+    );
     const fills = Array.from(container.querySelectorAll("[data-ripple-body]"), (body) => body.getAttribute("fill"));
-    expect(ids).toHaveLength(4);
+    expect(ids).toHaveLength(10);
     expect(new Set(ids).size).toBe(ids.length);
     expect(fills).toHaveLength(2);
     expect(fills[0]).not.toBe(fills[1]);
