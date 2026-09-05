@@ -33,6 +33,7 @@ class FakeWorker {
 
 function fakeBody(name: string, size: number): RippleBody {
   return {
+    family: "ripple",
     name,
     width: size,
     height: size,

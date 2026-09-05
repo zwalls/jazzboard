@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderRippleBody } from "./ripple-renderer";
+import { renderAvatarBody, renderRippleBody } from "./ripple-renderer";
 
 describe("renderRippleBody", () => {
   it("is deterministic for a name and varies the generated family by name", () => {
@@ -22,5 +22,21 @@ describe("renderRippleBody", () => {
     expect(rendered.eyeGeometry.centersX[0]).toBeLessThan(0);
     expect(rendered.eyeGeometry.centersX[1]).toBeGreaterThan(0);
     expect(rendered.eyeGeometry.maxLookOffset).toBeGreaterThan(0);
+  });
+
+  it("renders each selected family with family-specific face placement", () => {
+    const puddle = renderAvatarBody("Sol", 64);
+    const loop = renderAvatarBody("Astra", 64);
+    const mochi = renderAvatarBody("Mira", 64);
+    const ripple = renderAvatarBody("Kai", 64);
+
+    expect([puddle.family, loop.family, mochi.family, ripple.family]).toEqual([
+      "puddle",
+      "loop",
+      "mochi",
+      "ripple",
+    ]);
+    expect(loop.eyeGeometry.centersX[1]).toBeLessThan(0);
+    expect(puddle.data).not.toEqual(mochi.data);
   });
 });

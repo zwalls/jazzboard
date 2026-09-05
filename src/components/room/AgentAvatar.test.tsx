@@ -49,6 +49,7 @@ describe("AgentAvatar", () => {
   it("is decorative by default and supports an explicit accessible label", () => {
     const { container, rerender } = render(<AgentAvatar displayName="Mira" motion="none" participantColor="#1a9c75" size={40} />);
     const avatar = container.firstElementChild as HTMLElement;
+    expect(avatar).toHaveAttribute("data-agent-avatar-family", "mochi");
     expect(avatar).toHaveAttribute("aria-hidden", "true");
     expect(avatar).not.toHaveAttribute("role");
     expect(avatar.style.getPropertyValue("--agent-avatar-accent")).toBe("#1a9c75");

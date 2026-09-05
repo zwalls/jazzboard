@@ -7,7 +7,11 @@ import { registerRippleGaze } from "@/lib/client/ripple-gaze";
 
 import styles from "./agent-avatar.module.css";
 import { requestRippleBody, rippleRasterSize } from "./ripple-body-cache";
-import { ripplePrimaryColor, rippleTraitsFor } from "./ripple-traits";
+import {
+  avatarPrimaryColor,
+  avatarTraitsFor,
+  type AvatarTraits,
+} from "./ripple-traits";
 
 export type AgentAvatarState = "idle" | "working";
 export type AgentAvatarMotion = "none" | "hover" | "always";
@@ -66,9 +70,41 @@ function closedCurve(points: Point[]) {
   return `${parts.join(" ")} Z`;
 }
 
-function ripplePath(displayName: string) {
-  const traits = rippleTraitsFor(displayName);
+function superellipsePoint(angle: number, width: number, height: number, exponent: number) {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return {
+    x: 32 + Math.sign(cosine) * Math.pow(Math.abs(cosine), 2 / exponent) * width * 32,
+    y: 32 + Math.sign(sine) * Math.pow(Math.abs(sine), 2 / exponent) * height * 32,
+  };
+}
+
+function avatarFallbackPath(traits: AvatarTraits) {
   const pointCount = 80;
+  if (traits.family === "loop") {
+    return "M 7 34 C 7 17 20 8 38 9 C 55 10 61 22 58 37 C 55 52 40 58 22 55 C 12 53 7 45 7 34 Z M 34 20 C 45 20 51 27 49 36 C 47 43 39 46 31 42 C 24 38 24 30 27 25 C 29 22 31 20 34 20 Z";
+  }
+  if (traits.family === "mochi") {
+    return closedCurve(
+      Array.from({ length: pointCount }, (_, index) =>
+        superellipsePoint(
+          -Math.PI / 2 + (index / pointCount) * Math.PI * 2,
+          traits.width,
+          traits.height,
+          traits.exponent,
+        ),
+      ),
+    );
+  }
+  if (traits.family === "puddle") {
+    return closedCurve(
+      Array.from({ length: pointCount }, (_, index) => {
+        const angle = -Math.PI / 2 + (index / pointCount) * Math.PI * 2;
+        const point = superellipsePoint(angle, traits.width, traits.height, 2.65);
+        return { x: point.x + traits.skew * (0.3 - Math.sin(angle)) * 16, y: point.y + 2.4 };
+      }),
+    );
+  }
   const points = Array.from({ length: pointCount }, (_, index) => {
     const angle = -Math.PI / 2 + (index / pointCount) * Math.PI * 2;
     const modulation = 1 + traits.lobeVariation * Math.cos(angle + traits.lobeVariationPhase);
@@ -88,7 +124,7 @@ export function agentAvatarSeed(displayName: string) {
 }
 
 export function agentAvatarPrimaryColor(displayName: string) {
-  return ripplePrimaryColor(displayName);
+  return avatarPrimaryColor(displayName);
 }
 
 export function isAgentActivityWorking(activity: AgentActivity | null, now: number) {
@@ -111,18 +147,19 @@ export function AgentAvatar({
   const seed = hashSeed(seedName);
   const avatarSize = Math.max(16, size);
   const model = useMemo(() => {
-    const traits = rippleTraitsFor(displayName);
-    const primaryColor = ripplePrimaryColor(displayName);
+    const traits = avatarTraitsFor(displayName);
+    const primaryColor = avatarPrimaryColor(displayName);
     return {
       traits,
       primaryColor,
       highlightColor: mixHex(primaryColor, "#ffffff", 0.36),
       shadeColor: mixHex(primaryColor, "#362747", 0.24),
-      bodyPath: ripplePath(displayName),
+      bodyPath: avatarFallbackPath(traits),
     };
   }, [displayName]);
+  const eyeX = model.traits.family === "ripple" ? 0 : model.traits.eyeX;
   const eyeCenters = model.traits.eyeSpacing / 2;
-  const eyeHalfWidth = 0.047 * 32;
+  const eyeHalfWidth = (model.traits.family === "ripple" ? 0.047 : 0.039) * 32;
   const eyeHalfHeight = (model.traits.eyeHeight / 2) * 32;
   const eyeY = (model.traits.eyeY + 1) * 32;
   const instanceId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -193,6 +230,7 @@ export function AgentAvatar({
       aria-hidden={accessibleLabel ? undefined : true}
       aria-label={accessibleLabel}
       className={wrapperClassName}
+      data-agent-avatar-family={model.traits.family}
       data-agent-avatar-motion={resolvedMotion}
       data-agent-avatar-paused={documentHidden ? "true" : undefined}
       data-agent-avatar-raster={rasterReady ? "ready" : "fallback"}
@@ -255,9 +293,20 @@ export function AgentAvatar({
             d={model.bodyPath}
             data-ripple-body="true"
             fill={`url(#${bodyGradientId})`}
+            fillRule={model.traits.family === "loop" ? "evenodd" : undefined}
           />
-          <path d={model.bodyPath} fill={`url(#${surfaceGradientId})`} pointerEvents="none" />
-          <path d={model.bodyPath} fill={`url(#${undersideGradientId})`} pointerEvents="none" />
+          <path
+            d={model.bodyPath}
+            fill={`url(#${surfaceGradientId})`}
+            fillRule={model.traits.family === "loop" ? "evenodd" : undefined}
+            pointerEvents="none"
+          />
+          <path
+            d={model.bodyPath}
+            fill={`url(#${undersideGradientId})`}
+            fillRule={model.traits.family === "loop" ? "evenodd" : undefined}
+            pointerEvents="none"
+          />
           <path
             d={model.bodyPath}
             fill="none"
@@ -273,14 +322,14 @@ export function AgentAvatar({
                   height={eyeHalfHeight * 2}
                   rx="1.38"
                   width={eyeHalfWidth * 2}
-                  x={(1 - eyeCenters) * 32 - eyeHalfWidth}
+                  x={(1 + eyeX - eyeCenters) * 32 - eyeHalfWidth}
                   y={eyeY - eyeHalfHeight}
                 />
                 <rect
                   height={eyeHalfHeight * 2}
                   rx="1.38"
                   width={eyeHalfWidth * 2}
-                  x={(1 + eyeCenters) * 32 - eyeHalfWidth}
+                  x={(1 + eyeX + eyeCenters) * 32 - eyeHalfWidth}
                   y={eyeY - eyeHalfHeight}
                 />
               </g>
@@ -305,14 +354,14 @@ export function AgentAvatar({
                   height={eyeHalfHeight * 2}
                   rx="1.38"
                   width={eyeHalfWidth * 2}
-                  x={(1 - eyeCenters) * 32 - eyeHalfWidth}
+                  x={(1 + eyeX - eyeCenters) * 32 - eyeHalfWidth}
                   y={eyeY - eyeHalfHeight}
                 />
                 <rect
                   height={eyeHalfHeight * 2}
                   rx="1.38"
                   width={eyeHalfWidth * 2}
-                  x={(1 + eyeCenters) * 32 - eyeHalfWidth}
+                  x={(1 + eyeX + eyeCenters) * 32 - eyeHalfWidth}
                   y={eyeY - eyeHalfHeight}
                 />
               </g>

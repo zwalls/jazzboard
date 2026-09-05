@@ -1,4 +1,4 @@
-import { renderRippleBody, type RippleBody } from "./ripple-renderer";
+import { renderAvatarBody, type RippleBody } from "./ripple-renderer";
 
 export type RippleWorkerRequest = { id: number; name: string; size: number };
 export type RippleWorkerResponse =
@@ -16,7 +16,7 @@ const workerScope = self as unknown as {
 workerScope.addEventListener("message", (event) => {
   const { id, name, size } = event.data;
   try {
-    const rendered = renderRippleBody(name, size);
+    const rendered = renderAvatarBody(name, size);
     const data = rendered.data.buffer as ArrayBuffer;
     workerScope.postMessage({ id, body: { ...rendered, data } }, [data]);
   } catch (error) {
