@@ -242,6 +242,7 @@ export async function importAuthorizedRoomMermaidFlowchart(input: {
   source: string;
   title?: string;
   origin?: Point;
+  grouping?: "compact" | "boxed";
   metadata?: ActivityMutationMetadata;
 }): Promise<MermaidImportResult> {
   const room = await readAuthorizedRoom(input.roomId, input.participantId);
@@ -256,6 +257,7 @@ export async function importAuthorizedRoomMermaidFlowchart(input: {
     const plan = await planMermaidImport(input.source, {
       title: input.title,
       origin: input.origin,
+      grouping: input.grouping,
     });
     const result = await runSemanticTransaction({
       roomId: input.roomId,

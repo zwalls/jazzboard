@@ -37,7 +37,7 @@ function selectDiagram(artifact: JazzboardArtifactV1, diagramId?: string) {
  * Mermaid labels remain plain text. Line breaks and every character that can
  * terminate a node/edge label or begin a Mermaid directive are encoded.
  */
-function safeLabel(value: string, fallback: string): string {
+function safeLabel(value: string, fallback: string, maxEncodedLength = Number.POSITIVE_INFINITY): string {
   const normalized = value
     .normalize("NFKC")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
@@ -61,7 +61,13 @@ function safeLabel(value: string, fallback: string): string {
     "`": "&#96;",
     "\\": "&#92;",
   };
-  return [...normalized].map((character) => replacements[character] ?? character).join("");
+  let encoded = "";
+  for (const character of normalized) {
+    const replacement = replacements[character] ?? character;
+    if (encoded.length + replacement.length > maxEncodedLength) break;
+    encoded += replacement;
+  }
+  return encoded || fallback;
 }
 
 function objectLabel(object: RenderableObject): string {
@@ -70,11 +76,30 @@ function objectLabel(object: RenderableObject): string {
   return "";
 }
 
+function groupLabel(object: RenderableObject): string {
+  if (object.kind !== "text") return "Untitled group";
+  // The importer accepts group labels up to 160 parsed characters. Mermaid
+  // retains numeric entities in its group title, so bound the encoded form.
+  return safeLabel(object.content, "Untitled group", 160);
+}
+
 function nodeLine(alias: string, object: RenderableObject): string {
   const label = objectLabel(object);
   if (object.kind === "shape" && object.shape === "ellipse") return `  ${alias}(["${label}"])`;
   if (object.kind === "shape" && object.shape === "diamond") return `  ${alias}{"${label}"}`;
   return `  ${alias}["${label}"]`;
+}
+
+function isGroupContainer(object: RenderableObject): boolean {
+  return object.kind === "shape" && object.semanticRole === "diagram.group_container";
+}
+
+function isGroupTitle(object: RenderableObject): boolean {
+  return object.kind === "text" && object.semanticRole === "diagram.group_title";
+}
+
+function isGroupDecoration(object: RenderableObject): boolean {
+  return isGroupContainer(object) || isGroupTitle(object);
 }
 
 function connectorLine(
@@ -85,7 +110,10 @@ function connectorLine(
   const start = aliases.get(connector.start.objectId);
   const end = aliases.get(connector.end.objectId);
   if (!start || !end) return null;
-  const arrow = connector.direction === "none" ? "---" : connector.direction === "both" ? "<-->" : "-->";
+  const dotted = connector.semanticRole === "diagram.dotted_relationship";
+  const arrow = dotted
+    ? connector.direction === "none" ? "-.-" : connector.direction === "both" ? "<-.->" : "-.->"
+    : connector.direction === "none" ? "---" : connector.direction === "both" ? "<-->" : "-->";
   const label = connector.label.trim() ? `|${safeLabel(connector.label, "relationship")}|` : "";
   return `  ${start} ${arrow}${label} ${end}`;
 }
@@ -98,7 +126,7 @@ export function renderDiagramMermaid(input: JazzboardArtifactV1, diagramId?: str
     artifact.objects.map((object) => [object.id, object]),
   );
   const warnings: JazzboardArtifactWarning[] = [...artifact.warnings];
-  const nodeObjects = [...diagram.memberObjectIds]
+  const memberObjects = [...diagram.memberObjectIds]
     .sort((left, right) => left.localeCompare(right))
     .flatMap((objectId) => {
       const object = objectsById.get(objectId);
@@ -113,9 +141,71 @@ export function renderDiagramMermaid(input: JazzboardArtifactV1, diagramId?: str
       }
       return [object];
     });
+  const decorativeObjects = memberObjects.filter(isGroupDecoration);
+  const decorativeObjectIds = new Set(decorativeObjects.map((object) => object.id));
+  const nodeObjects = memberObjects.filter((object) => !isGroupDecoration(object));
   const aliases = new Map(nodeObjects.map((object, index) => [object.id, `n${index}`]));
   const direction = diagram.diagramType === "hierarchy" ? "TD" : "LR";
-  const lines = [`flowchart ${direction}`, ...nodeObjects.map((object) => nodeLine(aliases.get(object.id)!, object))];
+  const containersByGroup = new Map<string, RenderableObject[]>();
+  const titlesByGroup = new Map<string, RenderableObject[]>();
+  for (const object of decorativeObjects) {
+    if (!object.groupId) {
+      warnings.push({
+        code: "MERMAID_OBJECT_OMITTED",
+        message: `Diagram group decoration ${object.id} has no group ID and was omitted from this rendering.`,
+        objectId: object.id,
+        diagramId: diagram.id,
+      });
+      continue;
+    }
+    const index = isGroupContainer(object) ? containersByGroup : titlesByGroup;
+    const objects = index.get(object.groupId) ?? [];
+    objects.push(object);
+    index.set(object.groupId, objects);
+  }
+
+  const recognizedGroupIds = [...containersByGroup.keys()]
+    .filter((groupId) => titlesByGroup.has(groupId))
+    .sort((left, right) => left.localeCompare(right));
+  const recognizedGroupIdSet = new Set(recognizedGroupIds);
+  for (const object of decorativeObjects) {
+    if (object.groupId && !recognizedGroupIdSet.has(object.groupId)) {
+      warnings.push({
+        code: "MERMAID_OBJECT_OMITTED",
+        message: `Diagram group decoration ${object.id} has no matching container and title pair and was omitted from this rendering.`,
+        objectId: object.id,
+        diagramId: diagram.id,
+      });
+    }
+  }
+
+  const groupedNodeIds = new Set<string>();
+  const lines = [`flowchart ${direction}`];
+  recognizedGroupIds.forEach((groupId, groupIndex) => {
+    const title = titlesByGroup.get(groupId)!
+      .sort((left, right) => left.id.localeCompare(right.id))[0];
+    const members = nodeObjects.filter((object) => object.groupId === groupId);
+    if (!members.length) {
+      warnings.push({
+        code: "MERMAID_OBJECT_OMITTED",
+        message: `Empty native group ${groupId} was omitted from Mermaid output.`,
+        objectId: containersByGroup.get(groupId)![0].id,
+        diagramId: diagram.id,
+      });
+      return;
+    }
+    lines.push(`  subgraph g${groupIndex}["${groupLabel(title)}"]`);
+    for (const member of members) {
+      groupedNodeIds.add(member.id);
+      lines.push(`  ${nodeLine(aliases.get(member.id)!, member)}`);
+    }
+    lines.push("  end");
+  });
+  lines.push(
+    ...nodeObjects
+      .filter((object) => !groupedNodeIds.has(object.id))
+      .map((object) => nodeLine(aliases.get(object.id)!, object)),
+  );
 
   for (const connectorId of [...diagram.connectorIds].sort((left, right) => left.localeCompare(right))) {
     const connector = objectsById.get(connectorId);
@@ -123,9 +213,18 @@ export function renderDiagramMermaid(input: JazzboardArtifactV1, diagramId?: str
     if (line) {
       lines.push(line);
     } else {
+      const decorationEndpoint = connector?.kind === "connector"
+        ? [connector.start.objectId, connector.end.objectId]
+            .find((objectId) => {
+              const endpoint = objectId ? objectsById.get(objectId) : undefined;
+              return Boolean(endpoint && (decorativeObjectIds.has(endpoint.id) || isGroupDecoration(endpoint)));
+            })
+        : undefined;
       warnings.push({
         code: "MERMAID_CONNECTOR_OMITTED",
-        message: `Diagram connector ${connectorId} could not be represented because both semantic endpoints must be rendered nodes.`,
+        message: decorationEndpoint
+          ? `Diagram connector ${connectorId} targets group decoration ${decorationEndpoint}; Mermaid group decorations cannot be connector endpoints, so the connector was omitted.`
+          : `Diagram connector ${connectorId} could not be represented because both semantic endpoints must be rendered nodes.`,
         objectId: connectorId,
         diagramId: diagram.id,
       });

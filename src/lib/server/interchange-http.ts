@@ -46,6 +46,7 @@ export const importMermaidFlowchartRequestSchema = z
     expectedRoomRevision: z.number().int().positive(),
     source: z.string().min(1).max(65_536),
     title: z.string().trim().min(1).max(160).optional(),
+    grouping: z.enum(["compact", "boxed"]).optional(),
     origin: z.object({ x: z.number().finite(), y: z.number().finite() }).strict().optional(),
     intent: z.string().trim().min(1).max(1_000).optional(),
     summary: z.string().trim().min(1).max(500).optional(),

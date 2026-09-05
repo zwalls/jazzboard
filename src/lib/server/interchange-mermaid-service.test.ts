@@ -156,12 +156,14 @@ describe("authorized Mermaid import service", () => {
       expectedRoomRevision: room.roomRevision,
       source: SOURCE,
       title: "Service path",
+      grouping: "boxed",
       origin: { x: 500, y: 700 },
       metadata: { intent: "Import the supplied Mermaid architecture" },
     });
 
     expect(planMermaidImport).toHaveBeenCalledWith(SOURCE, {
       title: "Service path",
+      grouping: "boxed",
       origin: { x: 500, y: 700 },
     });
     expect(result).toMatchObject({
@@ -284,6 +286,7 @@ describe("authorized Mermaid import service", () => {
       expectedRoomRevision: room.roomRevision,
       source: SOURCE,
       title: "Service path",
+      grouping: "boxed",
       origin: { x: 500, y: 700 },
       summary: "Imported Mermaid service path",
     };

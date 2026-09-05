@@ -404,6 +404,21 @@ function connectorPortPositions(
   return positions;
 }
 
+/** A group boundary is passable only for an endpoint visibly inside that group. */
+function endpointUsesGroupContainer(container: CanvasObject, connector: ConnectorObject, room: RoutingRoom): boolean {
+  if (container.kind !== "shape" || container.shape !== "rectangle" || container.rotation !== 0 ||
+      container.semanticRole !== "diagram.group_container" || !container.groupId ||
+      container.label.trim() || container.zIndex >= connector.zIndex) return false;
+  const bounds = objectBounds(container);
+  return [connector.start.objectId, connector.end.objectId].some((objectId) => {
+    const endpoint = objectId ? room.objects[objectId] : undefined;
+    if (!endpoint || endpoint.id === container.id || endpoint.groupId !== container.groupId) return false;
+    const target = objectBounds(endpoint);
+    return target.x >= bounds.x && target.y >= bounds.y &&
+      target.x + target.width <= bounds.x + bounds.width && target.y + target.height <= bounds.y + bounds.height;
+  });
+}
+
 /** Build stable obstacle and parallel-lane indexes once for a batch resolution. */
 export function createConnectorRoutingContext(
   room: RoutingRoom,
@@ -412,7 +427,8 @@ export function createConnectorRoutingContext(
 ): ConnectorRoutingContext {
   const normalized = normalizedOptions(options);
   const obstacles = Object.values(room.objects)
-    .filter((object) => object.kind === "shape")
+    .filter((object) => object.kind === "shape" ||
+      (object.kind === "text" && object.semanticRole === "diagram.group_title"))
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((object) => ({ id: object.id, bounds: objectBounds(object) }));
   const allObstacleIds = new Set(obstacles.map((obstacle) => obstacle.id));
@@ -427,10 +443,14 @@ export function createConnectorRoutingContext(
       if (!diagram.connectorIds.includes(connector.id)) continue;
       scoped = true;
       for (const objectId of diagram.memberObjectIds) {
-        if (room.objects[objectId]?.kind === "shape") diagramObstacleIds.add(objectId);
+        if (allObstacleIds.has(objectId)) diagramObstacleIds.add(objectId);
       }
     }
-    obstacleIdsByConnector.set(connector.id, scoped ? diagramObstacleIds : allObstacleIds);
+    const allowed = new Set(scoped ? diagramObstacleIds : allObstacleIds);
+    for (const obstacleId of allowed) {
+      if (endpointUsesGroupContainer(room.objects[obstacleId], connector, room)) allowed.delete(obstacleId);
+    }
+    obstacleIdsByConnector.set(connector.id, allowed);
   }
 
   const connectors = Object.values(room.objects).filter(

@@ -342,7 +342,7 @@ const ARCHITECTURE_BUNDLE = {
     sourceGrammar:
       "flowchart-or-graph; LR/TB/TD; native rectangle/rounded-rectangle/ellipse/circle/diamond nodes; plain/labeled/dotted directed, bidirectional, or open edges; flat subgraphs. No frontmatter, directives, styles, classes, callbacks, links, images, Markdown labels, nested subgraphs, or subgraph endpoints.",
     input:
-      "source is required; title and origin are optional; expectedRoomRevision is required and exact.",
+      "source is required; title, origin, and grouping ('compact' default or 'boxed') are optional; expectedRoomRevision is required and exact.",
     mutation:
       "One atomic native Diagram import through normal participant authorization and the room's live-or-review policy.",
     receipt:
@@ -350,7 +350,7 @@ const ARCHITECTURE_BUNDLE = {
     geometry:
       "Native and editable, but not visually certified. Run recommendedInspection and inspect its clean pixels before completion.",
     subgraphs:
-      "Flat subgraphs preserve membership and palette cues without enclosing boxes.",
+      "The default grouping='compact' preserves membership and colors while prioritizing connection layout. Choose grouping='boxed' for labeled native group boundaries with editable titles and member nodes; keeping groups together can add crossings.",
   },
   judgment: {
     automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",

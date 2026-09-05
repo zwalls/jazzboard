@@ -62,6 +62,7 @@ const importMermaidFlowchartInput = z
     source: z.string().min(1).max(65_536),
     title: z.string().trim().min(1).max(160).optional(),
     origin: point.optional(),
+    grouping: z.enum(["compact", "boxed"]).optional(),
     intent: z.string().trim().min(1).max(1_000).optional(),
     summary: z.string().trim().min(1).max(500).optional(),
   })
@@ -326,7 +327,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "import_mermaid_flowchart",
     title: "Import Mermaid flowchart",
     description:
-      "Import Mermaid flowchart source as one native, editable Jazzboard Diagram at an exact room revision. The server lays out the complete graph atomically through the room's live-or-review policy. Imported geometry is not visually certified: after an applied result, run the returned recommendedInspection request.",
+      "Import Mermaid flowchart source as one native, editable Jazzboard Diagram at an exact room revision. Use grouping='boxed' for visible subgraph boundaries; the default 'compact' prioritizes connection layout. The server lays out the complete graph atomically through the room's live-or-review policy. Imported geometry is not visually certified: after an applied result, run the returned recommendedInspection request.",
     schema: importMermaidFlowchartInput,
     async execute(input, signal) {
       const response = await request<MermaidImportResponse>(artifactsUrl(binding.roomId), {

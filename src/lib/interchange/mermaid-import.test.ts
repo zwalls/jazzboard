@@ -91,7 +91,7 @@ describe("Mermaid flowchart import parser", () => {
 
   it("parses every node, edge, group, label, and async marker in the fictional architecture fixture", async () => {
     const fixture = JSON.parse(
-      readFileSync(resolve(process.cwd(), ".research-private/mermaid-netflix/architecture.json"), "utf8"),
+      readFileSync(resolve(process.cwd(), "src/test/fixtures/streaming-architecture.json"), "utf8"),
     ) as {
       groups: Record<string, string[]>;
       nodes: Record<string, string>;

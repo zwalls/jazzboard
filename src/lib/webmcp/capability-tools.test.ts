@@ -391,11 +391,11 @@ describe("get_canvas_capabilities WebMCP tool", () => {
           },
           mermaidImport: {
             sourceGrammar: expect.stringMatching(/flowchart-or-graph.*LR\/TB\/TD.*flat subgraphs.*no frontmatter.*nested subgraphs/i),
-            input: expect.stringMatching(/source is required.*title and origin are optional.*expectedRoomRevision is required and exact/i),
+            input: expect.stringMatching(/source is required.*title, origin, and grouping.*are optional.*expectedRoomRevision is required and exact/i),
             mutation: expect.stringMatching(/atomic native Diagram.*live-or-review policy/i),
             receipt: expect.stringMatching(/node\/edge\/group ID mappings.*counts.*bounds.*warnings.*recommendedInspection/i),
             geometry: expect.stringMatching(/native and editable.*not visually certified.*clean pixels/i),
-            subgraphs: expect.stringMatching(/membership.*palette.*without enclosing boxes/i),
+            subgraphs: expect.stringMatching(/labeled native group boundaries.*editable titles.*member nodes/i),
           },
           judgment: {
             automaticLayout:

@@ -322,6 +322,7 @@ describe("interchange WebMCP tools", () => {
       source: "flowchart LR\n  api[API] --> db[(Database)]",
       title: "Service path",
       origin: { x: 400, y: 600 },
+      grouping: "boxed",
       intent: "Import the supplied architecture",
     };
 
