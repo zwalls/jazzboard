@@ -11,6 +11,7 @@ import { importAuthorizedRoomMermaidFlowchart } from "./interchange-service";
 import { createMutationContext, runWithMutationContext } from "./mutation-context";
 import { setAgentEditPolicy } from "./room-service";
 import { getRoomStore } from "./room-store";
+import { getAgentCanvasDraftStore } from "./agent-draft-store";
 import { getOrCreateGuestSession } from "./session";
 
 vi.mock("@/lib/interchange/mermaid-plan", () => ({
@@ -136,6 +137,8 @@ describe("authorized Mermaid import service", () => {
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
     globalThis.__jazzboardRedis = undefined;
+    globalThis.__jazzboardAgentDraftStore = undefined;
+    globalThis.__jazzboardAgentDraftState = undefined;
     vi.mocked(planMermaidImport).mockReset();
     vi.mocked(planMermaidImport).mockResolvedValue(plannedImport() as never);
   });
@@ -144,6 +147,8 @@ describe("authorized Mermaid import service", () => {
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
     globalThis.__jazzboardRedis = undefined;
+    globalThis.__jazzboardAgentDraftStore = undefined;
+    globalThis.__jazzboardAgentDraftState = undefined;
     vi.unstubAllEnvs();
   });
 
@@ -178,12 +183,27 @@ describe("authorized Mermaid import service", () => {
       counts: { nodes: 2, edges: 1, groups: 0, diagrams: 1 },
       bounds: { x: 500, y: 700, width: 600, height: 100 },
       activity: { actor: { participantId: "p_owner", kind: "agent" } },
+      presentation: {
+        status: "presenting",
+        ownerParticipantId: "p_owner",
+        baselineRoomRevision: room.roomRevision,
+      },
     });
     expect(result.room.objects.import_edge_0).toMatchObject({
       start: { objectId: "import_node_api" },
       end: { objectId: "import_node_db" },
     });
     expect((await store.getRoom(room.id))?.diagrams.import_diagram).toBeTruthy();
+    expect(result.presentation?.previewObjects.map((object) => object.id)).toEqual([
+      "import_node_api",
+      "import_node_db",
+      "import_edge_0",
+    ]);
+    expect(result.presentation?.previewObjects.every((object) => object.authority === "draft")).toBe(true);
+    expect(await getAgentCanvasDraftStore().get(room.id, result.presentation!.id)).toMatchObject({
+      status: "presenting",
+      authoritativeCommit: { roomRevision: result.room.roomRevision },
+    });
 
     await expectDomainError(importAuthorizedRoomMermaidFlowchart({
       roomId: room.id,
@@ -225,6 +245,7 @@ describe("authorized Mermaid import service", () => {
       changedObjectIds: [],
       changedDiagramIds: [],
       proposal: { status: "pending", summary: "Imported service path" },
+      presentation: null,
     });
     expect(result.room.objects.import_node_api).toBeUndefined();
     expect(result.room.reviewProposals[0].request).toMatchObject({

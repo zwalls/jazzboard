@@ -348,6 +348,14 @@ export function createJazzboardDraftWebMcpTools(
             { method: "GET", signal },
           );
           binding.context.acceptAgentDraft?.(response.draft);
+          if (response.draft.status === "presenting") {
+            return {
+              draft: null,
+              serverTime: response.serverTime,
+              presentation: null,
+              filteredPresentation: true,
+            };
+          }
           const ownerMatches = input.owner === "all" ||
             response.draft.ownerParticipantId === binding.participantId;
           if (!ownerMatches) {
@@ -369,9 +377,10 @@ export function createJazzboardDraftWebMcpTools(
           signal,
         });
         response.drafts.forEach((draft) => binding.context.acceptAgentDraft?.(draft));
+        const authoringDrafts = response.drafts.filter((draft) => draft.status !== "presenting");
         const matchingDrafts = input.owner === "self"
-          ? response.drafts.filter((draft) => draft.ownerParticipantId === binding.participantId)
-          : response.drafts;
+          ? authoringDrafts.filter((draft) => draft.ownerParticipantId === binding.participantId)
+          : authoringDrafts;
         const visibleDrafts = input.detail === "summary"
           ? matchingDrafts.slice(0, DRAFT_SUMMARY_LIST_LIMIT)
           : matchingDrafts;

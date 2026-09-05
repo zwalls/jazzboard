@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Participant, RoomEvent, RoomState } from "@/lib/domain/types";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import { AGENT_COMMITTED_REVEAL_DURATION_MS } from "@/lib/agent-drafts/types";
 import type { RoomRealtimeOptions } from "@/lib/realtime/client";
 
 import {
@@ -1060,6 +1061,80 @@ describe("useRoom request ordering", () => {
     expect(
       mocks.apiRequest.mock.calls.filter(([url]) => url === "/api/rooms/room-a"),
     ).toHaveLength(1);
+  });
+
+  it("delivers a full local reveal window with the authoritative invalidation refresh", async () => {
+    vi.setSystemTime(10_000);
+    const { result } = renderHook(() => useRoom("room-a"));
+    const realtime = realtimeFor("room-a");
+    act(() => {
+      realtime.onSnapshot(room("room-a", 1, ["participant-a"]), {
+        cursor: "1-0",
+        replayTruncated: false,
+      });
+      vi.advanceTimersByTime(5_000);
+    });
+    const presentation = {
+      ...agentDraft(),
+      status: "presenting" as const,
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 100,
+      hardExpiresAt: Date.now() + 100,
+    };
+    mocks.apiRequest.mockResolvedValueOnce({
+      ok: true,
+      room: room("room-a", 2, ["participant-a"]),
+      participantId: "participant-a",
+      presentations: [presentation],
+      serverTime: Date.now(),
+    });
+
+    await act(async () => {
+      realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
+      await Promise.resolve();
+    });
+
+    expect(result.current.room?.roomRevision).toBe(2);
+    expect(result.current.agentDrafts).toHaveLength(1);
+    expect(result.current.agentDrafts[0]).toMatchObject({
+      id: presentation.id,
+      status: "presenting",
+      expiresAt: Date.now() + AGENT_COMMITTED_REVEAL_DURATION_MS,
+      hardExpiresAt: Date.now() + AGENT_COMMITTED_REVEAL_DURATION_MS,
+    });
+    expect(result.current.initialAgentDraftIds).toEqual([]);
+
+    mocks.apiRequest.mockResolvedValueOnce({ ok: true, drafts: [], serverTime: Date.now() + 500 });
+    await act(async () => {
+      await result.current.refreshDrafts();
+    });
+    expect(result.current.agentDrafts).toHaveLength(1);
+  });
+
+  it("suppresses a presentation already present when the room visit hydrates", async () => {
+    vi.setSystemTime(20_000);
+    const historical = {
+      ...agentDraft(),
+      status: "presenting" as const,
+      updatedAt: Date.now() - 1_000,
+      expiresAt: Date.now() + 100,
+      hardExpiresAt: Date.now() + 100,
+    };
+    mocks.apiRequest.mockResolvedValueOnce({
+      ok: true,
+      room: room("room-a", 2, ["participant-a"]),
+      participantId: "participant-a",
+      presentations: [historical],
+      serverTime: Date.now(),
+    });
+    const { result } = renderHook(() => useRoom("room-a"));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.agentDrafts).toHaveLength(1);
+    expect(result.current.initialAgentDraftIds).toContain(historical.id);
   });
 
   it("coalesces compact realtime invalidations through one authoritative refresh", async () => {

@@ -48,6 +48,8 @@ describe("agent-readable content", () => {
       expect(content).toContain("grouping: 'boxed'");
       expect(content).toContain("does not use `delivery` or `finish_canvas_draft`");
       expect(content).toContain("recommendedInspection");
+      expect(content).toContain("nonblocking agent drawing reveal");
+      expect(content).toContain("complete authoritative graph");
     }
   });
 
@@ -239,7 +241,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.37.0");
+    expect(AGENT_DOC_VERSION).toBe("1.38.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();

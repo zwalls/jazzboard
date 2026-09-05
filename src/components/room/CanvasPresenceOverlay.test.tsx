@@ -461,6 +461,40 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
   });
 
+  it("lets a committed reveal choreography supersede the import activity cursor", () => {
+    const animation = installAnimationFrames();
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const activity: AgentActivity = {
+      id: "activity_mermaid_import",
+      type: "creating",
+      label: "Applying Mermaid diagram",
+      objectIds: ["draft-shape"],
+      progress: 0,
+      startedAt: Date.now(),
+      durationMs: 5_000,
+      fromCursor: { x: 300, y: 300 },
+      toCursor: { x: 340, y: 340 },
+    };
+    const authoritativeRoom = roomWithAgent(remoteAgent({ x: 340, y: 340 }, activity));
+    const { authority: _authority, ...committedShape } = draftShape();
+    void _authority;
+    authoritativeRoom.objects[committedShape.id] = committedShape;
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({ status: "presenting" })]}
+        room={authoritativeRoom}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveAttribute(
+      "data-agent-draft-choreography",
+      "true",
+    );
+    expect(animation.pending()).toBe(1);
+  });
+
   it("keeps the bot label concise while committing", () => {
     const agent = inactiveRemoteAgent();
     render(

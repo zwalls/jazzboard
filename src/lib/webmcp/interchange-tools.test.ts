@@ -280,6 +280,7 @@ describe("interchange WebMCP tools", () => {
 
   it("imports Mermaid as native objects and returns a compact exact-revision inspection receipt", async () => {
     const acceptRoom = vi.fn();
+    const acceptAgentDraft = vi.fn();
     const authoritativeRoom = {
       id: "room/a b",
       roomRevision: 9,
@@ -315,8 +316,16 @@ describe("interchange WebMCP tools", () => {
       warnings: ["Flat subgraphs preserve membership and palette without enclosing boxes."],
       activity: { id: "activity_import" },
       proposal: null,
+      presentation: {
+        id: "draft_mermaid_reveal",
+        roomId: authoritativeRoom.id,
+        revision: 1,
+        status: "presenting",
+      },
     })) as unknown as WebMcpRequest;
-    const tools = createJazzboardInterchangeWebMcpTools(binding("participant", acceptRoom), { request });
+    const toolBinding = binding("participant", acceptRoom);
+    toolBinding.context.acceptAgentDraft = acceptAgentDraft;
+    const tools = createJazzboardInterchangeWebMcpTools(toolBinding, { request });
     const input = {
       expectedRoomRevision: 8,
       source: "flowchart LR\n  api[API] --> db[(Database)]",
@@ -335,6 +344,13 @@ describe("interchange WebMCP tools", () => {
     const sent = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(sent.body))).toEqual({ action: "import_mermaid_flowchart", ...input });
     expect(acceptRoom).toHaveBeenCalledWith(authoritativeRoom);
+    expect(acceptAgentDraft).toHaveBeenCalledWith(expect.objectContaining({
+      id: "draft_mermaid_reveal",
+      status: "presenting",
+    }));
+    expect(acceptAgentDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      acceptRoom.mock.invocationCallOrder[0]!,
+    );
     expect(result).toMatchObject({
       ok: true,
       data: {

@@ -70,6 +70,8 @@ export type SemanticCanvasObjectProps = {
   selected?: boolean;
   focused?: boolean;
   suppressFocusVisual?: boolean;
+  /** Hide only the faithful SVG paint while a committed object is traced in by the agent overlay. */
+  presentationHidden?: boolean;
   className?: string;
   tabIndex?: number;
   onSelect?: (objectId: string, additive: boolean) => void;
@@ -698,6 +700,7 @@ function SemanticCanvasObjectComponent({
   selected = false,
   focused = false,
   suppressFocusVisual = false,
+  presentationHidden = false,
   className,
   tabIndex,
   onSelect,
@@ -803,6 +806,9 @@ function SemanticCanvasObjectComponent({
       data-rotation={object.rotation}
       data-selected={selected ? "true" : "false"}
       data-focused={showFocus ? "true" : "false"}
+      data-presentation-hidden={presentationHidden ? "true" : undefined}
+      aria-hidden={presentationHidden ? "true" : undefined}
+      style={presentationHidden ? { visibility: "hidden", pointerEvents: "none" } : undefined}
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
@@ -892,6 +898,7 @@ export function semanticCanvasObjectPropsEqual(
     && previous.selected === next.selected
     && previous.focused === next.focused
     && previous.suppressFocusVisual === next.suppressFocusVisual
+    && previous.presentationHidden === next.presentationHidden
     && previous.className === next.className
     && previous.tabIndex === next.tabIndex
     && previous.connectorLayer === next.connectorLayer

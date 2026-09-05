@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { AgentEditProposalSummary, RoomActivitySummary, RoomState } from "@/lib/domain/types";
 import { jazzboardTemplateV1Schema, parseJazzboardArtifactV1, parseJazzboardTemplateV1 } from "@/lib/interchange/schemas";
 import { JAZZBOARD_ARTIFACT_SCHEMA_URL } from "@/lib/interchange/types";
@@ -138,6 +139,7 @@ type MermaidImportResponse = {
   warnings: string[];
   activity: RoomActivitySummary | null;
   proposal: AgentEditProposalSummary | null;
+  presentation: AgentCanvasDraftSnapshot | null;
 };
 
 function failure(tool: string, error: unknown): JazzboardToolFailure {
@@ -335,6 +337,7 @@ export function createJazzboardInterchangeWebMcpTools(
         body: JSON.stringify({ action: "import_mermaid_flowchart", ...input }),
         signal,
       });
+      if (response.presentation) binding.context.acceptAgentDraft?.(response.presentation);
       binding.context.acceptRoom(response.room);
       const recommendedInspection = response.outcome === "applied"
         ? recommendedCanvasInspection(

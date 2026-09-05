@@ -84,9 +84,12 @@ export function CanvasPresenceOverlay({
         participant.agent.cursor &&
         isAgentActivityWorking(participant.agent.activity, now),
       );
-      const draft = canonicalAgentWorking
-        ? null
-        : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+      const candidate = activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+      const draft = candidate?.status === "presenting"
+        ? candidate
+        : canonicalAgentWorking
+          ? null
+          : candidate;
       return draft ? [[participant.participantId, draft] as const] : [];
     });
     return new Map(entries);
@@ -148,9 +151,12 @@ export function CanvasPresenceOverlay({
           participant.agent.cursor &&
           isAgentActivityWorking(canonicalAgentActivity, now),
         );
-        const workingDraft = canonicalAgentWorking
-          ? null
-          : workingDraftsByParticipant.get(participant.participantId) ?? null;
+        const candidate = workingDraftsByParticipant.get(participant.participantId) ?? null;
+        const workingDraft = candidate?.status === "presenting"
+          ? candidate
+          : canonicalAgentWorking
+            ? null
+            : candidate;
         if (workingDraft) {
           items.push(
             <DraftAgentCursor
@@ -262,7 +268,7 @@ function activeDraftForParticipant(
     if (
       draft.roomId !== roomId ||
       draft.ownerParticipantId !== participantId ||
-      (draft.status !== "active" && draft.status !== "committing") ||
+      (draft.status !== "active" && draft.status !== "committing" && draft.status !== "presenting") ||
       draft.expiresAt <= now ||
       draft.hardExpiresAt <= now
     ) {

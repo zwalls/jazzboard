@@ -487,6 +487,27 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     () => new Set(initialAgentDraftIds),
     [initialAgentDraftIds],
   );
+  // A committed reveal is meaningful only when observed live. A presentation
+  // discovered by the initial room load must never replay on page refresh.
+  const liveAgentDrafts = useMemo(
+    () => agentDrafts.filter((draft) =>
+      draft.status !== "presenting" || !initiallySettledDraftIds.has(draft.id)
+    ),
+    [agentDrafts, initiallySettledDraftIds],
+  );
+  const [presentationNow, setPresentationNow] = useState(() => Date.now());
+  const nextPresentationExpiry = liveAgentDrafts.reduce(
+    (current, draft) => draft.status === "presenting"
+      ? Math.min(current, draft.expiresAt, draft.hardExpiresAt)
+      : current,
+    Number.POSITIVE_INFINITY,
+  );
+  useEffect(() => {
+    if (!Number.isFinite(nextPresentationExpiry)) return;
+    const delay = Math.max(0, Math.min(nextPresentationExpiry - Date.now() + 1, 2_147_483_647));
+    const timer = window.setTimeout(() => setPresentationNow(Date.now()), delay);
+    return () => window.clearTimeout(timer);
+  }, [nextPresentationExpiry]);
   const shellRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!cleanInspectionActive) return;
@@ -598,10 +619,28 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     getProjectedRoom,
     getProjectedRoom,
   );
+  const presentingObjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const draft of liveAgentDrafts) {
+      if (
+        draft.status !== "presenting" ||
+        draft.expiresAt <= presentationNow ||
+        draft.hardExpiresAt <= presentationNow
+      ) continue;
+      for (const preview of draft.previewObjects) {
+        const authoritative = projectedRoom.objects[preview.id];
+        if (
+          authoritative?.revision === preview.revision &&
+          authoritative.createdAt === preview.createdAt
+        ) ids.add(preview.id);
+      }
+    }
+    return ids;
+  }, [liveAgentDrafts, presentationNow, projectedRoom]);
   const [activeTextEditor, setActiveTextEditor] = useState<ActiveTextEditor | null>(null);
   const renderedRoom = useMemo<RoomState>(() => {
     const inspectedDraft = cleanInspectionActive && cleanInspectionDraftScope
-      ? agentDrafts.find((draft) => (
+      ? liveAgentDrafts.find((draft) => (
           draft.roomId === projectedRoom.id
           && draft.id === cleanInspectionDraftScope.draftId
           && draft.revision === cleanInspectionDraftScope.expectedDraftRevision
@@ -639,7 +678,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     };
   }, [
     activeTextEditor,
-    agentDrafts,
+    liveAgentDrafts,
     cleanInspectionActive,
     cleanInspectionDraftScope,
     projectedRoom,
@@ -3039,6 +3078,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               selected={!cleanInspectionActive && selectionSet.has(object.id)}
               focused={!cleanInspectionActive && focusedObjectId === object.id}
               suppressFocusVisual={cleanInspectionActive}
+              presentationHidden={!cleanInspectionActive && presentingObjectIds.has(object.id)}
               tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
               className={styles.objectHitTarget}
               onSelect={handleObjectSelect}
@@ -3066,7 +3106,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       {!cleanInspectionActive ? <AgentDraftLayer
         authoritativeDiagrams={projectedRoom.diagrams}
         authoritativeObjects={projectedRoom.objects}
-        drafts={agentDrafts}
+        drafts={liveAgentDrafts}
         initiallySettledDraftIds={initiallySettledDraftIds}
         revealRegistry={agentDraftRevealRegistry}
         roomId={projectedRoom.id}
@@ -3101,7 +3141,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       ) : null}
 
       {!cleanInspectionActive ? <CanvasPresenceOverlay
-        agentDrafts={agentDrafts}
+        agentDrafts={liveAgentDrafts}
         initiallySettledDraftIds={initiallySettledDraftIds}
         revealRegistry={agentDraftRevealRegistry}
         runtime={runtime}

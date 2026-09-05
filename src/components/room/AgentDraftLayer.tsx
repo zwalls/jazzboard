@@ -93,6 +93,7 @@ function drawTransform(object: DrawObject): string {
 }
 
 function statusLabel(draft: AgentCanvasDraftSnapshot): string {
+  if (draft.status === "presenting") return "Added to board · drawing it in";
   if (draft.status === "committing") return "Validating atomic change · not saved";
   if (draft.status === "awaiting_review") return "Awaiting human approval · not on board";
   return "Draft preview · not saved";
@@ -102,7 +103,7 @@ function announcementFor(projections: readonly AgentDraftProjection[]): string {
   return projections
     .map(({ draft, objects }) => {
       const noun = objects.length === 1 ? "element" : "elements";
-      return `${draft.author.displayName}’s agent: ${statusLabel(draft)}. ${objects.length} ${noun} staged.`;
+      return `${draft.author.displayName}’s agent: ${statusLabel(draft)}. ${objects.length} ${noun} ${draft.status === "presenting" ? "added" : "staged"}.`;
     })
     .join(" ");
 }

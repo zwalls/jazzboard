@@ -394,6 +394,64 @@ describe("SemanticCanvas", () => {
     expect(document.querySelector('[data-semantic-selection-controls="true"]')).toBeNull();
   });
 
+  it("keeps committed reveal objects in the semantic scene and exposes faithful paint for clean inspection", () => {
+    const presentation: AgentCanvasDraftSnapshot = {
+      schemaVersion: 1,
+      id: "draft_mermaid_reveal",
+      roomId: room.id,
+      ownerParticipantId: self.participantId,
+      author: { ...actor, kind: "agent" },
+      revision: 1,
+      baselineRoomRevision: room.roomRevision - 1,
+      status: "presenting",
+      temporaryReferences: {},
+      previewObjects: [{ ...room.objects["node-a"]!, authority: "draft" }],
+      previewDiagrams: [],
+      metadata: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 8_500,
+      hardExpiresAt: Date.now() + 8_500,
+      awaitingReview: null,
+    };
+    const common = {
+      boardMenuActions: menuActions,
+      room,
+      agentDrafts: [presentation],
+      self,
+      followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined),
+      transientPresence: vi.fn(() => true),
+      connection: "live" as const,
+      onSelectionChange: vi.fn(),
+      onRuntimeChange: vi.fn(),
+      onExitFollow: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...common} />);
+    const authoritative = document.querySelector('[data-object-id="node-a"]');
+    expect(authoritative).toHaveAttribute("data-presentation-hidden", "true");
+    expect(authoritative).toHaveStyle({ visibility: "hidden" });
+    expect(screen.getByTestId("agent-draft-layer")).toBeInTheDocument();
+
+    rendered.rerender(<SemanticCanvas {...common} cleanInspectionId="preview-reveal" />);
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveAttribute(
+      "data-presentation-hidden",
+    );
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveStyle({ visibility: "hidden" });
+    expect(screen.queryByTestId("agent-draft-layer")).not.toBeInTheDocument();
+
+    rendered.rerender(
+      <SemanticCanvas
+        {...common}
+        initialAgentDraftIds={[presentation.id]}
+      />,
+    );
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveAttribute(
+      "data-presentation-hidden",
+    );
+    expect(document.querySelector('[data-agent-draft-object-id="node-a"]')).toBeNull();
+  });
+
   it("projects only the exact draft candidate into the clean inspection scene", () => {
     const previewObject = {
       ...room.objects["node-a"],

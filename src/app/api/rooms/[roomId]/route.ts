@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import { DomainError } from "@/lib/domain/errors";
 import { roomTitleSchema } from "@/lib/domain/schemas";
 import {
@@ -7,6 +8,7 @@ import {
   SPLIT_STATE_CLIENT_CAPABILITY,
 } from "@/lib/realtime/protocol";
 import { errorResponse, json, readJsonBody, runMutationRequest } from "@/lib/server/http";
+import { getAgentCanvasDraftStore } from "@/lib/server/agent-draft-store";
 import { readAuthorizedRoom, renameRoom, upgradeMembership } from "@/lib/server/room-service";
 import { requireGuestParticipantId } from "@/lib/server/session";
 
@@ -36,7 +38,33 @@ export async function GET(request: Request, context: Context): Promise<Response>
     }
     const { roomId } = await context.params;
     const room = await readAuthorizedRoom(roomId, participantId);
-    return json({ ok: true, room, participantId });
+    const serverTime = Date.now();
+    let presentations: AgentCanvasDraftSnapshot[] = [];
+    try {
+      const drafts = await getAgentCanvasDraftStore().list(roomId, serverTime);
+      presentations = drafts.flatMap((draft) => {
+        if (
+          draft.status !== "presenting" ||
+          !draft.authoritativeCommit ||
+          draft.authoritativeCommit.roomRevision > room.roomRevision
+        ) return [];
+        const { transaction, committing, authoritativeCommit, ...snapshot } = draft;
+        void transaction;
+        void committing;
+        void authoritativeCommit;
+        return [snapshot];
+      });
+    } catch {
+      // Room availability and authoritative state must never depend on the
+      // optional presentation sidecar.
+    }
+    return json({
+      ok: true,
+      room,
+      participantId,
+      presentations,
+      serverTime,
+    });
   } catch (error) {
     return errorResponse(error);
   }

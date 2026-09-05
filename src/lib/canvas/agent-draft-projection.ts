@@ -52,7 +52,17 @@ export function projectAgentDraft(
   }
 
   const visibleObjects = draft.previewObjects
-    .filter((object) => !authoritativeObjects[object.id])
+    .filter((object) => {
+      const authoritative = authoritativeObjects[object.id];
+      if (!authoritative) return draft.status !== "presenting";
+      // A committed Mermaid reveal deliberately projects the exact durable
+      // revision through the existing choreography layer. If a collaborator
+      // edits the object while it is being revealed, the newer authoritative
+      // revision wins immediately and the stale presentation disappears.
+      return draft.status === "presenting" &&
+        authoritative.revision === object.revision &&
+        authoritative.createdAt === object.createdAt;
+    })
     .map((object) => object as CanvasObject);
   if (!visibleObjects.length) {
     byDiagrams.set(authoritativeDiagrams, null);
