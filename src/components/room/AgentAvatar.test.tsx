@@ -31,7 +31,7 @@ describe("AgentAvatar", () => {
       (gradient) => gradient.id,
     );
     const fills = Array.from(container.querySelectorAll("[data-ripple-body]"), (body) => body.getAttribute("fill"));
-    expect(ids).toHaveLength(10);
+    expect(ids).toHaveLength(12);
     expect(new Set(ids).size).toBe(ids.length);
     expect(fills).toHaveLength(2);
     expect(fills[0]).not.toBe(fills[1]);

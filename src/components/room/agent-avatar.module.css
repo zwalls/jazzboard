@@ -9,7 +9,13 @@
   width: var(--agent-avatar-size);
 }
 
-.rippleFigure {
+.fallbackFigure,
+.rasterCharacter {
+  inset: 0;
+  position: absolute;
+}
+
+.fallbackFigure {
   display: block;
   height: 100%;
   max-height: 100%;
@@ -18,32 +24,105 @@
   width: 100%;
 }
 
+.rasterCharacter {
+  display: none;
+  height: 100%;
+  transform-origin: 50% 70%;
+  width: 100%;
+}
+
+.rasterBody,
+.rasterFace {
+  display: block;
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.rasterFace {
+  overflow: visible;
+}
+
+.avatar[data-agent-avatar-raster="ready"] .fallbackFigure {
+  display: none;
+}
+
+.avatar[data-agent-avatar-raster="ready"] .rasterCharacter {
+  display: block;
+}
+
 .rippleCharacter,
+.rippleGaze,
+.rippleLook,
 .rippleEyes {
   transform-box: fill-box;
   transform-origin: 50% 70%;
 }
 
+.rippleGaze {
+  transform: translate(var(--ripple-gaze-x, 0), var(--ripple-gaze-y, 0));
+  transition: transform 120ms ease-out;
+}
+
+.rippleLook,
 .rippleEyes {
   transform-origin: center;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .avatar[data-agent-avatar-motion="always"]:not([data-agent-avatar-paused="true"]) .rippleCharacter {
+  .avatar[data-agent-avatar-motion="hover"] .rippleCharacter,
+  .avatar[data-agent-avatar-motion="hover"] .rasterCharacter {
+    animation: ripple-idle-body var(--ripple-idle-duration) ease-in-out infinite;
+    animation-delay: var(--ripple-idle-delay);
+  }
+
+  .avatar[data-agent-avatar-motion="hover"] .rippleLook {
+    animation: ripple-idle-look var(--ripple-idle-duration) ease-in-out infinite;
+    animation-delay: var(--ripple-idle-delay);
+  }
+
+  .avatar[data-agent-avatar-motion="hover"] .rippleEyes {
+    animation: ripple-idle-blink var(--ripple-idle-duration) ease-in-out infinite;
+    animation-delay: var(--ripple-idle-delay);
+  }
+
+  .avatar[data-agent-avatar-motion="always"] .rippleCharacter,
+  .avatar[data-agent-avatar-motion="always"] .rasterCharacter {
     animation: ripple-working 1.9s ease-in-out infinite;
   }
 
-  .avatar[data-agent-avatar-motion="always"]:not([data-agent-avatar-paused="true"]) .rippleEyes {
+  .avatar[data-agent-avatar-motion="always"] .rippleLook {
+    animation: ripple-working-look 5.8s ease-in-out infinite;
+  }
+
+  .avatar[data-agent-avatar-motion="always"] .rippleEyes {
     animation: ripple-blink 4.6s ease-in-out infinite;
   }
 
-  .avatar[data-agent-avatar-motion="hover"]:not([data-agent-avatar-paused="true"]):hover .rippleCharacter {
-    animation: ripple-hover 1.35s ease-in-out infinite;
+  .avatar[data-ripple-gaze="true"] .rippleLook {
+    animation: none;
   }
 
-  .avatar[data-agent-avatar-motion="hover"]:not([data-agent-avatar-paused="true"]):hover .rippleEyes {
-    animation: ripple-blink 4.6s ease-in-out infinite;
+  .avatar[data-agent-avatar-paused="true"] :is(.rippleCharacter, .rasterCharacter, .rippleLook, .rippleEyes) {
+    animation-play-state: paused;
   }
+}
+
+@keyframes ripple-idle-body {
+  0%, 100% { transform: translateY(0) rotate(-0.15deg) scale(1); }
+  46% { transform: translateY(-0.5px) rotate(0.2deg) scaleX(1.006) scaleY(0.994); }
+}
+
+@keyframes ripple-idle-look {
+  0%, 14%, 34%, 55%, 82%, 100% { transform: translate(0, 0); }
+  21%, 29% { transform: translate(var(--ripple-look-x), var(--ripple-look-y)); }
+  63%, 76% { transform: translate(var(--ripple-look-back-x), var(--ripple-look-back-y)); }
+}
+
+@keyframes ripple-idle-blink {
+  0%, 91%, 94%, 100% { transform: scaleY(1); }
+  92.5% { transform: scaleY(0.08); }
 }
 
 @keyframes ripple-working {
@@ -52,12 +131,18 @@
   68% { transform: rotate(-0.4deg) scaleX(0.985) scaleY(1.018); }
 }
 
-@keyframes ripple-hover {
-  0%, 100% { transform: rotate(-1deg) scaleX(1) scaleY(1); }
-  50% { transform: rotate(1.2deg) scaleX(1.025) scaleY(0.975); }
+@keyframes ripple-working-look {
+  0%, 38%, 100% { transform: translate(0, 0); }
+  48%, 68% { transform: translate(var(--ripple-look-x), var(--ripple-look-y)); }
 }
 
 @keyframes ripple-blink {
   0%, 44%, 48%, 100% { transform: scaleY(1); }
   46% { transform: scaleY(0.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rippleGaze {
+    transition: none;
+  }
 }

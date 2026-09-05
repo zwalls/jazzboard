@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import type { AgentActivity } from "@/lib/domain/types";
+import { registerRippleGaze } from "@/lib/client/ripple-gaze";
 
 import styles from "./agent-avatar.module.css";
+import { requestRippleBody, rippleRasterSize } from "./ripple-body-cache";
+import { ripplePrimaryColor, rippleTraitsFor } from "./ripple-traits";
 
 export type AgentAvatarState = "idle" | "working";
 export type AgentAvatarMotion = "none" | "hover" | "always";
@@ -20,11 +23,6 @@ export type AgentAvatarProps = {
 };
 
 type Point = { x: number; y: number };
-
-const RIPPLE_COLORS = [
-  "#ff9d73", "#8f85ef", "#67c7aa", "#f2bd54",
-  "#6ca9ef", "#ef7da4", "#7fc66a", "#bf84df",
-] as const;
 
 function hashSeed(value: string) {
   let hash = 2_166_136_261;
@@ -68,20 +66,18 @@ function closedCurve(points: Point[]) {
   return `${parts.join(" ")} Z`;
 }
 
-function ripplePath(seed: number) {
+function ripplePath(displayName: string) {
+  const traits = rippleTraitsFor(displayName);
   const pointCount = 80;
-  const phase = -Math.PI / 2 + (seededFraction(seed, 1) - 0.5) * 0.13;
-  const amplitude = 0.16 + seededFraction(seed, 2) * 0.035;
-  const width = 21.6 * (0.95 + seededFraction(seed, 3) * 0.1);
-  const height = 21.2 * (0.95 + seededFraction(seed, 4) * 0.1);
-  const organicPhase = seededFraction(seed, 5) * Math.PI * 2;
   const points = Array.from({ length: pointCount }, (_, index) => {
     const angle = -Math.PI / 2 + (index / pointCount) * Math.PI * 2;
-    const ripple = 1 + amplitude * Math.cos(5 * (angle - phase));
-    const organic = 1 + 0.018 * Math.cos(2 * angle + organicPhase);
+    const modulation = 1 + traits.lobeVariation * Math.cos(angle + traits.lobeVariationPhase);
+    const lobes = traits.lobeAmplitude * modulation * Math.cos(5 * (angle - traits.lobePhase));
+    const asymmetry = traits.asymmetry * Math.cos(2 * angle + traits.asymmetryPhase);
+    const boundary = 1 + lobes + asymmetry;
     return {
-      x: 32 + Math.cos(angle) * width * ripple * organic,
-      y: 32.5 + Math.sin(angle) * height * ripple,
+      x: 32 + Math.cos(angle) * traits.width * boundary * 32,
+      y: 32 + Math.sin(angle) * traits.height * boundary * 32,
     };
   });
   return closedCurve(points);
@@ -92,8 +88,7 @@ export function agentAvatarSeed(displayName: string) {
 }
 
 export function agentAvatarPrimaryColor(displayName: string) {
-  const seed = hashSeed(agentAvatarSeed(displayName));
-  return RIPPLE_COLORS[seed % RIPPLE_COLORS.length];
+  return ripplePrimaryColor(displayName);
 }
 
 export function isAgentActivityWorking(activity: AgentActivity | null, now: number) {
@@ -115,20 +110,36 @@ export function AgentAvatar({
   const seedName = agentAvatarSeed(displayName);
   const seed = hashSeed(seedName);
   const avatarSize = Math.max(16, size);
-  const primaryColor = agentAvatarPrimaryColor(displayName);
-  const highlightColor = mixHex(primaryColor, "#ffffff", 0.36);
-  const shadeColor = mixHex(primaryColor, "#362747", 0.24);
-  const eyeSpacing = 6.2 + seededFraction(seed, 6) * 2.6;
-  const eyeHeight = 8 + seededFraction(seed, 7) * 1.4;
-  const eyeY = 32 + seededFraction(seed, 8) * 2;
+  const model = useMemo(() => {
+    const traits = rippleTraitsFor(displayName);
+    const primaryColor = ripplePrimaryColor(displayName);
+    return {
+      traits,
+      primaryColor,
+      highlightColor: mixHex(primaryColor, "#ffffff", 0.36),
+      shadeColor: mixHex(primaryColor, "#362747", 0.24),
+      bodyPath: ripplePath(displayName),
+    };
+  }, [displayName]);
+  const eyeCenters = model.traits.eyeSpacing / 2;
+  const eyeHalfWidth = 0.047 * 32;
+  const eyeHalfHeight = (model.traits.eyeHeight / 2) * 32;
+  const eyeY = (model.traits.eyeY + 1) * 32;
   const instanceId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const bodyGradientId = `ripple-body-${instanceId}`;
   const surfaceGradientId = `ripple-surface-${instanceId}`;
   const undersideGradientId = `ripple-underside-${instanceId}`;
-  const eyeGradientId = `ripple-eyes-${instanceId}`;
+  const fallbackEyeGradientId = `ripple-fallback-eyes-${instanceId}`;
+  const rasterEyeGradientId = `ripple-raster-eyes-${instanceId}`;
   const shadowGradientId = `ripple-shadow-${instanceId}`;
-  const bodyPath = ripplePath(seed);
   const [documentHidden, setDocumentHidden] = useState(false);
+  const [readyRasterKey, setReadyRasterKey] = useState<string | null>(null);
+  const avatarRef = useRef<HTMLSpanElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rasterSize = rippleRasterSize(
+    avatarSize,
+    typeof window === "undefined" ? 1 : window.devicePixelRatio,
+  );
 
   useEffect(() => {
     const syncVisibility = () => setDocumentHidden(document.visibilityState === "hidden");
@@ -137,9 +148,43 @@ export function AgentAvatar({
     return () => document.removeEventListener("visibilitychange", syncVisibility);
   }, []);
 
+  useEffect(() => {
+    const element = avatarRef.current;
+    if (!element) return;
+    return registerRippleGaze(element, resolvedMotion !== "none");
+  }, [resolvedMotion]);
+
+  useEffect(() => {
+    let active = true;
+    void requestRippleBody(displayName, rasterSize).then((body) => {
+      if (!active || !body || !canvasRef.current) return;
+      try {
+        const context = canvasRef.current.getContext("2d");
+        if (!context) return;
+        canvasRef.current.width = body.width;
+        canvasRef.current.height = body.height;
+        context.putImageData(new ImageData(body.data, body.width, body.height), 0, 0);
+        setReadyRasterKey(`${displayName}\u0000${rasterSize}`);
+      } catch {
+        // Canvas support is an enhancement; the SVG remains visible on failure.
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [displayName, rasterSize]);
+
+  const rasterReady = readyRasterKey === `${displayName}\u0000${rasterSize}`;
+
   const avatarStyle = {
     "--agent-avatar-accent": participantColor,
     "--agent-avatar-size": `${avatarSize}px`,
+    "--ripple-idle-delay": `${-(seed % 7_000)}ms`,
+    "--ripple-idle-duration": `${9 + (seed % 3_500) / 1_000}s`,
+    "--ripple-look-x": `${(seededFraction(seed, 20) - 0.5) * avatarSize * 0.045}px`,
+    "--ripple-look-y": `${(seededFraction(seed, 21) - 0.5) * avatarSize * 0.018}px`,
+    "--ripple-look-back-x": `${(0.5 - seededFraction(seed, 20)) * avatarSize * 0.029}px`,
+    "--ripple-look-back-y": `${(seededFraction(seed, 21) - 0.5) * avatarSize * 0.006}px`,
   } as CSSProperties;
   const wrapperClassName = [styles.avatar, className].filter(Boolean).join(" ");
 
@@ -150,13 +195,15 @@ export function AgentAvatar({
       className={wrapperClassName}
       data-agent-avatar-motion={resolvedMotion}
       data-agent-avatar-paused={documentHidden ? "true" : undefined}
+      data-agent-avatar-raster={rasterReady ? "ready" : "fallback"}
       data-agent-avatar-state={state}
+      ref={avatarRef}
       role={accessibleLabel ? "img" : undefined}
       style={avatarStyle}
     >
       <svg
         aria-hidden="true"
-        className={styles.rippleFigure}
+        className={styles.fallbackFigure}
         data-ripple-seed={seedName}
         focusable="false"
         height={avatarSize}
@@ -165,9 +212,9 @@ export function AgentAvatar({
       >
         <defs>
           <linearGradient id={bodyGradientId} x1="12%" x2="90%" y1="8%" y2="92%">
-            <stop offset="0%" stopColor={highlightColor} />
-            <stop offset="48%" stopColor={primaryColor} />
-            <stop offset="100%" stopColor={shadeColor} />
+            <stop offset="0%" stopColor={model.highlightColor} />
+            <stop offset="48%" stopColor={model.primaryColor} />
+            <stop offset="100%" stopColor={model.shadeColor} />
           </linearGradient>
           <radialGradient
             cx="23"
@@ -188,43 +235,91 @@ export function AgentAvatar({
             y1="28"
             y2="57"
           >
-            <stop offset="45%" stopColor={shadeColor} stopOpacity="0" />
-            <stop offset="100%" stopColor={shadeColor} stopOpacity="0.34" />
+            <stop offset="45%" stopColor={model.shadeColor} stopOpacity="0" />
+            <stop offset="100%" stopColor={model.shadeColor} stopOpacity="0.34" />
           </linearGradient>
-          <linearGradient id={eyeGradientId} x1="0%" x2="100%" y1="0%" y2="100%">
+          <linearGradient id={fallbackEyeGradientId} x1="0%" x2="100%" y1="0%" y2="100%">
             <stop offset="0%" stopColor="#44334b" />
             <stop offset="48%" stopColor="#271a2e" />
             <stop offset="100%" stopColor="#170e1c" />
           </linearGradient>
           <radialGradient id={shadowGradientId}>
-            <stop offset="0%" stopColor={shadeColor} stopOpacity="0.34" />
-            <stop offset="100%" stopColor={shadeColor} stopOpacity="0" />
+            <stop offset="0%" stopColor={model.shadeColor} stopOpacity="0.34" />
+            <stop offset="100%" stopColor={model.shadeColor} stopOpacity="0" />
           </radialGradient>
         </defs>
         <ellipse cx="32" cy="55.2" fill={`url(#${shadowGradientId})`} rx="20" ry="2.6" />
         <g className={styles.rippleCharacter}>
           <path
             className={styles.rippleBody}
-            d={bodyPath}
+            d={model.bodyPath}
             data-ripple-body="true"
             fill={`url(#${bodyGradientId})`}
           />
-          <path d={bodyPath} fill={`url(#${surfaceGradientId})`} pointerEvents="none" />
-          <path d={bodyPath} fill={`url(#${undersideGradientId})`} pointerEvents="none" />
+          <path d={model.bodyPath} fill={`url(#${surfaceGradientId})`} pointerEvents="none" />
+          <path d={model.bodyPath} fill={`url(#${undersideGradientId})`} pointerEvents="none" />
           <path
-            d={bodyPath}
+            d={model.bodyPath}
             fill="none"
             opacity="0.18"
             pointerEvents="none"
-            stroke={shadeColor}
+            stroke={model.shadeColor}
             strokeWidth="0.65"
           />
-          <g className={styles.rippleEyes} fill={`url(#${eyeGradientId})`}>
-            <rect height={eyeHeight} rx="1.7" width="3.4" x={32 - eyeSpacing / 2 - 1.7} y={eyeY - eyeHeight / 2} />
-            <rect height={eyeHeight} rx="1.7" width="3.4" x={32 + eyeSpacing / 2 - 1.7} y={eyeY - eyeHeight / 2} />
+          <g className={styles.rippleGaze}>
+            <g className={styles.rippleLook}>
+              <g className={styles.rippleEyes} fill={`url(#${fallbackEyeGradientId})`}>
+                <rect
+                  height={eyeHalfHeight * 2}
+                  rx="1.38"
+                  width={eyeHalfWidth * 2}
+                  x={(1 - eyeCenters) * 32 - eyeHalfWidth}
+                  y={eyeY - eyeHalfHeight}
+                />
+                <rect
+                  height={eyeHalfHeight * 2}
+                  rx="1.38"
+                  width={eyeHalfWidth * 2}
+                  x={(1 + eyeCenters) * 32 - eyeHalfWidth}
+                  y={eyeY - eyeHalfHeight}
+                />
+              </g>
+            </g>
           </g>
         </g>
       </svg>
+      <span className={styles.rasterCharacter} aria-hidden="true">
+        <canvas className={styles.rasterBody} ref={canvasRef} />
+        <svg className={styles.rasterFace} focusable="false" viewBox="0 0 64 64">
+          <defs>
+            <linearGradient id={rasterEyeGradientId} x1="0%" x2="100%" y1="0%" y2="100%">
+              <stop offset="0%" stopColor="#44334b" />
+              <stop offset="48%" stopColor="#271a2e" />
+              <stop offset="100%" stopColor="#170e1c" />
+            </linearGradient>
+          </defs>
+          <g className={styles.rippleGaze}>
+            <g className={styles.rippleLook}>
+              <g className={styles.rippleEyes} fill={`url(#${rasterEyeGradientId})`}>
+                <rect
+                  height={eyeHalfHeight * 2}
+                  rx="1.38"
+                  width={eyeHalfWidth * 2}
+                  x={(1 - eyeCenters) * 32 - eyeHalfWidth}
+                  y={eyeY - eyeHalfHeight}
+                />
+                <rect
+                  height={eyeHalfHeight * 2}
+                  rx="1.38"
+                  width={eyeHalfWidth * 2}
+                  x={(1 + eyeCenters) * 32 - eyeHalfWidth}
+                  y={eyeY - eyeHalfHeight}
+                />
+              </g>
+            </g>
+          </g>
+        </svg>
+      </span>
     </span>
   );
 }
