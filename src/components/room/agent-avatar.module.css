@@ -9,14 +9,55 @@
   width: var(--agent-avatar-size);
 }
 
-.avatar > :is(img, svg) {
+.rippleFigure {
   display: block;
   height: 100%;
   max-height: 100%;
   max-width: 100%;
+  overflow: visible;
   width: 100%;
 }
 
-.avatar[data-agent-avatar-state="working"] > :is(img, svg) {
-  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--agent-avatar-accent) 28%, transparent));
+.rippleCharacter,
+.rippleEyes {
+  transform-box: fill-box;
+  transform-origin: 50% 70%;
+}
+
+.rippleEyes {
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .avatar[data-agent-avatar-motion="always"]:not([data-agent-avatar-paused="true"]) .rippleCharacter {
+    animation: ripple-working 1.9s ease-in-out infinite;
+  }
+
+  .avatar[data-agent-avatar-motion="always"]:not([data-agent-avatar-paused="true"]) .rippleEyes {
+    animation: ripple-blink 4.6s ease-in-out infinite;
+  }
+
+  .avatar[data-agent-avatar-motion="hover"]:not([data-agent-avatar-paused="true"]):hover .rippleCharacter {
+    animation: ripple-hover 1.35s ease-in-out infinite;
+  }
+
+  .avatar[data-agent-avatar-motion="hover"]:not([data-agent-avatar-paused="true"]):hover .rippleEyes {
+    animation: ripple-blink 4.6s ease-in-out infinite;
+  }
+}
+
+@keyframes ripple-working {
+  0%, 100% { transform: rotate(-1.5deg) scaleX(1) scaleY(1); }
+  35% { transform: rotate(1.8deg) scaleX(1.035) scaleY(0.965); }
+  68% { transform: rotate(-0.4deg) scaleX(0.985) scaleY(1.018); }
+}
+
+@keyframes ripple-hover {
+  0%, 100% { transform: rotate(-1deg) scaleX(1) scaleY(1); }
+  50% { transform: rotate(1.2deg) scaleX(1.025) scaleY(0.975); }
+}
+
+@keyframes ripple-blink {
+  0%, 44%, 48%, 100% { transform: scaleY(1); }
+  46% { transform: scaleY(0.08); }
 }
