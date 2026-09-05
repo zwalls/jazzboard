@@ -329,12 +329,28 @@ const ARCHITECTURE_BUNDLE = {
   ],
   toolChoices: {
     coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
+    compactMermaidImport: "import_mermaid_flowchart-with-expectedRoomRevision",
     directCorrection: "apply_canvas_transaction-without-delivery",
     finishProgressiveCreate: "finish_canvas_draft",
     existingGraphRead: "read_diagram-or-read_neighborhood",
     deterministicLayout: "layout_objects-or-one-auto_layout-operation",
     conventionalGeometryEvidence: "analyze_diagram_layout",
     preferredInspection: "inspect_canvas_scope",
+  },
+  mermaidImport: {
+    useWhen: "The user supplies supported Mermaid flowchart or graph source and wants native editable Jazzboard objects.",
+    sourceGrammar:
+      "flowchart-or-graph; LR/TB/TD; native rectangle/rounded-rectangle/ellipse/circle/diamond nodes; plain/labeled/dotted directed, bidirectional, or open edges; flat subgraphs. No frontmatter, directives, styles, classes, callbacks, links, images, Markdown labels, nested subgraphs, or subgraph endpoints.",
+    input:
+      "source is required; title and origin are optional; expectedRoomRevision is required and exact.",
+    mutation:
+      "One atomic native Diagram import through normal participant authorization and the room's live-or-review policy.",
+    receipt:
+      "Compact source-to-Jazzboard node/edge/group ID mappings, Diagram ID, counts, bounds, warnings, and recommendedInspection.",
+    geometry:
+      "Native and editable, but not visually certified. Run recommendedInspection and inspect its clean pixels before completion.",
+    subgraphs:
+      "Flat subgraphs preserve membership and palette cues without enclosing boxes.",
   },
   judgment: {
     automaticLayout: "opt-in-only-when-flow-grid-or-hierarchy-matches-intent",
@@ -792,7 +808,10 @@ function canvasQuickstart(
     purpose:
       `${task}.`,
     fastPath: [
-      "Blank: skip read. Broad/unfamiliar board: read_room_state summary, then scoped reads. Known IDs/narrow scope: query directly. Full if required content/geometry is absent.",
+      "Read broad/unfamiliar: read_room_state summary. Known IDs/scopes: query directly; full if needed.",
+      ...(task === "architecture" && role === "participant"
+        ? ["Mermaid: import_mermaid_flowchart."]
+        : []),
       "Batch existing-object metadata: <=200 revision-guarded update_object ops per direct apply_canvas_transaction; no delivery or serial calls.",
       "Adapt canonicalDraftJson into one coherent draft with stable tempRefs, Diagram, concise receipt, and assertions; never chunk for animation.",
       "Schema rejection: fix all paths once; preserve Diagram/membership.",

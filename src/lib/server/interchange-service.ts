@@ -9,6 +9,7 @@ import type {
   Point,
 } from "@/lib/domain/types";
 import { renderDiagramMermaid } from "@/lib/interchange/mermaid";
+import { planMermaidImport } from "@/lib/interchange/mermaid-plan";
 import { projectJazzboardArtifact, serializeJazzboardArtifact } from "@/lib/interchange/project";
 import { renderJazzboardSvg } from "@/lib/interchange/svg";
 import { createJazzboardTemplate, planTemplateInstantiation } from "@/lib/interchange/templates";
@@ -150,6 +151,23 @@ export type TemplateInstantiationResult = CanvasMutationOutcome & {
   warnings: JazzboardArtifactWarning[];
 };
 
+export type MermaidImportResult = CanvasMutationOutcome & {
+  idMap: {
+    nodes: Record<string, string>;
+    edges: Record<string, string>;
+    groups: Record<string, string>;
+    diagramId: string;
+  };
+  counts: {
+    nodes: number;
+    edges: number;
+    groups: number;
+    diagrams: 1;
+  };
+  bounds: { x: number; y: number; width: number; height: number };
+  warnings: string[];
+};
+
 type TemplateInstantiationDependencies = {
   createId?: (kind: TemplateCreateIdKind, sourceId: string) => string;
 };
@@ -204,6 +222,58 @@ export async function instantiateAuthorizedRoomTemplate(
     return {
       ...result,
       idMap: plan.idMap,
+      bounds: plan.bounds,
+      warnings: plan.warnings,
+    };
+  } catch (error) {
+    return asDomainError(error);
+  }
+}
+
+/**
+ * Parse, plan, and apply one Mermaid flowchart as native Jazzboard objects.
+ * The semantic transaction remains subject to the room's live/review policy.
+ */
+export async function importAuthorizedRoomMermaidFlowchart(input: {
+  roomId: string;
+  participantId: string;
+  actorKind: ActorKind;
+  expectedRoomRevision: number;
+  source: string;
+  title?: string;
+  origin?: Point;
+  metadata?: ActivityMutationMetadata;
+}): Promise<MermaidImportResult> {
+  const room = await readAuthorizedRoom(input.roomId, input.participantId);
+  const participant = requireParticipant(room, input.participantId);
+  requireMutationRole(participant, input.actorKind);
+  // Planning creates the IDs embedded in the transaction. Check a verified
+  // receipt first so an acknowledged retry cannot plan a second import or fail
+  // against its own now-stale expected revision.
+  await getRoomStore().assertMutationNotReplayed(input.roomId);
+
+  try {
+    const plan = await planMermaidImport(input.source, {
+      title: input.title,
+      origin: input.origin,
+    });
+    const result = await runSemanticTransaction({
+      roomId: input.roomId,
+      participantId: input.participantId,
+      actorKind: input.actorKind,
+      transaction: plan.transaction,
+      metadata: input.metadata,
+      expectedRoomRevision: input.expectedRoomRevision,
+    });
+    return {
+      ...result,
+      idMap: plan.idMap,
+      counts: {
+        nodes: Object.keys(plan.idMap.nodes).length,
+        edges: Object.keys(plan.idMap.edges).length,
+        groups: Object.keys(plan.idMap.groups).length,
+        diagrams: 1,
+      },
       bounds: plan.bounds,
       warnings: plan.warnings,
     };

@@ -91,7 +91,10 @@ describe("get_canvas_capabilities WebMCP tool", () => {
             role,
             roleCanMutateCanvas: role === "participant",
             fastPath: expect.arrayContaining([
-              expect.stringMatching(/broad\/unfamiliar board.*read_room_state summary.*scoped reads.*known IDs\/narrow scope.*query directly.*full.*required content\/geometry.*absent/i),
+              expect.stringMatching(/broad\/unfamiliar.*read_room_state summary.*known IDs\/scopes.*query directly.*full if needed/i),
+              ...(role === "participant"
+                ? [expect.stringMatching(/Mermaid.*import_mermaid_flowchart/i)]
+                : []),
               expect.stringMatching(/batch existing-object metadata.*<=200.*revision-guarded update_object.*direct apply_canvas_transaction.*no delivery or serial/i),
               expect.stringMatching(/adapt canonicalDraftJson.*one coherent/i),
               expect.stringMatching(/schema rejection.*fix all paths.*preserve Diagram\/membership/i),
@@ -381,9 +384,18 @@ describe("get_canvas_capabilities WebMCP tool", () => {
         data: {
           toolChoices: {
             coherentCreate: "apply_canvas_transaction-with-delivery.mode=draft",
+            compactMermaidImport: "import_mermaid_flowchart-with-expectedRoomRevision",
             directCorrection: "apply_canvas_transaction-without-delivery",
             finishProgressiveCreate: "finish_canvas_draft",
             preferredInspection: "inspect_canvas_scope",
+          },
+          mermaidImport: {
+            sourceGrammar: expect.stringMatching(/flowchart-or-graph.*LR\/TB\/TD.*flat subgraphs.*no frontmatter.*nested subgraphs/i),
+            input: expect.stringMatching(/source is required.*title and origin are optional.*expectedRoomRevision is required and exact/i),
+            mutation: expect.stringMatching(/atomic native Diagram.*live-or-review policy/i),
+            receipt: expect.stringMatching(/node\/edge\/group ID mappings.*counts.*bounds.*warnings.*recommendedInspection/i),
+            geometry: expect.stringMatching(/native and editable.*not visually certified.*clean pixels/i),
+            subgraphs: expect.stringMatching(/membership.*palette.*without enclosing boxes/i),
           },
           judgment: {
             automaticLayout:

@@ -7,6 +7,7 @@ import type { ProjectArtifactScope } from "@/lib/interchange/types";
 import { errorResponse, json, readJsonBody, runMutationRequest } from "./http";
 import {
   exportAuthorizedRoomArtifact,
+  importAuthorizedRoomMermaidFlowchart,
   instantiateAuthorizedRoomTemplate,
   JAZZBOARD_ARTIFACT_EXPORT_FORMATS,
 } from "./interchange-service";
@@ -34,6 +35,18 @@ export const instantiateTemplateRequestSchema = z
     template: jazzboardTemplateV1Schema,
     origin: z.object({ x: z.number().finite(), y: z.number().finite() }).strict(),
     baseZIndex: z.number().int().min(0).max(1_000_000).optional(),
+    intent: z.string().trim().min(1).max(1_000).optional(),
+    summary: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+export const importMermaidFlowchartRequestSchema = z
+  .object({
+    action: z.literal("import_mermaid_flowchart"),
+    expectedRoomRevision: z.number().int().positive(),
+    source: z.string().min(1).max(65_536),
+    title: z.string().trim().min(1).max(160).optional(),
+    origin: z.object({ x: z.number().finite(), y: z.number().finite() }).strict().optional(),
     intent: z.string().trim().min(1).max(1_000).optional(),
     summary: z.string().trim().min(1).max(500).optional(),
   })
@@ -97,7 +110,37 @@ export async function handleAuthorizedTemplateInstantiation(
   try {
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
-    const body = instantiateTemplateRequestSchema.parse(await readJsonBody(request));
+    const rawBody = await readJsonBody(request);
+    if (
+      typeof rawBody === "object" &&
+      rawBody !== null &&
+      "action" in rawBody &&
+      rawBody.action === "import_mermaid_flowchart"
+    ) {
+      const body = importMermaidFlowchartRequestSchema.parse(rawBody);
+      const { intent, summary } = body;
+      const result = await runMutationRequest({
+        request,
+        participantId,
+        roomId,
+        operation: "room.mermaid.import",
+        actorKind,
+        parsedBody: body,
+        execute: () => importAuthorizedRoomMermaidFlowchart({
+          roomId,
+          participantId,
+          actorKind,
+          expectedRoomRevision: body.expectedRoomRevision,
+          source: body.source,
+          title: body.title,
+          origin: body.origin,
+          metadata: intent || summary ? { intent, summary } : undefined,
+        }),
+      });
+      return json({ ok: true, ...result }, { status: 201 });
+    }
+
+    const body = instantiateTemplateRequestSchema.parse(rawBody);
     const { intent, summary, ...mutation } = body;
     const result = await runMutationRequest({
       request,

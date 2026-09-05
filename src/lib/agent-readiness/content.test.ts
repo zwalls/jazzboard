@@ -199,6 +199,7 @@ describe("agent-readable content", () => {
       "export_canvas_png",
       "create_diagram_template",
       "instantiate_diagram_template",
+      "import_mermaid_flowchart",
       "read_snapshot_state",
       "query_snapshot_objects",
       "read_snapshot_diagram",
@@ -216,6 +217,10 @@ describe("agent-readable content", () => {
     }
 
     expect(corpus).toContain("image-faithful PNG");
+    expect(corpus).toContain("native, editable Diagram");
+    expect(corpus).toContain("semantic ID mappings");
+    expect(corpus).toContain("without enclosing boxes");
+    expect(corpus).toContain("imported geometry");
     expect(corpus).toContain("Jazzboard issues no new hosted snapshot URLs");
     expect(corpus).toContain("neither returned by WebMCP nor persisted");
   });
