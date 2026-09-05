@@ -38,6 +38,19 @@ function markdownLinks(body: string): string[] {
 }
 
 describe("agent-readable content", () => {
+  it("teaches the Mermaid-first creation path on every discovery and instruction surface", () => {
+    for (const render of [makeLlmsTxt, makeAgentGuideMarkdown, makeAgentsMarkdown, makeSkillMarkdown, makeWebMcpMarkdown]) {
+      const content = render();
+      expect(content).toContain("author Mermaid source yourself");
+      expect(content).toContain("the user does not need to supply Mermaid");
+      expect(content).toContain("expectedRoomRevision");
+      expect(content).toContain("grouping: 'compact'");
+      expect(content).toContain("grouping: 'boxed'");
+      expect(content).toContain("does not use `delivery` or `finish_canvas_draft`");
+      expect(content).toContain("recommendedInspection");
+    }
+  });
+
   it("keeps its public tool inventory synchronized with the executable tool sets", () => {
     expect(LANDING_TOOL_NAMES).toEqual(JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES);
     expect(ROOM_PARTICIPANT_TOOL_NAMES).toEqual(
@@ -226,7 +239,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.36.0");
+    expect(AGENT_DOC_VERSION).toBe("1.37.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
