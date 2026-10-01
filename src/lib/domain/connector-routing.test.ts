@@ -9,6 +9,7 @@ import type {
   RoomState,
 } from "./types";
 import {
+  createConnectorRoutingContext,
   CONNECTOR_ROUTING_LIMITS,
   CONNECTOR_ROUTING_BOUNDED_MAX_CANDIDATES,
   CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
@@ -845,5 +846,38 @@ describe("deterministic route geometry", () => {
     })).size).toBe(edges.length);
     expect(Math.max(...Object.values(first).map((route) => route.candidateCount)))
       .toBeLessThanOrEqual(CONNECTOR_ROUTING_LIMITS.maxCandidates);
+  });
+});
+
+
+describe("native Mermaid group boundaries", () => {
+  function groupedRoom() {
+    const container = { ...node("group-box", 0, 0, 400, 300), label: "", groupId: "g", semanticRole: "diagram.group_container" };
+    const inside = { ...node("inside", 80, 100), groupId: "g", zIndex: 1 };
+    const outside = { ...node("outside", 600, 100), zIndex: 1 };
+    const title: CanvasObject = { ...base("group-title"), kind: "text", content: "Services", color: "black", size: "m", align: "start",
+      x: 30, y: 20, width: 300, height: 40, groupId: "g", semanticRole: "diagram.group_title", zIndex: 1 };
+    const edge = { ...connector("owned", inside.id, outside.id), zIndex: 2 };
+    return { container, inside, outside, title, edge };
+  }
+  it("allows entry and exit through an endpoint's background group but retains its title obstacle", () => {
+    const { container, inside, outside, title, edge } = groupedRoom();
+    const incoming = { ...connector("incoming", outside.id, inside.id), zIndex: 2 };
+    const context = createConnectorRoutingContext(room([container, inside, outside, title, edge, incoming]));
+    for (const connection of [edge, incoming]) {
+      expect(context.obstacleIdsByConnector.get(connection.id)?.has(container.id)).toBe(false);
+      expect(context.obstacleIdsByConnector.get(connection.id)?.has(title.id)).toBe(true);
+      expect(context.obstacleIdsByConnector.get(connection.id)?.has(inside.id)).toBe(true);
+    }
+  });
+  it("retains unrelated, foreground, labeled, and non-containing boundaries as obstacles", () => {
+    const { container, inside, outside, edge } = groupedRoom();
+    for (const boundary of [
+      { ...container, groupId: "other" }, { ...container, zIndex: 3 },
+      { ...container, label: "Visible label" }, { ...container, x: 2000 },
+    ]) {
+      const context = createConnectorRoutingContext(room([boundary, inside, outside, edge]));
+      expect(context.obstacleIdsByConnector.get(edge.id)?.has(boundary.id)).toBe(true);
+    }
   });
 });

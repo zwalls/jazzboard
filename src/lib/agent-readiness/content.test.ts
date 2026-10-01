@@ -38,6 +38,21 @@ function markdownLinks(body: string): string[] {
 }
 
 describe("agent-readable content", () => {
+  it("teaches the Mermaid-first creation path on every discovery and instruction surface", () => {
+    for (const render of [makeLlmsTxt, makeAgentGuideMarkdown, makeAgentsMarkdown, makeSkillMarkdown, makeWebMcpMarkdown]) {
+      const content = render();
+      expect(content).toContain("author Mermaid source yourself");
+      expect(content).toContain("the user does not need to supply Mermaid");
+      expect(content).toContain("expectedRoomRevision");
+      expect(content).toContain("grouping: 'compact'");
+      expect(content).toContain("grouping: 'boxed'");
+      expect(content).toContain("does not use `delivery` or `finish_canvas_draft`");
+      expect(content).toContain("recommendedInspection");
+      expect(content).toContain("nonblocking agent drawing reveal");
+      expect(content).toContain("complete authoritative graph");
+    }
+  });
+
   it("keeps its public tool inventory synchronized with the executable tool sets", () => {
     expect(LANDING_TOOL_NAMES).toEqual(JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES);
     expect(ROOM_PARTICIPANT_TOOL_NAMES).toEqual(
@@ -199,6 +214,7 @@ describe("agent-readable content", () => {
       "export_canvas_png",
       "create_diagram_template",
       "instantiate_diagram_template",
+      "import_mermaid_flowchart",
       "read_snapshot_state",
       "query_snapshot_objects",
       "read_snapshot_diagram",
@@ -216,12 +232,16 @@ describe("agent-readable content", () => {
     }
 
     expect(corpus).toContain("image-faithful PNG");
+    expect(corpus).toContain("native, editable Diagram");
+    expect(corpus).toContain("semantic ID mappings");
+    expect(corpus).toContain("labeled native group boundaries");
+    expect(corpus).toContain("imported geometry");
     expect(corpus).toContain("Jazzboard issues no new hosted snapshot URLs");
     expect(corpus).toContain("neither returned by WebMCP nor persisted");
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.34.0");
+    expect(AGENT_DOC_VERSION).toBe("1.43.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();
@@ -541,6 +561,27 @@ describe("agent-readable content", () => {
     expect(corpus).toContain("private participant");
     expect(corpus).toContain("submission-time snapshot");
     expect(corpus).not.toMatch(/(?<![\d-])\d{4}(?![\d-])/);
+  });
+
+  it("makes existing-board discovery task-aware and batches repeated metadata edits", () => {
+    const documents = {
+      llms: makeLlmsTxt(),
+      guide: makeAgentGuideMarkdown(),
+      agents: makeAgentsMarkdown(),
+      skill: makeSkillMarkdown(),
+    };
+
+    for (const [name, body] of Object.entries(documents)) {
+      expect(body, `${name} omits task-aware existing-board discovery`).toMatch(
+        /existing board[^\n]*read_room_state[^\n]*summary[^\n]*broad inventory or unfamiliar scope[^\n]*(?:known exact IDs|exact IDs)[^\n]*narrow semantic scope[^\n]*(?:query (?:that scope )?directly|query_objects)[^\n]*summary[^\n]*full[^\n]*required content or geometry[^\n]*absent/i,
+      );
+      expect(body, `${name} omits bounded atomic metadata batching`).toMatch(
+        /metadata change[^\n]*200[^\n]*update_object[^\n]*serial/i,
+      );
+      expect(body, `${name} omits atomic transaction guidance`).toMatch(
+        /atomic transaction|apply_canvas_transaction/i,
+      );
+    }
   });
 
   it("makes progressive completion autonomous and gives agents actionable failure recovery", () => {

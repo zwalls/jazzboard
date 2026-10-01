@@ -20,6 +20,14 @@
   pointer-events: none;
 }
 
+.draftArtwork[data-agent-draft-status="presenting"] {
+  opacity: 1;
+}
+
+.draftArtwork[data-agent-draft-status="presenting"] .objectHalo {
+  opacity: 0 !important;
+}
+
 .draftArtwork > g:not([data-agent-draft-reveal-managed="true"]) {
   animation: draft-arrive 140ms ease-out both;
   pointer-events: none;

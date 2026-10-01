@@ -107,7 +107,7 @@ const normalizedVectorPathSegment = z.discriminatedUnion("kind", [
 const nodeType = z.enum(["service", "component", "requirement", "decision", "open_question"]);
 const nodeStatus = z.enum(["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"]);
 const REVIEW_MODE_RESULT_NOTE =
-  " Review outcome `proposed` is not applied.";
+  " Review `proposed` is not applied.";
 const diagramType = z.enum(["architecture", "flow", "hierarchy", "system_context", "process", "custom"]);
 const objectKind = z.enum(["text", "shape", "connector", "image", "draw", "path"]);
 const responseDetail = z.enum(["concise", "detailed"]);
@@ -771,7 +771,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
               owner: { type: ["string", "null"] },
               resolution: { type: ["string", "null"] },
             },
-            description: "Only for decision or open_question lifecycle state; omit for service, component, and requirement nodes. kind must equal nodeType.",
+            description: "Decision/open_question lifecycle only; kind must match nodeType.",
           },
           shape: { enum: ["rectangle", "ellipse", "diamond"] },
           fill: { $ref: "#/$defs/paint" },
@@ -982,6 +982,7 @@ const queryInput = z
     text: z.string().trim().min(1).max(500).optional(),
     semanticName: semanticNameSchema.optional(),
     semanticRole: semanticRoleSchema.optional(),
+    objectIds: z.array(id).min(1).max(200).optional(),
     kinds: z.array(objectKind).min(1).max(5).optional(),
     nodeTypes: z.array(nodeType).min(1).max(5).optional(),
     nodeStatuses: z.array(nodeStatus).min(1).max(8).optional(),
@@ -991,9 +992,15 @@ const queryInput = z
     relationship: relationshipFilter.optional(),
     region: regionFilter.optional(),
     limit: z.number().int().min(1).max(200).default(50),
+    offset: z.number().int().min(0).max(5_000).default(0),
+    expectedRoomRevision: z.number().int().nonnegative().optional(),
     detail: readDetail.default("summary"),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.offset === 0 || value.expectedRoomRevision !== undefined,
+    { path: ["expectedRoomRevision"], message: "expectedRoomRevision is required when offset is greater than 0." },
+  );
 
 const QUERY_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -1002,6 +1009,12 @@ const QUERY_TOOL_INPUT_SCHEMA = {
     text: { type: "string" },
     semanticName: { type: "string", minLength: 1, maxLength: 160 },
     semanticRole: { type: "string", minLength: 1, maxLength: 128 },
+    objectIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 200,
+      items: { type: "string", minLength: 1, maxLength: 128 },
+    },
     kinds: { type: "array", items: { enum: ["text", "shape", "connector", "image", "draw", "path"] } },
     nodeTypes: { type: "array", items: { enum: ["service", "component", "requirement", "decision", "open_question"] } },
     nodeStatuses: { type: "array", items: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] } },
@@ -1031,8 +1044,21 @@ const QUERY_TOOL_INPUT_SCHEMA = {
       },
     },
     limit: { type: "integer", minimum: 1, maximum: 200 },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      maximum: 5_000,
+    },
+    expectedRoomRevision: {
+      type: "integer",
+      minimum: 0,
+    },
     detail: { enum: ["summary", "full"] },
   },
+  anyOf: [
+    { properties: { offset: { maximum: 0 } } },
+    { required: ["expectedRoomRevision"] },
+  ],
 } as const;
 
 const neighborhoodInput = z
@@ -1068,8 +1094,14 @@ const findDiagramsInput = z
     tags: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     containsObjectId: id.optional(),
     limit: z.number().int().min(1).max(100).default(30),
+    offset: z.number().int().min(0).max(500).default(0),
+    expectedRoomRevision: z.number().int().nonnegative().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.offset === 0 || value.expectedRoomRevision !== undefined,
+    { path: ["expectedRoomRevision"], message: "expectedRoomRevision is required when offset is greater than 0." },
+  );
 
 const FIND_DIAGRAMS_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -1081,7 +1113,20 @@ const FIND_DIAGRAMS_TOOL_INPUT_SCHEMA = {
     tags: { type: "array", maxItems: 32, items: { type: "string" } },
     containsObjectId: { type: "string" },
     limit: { type: "integer", minimum: 1, maximum: 100 },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      maximum: 500,
+    },
+    expectedRoomRevision: {
+      type: "integer",
+      minimum: 0,
+    },
   },
+  anyOf: [
+    { properties: { offset: { maximum: 0 } } },
+    { required: ["expectedRoomRevision"] },
+  ],
 } as const;
 
 const readDiagramInput = z
@@ -1169,13 +1214,21 @@ const ANALYZE_DIAGRAM_LAYOUT_INPUT_SCHEMA = {
   },
 } as const;
 
-const describeDiagramInput = z.object({ diagramId: id }).strict();
+const describeDiagramInput = z
+  .object({
+    diagramId: id,
+    detail: z.enum(["structure", "full"]).default("full"),
+  })
+  .strict();
 
 const DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["diagramId"],
-  properties: { diagramId: { type: "string" } },
+  properties: {
+    diagramId: { type: "string" },
+    detail: { enum: ["structure", "full"] },
+  },
 } as const;
 
 const createDiagramInput = createDiagramOperation.omit({ op: true, tempRef: true }).extend({
@@ -1269,6 +1322,22 @@ class SemanticToolError extends Error {
   }
 }
 
+function assertExpectedRoomRevision(
+  room: RoomState,
+  expectedRoomRevision: number | undefined,
+): void {
+  if (expectedRoomRevision !== undefined && room.roomRevision !== expectedRoomRevision) {
+    throw new SemanticToolError(
+      "ROOM_REVISION_CONFLICT",
+      "The Jazzboard room is not at the requested revision.",
+      {
+        expectedRoomRevision,
+        actualRoomRevision: room.roomRevision,
+      },
+    );
+  }
+}
+
 function defaultCreateId(prefix: string): string {
   const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   return `${prefix}_${suffix}`;
@@ -1310,7 +1379,7 @@ function defineTool<TSchema extends z.ZodType>(input: {
   schema: TSchema;
   inputSchema?: WebMCP.ModelContextTool["inputSchema"];
   annotations?: WebMCP.ToolAnnotations;
-  execute: (value: z.output<TSchema>, signal: AbortSignal) => Promise<unknown>;
+  execute: (value: z.output<TSchema>, signal: AbortSignal, executionStartedAt: number) => Promise<unknown>;
 }): WebMCP.ModelContextTool {
   return {
     name: input.name,
@@ -1325,14 +1394,24 @@ function defineTool<TSchema extends z.ZodType>(input: {
       }) as WebMCP.ModelContextTool["inputSchema"]),
     annotations: input.annotations,
     async execute(rawInput, options): Promise<JazzboardToolResult> {
+      const executionStartedAt = performance.now();
       try {
         const parsed = input.schema.parse(rawInput);
         const signal = options?.signal ?? new AbortController().signal;
-        return { ok: true, tool: input.name, data: await input.execute(parsed, signal) };
+        return { ok: true, tool: input.name, data: await input.execute(parsed, signal, executionStartedAt) };
       } catch (error) {
         return withActionableRecovery(toolFailure(input.name, error));
       }
     },
+  };
+}
+
+function semanticReadExecutionTiming(executionStartedAt: number) {
+  return {
+    handlerDurationMs: performance.now() - executionStartedAt,
+    measurement: "execute_entry_to_result_preparation",
+    includes: ["authoritative_room_fetch"],
+    excludes: ["webmcp_transport"],
   };
 }
 
@@ -2491,17 +2570,23 @@ export function createJazzboardSemanticWebMcpTools(
       name: "query_objects",
       title: "Query semantic canvas objects",
       description:
-        "Find bounded objects by content, kind, node type, group, Diagram, relationship, or canvas region.",
+        "Find bounded objects by exact ID, content, type, group, Diagram, relationship, or region. Continue with nextPageInput.",
       schema: queryInput,
       inputSchema: QUERY_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
+        assertExpectedRoomRevision(room, input.expectedRoomRevision);
+        const requestedObjectIds = input.objectIds ? new Set(input.objectIds) : null;
+        const missingObjectIds = [...new Set(
+          input.objectIds?.filter((objectId) => !room.objects[objectId]) ?? [],
+        )];
         const related = input.relationship ? relationshipIds(room, input.relationship) : null;
         const query = input.text?.toLocaleLowerCase();
         const semanticName = input.semanticName?.toLocaleLowerCase();
         const semanticRole = input.semanticRole?.toLocaleLowerCase();
         const matches = Object.values(room.objects)
+          .filter((object) => !requestedObjectIds || requestedObjectIds.has(object.id))
           .filter((object) => !query || objectText(object).toLocaleLowerCase().includes(query))
           .filter((object) => !semanticName || object.semanticName?.toLocaleLowerCase().includes(semanticName))
           .filter((object) => !semanticRole || object.semanticRole?.toLocaleLowerCase().includes(semanticRole))
@@ -2529,20 +2614,34 @@ export function createJazzboardSemanticWebMcpTools(
           .filter((object) => !related || related.has(object.id))
           .filter((object) => !input.region || intersects(object, input.region))
           .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id));
-        const selected = matches.slice(0, input.limit);
+        const nextOffset = input.offset + input.limit < matches.length
+          ? input.offset + input.limit
+          : null;
+        const selected = matches.slice(input.offset, input.offset + input.limit);
+        const nextPageInput = nextOffset === null
+          ? null
+          : { ...input, offset: nextOffset, expectedRoomRevision: room.roomRevision };
         if (input.detail === "full") {
           return {
             roomRevision: room.roomRevision,
+            offset: input.offset,
+            nextOffset,
             totalMatched: matches.length,
-            truncated: matches.length > input.limit,
+            truncated: nextOffset !== null,
+            missingObjectIds,
+            nextPageInput,
             objects: selected,
           };
         }
         const diagramIds = selected.flatMap((object) => object.diagramIds);
         return {
           roomRevision: room.roomRevision,
+          offset: input.offset,
+          nextOffset,
           totalMatched: matches.length,
-          truncated: matches.length > input.limit,
+          truncated: nextOffset !== null,
+          missingObjectIds,
+          nextPageInput,
           objects: selected.map((object) => compactReadObject(room, object)),
           ...compactDiagramSummaries(room, diagramIds),
         };
@@ -2649,12 +2748,13 @@ export function createJazzboardSemanticWebMcpTools(
       name: "find_diagrams",
       title: "Find first-class diagrams",
       description:
-        "Find Diagrams by metadata or member ID without returning unrelated canvas objects.",
+        "Find Diagrams by metadata or member ID. Continue with nextPageInput.",
       schema: findDiagramsInput,
       inputSchema: FIND_DIAGRAMS_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
       async execute(input, signal) {
         const room = await readRoom(signal);
+        assertExpectedRoomRevision(room, input.expectedRoomRevision);
         const query = input.text?.toLocaleLowerCase();
         const diagrams = Object.values(room.diagrams ?? {})
           .filter(
@@ -2671,11 +2771,19 @@ export function createJazzboardSemanticWebMcpTools(
               diagram.connectorIds.includes(input.containsObjectId),
           )
           .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id));
+        const nextOffset = input.offset + input.limit < diagrams.length
+          ? input.offset + input.limit
+          : null;
         return {
           roomRevision: room.roomRevision,
+          offset: input.offset,
+          nextOffset,
           totalMatched: diagrams.length,
-          truncated: diagrams.length > input.limit,
-          diagrams: diagrams.slice(0, input.limit),
+          truncated: nextOffset !== null,
+          nextPageInput: nextOffset === null
+            ? null
+            : { ...input, offset: nextOffset, expectedRoomRevision: room.roomRevision },
+          diagrams: diagrams.slice(input.offset, input.offset + input.limit),
         };
       },
     }),
@@ -2687,7 +2795,7 @@ export function createJazzboardSemanticWebMcpTools(
       schema: readDiagramInput,
       inputSchema: READ_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
-      async execute(input, signal) {
+      async execute(input, signal, executionStartedAt) {
         const room = await readRoom(signal);
         const diagram = diagramOrThrow(room, input.diagramId);
         return {
@@ -2695,6 +2803,7 @@ export function createJazzboardSemanticWebMcpTools(
           diagram,
           objects: input.includeObjects ? diagram.memberObjectIds.flatMap((objectId) => room.objects[objectId] ?? []) : [],
           connectors: input.includeConnectors ? diagram.connectorIds.flatMap((objectId) => room.objects[objectId] ?? []) : [],
+          executionTiming: semanticReadExecutionTiming(executionStartedAt),
         };
       },
     }),
@@ -2702,11 +2811,11 @@ export function createJazzboardSemanticWebMcpTools(
       name: "describe_diagram",
       title: "Describe a diagram's semantic structure",
       description:
-        "Summarize one Diagram's nodes, relationships, metadata, bounds, and revisions.",
+        "Describe one Diagram by stable ID. Use detail 'structure' for complete semantic structure without visual geometry; the default 'full' retains metadata, bounds, and routing.",
       schema: describeDiagramInput,
       inputSchema: DESCRIBE_DIAGRAM_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
-      async execute(input, signal) {
+      async execute(input, signal, executionStartedAt) {
         const room = await readRoom(signal);
         const diagram = diagramOrThrow(room, input.diagramId);
         const members = diagram.memberObjectIds.flatMap((objectId) => room.objects[objectId] ?? []);
@@ -2725,15 +2834,53 @@ export function createJazzboardSemanticWebMcpTools(
             members.filter((object) => object.kind === "shape" && object.nodeMetadata?.status === status).length,
           ]),
         );
+        const counts = {
+          members: members.length,
+          connectors: connectors.length,
+          nodeTypes: nodeTypeCounts,
+          nodeStatuses: nodeStatusCounts,
+        };
+        if (input.detail === "structure") {
+          return {
+            roomRevision: room.roomRevision,
+            diagramId: diagram.id,
+            title: diagram.title,
+            revision: diagram.revision,
+            description: diagram.description,
+            diagramType: diagram.diagramType,
+            category: diagram.category,
+            tags: diagram.tags,
+            memberObjectIds: diagram.memberObjectIds,
+            connectorIds: diagram.connectorIds,
+            counts,
+            members: members.map((object) => ({
+              id: object.id,
+              kind: object.kind,
+              label: objectVisibleText(object),
+              semanticName: object.semanticName ?? null,
+              semanticRole: object.semanticRole ?? null,
+              groupId: object.groupId,
+              nodeType: object.kind === "shape" ? object.nodeType : null,
+              nodeMetadata: object.kind === "shape" ? object.nodeMetadata ?? null : null,
+              revision: object.revision,
+            })),
+            connectors: connectors.map((connector) => ({
+              id: connector.id,
+              label: connector.label,
+              semanticName: connector.semanticName ?? null,
+              semanticRole: connector.semanticRole ?? null,
+              direction: connector.direction,
+              startObjectId: connector.start.objectId,
+              endObjectId: connector.end.objectId,
+              revision: connector.revision,
+            })),
+            executionTiming: semanticReadExecutionTiming(executionStartedAt),
+          };
+        }
         return {
           roomRevision: room.roomRevision,
           diagram,
-          counts: {
-            members: members.length,
-            connectors: connectors.length,
-            nodeTypes: nodeTypeCounts,
-            nodeStatuses: nodeStatusCounts,
-          },
+          counts,
           members: members.map((object) => ({
             id: object.id,
             kind: object.kind,
@@ -2758,6 +2905,7 @@ export function createJazzboardSemanticWebMcpTools(
             endObjectId: connector.end.objectId,
             revision: connector.revision,
           })),
+          executionTiming: semanticReadExecutionTiming(executionStartedAt),
         };
       },
     }),
@@ -2893,7 +3041,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "apply_canvas_transaction",
       title: "Canvas transaction",
       description:
-        "Visible multi-object work uses delivery.mode=draft: bot-traced, not review; call finish_canvas_draft yourself; no confirmation. Assertions check facts; no inference. Concise: parse canonicalDraftCorrectionJson once. updateMode=patch sends affected stable tempRefs. Edits omit delivery. Root: operations/relationshipAssertions/delivery/responseDetail/intent/summary; no expectedRoomRevision. Per-op intent/summary inert.",
+        "Visible multi-object work: delivery.mode=draft, bot-traced not review; finish_canvas_draft yourself, no confirmation. Batch existing-object edits; omit delivery. Assertions check facts, not inference. Parse canonicalDraftCorrectionJson once. updateMode=patch: affected stable tempRefs. Root: no expectedRoomRevision. Per-op intent/summary inert.",
       schema: transactionInput,
       inputSchema: TRANSACTION_TOOL_INPUT_SCHEMA,
       annotations: { untrustedContentHint: true },

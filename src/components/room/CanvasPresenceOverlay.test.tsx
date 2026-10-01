@@ -210,6 +210,77 @@ function installPointerGeometry(marker: HTMLElement) {
 }
 
 describe("CanvasPresenceOverlay idle agent parking", () => {
+  it("surfaces the inactive local bot only while a real local tool is executing", () => {
+    const rendered = render(
+      <CanvasPresenceOverlay
+        localToolActivityActive
+        room={roomWithAgent(remoteAgent({ x: 100, y: 120 }))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId(`agent-cursor-${self.participantId}`);
+    expect(marker).toHaveAttribute("data-local-tool-activity", "true");
+    expect(marker).toHaveAttribute("data-working", "true");
+    expect(marker).toHaveAttribute("data-activity-progress", "0");
+    expect(marker).toHaveStyle({ transform: "translate(400px, 300px)" });
+    expect(marker.querySelector('[data-agent-avatar-state="working"]')).not.toBeNull();
+    expect(marker.querySelector('[data-agent-avatar-motion="always"]')).not.toBeNull();
+    expect(marker).toHaveTextContent("Maya Host");
+    expect(marker).not.toHaveTextContent("%");
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        room={roomWithAgent(remoteAgent({ x: 100, y: 120 }))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.queryByTestId(`agent-cursor-${self.participantId}`)).toBeNull();
+  });
+
+  it("leaves local tool activity to the guide when normal presence is suppressed", () => {
+    render(
+      <CanvasPresenceOverlay
+        localToolActivityActive
+        room={roomWithAgent(remoteAgent({ x: 100, y: 120 }))}
+        runtime={runtime}
+        selfId={self.participantId}
+        suppressedAgentParticipantId={self.participantId}
+      />,
+    );
+
+    expect(screen.queryByTestId(`agent-cursor-${self.participantId}`)).toBeNull();
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).not.toHaveAttribute(
+      "data-local-tool-activity",
+    );
+  });
+
+  it("uses a static local tool pose when reduced motion is requested", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    render(
+      <CanvasPresenceOverlay
+        localToolActivityActive
+        room={roomWithAgent(remoteAgent({ x: 100, y: 120 }))}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    const marker = screen.getByTestId(`agent-cursor-${self.participantId}`);
+    expect(marker.querySelector('[data-agent-avatar-motion="none"]')).not.toBeNull();
+  });
+
   it("keeps the larger bot, label, and parking point inside the viewport edge", () => {
     render(
       <CanvasPresenceOverlay
@@ -459,6 +530,40 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
     expect(avatar).not.toBeNull();
     expect(avatar?.style.getPropertyValue("--agent-avatar-size")).toBe("63px");
     expect(screen.queryByRole("button", { name: /Move Orbit Architect’s idle agent locally/i })).toBeNull();
+  });
+
+  it("lets a committed reveal choreography supersede the import activity cursor", () => {
+    const animation = installAnimationFrames();
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const activity: AgentActivity = {
+      id: "activity_mermaid_import",
+      type: "creating",
+      label: "Applying Mermaid diagram",
+      objectIds: ["draft-shape"],
+      progress: 0,
+      startedAt: Date.now(),
+      durationMs: 5_000,
+      fromCursor: { x: 300, y: 300 },
+      toCursor: { x: 340, y: 340 },
+    };
+    const authoritativeRoom = roomWithAgent(remoteAgent({ x: 340, y: 340 }, activity));
+    const { authority: _authority, ...committedShape } = draftShape();
+    void _authority;
+    authoritativeRoom.objects[committedShape.id] = committedShape;
+    render(
+      <CanvasPresenceOverlay
+        agentDrafts={[agentDraft({ status: "presenting" })]}
+        room={authoritativeRoom}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).toHaveAttribute(
+      "data-agent-draft-choreography",
+      "true",
+    );
+    expect(animation.pending()).toBe(1);
   });
 
   it("keeps the bot label concise while committing", () => {
@@ -1354,6 +1459,28 @@ describe("CanvasPresenceOverlay draft-working presence", () => {
       />,
     );
     expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+  });
+
+  it("suppresses only the requested normal agent cursor for a local presenter", () => {
+    const agent = remoteAgent({ x: 100, y: 120 });
+    const rendered = render(
+      <CanvasPresenceOverlay
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+        suppressedAgentParticipantId={agent.participantId}
+      />,
+    );
+    expect(screen.queryByTestId("agent-cursor-participant_orbit")).toBeNull();
+
+    rendered.rerender(
+      <CanvasPresenceOverlay
+        room={roomWithAgent(agent)}
+        runtime={runtime}
+        selfId={self.participantId}
+      />,
+    );
+    expect(screen.getByTestId("agent-cursor-participant_orbit")).toBeInTheDocument();
   });
 
   it("clears local idle parking while drafting and returns unparked after the draft ends", () => {

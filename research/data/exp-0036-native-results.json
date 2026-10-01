@@ -1,0 +1,260 @@
+{
+  "schemaVersion": "jazzboard-exp0036-native-results/v1",
+  "protocolId": "EXP-0036",
+  "status": "partial_native_telemetry",
+  "comparativeConclusion": "not_established",
+  "method": {
+    "capture": "Passive main-world modelContext.registerTool executor adapter with an authenticated loopback collector.",
+    "eligibility": "Comparative metrics require fresh signed admission evidence, a contiguous zero-drop event stream, terminal controller close, and a valid sealed ledger.",
+    "ineligibleCounts": "Comparative invocation and byte fields are null. Descriptive invocation counts are retained separately and do not support comparative claims.",
+    "byteScope": "Each byte count belongs to one attempt. Byte counts across different tasks must not be summed or treated as like-for-like totals.",
+    "knownLimitation": "A full page navigation restarts the injected recorder at stream sequence 1. The collector rejects that second epoch, so the attempt fails closed.",
+    "attempt01Caveat": "The controller close was delayed and the browser did not acknowledge it. Automatic browser-context disposal is a hypothesis, not a directly observed fact."
+  },
+  "attempts": [
+    {
+      "attemptId": "attempt01",
+      "pairId": "pair-inventory",
+      "arm": "A0",
+      "authorDurationMs": 48325,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_blocked",
+        "terminalDecision": "telemetry_non_evaluable",
+        "eligibleForComparativeNativeClaim": false,
+        "sealComplete": false,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": "delayed_close_unacknowledged"
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": null,
+        "successCount": null,
+        "errorCount": null,
+        "readInvocationCount": null,
+        "totalReturnedOutputUtf8Bytes": null,
+        "readOutputUtf8Bytes": null
+      },
+      "descriptiveInvocationCounts": {
+        "invocationCount": 5,
+        "successCount": 5,
+        "errorCount": 0,
+        "readInvocationCount": 3
+      },
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:8730931257880937831efe4a6dd41fe42871e5ef990744123cc9487c611444b1",
+        "collectorLedgerJsonSha256": "sha256:9be7b934d75d5e34746411346968f5eb02c95bd1c7a76763e91745d8b01174bb"
+      }
+    },
+    {
+      "attemptId": "attempt02",
+      "pairId": "pair-inventory",
+      "arm": "A1",
+      "authorDurationMs": 43756,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_complete",
+        "terminalDecision": "telemetry_complete",
+        "eligibleForComparativeNativeClaim": true,
+        "sealComplete": true,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": null
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": 4,
+        "successCount": 4,
+        "errorCount": 0,
+        "readInvocationCount": 2,
+        "totalReturnedOutputUtf8Bytes": 9286,
+        "readOutputUtf8Bytes": 8692
+      },
+      "descriptiveInvocationCounts": null,
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:acf1e7277fb33d8a9bba09707c00bd5308c1bcb8474ba064bea13d157ad4a926",
+        "collectorLedgerJsonSha256": "sha256:eb194805623973d78ece106e63de76a2ebb579815ef30c327a9b0bff67f49afe"
+      }
+    },
+    {
+      "attemptId": "attempt03",
+      "pairId": "pair-metadata-edit",
+      "arm": "A1",
+      "authorDurationMs": 69159,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_blocked",
+        "terminalDecision": "telemetry_non_evaluable",
+        "eligibleForComparativeNativeClaim": false,
+        "sealComplete": true,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": "admission_attestation_stale"
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": null,
+        "successCount": null,
+        "errorCount": null,
+        "readInvocationCount": null,
+        "totalReturnedOutputUtf8Bytes": null,
+        "readOutputUtf8Bytes": null
+      },
+      "descriptiveInvocationCounts": {
+        "invocationCount": 7,
+        "successCount": 7,
+        "errorCount": 0,
+        "readInvocationCount": 3
+      },
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:4ea0bee26f9b76bc100eb6b663b66ec9a1589a29605403ddcaf3924779f08941",
+        "collectorLedgerJsonSha256": "sha256:5de532aa5b0df6b1a8b15c2ba88acfa77cb43f011fbdfb62a1652b7ed07baacf"
+      }
+    },
+    {
+      "attemptId": "attempt04",
+      "pairId": "pair-metadata-edit",
+      "arm": "A0",
+      "authorDurationMs": 79686,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_complete",
+        "terminalDecision": "telemetry_complete",
+        "eligibleForComparativeNativeClaim": true,
+        "sealComplete": true,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": null
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": 7,
+        "successCount": 7,
+        "errorCount": 0,
+        "readInvocationCount": 3,
+        "totalReturnedOutputUtf8Bytes": 35020,
+        "readOutputUtf8Bytes": 22913
+      },
+      "descriptiveInvocationCounts": null,
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:a66fb8f61ae7fb9b52407d5b0f31a971fa9a26be3b9cec925b9c25230883be83",
+        "collectorLedgerJsonSha256": "sha256:ab5a51e6c1197c3b07a29500a25e7fae530df8c61f5c250329154b0b4c71f020"
+      }
+    },
+    {
+      "attemptId": "attempt05",
+      "pairId": "pair-checkout",
+      "arm": "A1",
+      "authorDurationMs": 121740,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_complete",
+        "terminalDecision": "telemetry_complete",
+        "eligibleForComparativeNativeClaim": true,
+        "sealComplete": true,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": null
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": 8,
+        "successCount": 8,
+        "errorCount": 0,
+        "readInvocationCount": 0,
+        "totalReturnedOutputUtf8Bytes": 139820,
+        "readOutputUtf8Bytes": 0
+      },
+      "descriptiveInvocationCounts": null,
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:a5105d2f563e10510e686ea83f36dc0340ebb194a79fbbcd4ce07aa0c38f7e4b",
+        "collectorLedgerJsonSha256": "sha256:642971b7199e6add379d9cf4e11ada5f82ee0e8f3066eb93eb75ef7bf222d8cd"
+      }
+    },
+    {
+      "attemptId": "attempt06",
+      "pairId": "pair-checkout",
+      "arm": "A0",
+      "authorDurationMs": 146956,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_blocked",
+        "terminalDecision": "telemetry_non_evaluable",
+        "eligibleForComparativeNativeClaim": false,
+        "sealComplete": false,
+        "zeroDrops": false,
+        "rejectedEventCount": 118,
+        "failureCategory": "page_navigation_restarted_recorder_epoch"
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": null,
+        "successCount": null,
+        "errorCount": null,
+        "readInvocationCount": null,
+        "totalReturnedOutputUtf8Bytes": null,
+        "readOutputUtf8Bytes": null
+      },
+      "descriptiveInvocationCounts": {
+        "invocationCount": 9,
+        "successCount": 9,
+        "errorCount": 0,
+        "readInvocationCount": 2
+      },
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:77aac4af7690226c7e84c244fe73cce66dd3f67b6499c7c010c318ecdbdeddcd",
+        "collectorLedgerJsonSha256": "sha256:b85973bbf596ada1f9b9af481aea5c08b16c84336251d84a090b616c66b60232"
+      }
+    },
+    {
+      "attemptId": "attempt07",
+      "pairId": "pair-portrait",
+      "arm": "A0",
+      "authorDurationMs": 233038,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_complete",
+        "terminalDecision": "telemetry_complete",
+        "eligibleForComparativeNativeClaim": true,
+        "sealComplete": true,
+        "zeroDrops": true,
+        "rejectedEventCount": 0,
+        "failureCategory": null
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": 12,
+        "successCount": 11,
+        "errorCount": 1,
+        "readInvocationCount": 2,
+        "totalReturnedOutputUtf8Bytes": 143940,
+        "readOutputUtf8Bytes": 19313
+      },
+      "descriptiveInvocationCounts": null,
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:f4bed9bc057420cd8981073f868edac98a60fabe634d3ff312a9c64592bc25b5",
+        "collectorLedgerJsonSha256": "sha256:11adf8d60cc9f84c3bfa95d08d42e9ef52119ef63fe247ac2b46fa204891c84e"
+      }
+    },
+    {
+      "attemptId": "attempt08",
+      "pairId": "pair-portrait",
+      "arm": "A1",
+      "authorDurationMs": 137717,
+      "validity": {
+        "admissionDecision": "post_creation_evidence_blocked",
+        "terminalDecision": "telemetry_non_evaluable",
+        "eligibleForComparativeNativeClaim": false,
+        "sealComplete": false,
+        "zeroDrops": false,
+        "rejectedEventCount": 118,
+        "failureCategory": "page_navigation_restarted_recorder_epoch"
+      },
+      "comparativeNativeMetrics": {
+        "invocationCount": null,
+        "successCount": null,
+        "errorCount": null,
+        "readInvocationCount": null,
+        "totalReturnedOutputUtf8Bytes": null,
+        "readOutputUtf8Bytes": null
+      },
+      "descriptiveInvocationCounts": {
+        "invocationCount": 7,
+        "successCount": 6,
+        "errorCount": 1,
+        "readInvocationCount": 1
+      },
+      "hashes": {
+        "ledgerCanonicalSha256": "sha256:39c453f57e50a78bfa6223dacecb4532b9ae069bc513f4bb0cea0cd9d088080f",
+        "collectorLedgerJsonSha256": "sha256:7665570d9bf100cab0038581c4dea1c7ecedb58a10c22729eaf160c63123cd44"
+      }
+    }
+  ]
+}

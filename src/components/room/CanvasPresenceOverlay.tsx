@@ -63,6 +63,8 @@ export function CanvasPresenceOverlay({
   runtime,
   room,
   selfId,
+  localToolActivityActive = false,
+  suppressedAgentParticipantId = null,
 }: {
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];
   initiallySettledDraftIds?: ReadonlySet<string>;
@@ -70,6 +72,10 @@ export function CanvasPresenceOverlay({
   runtime: CanvasRuntime | null;
   room: RoomState;
   selfId: string;
+  /** Browser-local registered tool activity for this participant's own bot. */
+  localToolActivityActive?: boolean;
+  /** Hides one normal agent cursor while a local-only presenter represents it. */
+  suppressedAgentParticipantId?: string | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const draftCursorHandoffs = useMemo(() => new Map<string, DraftCursorHandoff>(), []);
@@ -84,9 +90,12 @@ export function CanvasPresenceOverlay({
         participant.agent.cursor &&
         isAgentActivityWorking(participant.agent.activity, now),
       );
-      const draft = canonicalAgentWorking
-        ? null
-        : activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+      const candidate = activeDraftForParticipant(agentDrafts, room.id, participant.participantId, now);
+      const draft = candidate?.status === "presenting"
+        ? candidate
+        : canonicalAgentWorking
+          ? null
+          : candidate;
       return draft ? [[participant.participantId, draft] as const] : [];
     });
     return new Map(entries);
@@ -124,6 +133,7 @@ export function CanvasPresenceOverlay({
     >
       {Object.values(room.participants).flatMap((participant) => {
         const items: React.ReactNode[] = [];
+        const localToolActivity = localToolActivityActive && participant.participantId === selfId;
         if (
           participant.participantId !== selfId &&
           participant.human.cursor &&
@@ -142,15 +152,19 @@ export function CanvasPresenceOverlay({
             </div>,
           );
         }
+        if (participant.participantId === suppressedAgentParticipantId) return items;
         const canonicalAgentActivity = participant.agent.activity;
         const canonicalAgentWorking = Boolean(
           participant.agentActive &&
           participant.agent.cursor &&
           isAgentActivityWorking(canonicalAgentActivity, now),
         );
-        const workingDraft = canonicalAgentWorking
-          ? null
-          : workingDraftsByParticipant.get(participant.participantId) ?? null;
+        const candidate = workingDraftsByParticipant.get(participant.participantId) ?? null;
+        const workingDraft = candidate?.status === "presenting"
+          ? candidate
+          : canonicalAgentWorking
+            ? null
+            : candidate;
         if (workingDraft) {
           items.push(
             <DraftAgentCursor
@@ -162,16 +176,23 @@ export function CanvasPresenceOverlay({
               runtime={runtime}
               revealRegistry={revealRegistry}
               handoffRegistry={draftCursorHandoffs}
+              localToolActivityActive={localToolActivity}
             />,
           );
-        } else if (participant.agentActive && participant.agent.cursor) {
+        } else if ((participant.agentActive && participant.agent.cursor) || localToolActivity) {
           const activity = participant.agent.activity;
           const elapsed = activity ? Math.max(now - activity.startedAt, 0) : 0;
           const duration = activity?.durationMs ?? 1;
           const working = isAgentActivityWorking(activity, now);
-          const progress = activity ? Math.min(elapsed / duration, 1) : 1;
-          const from = activity?.fromCursor ?? participant.agent.cursor;
-          const to = activity?.toCursor ?? participant.agent.cursor;
+          const progress = activity ? Math.min(elapsed / duration, 1) : 0;
+          const viewport = runtime.getViewport();
+          const fallbackCursor = participant.human.cursor ?? {
+            x: viewport.x + viewport.width / 2,
+            y: viewport.y + viewport.height / 2,
+          };
+          const agentCursor = participant.agent.cursor ?? fallbackCursor;
+          const from = activity?.fromCursor ?? agentCursor;
+          const to = activity?.toCursor ?? agentCursor;
           const cursor: Point = {
             x: from.x + (to.x - from.x) * progress,
             y: from.y + (to.y - from.y) * progress,
@@ -188,7 +209,8 @@ export function CanvasPresenceOverlay({
               participant={participant}
               progress={progress}
               runtime={runtime}
-              working={working}
+              localToolActivityActive={localToolActivity}
+              working={working || localToolActivity}
             />,
           );
           if (activity && elapsed < duration + 600) {
@@ -262,7 +284,7 @@ function activeDraftForParticipant(
     if (
       draft.roomId !== roomId ||
       draft.ownerParticipantId !== participantId ||
-      (draft.status !== "active" && draft.status !== "committing") ||
+      (draft.status !== "active" && draft.status !== "committing" && draft.status !== "presenting") ||
       draft.expiresAt <= now ||
       draft.hardExpiresAt <= now
     ) {
@@ -289,10 +311,22 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+function useDocumentHidden(): boolean {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const update = () => setHidden(document.visibilityState === "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  return hidden;
+}
+
 function DraftAgentCursor({
   draft,
   handoffRegistry,
   initiallySettled,
+  localToolActivityActive,
   participant,
   room,
   runtime,
@@ -301,6 +335,7 @@ function DraftAgentCursor({
   draft: AgentCanvasDraftSnapshot;
   handoffRegistry: Map<string, DraftCursorHandoff>;
   initiallySettled: boolean;
+  localToolActivityActive: boolean;
   participant: Participant;
   room: RoomState;
   runtime: CanvasRuntime;
@@ -310,6 +345,7 @@ function DraftAgentCursor({
   const coordinatorRef = useRef<AgentDraftChoreographyCoordinator | null>(null);
   const coordinatorInitializedRef = useRef(false);
   const reducedMotion = usePrefersReducedMotion();
+  const documentHidden = useDocumentHidden();
   const renderedViewport = runtime.getViewport();
   const fallbackX = participant.agent.cursor?.x
     ?? renderedViewport.x + renderedViewport.width / 2;
@@ -473,13 +509,19 @@ function DraftAgentCursor({
         transform: `translate(${initialPoint.x}px, ${initialPoint.y}px)`,
       } as CSSProperties}
     >
-      <AgentAvatar
-        displayName={participant.displayName}
-        motion={reducedMotion ? "none" : "always"}
-        participantColor={participant.color}
-        size={AGENT_AVATAR_SIZE}
-        state="working"
-      />
+      <span
+        className={localToolActivityActive ? styles.localToolActivityAvatar : undefined}
+        data-document-hidden={documentHidden ? "true" : undefined}
+        data-local-tool-activity={localToolActivityActive ? "true" : undefined}
+      >
+        <AgentAvatar
+          displayName={participant.displayName}
+          motion={reducedMotion ? "none" : "always"}
+          participantColor={participant.color}
+          size={AGENT_AVATAR_SIZE}
+          state="working"
+        />
+      </span>
       <span className={styles.agentCursorLabel} data-agent-cursor-label="true">
         {participant.displayName}
       </span>
@@ -492,6 +534,7 @@ function LocalAgentCursor({
   authoritativeCursor,
   handoffPagePoint: initialHandoffPagePoint,
   handoffRegistry,
+  localToolActivityActive = false,
   participant,
   progress,
   runtime,
@@ -502,6 +545,7 @@ function LocalAgentCursor({
   authoritativeCursor: Point;
   handoffPagePoint?: Point | null;
   handoffRegistry?: Map<string, DraftCursorHandoff>;
+  localToolActivityActive?: boolean;
   participant: Participant;
   progress: number;
   runtime: CanvasRuntime;
@@ -513,6 +557,7 @@ function LocalAgentCursor({
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
+  const documentHidden = useDocumentHidden();
   const [handoffSourcePoint] = useState<Point | null>(() =>
     initialHandoffPagePoint ? { ...initialHandoffPagePoint } : null
   );
@@ -674,6 +719,7 @@ function LocalAgentCursor({
     "data-label-side": placeLabelLeft ? "left" : "right",
     "data-label-vertical": placeLabelAbove ? "above" : "below",
     "data-local-parked": parkedPagePoint ? "true" : "false",
+    "data-local-tool-activity": localToolActivityActive ? "true" : undefined,
     "data-working": presentingAsWorking ? "true" : "false",
     "data-testid": `agent-cursor-${participant.participantId}`,
     style: {
@@ -686,13 +732,18 @@ function LocalAgentCursor({
   } as const;
   const contents = (
     <>
-      <AgentAvatar
-        displayName={participant.displayName}
-        motion={presentingAsWorking ? "always" : "hover"}
-        participantColor={participant.color}
-        size={AGENT_AVATAR_SIZE}
-        state={presentingAsWorking ? "working" : "idle"}
-      />
+      <span
+        className={localToolActivityActive ? styles.localToolActivityAvatar : undefined}
+        data-document-hidden={documentHidden ? "true" : undefined}
+      >
+        <AgentAvatar
+          displayName={participant.displayName}
+          motion={reducedMotion ? "none" : presentingAsWorking ? "always" : "hover"}
+          participantColor={participant.color}
+          size={AGENT_AVATAR_SIZE}
+          state={presentingAsWorking ? "working" : "idle"}
+        />
+      </span>
       <span
         className={styles.agentCursorLabel}
         data-agent-cursor-label="true"

@@ -152,6 +152,9 @@ describe("interchange WebMCP tools", () => {
     expect(findTool(participantTools, "instantiate_diagram_template").annotations).toEqual({
       untrustedContentHint: true,
     });
+    expect(findTool(participantTools, "import_mermaid_flowchart").annotations).toEqual({
+      untrustedContentHint: true,
+    });
     expect(findTool(participantTools, "instantiate_diagram_template").inputSchema).toMatchObject({
       properties: {
         template: {
@@ -275,6 +278,110 @@ describe("interchange WebMCP tools", () => {
     });
   });
 
+  it("imports Mermaid as native objects and returns a compact exact-revision inspection receipt", async () => {
+    const acceptRoom = vi.fn();
+    const acceptAgentDraft = vi.fn();
+    const authoritativeRoom = {
+      id: "room/a b",
+      roomRevision: 9,
+      objects: {
+        node_api: { id: "node_api", kind: "shape", revision: 1 },
+        node_db: { id: "node_db", kind: "shape", revision: 1 },
+        edge_api_db: { id: "edge_api_db", kind: "connector", revision: 1 },
+      },
+      diagrams: {
+        diagram_import: {
+          id: "diagram_import",
+          revision: 1,
+          memberObjectIds: ["node_api", "node_db"],
+          connectorIds: ["edge_api_db"],
+        },
+      },
+    } as unknown as RoomState;
+    const request = vi.fn(async () => ({
+      ok: true,
+      outcome: "applied",
+      room: authoritativeRoom,
+      changedObjectIds: ["node_api", "node_db", "edge_api_db"],
+      changedDiagramIds: ["diagram_import"],
+      membershipObjectIds: ["node_api", "node_db", "edge_api_db"],
+      idMap: {
+        nodes: { api: "node_api", db: "node_db" },
+        edges: { "edge-0": "edge_api_db" },
+        groups: {},
+        diagramId: "diagram_import",
+      },
+      counts: { nodes: 2, edges: 1, groups: 0, diagrams: 1 },
+      bounds: { x: 400, y: 600, width: 700, height: 240 },
+      warnings: ["Flat subgraphs preserve membership and palette without enclosing boxes."],
+      activity: { id: "activity_import" },
+      proposal: null,
+      presentation: {
+        id: "draft_mermaid_reveal",
+        roomId: authoritativeRoom.id,
+        revision: 1,
+        status: "presenting",
+      },
+    })) as unknown as WebMcpRequest;
+    const toolBinding = binding("participant", acceptRoom);
+    toolBinding.context.acceptAgentDraft = acceptAgentDraft;
+    const tools = createJazzboardInterchangeWebMcpTools(toolBinding, { request });
+    const input = {
+      expectedRoomRevision: 8,
+      source: "flowchart LR\n  api[API] --> db[(Database)]",
+      title: "Service path",
+      origin: { x: 400, y: 600 },
+      grouping: "boxed",
+      intent: "Import the supplied architecture",
+    };
+
+    const result = await execute(tools, "import_mermaid_flowchart", input);
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/rooms/room%2Fa%20b/agent/artifacts",
+      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+    );
+    const sent = (request as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(sent.body))).toEqual({ action: "import_mermaid_flowchart", ...input });
+    expect(acceptRoom).toHaveBeenCalledWith(authoritativeRoom);
+    expect(acceptAgentDraft).toHaveBeenCalledWith(expect.objectContaining({
+      id: "draft_mermaid_reveal",
+      status: "presenting",
+    }));
+    expect(acceptAgentDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      acceptRoom.mock.invocationCallOrder[0]!,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        outcome: "applied",
+        roomRevision: 9,
+        idMap: {
+          nodes: { api: "node_api", db: "node_db" },
+          edges: { "edge-0": "edge_api_db" },
+          diagramId: "diagram_import",
+        },
+        counts: { nodes: 2, edges: 1, groups: 0, diagrams: 1 },
+        bounds: { x: 400, y: 600, width: 700, height: 240 },
+        nativeEditable: true,
+        geometryInspectionStatus: "not_performed",
+        recommendedInspection: {
+          tool: "inspect_canvas_scope",
+          input: {
+            scope: { kind: "diagram", diagramId: "diagram_import", expectedRevision: 1 },
+            representation: "overview",
+          },
+        },
+        activityId: "activity_import",
+      },
+    });
+    expect((result as { data?: Record<string, unknown> }).data).not.toHaveProperty("objects");
+    expect((result as { data?: Record<string, unknown> }).data).not.toHaveProperty("diagrams");
+    expect((result as { data?: Record<string, unknown> }).data).not.toHaveProperty("changedObjectIds");
+    expect((result as { data?: Record<string, unknown> }).data).not.toHaveProperty("membershipObjectIds");
+    expect((result as { data?: Record<string, unknown> }).data).not.toHaveProperty("activity");
+  });
+
   it("rejects PNG, malformed templates, and stale-looking inputs locally before any request", async () => {
     const request = vi.fn() as unknown as WebMcpRequest;
     const tools = createJazzboardInterchangeWebMcpTools(binding(), { request });
@@ -285,6 +392,10 @@ describe("interchange WebMCP tools", () => {
       expectedRoomRevision: 0,
       template: { ...template(), objects: [{ kind: "image", url: "https://private.invalid/x.png" }] },
       origin: { x: 0, y: 0 },
+    })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    await expect(execute(tools, "import_mermaid_flowchart", {
+      expectedRoomRevision: 8,
+      source: "",
     })).resolves.toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
     expect(request).not.toHaveBeenCalled();
   });

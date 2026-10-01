@@ -1395,6 +1395,33 @@ button.compactIndicator:hover {
   will-change: transform;
 }
 
+.localToolActivityAvatar {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  position: relative;
+}
+
+.localToolActivityAvatar::before {
+  animation: local-tool-halo 1.35s linear infinite;
+  border: 2px solid color-mix(in srgb, var(--agent-avatar-color, currentColor) 54%, transparent);
+  border-radius: 999px;
+  border-top-color: color-mix(in srgb, var(--agent-avatar-color, currentColor) 8%, transparent);
+  content: "";
+  inset: -5px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.localToolActivityAvatar > [data-agent-avatar-state] {
+  animation: local-tool-bob 1.8s ease-in-out infinite;
+}
+
+.localToolActivityAvatar[data-document-hidden="true"]::before,
+.localToolActivityAvatar[data-document-hidden="true"] > [data-agent-avatar-state] {
+  animation-play-state: paused;
+}
+
 button.idleAgentCursor {
   appearance: none;
   background: transparent;
@@ -1481,6 +1508,15 @@ button.idleAgentCursor {
   transform-origin: left center;
   transition: transform 90ms linear;
   width: calc(100% + 4px);
+}
+
+@keyframes local-tool-halo {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes local-tool-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 
 .leaseOutline {
@@ -2105,6 +2141,11 @@ button.idleAgentCursor {
   .humanCursor,
   .agentCursor {
     transition: none;
+  }
+
+  .localToolActivityAvatar::before,
+  .localToolActivityAvatar > [data-agent-avatar-state] {
+    animation: none;
   }
 
 }

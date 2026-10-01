@@ -18,7 +18,10 @@ import { createPortal } from "react-dom";
 
 import { pageToViewportPoint } from "@/lib/canvas/camera";
 import type { SemanticSceneObject } from "@/lib/canvas/semantic-scene";
-import { semanticTransformFrameForObjects } from "@/lib/canvas/semantic-transform-session";
+import {
+  semanticTransformFrameForObjects,
+  type SemanticTransformFrame,
+} from "@/lib/canvas/semantic-transform-session";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import type { CanvasBounds, Point, Viewport } from "@/lib/domain/types";
 
@@ -70,6 +73,8 @@ export type SemanticSelectionAction = Readonly<{
 export type SemanticSelectionControlsProps = Readonly<{
   /** Selected renderer-neutral scene objects, in the host's canonical selection order. */
   selectedObjects: readonly SemanticSceneObject[];
+  /** Canonical group membership used to distinguish one complete group from mixed selections. */
+  groupMembers?: Readonly<Record<string, readonly string[]>>;
   viewport: Viewport;
   /** Spectators pass false and receive no interactive or visual selection affordance. */
   editing: boolean;
@@ -150,8 +155,22 @@ function unionBounds(items: readonly SemanticSceneObject[]): CanvasBounds {
   };
 }
 
+export function semanticSelectionFrameForSceneObjects(
+  items: readonly SemanticSceneObject[],
+): SemanticTransformFrame | null {
+  return semanticTransformFrameForObjects(items.map(({ object, bounds }) => (
+    object.kind === "connector"
+      ? {
+          ...object,
+          start: { ...object.start, x: bounds.x, y: bounds.y },
+          end: { ...object.end, x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+        }
+      : object
+  )));
+}
+
 function selectionFrame(items: readonly SemanticSceneObject[]): SelectionFrame {
-  const frame = semanticTransformFrameForObjects(items.map(({ object }) => object));
+  const frame = semanticSelectionFrameForSceneObjects(items);
   if (!frame) return { pageBounds: { x: 0, y: 0, width: 1, height: 1 }, rotation: 0 };
   return { pageBounds: frame.bounds, rotation: frame.rotation };
 }
@@ -433,6 +452,7 @@ function MobileSelectionActions({
  */
 export function SemanticSelectionControls({
   selectedObjects,
+  groupMembers = {},
   viewport,
   editing,
   connectorRoute,
@@ -459,7 +479,21 @@ export function SemanticSelectionControls({
   const endpointRoute = soleConnector && connectorRoute?.connectorId === soleConnector.id
     ? connectorRoute
     : null;
-  const canGroup = selectedObjects.length > 1;
+  const selectedObjectIds = new Set(objectIds);
+  const connectorsCanGroup = selectedObjects.every(({ object }) => (
+    object.kind !== "connector"
+    || [object.start, object.end].every((endpoint) => (
+      endpoint.objectId === null || selectedObjectIds.has(endpoint.objectId)
+    ))
+  ));
+  const selectedGroupIds = [...new Set(selectedObjects.flatMap(({ object }) => (
+    object.groupId ? [object.groupId] : []
+  )))];
+  const soleCompleteGroupId = selectedGroupIds.length === 1
+    && selectedObjects.every(({ object }) => object.groupId === selectedGroupIds[0])
+    && (groupMembers[selectedGroupIds[0]!] ?? []).every((objectId) => selectedObjectIds.has(objectId))
+    && (groupMembers[selectedGroupIds[0]!] ?? []).length === selectedObjects.length;
+  const canGroup = selectedObjects.length > 1 && !soleCompleteGroupId && connectorsCanGroup;
   const canUngroup = selectedObjects.some(({ object }) => object.groupId !== null);
 
   const frameStyle: CSSProperties = {

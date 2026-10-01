@@ -1,0 +1,432 @@
+{
+  "schemaVersion": "jazzboard-exp0036-grader-manifest/v1",
+  "protocolId": "EXP-0036",
+  "status": "prepared_not_authorized",
+  "builds": {
+    "A0": {
+      "role": "baseline",
+      "commit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+      "archiveSha256": "sha256:63f18ac4ad78724fa9cf5601a47b8ca61853947590eccb2ab59144bcf41946ab"
+    },
+    "A1": {
+      "role": "candidate",
+      "commit": "5a67b21505b50c643bf282774f0e7bf4698edf05",
+      "archiveSha256": "sha256:cd800597a23fc76d3bc861b30b2803ca51ffa448477f0da0339bfbcafeacdaa5"
+    },
+    "commonPackageLockSha256": "sha256:a1abc6ddf29116dfbeefc38ecc56053988356a1d303f608fcbcb0ec983ad1561",
+    "freezeScope": "product_source_archives_only",
+    "researchHarnessHeadPolicy": "later research-only commits do not change either product arm"
+  },
+  "sourceFreeze": {
+    "baselineArchiveSha256": "sha256:63f18ac4ad78724fa9cf5601a47b8ca61853947590eccb2ab59144bcf41946ab",
+    "candidateArchiveSha256": "sha256:cd800597a23fc76d3bc861b30b2803ca51ffa448477f0da0339bfbcafeacdaa5",
+    "packageLockSha256": "sha256:a1abc6ddf29116dfbeefc38ecc56053988356a1d303f608fcbcb0ec983ad1561",
+    "developmentV2Sha256": "sha256:9326d2e0d8cd06fdaabfe9345b0eb85e0634fbcc9ece285124553c2a0a649227",
+    "developmentRubricsV2Sha256": "sha256:15bde60f5e593164a2b8d7ec924cf3d722c049e18db07b0ded5586f9b00f8919",
+    "contextFixtureSourceSha256": "sha256:07f51991c2d408591412d15d5a1fa76fd5af0edb6a25d3e9961864bf82bd52fe",
+    "packetProtocolSha256": "sha256:f15d1c2c9217dad5401606b38752228820e54c31a508aa25a67f999047aa981f",
+    "packetProtocolPath": "research/protocols/exp-0036-frozen-packet-v1.md",
+    "reviewInstructionsPath": "research/protocols/exp-0036-blinded-pair-review-v1.md",
+    "reviewInstructionsSha256": "sha256:b139f18a11e5502eaefe2696fc3fb2e34e859d7d027758a71728510af1edf5c1"
+  },
+  "deterministicSeeds": {
+    "inventory": "20260904-exp0036-inventory-2",
+    "metadataEdit": "20260904-exp0036-repair-2"
+  },
+  "fixedAttemptOrder": [
+    {
+      "ordinal": 1,
+      "attemptId": "attempt01",
+      "pairId": "pair-inventory",
+      "taskId": "exp0036-existing-inventory",
+      "arm": "A0"
+    },
+    {
+      "ordinal": 2,
+      "attemptId": "attempt02",
+      "pairId": "pair-inventory",
+      "taskId": "exp0036-existing-inventory",
+      "arm": "A1"
+    },
+    {
+      "ordinal": 3,
+      "attemptId": "attempt03",
+      "pairId": "pair-metadata-edit",
+      "taskId": "exp0036-existing-metadata-edit",
+      "arm": "A1"
+    },
+    {
+      "ordinal": 4,
+      "attemptId": "attempt04",
+      "pairId": "pair-metadata-edit",
+      "taskId": "exp0036-existing-metadata-edit",
+      "arm": "A0"
+    },
+    {
+      "ordinal": 5,
+      "attemptId": "attempt05",
+      "pairId": "pair-checkout",
+      "taskId": "dev-architecture-create-checkout",
+      "arm": "A1"
+    },
+    {
+      "ordinal": 6,
+      "attemptId": "attempt06",
+      "pairId": "pair-checkout",
+      "taskId": "dev-architecture-create-checkout",
+      "arm": "A0"
+    },
+    {
+      "ordinal": 7,
+      "attemptId": "attempt07",
+      "pairId": "pair-portrait",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "arm": "A0"
+    },
+    {
+      "ordinal": 8,
+      "attemptId": "attempt08",
+      "pairId": "pair-portrait",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "arm": "A1"
+    }
+  ],
+  "taskDigests": {
+    "exp0036-existing-inventory": "sha256:b8a033a79a1f21caa214be989e74e243b8ee968695a529fd105a5720ee8429bc",
+    "exp0036-existing-metadata-edit": "sha256:04c838f2ff1ea1d796d667ffa77cdffd1084cb31e91837df7500ba6d69ab7fac",
+    "dev-architecture-create-checkout": "sha256:d666c417b583d3dba6ee2a92e8f8c97198b7983277da11aa2c501e3f2dd5e7b0",
+    "dev-drawing-create-layered-portrait": "sha256:44141d1f6f6551036491fe1189f80a6f444c2a4ae338a28e51d663a01aedcd6c"
+  },
+  "contextGraders": {
+    "exp0036-existing-inventory": {
+      "family": "inventory",
+      "fixtureSha256": "sha256:e58ca43b7d24c559f4295baf4a23400be712f5d89136ef3087a0e32c7ede5ed5",
+      "provisioningSha256": "sha256:a50193ea70614e3234dc274f662f3fcd0ba6b32ad6969f8d16949eb0f5f27642",
+      "expectedAnswer": {
+        "objectCounts": {
+          "shape": 180,
+          "text": 90,
+          "path": 90
+        },
+        "diagramCount": 6,
+        "openQuestionNames": [
+          "inventory-5d41d02b.shape.006",
+          "inventory-5d41d02b.shape.007",
+          "inventory-5d41d02b.shape.026",
+          "inventory-5d41d02b.shape.029",
+          "inventory-5d41d02b.shape.040",
+          "inventory-5d41d02b.shape.098",
+          "inventory-5d41d02b.shape.126",
+          "inventory-5d41d02b.shape.168"
+        ]
+      },
+      "invariants": {
+        "totalObjectCount": 360,
+        "objectCounts": {
+          "shape": 180,
+          "text": 90,
+          "path": 90
+        },
+        "diagramCount": 6,
+        "miraOpenQuestionCount": 8,
+        "requiresNoMutation": true
+      },
+      "absentKindPolicy": {
+        "supportedKinds": [
+          "text",
+          "shape",
+          "connector",
+          "image",
+          "draw",
+          "path"
+        ],
+        "accepted": "omit_absent_or_include_exact_zero",
+        "unknownKindsAccepted": false,
+        "nonzeroAbsentKindsAccepted": false
+      }
+    },
+    "exp0036-existing-metadata-edit": {
+      "family": "repair",
+      "fixtureSha256": "sha256:135aeb2d17276306a72495508b447de917bbd372148d1a1b865cac1560a3e7ab",
+      "provisioningSha256": "sha256:6d14eb97d91531e382e78dece963db45b4397e957a5466f414a427b7da9754ba",
+      "expectedAnswer": {
+        "updatedOpenQuestionNames": [
+          "repair-bea484aa.shape.014",
+          "repair-bea484aa.shape.017",
+          "repair-bea484aa.shape.021",
+          "repair-bea484aa.shape.025",
+          "repair-bea484aa.shape.029",
+          "repair-bea484aa.shape.039",
+          "repair-bea484aa.shape.044",
+          "repair-bea484aa.shape.054",
+          "repair-bea484aa.shape.062",
+          "repair-bea484aa.shape.074",
+          "repair-bea484aa.shape.104",
+          "repair-bea484aa.shape.118"
+        ],
+        "updatedCount": 12
+      },
+      "invariants": {
+        "totalObjectCount": 240,
+        "objectCounts": {
+          "shape": 120,
+          "text": 60,
+          "path": 60
+        },
+        "diagramCount": 0,
+        "targetCount": 12,
+        "targetSemanticNames": [
+          "repair-bea484aa.shape.014",
+          "repair-bea484aa.shape.017",
+          "repair-bea484aa.shape.021",
+          "repair-bea484aa.shape.025",
+          "repair-bea484aa.shape.029",
+          "repair-bea484aa.shape.039",
+          "repair-bea484aa.shape.044",
+          "repair-bea484aa.shape.054",
+          "repair-bea484aa.shape.062",
+          "repair-bea484aa.shape.074",
+          "repair-bea484aa.shape.104",
+          "repair-bea484aa.shape.118"
+        ],
+        "targetOwner": "Mira",
+        "targetInitialStatus": "open",
+        "targetFinalStatus": "deferred",
+        "targetResolution": "Awaiting dependency review",
+        "preserveAllOtherObjectFields": true
+      },
+      "protectedStatePolicy": "strict_all_unrelated_objects_diagrams_visual_fields_and_target_non_lifecycle_fields"
+    }
+  },
+  "creationGraders": {
+    "dev-architecture-create-checkout": {
+      "taskId": "dev-architecture-create-checkout",
+      "domain": "architecture",
+      "criteria": [
+        {
+          "criterionId": "criterion-checkout-facts",
+          "publicCriterionText": "Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event."
+        },
+        {
+          "criterionId": "criterion-checkout-boundary",
+          "publicCriterionText": "Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary."
+        },
+        {
+          "criterionId": "criterion-checkout-readable",
+          "publicCriterionText": "Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit."
+        }
+      ],
+      "semanticReference": {
+        "entities": [
+          {
+            "id": "shopper-browser",
+            "critical": true
+          },
+          {
+            "id": "checkout-api",
+            "critical": true
+          },
+          {
+            "id": "payment-service",
+            "critical": true
+          },
+          {
+            "id": "fulfillment-worker",
+            "critical": true
+          }
+        ],
+        "relationships": [
+          {
+            "id": "browser-checkout",
+            "fromEntityId": "shopper-browser",
+            "toEntityId": "checkout-api",
+            "relationshipType": "synchronous_request",
+            "critical": true
+          },
+          {
+            "id": "checkout-payment",
+            "fromEntityId": "checkout-api",
+            "toEntityId": "payment-service",
+            "relationshipType": "synchronous_request",
+            "critical": true
+          },
+          {
+            "id": "checkout-fulfillment",
+            "fromEntityId": "checkout-api",
+            "toEntityId": "fulfillment-worker",
+            "relationshipType": "asynchronous_event",
+            "critical": true
+          }
+        ],
+        "uncertaintyConstraintIds": [
+          "checkout-no-invention"
+        ]
+      },
+      "geometryThresholds": [
+        {
+          "criterionId": "criterion-checkout-readable",
+          "metric": "blocking_geometry_violations",
+          "operator": "at_most",
+          "value": 0
+        }
+      ],
+      "guardrails": [
+        {
+          "criterionId": "criterion-checkout-readable",
+          "check": "no_duplicate_semantic_credit"
+        }
+      ]
+    },
+    "dev-drawing-create-layered-portrait": {
+      "taskId": "dev-drawing-create-layered-portrait",
+      "domain": "drawing",
+      "criteria": [
+        {
+          "criterionId": "criterion-portrait-content",
+          "publicCriterionText": "Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait."
+        },
+        {
+          "criterionId": "criterion-portrait-style",
+          "publicCriterionText": "Use a cohesive limited-palette native-vector style with the face as the focal point.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Use a cohesive limited-palette native-vector style with the face as the focal point.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Use a cohesive limited-palette native-vector style with the face as the focal point."
+        },
+        {
+          "criterionId": "criterion-portrait-layering",
+          "publicCriterionText": "Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss.",
+          "evaluatorProcedure": "Inspect the exact final semantic state and clean render only for the public requirement: Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss.",
+          "passCondition": "Pass only when the public requirement is visibly and semantically satisfied: Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss."
+        }
+      ],
+      "drawingReference": {
+        "requiredPartIds": [
+          "portrait-face",
+          "portrait-hair",
+          "portrait-collar",
+          "portrait-hand"
+        ],
+        "constraintIds": [
+          "portrait-limited-palette",
+          "portrait-face-focal",
+          "portrait-overlap"
+        ]
+      },
+      "geometryThresholds": [
+        {
+          "criterionId": "criterion-portrait-layering",
+          "metric": "intentional_overlap_damage_count",
+          "operator": "at_most",
+          "value": 0
+        }
+      ],
+      "guardrails": [
+        {
+          "criterionId": "criterion-portrait-layering",
+          "check": "preserve_intentional_overlap"
+        }
+      ]
+    }
+  },
+  "blindedPairReview": {
+    "instructionsPath": "research/protocols/exp-0036-blinded-pair-review-v1.md",
+    "instructionsSha256": "sha256:b139f18a11e5502eaefe2696fc3fb2e34e859d7d027758a71728510af1edf5c1",
+    "reviewerModel": "gpt-5.6-sol",
+    "reasoningEffort": "high",
+    "independentReviewerCountPerPair": 2,
+    "assignments": [
+      {
+        "reviewSlotId": "checkout-review-1",
+        "taskId": "dev-architecture-create-checkout",
+        "reviewerIndex": 1,
+        "display": {
+          "left": {
+            "label": "checkout-kestrel",
+            "attemptId": "attempt05"
+          },
+          "right": {
+            "label": "checkout-lantern",
+            "attemptId": "attempt06"
+          }
+        }
+      },
+      {
+        "reviewSlotId": "checkout-review-2",
+        "taskId": "dev-architecture-create-checkout",
+        "reviewerIndex": 2,
+        "display": {
+          "left": {
+            "label": "checkout-sable",
+            "attemptId": "attempt06"
+          },
+          "right": {
+            "label": "checkout-ember",
+            "attemptId": "attempt05"
+          }
+        }
+      },
+      {
+        "reviewSlotId": "portrait-review-1",
+        "taskId": "dev-drawing-create-layered-portrait",
+        "reviewerIndex": 1,
+        "display": {
+          "left": {
+            "label": "portrait-orchid",
+            "attemptId": "attempt07"
+          },
+          "right": {
+            "label": "portrait-harbor",
+            "attemptId": "attempt08"
+          }
+        }
+      },
+      {
+        "reviewSlotId": "portrait-review-2",
+        "taskId": "dev-drawing-create-layered-portrait",
+        "reviewerIndex": 2,
+        "display": {
+          "left": {
+            "label": "portrait-cinder",
+            "attemptId": "attempt08"
+          },
+          "right": {
+            "label": "portrait-meadow",
+            "attemptId": "attempt07"
+          }
+        }
+      }
+    ],
+    "reviewerInputPolicy": {
+      "include": [
+        "public task packet",
+        "frozen rubric",
+        "sanitized final semantic state",
+        "final pixels",
+        "neutral artifact labels"
+      ],
+      "exclude": [
+        "author transcript",
+        "arm or condition",
+        "timing",
+        "room credential",
+        "peer verdict",
+        "private label mapping"
+      ]
+    },
+    "outputSchemaVersion": "jazzboard-exp0036-pair-review-result/v1"
+  },
+  "validity": {
+    "allEightAttemptsMustBeReported": true,
+    "authorTaskCreationAuthorized": false,
+    "productCandidateRemains": "5a67b21505b50c643bf282774f0e7bf4698edf05",
+    "missingOrIncompleteTelemetry": "inconclusive",
+    "failedArtifactAcceptedCompletionTime": null
+  }
+}

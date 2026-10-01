@@ -1,6 +1,10 @@
 import type { ConnectionState, LeaseAction, LeaseBatchAction } from "@/hooks/use-room";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { AgentDraftPresentationStatus } from "@/lib/canvas/agent-draft-reveal";
+import type {
+  GuidedWalkthrough,
+  GuidedWalkthroughDisplay,
+} from "@/lib/canvas/guided-walkthrough";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type {
   ActorKind,
@@ -32,6 +36,13 @@ export type CanvasSurfaceProps = {
     draftId: string;
     expectedDraftRevision: number;
   } | null;
+  /** Temporary local guide presentation; never part of RoomState. */
+  guidedWalkthrough?: GuidedWalkthrough | null;
+  /** Real room WebMCP execution in this browser; never published as presence. */
+  localToolActivityActive?: boolean;
+  onGuidedWalkthroughStepChange?: (index: number) => void;
+  onGuidedWalkthroughExit?: () => void;
+  onGuidedWalkthroughDisplayed?: (display: GuidedWalkthroughDisplay) => void;
   room: RoomState;
   /** Ephemeral, presentation-only agent previews; never part of RoomState. */
   agentDrafts?: readonly AgentCanvasDraftSnapshot[];

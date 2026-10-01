@@ -324,7 +324,7 @@ async function reconcileAgentCanvasDrafts(input: {
   const store = getAgentCanvasDraftStore();
   const retained: AgentCanvasDraft[] = [];
   for (const draft of input.drafts) {
-    if (draft.status === "active") {
+    if (draft.status === "active" || draft.status === "presenting") {
       retained.push(draft);
       continue;
     }

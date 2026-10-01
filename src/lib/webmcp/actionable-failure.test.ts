@@ -7,6 +7,17 @@ function failure(tool: string, code: string, message = "Rejected.") {
 }
 
 describe("actionable WebMCP failures", () => {
+  it.each(["query_objects", "find_diagrams", "read_room_state"])("restarts %s retrieval after a revision conflict", (tool) => {
+    expect(failure(tool, "ROOM_REVISION_CONFLICT")).toMatchObject({
+      error: {
+        recovery: {
+          retry: "after_refresh",
+          suggestedTools: [tool],
+          instructions: expect.stringMatching(/Discard the partial working set.*offset 0.*same filters.*Never combine pages/),
+        },
+      },
+    });
+  });
   it("turns schema rejection into a correct-and-retry contract", () => {
     expect(failure("apply_canvas_transaction", "INVALID_TOOL_INPUT")).toMatchObject({
       error: {

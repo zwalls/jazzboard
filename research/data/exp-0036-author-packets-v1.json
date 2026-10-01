@@ -1,0 +1,347 @@
+{
+  "schemaVersion": "jazzboard-exp0036-author-packets/v1",
+  "protocolId": "EXP-0036",
+  "status": "prepared_not_authorized",
+  "answerPolicy": "public_packets_only_no_controller_answers_or_grader_mappings",
+  "taskPacketSource": {
+    "developmentV2Path": "research/benchmarks/development-v2.json",
+    "developmentV2Sha256": "sha256:9326d2e0d8cd06fdaabfe9345b0eb85e0634fbcc9ece285124553c2a0a649227",
+    "contextFixtureDerivation": "exp0035 deterministic generator with new EXP0036 seeds; public fields only"
+  },
+  "taskPackets": [
+    {
+      "id": "exp0036-existing-inventory",
+      "title": "Existing-board inventory",
+      "domain": "existing_board",
+      "stratum": "inventory",
+      "operation": "inspect",
+      "brief": "Inspect the existing board without changing it. Return only one JSON object with objectCounts giving the count for each object kind present, diagramCount giving the number of Diagrams, and openQuestionNames giving the alphabetically sorted exact semantic names of unresolved open questions owned by Mira. objectCounts may omit an absent supported kind or include it with the exact value 0; do not include unknown kinds.",
+      "acceptanceCriteria": [
+        {
+          "id": "criterion-inventory-answer",
+          "text": "Return exact counts for every present kind, the exact Diagram count, and the exact sorted Mira open-question names; absent supported kinds may be omitted or set to 0."
+        },
+        {
+          "id": "criterion-inventory-read-only",
+          "text": "Preserve the complete authoritative document unchanged."
+        }
+      ]
+    },
+    {
+      "id": "exp0036-existing-metadata-edit",
+      "title": "Existing-board metadata edit",
+      "domain": "existing_board",
+      "stratum": "editing",
+      "operation": "edit",
+      "brief": "Update every open question owned by Mira that is currently open: set its status to deferred and its resolution to \"Awaiting dependency review\". Preserve every other object, all geometry, labels, and styles. Return only one JSON object with updatedOpenQuestionNames containing the alphabetically sorted exact semantic names changed and updatedCount containing their count.",
+      "acceptanceCriteria": [
+        {
+          "id": "criterion-edit-targets",
+          "text": "Update every and only open questions owned by Mira to the requested lifecycle state."
+        },
+        {
+          "id": "criterion-edit-protection",
+          "text": "Preserve every unrelated object, Diagram, geometry, label, style, and non-lifecycle target field exactly."
+        },
+        {
+          "id": "criterion-edit-answer",
+          "text": "Return the exact sorted changed semantic names and exact changed count."
+        }
+      ]
+    },
+    {
+      "id": "dev-architecture-create-checkout",
+      "title": "Checkout request path",
+      "domain": "architecture",
+      "stratum": "creation",
+      "operation": "create",
+      "complexity": "medium",
+      "brief": "Create a readable service diagram for the supplied checkout system, separating synchronous purchase requests from the asynchronous fulfillment event and showing the stated trust boundary.",
+      "stressors": [
+        "negative_constraints"
+      ],
+      "antiGamingCases": [
+        "duplicate_keyword"
+      ],
+      "publicEvaluationDimensions": [
+        "semantic_correctness",
+        "geometry_readability",
+        "perceptual_quality",
+        "self_correction",
+        "presentation_ux",
+        "efficiency",
+        "document_integrity"
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "criterion-checkout-facts",
+          "text": "Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event."
+        },
+        {
+          "id": "criterion-checkout-boundary",
+          "text": "Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary."
+        },
+        {
+          "id": "criterion-checkout-readable",
+          "text": "Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit."
+        }
+      ],
+      "requiredCapabilities": [
+        "capability_discovery",
+        "authoritative_state_read",
+        "staged_authoring",
+        "semantic_mutation",
+        "visual_inspection",
+        "targeted_correction"
+      ],
+      "initialState": {
+        "kind": "blank"
+      },
+      "publicTaskPacket": {
+        "kind": "architecture",
+        "materials": [
+          {
+            "id": "source-checkout-system",
+            "title": "Checkout system facts",
+            "sourceKind": "task_authoritative_synthetic",
+            "content": "Shopper Browser sends a checkout request to Checkout API. Checkout API requests authorization from Payment Service, then publishes an order-created event to Fulfillment Worker. The browser is outside the commerce trust boundary; all three services are inside."
+          }
+        ],
+        "entities": [
+          {
+            "id": "shopper-browser",
+            "label": "Shopper Browser",
+            "description": "Customer browser outside the commerce trust boundary."
+          },
+          {
+            "id": "checkout-api",
+            "label": "Checkout API",
+            "description": "Receives checkout requests and coordinates purchase work."
+          },
+          {
+            "id": "payment-service",
+            "label": "Payment Service",
+            "description": "Authorizes payment for Checkout API."
+          },
+          {
+            "id": "fulfillment-worker",
+            "label": "Fulfillment Worker",
+            "description": "Consumes the order-created event."
+          }
+        ],
+        "relationships": [
+          {
+            "id": "browser-checkout",
+            "fromEntityId": "shopper-browser",
+            "toEntityId": "checkout-api",
+            "relationshipType": "synchronous_request",
+            "description": "Browser sends checkout request to Checkout API."
+          },
+          {
+            "id": "checkout-payment",
+            "fromEntityId": "checkout-api",
+            "toEntityId": "payment-service",
+            "relationshipType": "synchronous_request",
+            "description": "Checkout API requests payment authorization."
+          },
+          {
+            "id": "checkout-fulfillment",
+            "fromEntityId": "checkout-api",
+            "toEntityId": "fulfillment-worker",
+            "relationshipType": "asynchronous_event",
+            "description": "Checkout API publishes order-created to Fulfillment Worker."
+          }
+        ],
+        "uncertaintyConstraints": [
+          {
+            "id": "checkout-no-invention",
+            "text": "Do not add databases, queues, protocols, vendors, or security controls not stated in this packet."
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-drawing-create-layered-portrait",
+      "title": "Layered character portrait",
+      "domain": "drawing",
+      "stratum": "creation",
+      "operation": "create",
+      "complexity": "medium",
+      "brief": "Create an original native-vector three-quarter character portrait using deliberate artistic layering and overlap.",
+      "stressors": [
+        "intentional_overlap"
+      ],
+      "antiGamingCases": [
+        "intentional_overlap"
+      ],
+      "publicEvaluationDimensions": [
+        "semantic_correctness",
+        "geometry_readability",
+        "perceptual_quality",
+        "self_correction",
+        "presentation_ux",
+        "efficiency",
+        "document_integrity"
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "criterion-portrait-content",
+          "text": "Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait."
+        },
+        {
+          "id": "criterion-portrait-style",
+          "text": "Use a cohesive limited-palette native-vector style with the face as the focal point."
+        },
+        {
+          "id": "criterion-portrait-layering",
+          "text": "Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss."
+        }
+      ],
+      "requiredCapabilities": [
+        "capability_discovery",
+        "authoritative_state_read",
+        "staged_authoring",
+        "semantic_mutation",
+        "visual_inspection",
+        "targeted_correction"
+      ],
+      "initialState": {
+        "kind": "blank"
+      },
+      "publicTaskPacket": {
+        "kind": "drawing",
+        "materials": [
+          {
+            "id": "source-portrait-brief",
+            "title": "Three-quarter portrait brief",
+            "sourceKind": "task_authoritative_synthetic",
+            "content": "Draw a three-quarter portrait with a face, dark wavy hair, jacket collar, and one foreground hand. Preserve creative control of expression and palette."
+          }
+        ],
+        "recognizableParts": [
+          {
+            "id": "portrait-face",
+            "label": "Face",
+            "description": "A readable three-quarter face."
+          },
+          {
+            "id": "portrait-hair",
+            "label": "Dark wavy hair",
+            "description": "Hair framing and partially overlapping the face."
+          },
+          {
+            "id": "portrait-collar",
+            "label": "Jacket collar",
+            "description": "A collar layered over the torso."
+          },
+          {
+            "id": "portrait-hand",
+            "label": "Foreground hand",
+            "description": "One hand layered in front of the jacket."
+          }
+        ],
+        "styleDirections": [
+          {
+            "id": "portrait-limited-palette",
+            "text": "Use a cohesive limited palette and consistent vector treatment."
+          },
+          {
+            "id": "portrait-face-focal",
+            "text": "Make the face primary and the hand secondary."
+          }
+        ],
+        "layeringConstraints": [
+          {
+            "id": "portrait-overlap",
+            "text": "Retain hair-over-face, collar-over-torso, and hand-over-jacket overlap."
+          }
+        ],
+        "creativeFreedom": [
+          "Choose character identity, expression, exact palette, background accents, and path geometry."
+        ]
+      }
+    }
+  ],
+  "attempts": [
+    {
+      "ordinal": 1,
+      "attemptId": "attempt01",
+      "pairId": "pair-inventory",
+      "taskId": "exp0036-existing-inventory",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nInspect the existing board without changing it. Return only one JSON object with objectCounts giving the count for each object kind present, diagramCount giving the number of Diagrams, and openQuestionNames giving the alphabetically sorted exact semantic names of unresolved open questions owned by Mira. objectCounts may omit an absent supported kind or include it with the exact value 0; do not include unknown kinds.\n\nPublic task packet:\n{\n  \"id\": \"exp0036-existing-inventory\",\n  \"title\": \"Existing-board inventory\",\n  \"domain\": \"existing_board\",\n  \"stratum\": \"inventory\",\n  \"operation\": \"inspect\",\n  \"brief\": \"Inspect the existing board without changing it. Return only one JSON object with objectCounts giving the count for each object kind present, diagramCount giving the number of Diagrams, and openQuestionNames giving the alphabetically sorted exact semantic names of unresolved open questions owned by Mira. objectCounts may omit an absent supported kind or include it with the exact value 0; do not include unknown kinds.\",\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-inventory-answer\",\n      \"text\": \"Return exact counts for every present kind, the exact Diagram count, and the exact sorted Mira open-question names; absent supported kinds may be omitted or set to 0.\"\n    },\n    {\n      \"id\": \"criterion-inventory-read-only\",\n      \"text\": \"Preserve the complete authoritative document unchanged.\"\n    }\n  ]\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Return only the JSON object requested by the task, without surrounding prose or Markdown fences."
+    },
+    {
+      "ordinal": 2,
+      "attemptId": "attempt02",
+      "pairId": "pair-inventory",
+      "taskId": "exp0036-existing-inventory",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nInspect the existing board without changing it. Return only one JSON object with objectCounts giving the count for each object kind present, diagramCount giving the number of Diagrams, and openQuestionNames giving the alphabetically sorted exact semantic names of unresolved open questions owned by Mira. objectCounts may omit an absent supported kind or include it with the exact value 0; do not include unknown kinds.\n\nPublic task packet:\n{\n  \"id\": \"exp0036-existing-inventory\",\n  \"title\": \"Existing-board inventory\",\n  \"domain\": \"existing_board\",\n  \"stratum\": \"inventory\",\n  \"operation\": \"inspect\",\n  \"brief\": \"Inspect the existing board without changing it. Return only one JSON object with objectCounts giving the count for each object kind present, diagramCount giving the number of Diagrams, and openQuestionNames giving the alphabetically sorted exact semantic names of unresolved open questions owned by Mira. objectCounts may omit an absent supported kind or include it with the exact value 0; do not include unknown kinds.\",\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-inventory-answer\",\n      \"text\": \"Return exact counts for every present kind, the exact Diagram count, and the exact sorted Mira open-question names; absent supported kinds may be omitted or set to 0.\"\n    },\n    {\n      \"id\": \"criterion-inventory-read-only\",\n      \"text\": \"Preserve the complete authoritative document unchanged.\"\n    }\n  ]\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Return only the JSON object requested by the task, without surrounding prose or Markdown fences."
+    },
+    {
+      "ordinal": 3,
+      "attemptId": "attempt03",
+      "pairId": "pair-metadata-edit",
+      "taskId": "exp0036-existing-metadata-edit",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nUpdate every open question owned by Mira that is currently open: set its status to deferred and its resolution to \"Awaiting dependency review\". Preserve every other object, all geometry, labels, and styles. Return only one JSON object with updatedOpenQuestionNames containing the alphabetically sorted exact semantic names changed and updatedCount containing their count.\n\nPublic task packet:\n{\n  \"id\": \"exp0036-existing-metadata-edit\",\n  \"title\": \"Existing-board metadata edit\",\n  \"domain\": \"existing_board\",\n  \"stratum\": \"editing\",\n  \"operation\": \"edit\",\n  \"brief\": \"Update every open question owned by Mira that is currently open: set its status to deferred and its resolution to \\\"Awaiting dependency review\\\". Preserve every other object, all geometry, labels, and styles. Return only one JSON object with updatedOpenQuestionNames containing the alphabetically sorted exact semantic names changed and updatedCount containing their count.\",\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-edit-targets\",\n      \"text\": \"Update every and only open questions owned by Mira to the requested lifecycle state.\"\n    },\n    {\n      \"id\": \"criterion-edit-protection\",\n      \"text\": \"Preserve every unrelated object, Diagram, geometry, label, style, and non-lifecycle target field exactly.\"\n    },\n    {\n      \"id\": \"criterion-edit-answer\",\n      \"text\": \"Return the exact sorted changed semantic names and exact changed count.\"\n    }\n  ]\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Return only the JSON object requested by the task, without surrounding prose or Markdown fences."
+    },
+    {
+      "ordinal": 4,
+      "attemptId": "attempt04",
+      "pairId": "pair-metadata-edit",
+      "taskId": "exp0036-existing-metadata-edit",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nUpdate every open question owned by Mira that is currently open: set its status to deferred and its resolution to \"Awaiting dependency review\". Preserve every other object, all geometry, labels, and styles. Return only one JSON object with updatedOpenQuestionNames containing the alphabetically sorted exact semantic names changed and updatedCount containing their count.\n\nPublic task packet:\n{\n  \"id\": \"exp0036-existing-metadata-edit\",\n  \"title\": \"Existing-board metadata edit\",\n  \"domain\": \"existing_board\",\n  \"stratum\": \"editing\",\n  \"operation\": \"edit\",\n  \"brief\": \"Update every open question owned by Mira that is currently open: set its status to deferred and its resolution to \\\"Awaiting dependency review\\\". Preserve every other object, all geometry, labels, and styles. Return only one JSON object with updatedOpenQuestionNames containing the alphabetically sorted exact semantic names changed and updatedCount containing their count.\",\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-edit-targets\",\n      \"text\": \"Update every and only open questions owned by Mira to the requested lifecycle state.\"\n    },\n    {\n      \"id\": \"criterion-edit-protection\",\n      \"text\": \"Preserve every unrelated object, Diagram, geometry, label, style, and non-lifecycle target field exactly.\"\n    },\n    {\n      \"id\": \"criterion-edit-answer\",\n      \"text\": \"Return the exact sorted changed semantic names and exact changed count.\"\n    }\n  ]\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Return only the JSON object requested by the task, without surrounding prose or Markdown fences."
+    },
+    {
+      "ordinal": 5,
+      "attemptId": "attempt05",
+      "pairId": "pair-checkout",
+      "taskId": "dev-architecture-create-checkout",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nCreate a readable service diagram for the supplied checkout system, separating synchronous purchase requests from the asynchronous fulfillment event and showing the stated trust boundary.\n\nPublic task packet:\n{\n  \"id\": \"dev-architecture-create-checkout\",\n  \"title\": \"Checkout request path\",\n  \"domain\": \"architecture\",\n  \"stratum\": \"creation\",\n  \"operation\": \"create\",\n  \"complexity\": \"medium\",\n  \"brief\": \"Create a readable service diagram for the supplied checkout system, separating synchronous purchase requests from the asynchronous fulfillment event and showing the stated trust boundary.\",\n  \"stressors\": [\n    \"negative_constraints\"\n  ],\n  \"antiGamingCases\": [\n    \"duplicate_keyword\"\n  ],\n  \"publicEvaluationDimensions\": [\n    \"semantic_correctness\",\n    \"geometry_readability\",\n    \"perceptual_quality\",\n    \"self_correction\",\n    \"presentation_ux\",\n    \"efficiency\",\n    \"document_integrity\"\n  ],\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-checkout-facts\",\n      \"text\": \"Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event.\"\n    },\n    {\n      \"id\": \"criterion-checkout-boundary\",\n      \"text\": \"Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary.\"\n    },\n    {\n      \"id\": \"criterion-checkout-readable\",\n      \"text\": \"Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit.\"\n    }\n  ],\n  \"requiredCapabilities\": [\n    \"capability_discovery\",\n    \"authoritative_state_read\",\n    \"staged_authoring\",\n    \"semantic_mutation\",\n    \"visual_inspection\",\n    \"targeted_correction\"\n  ],\n  \"initialState\": {\n    \"kind\": \"blank\"\n  },\n  \"publicTaskPacket\": {\n    \"kind\": \"architecture\",\n    \"materials\": [\n      {\n        \"id\": \"source-checkout-system\",\n        \"title\": \"Checkout system facts\",\n        \"sourceKind\": \"task_authoritative_synthetic\",\n        \"content\": \"Shopper Browser sends a checkout request to Checkout API. Checkout API requests authorization from Payment Service, then publishes an order-created event to Fulfillment Worker. The browser is outside the commerce trust boundary; all three services are inside.\"\n      }\n    ],\n    \"entities\": [\n      {\n        \"id\": \"shopper-browser\",\n        \"label\": \"Shopper Browser\",\n        \"description\": \"Customer browser outside the commerce trust boundary.\"\n      },\n      {\n        \"id\": \"checkout-api\",\n        \"label\": \"Checkout API\",\n        \"description\": \"Receives checkout requests and coordinates purchase work.\"\n      },\n      {\n        \"id\": \"payment-service\",\n        \"label\": \"Payment Service\",\n        \"description\": \"Authorizes payment for Checkout API.\"\n      },\n      {\n        \"id\": \"fulfillment-worker\",\n        \"label\": \"Fulfillment Worker\",\n        \"description\": \"Consumes the order-created event.\"\n      }\n    ],\n    \"relationships\": [\n      {\n        \"id\": \"browser-checkout\",\n        \"fromEntityId\": \"shopper-browser\",\n        \"toEntityId\": \"checkout-api\",\n        \"relationshipType\": \"synchronous_request\",\n        \"description\": \"Browser sends checkout request to Checkout API.\"\n      },\n      {\n        \"id\": \"checkout-payment\",\n        \"fromEntityId\": \"checkout-api\",\n        \"toEntityId\": \"payment-service\",\n        \"relationshipType\": \"synchronous_request\",\n        \"description\": \"Checkout API requests payment authorization.\"\n      },\n      {\n        \"id\": \"checkout-fulfillment\",\n        \"fromEntityId\": \"checkout-api\",\n        \"toEntityId\": \"fulfillment-worker\",\n        \"relationshipType\": \"asynchronous_event\",\n        \"description\": \"Checkout API publishes order-created to Fulfillment Worker.\"\n      }\n    ],\n    \"uncertaintyConstraints\": [\n      {\n        \"id\": \"checkout-no-invention\",\n        \"text\": \"Do not add databases, queues, protocols, vendors, or security controls not stated in this packet.\"\n      }\n    ]\n  }\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Inspect the final pixels at the exact final revision before finishing. When the artifact is complete, state completion briefly without inventing evaluation results."
+    },
+    {
+      "ordinal": 6,
+      "attemptId": "attempt06",
+      "pairId": "pair-checkout",
+      "taskId": "dev-architecture-create-checkout",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nCreate a readable service diagram for the supplied checkout system, separating synchronous purchase requests from the asynchronous fulfillment event and showing the stated trust boundary.\n\nPublic task packet:\n{\n  \"id\": \"dev-architecture-create-checkout\",\n  \"title\": \"Checkout request path\",\n  \"domain\": \"architecture\",\n  \"stratum\": \"creation\",\n  \"operation\": \"create\",\n  \"complexity\": \"medium\",\n  \"brief\": \"Create a readable service diagram for the supplied checkout system, separating synchronous purchase requests from the asynchronous fulfillment event and showing the stated trust boundary.\",\n  \"stressors\": [\n    \"negative_constraints\"\n  ],\n  \"antiGamingCases\": [\n    \"duplicate_keyword\"\n  ],\n  \"publicEvaluationDimensions\": [\n    \"semantic_correctness\",\n    \"geometry_readability\",\n    \"perceptual_quality\",\n    \"self_correction\",\n    \"presentation_ux\",\n    \"efficiency\",\n    \"document_integrity\"\n  ],\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-checkout-facts\",\n      \"text\": \"Show every supplied entity and directed relationship exactly once, with synchronous requests visually distinct from the asynchronous event.\"\n    },\n    {\n      \"id\": \"criterion-checkout-boundary\",\n      \"text\": \"Place Shopper Browser outside and Checkout API, Payment Service, and Fulfillment Worker inside the commerce trust boundary.\"\n    },\n    {\n      \"id\": \"criterion-checkout-readable\",\n      \"text\": \"Keep every essential node and label visible and readable, with no connector intrusion or duplicate semantic object used for credit.\"\n    }\n  ],\n  \"requiredCapabilities\": [\n    \"capability_discovery\",\n    \"authoritative_state_read\",\n    \"staged_authoring\",\n    \"semantic_mutation\",\n    \"visual_inspection\",\n    \"targeted_correction\"\n  ],\n  \"initialState\": {\n    \"kind\": \"blank\"\n  },\n  \"publicTaskPacket\": {\n    \"kind\": \"architecture\",\n    \"materials\": [\n      {\n        \"id\": \"source-checkout-system\",\n        \"title\": \"Checkout system facts\",\n        \"sourceKind\": \"task_authoritative_synthetic\",\n        \"content\": \"Shopper Browser sends a checkout request to Checkout API. Checkout API requests authorization from Payment Service, then publishes an order-created event to Fulfillment Worker. The browser is outside the commerce trust boundary; all three services are inside.\"\n      }\n    ],\n    \"entities\": [\n      {\n        \"id\": \"shopper-browser\",\n        \"label\": \"Shopper Browser\",\n        \"description\": \"Customer browser outside the commerce trust boundary.\"\n      },\n      {\n        \"id\": \"checkout-api\",\n        \"label\": \"Checkout API\",\n        \"description\": \"Receives checkout requests and coordinates purchase work.\"\n      },\n      {\n        \"id\": \"payment-service\",\n        \"label\": \"Payment Service\",\n        \"description\": \"Authorizes payment for Checkout API.\"\n      },\n      {\n        \"id\": \"fulfillment-worker\",\n        \"label\": \"Fulfillment Worker\",\n        \"description\": \"Consumes the order-created event.\"\n      }\n    ],\n    \"relationships\": [\n      {\n        \"id\": \"browser-checkout\",\n        \"fromEntityId\": \"shopper-browser\",\n        \"toEntityId\": \"checkout-api\",\n        \"relationshipType\": \"synchronous_request\",\n        \"description\": \"Browser sends checkout request to Checkout API.\"\n      },\n      {\n        \"id\": \"checkout-payment\",\n        \"fromEntityId\": \"checkout-api\",\n        \"toEntityId\": \"payment-service\",\n        \"relationshipType\": \"synchronous_request\",\n        \"description\": \"Checkout API requests payment authorization.\"\n      },\n      {\n        \"id\": \"checkout-fulfillment\",\n        \"fromEntityId\": \"checkout-api\",\n        \"toEntityId\": \"fulfillment-worker\",\n        \"relationshipType\": \"asynchronous_event\",\n        \"description\": \"Checkout API publishes order-created to Fulfillment Worker.\"\n      }\n    ],\n    \"uncertaintyConstraints\": [\n      {\n        \"id\": \"checkout-no-invention\",\n        \"text\": \"Do not add databases, queues, protocols, vendors, or security controls not stated in this packet.\"\n      }\n    ]\n  }\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Inspect the final pixels at the exact final revision before finishing. When the artifact is complete, state completion briefly without inventing evaluation results."
+    },
+    {
+      "ordinal": 7,
+      "attemptId": "attempt07",
+      "pairId": "pair-portrait",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nCreate an original native-vector three-quarter character portrait using deliberate artistic layering and overlap.\n\nPublic task packet:\n{\n  \"id\": \"dev-drawing-create-layered-portrait\",\n  \"title\": \"Layered character portrait\",\n  \"domain\": \"drawing\",\n  \"stratum\": \"creation\",\n  \"operation\": \"create\",\n  \"complexity\": \"medium\",\n  \"brief\": \"Create an original native-vector three-quarter character portrait using deliberate artistic layering and overlap.\",\n  \"stressors\": [\n    \"intentional_overlap\"\n  ],\n  \"antiGamingCases\": [\n    \"intentional_overlap\"\n  ],\n  \"publicEvaluationDimensions\": [\n    \"semantic_correctness\",\n    \"geometry_readability\",\n    \"perceptual_quality\",\n    \"self_correction\",\n    \"presentation_ux\",\n    \"efficiency\",\n    \"document_integrity\"\n  ],\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-portrait-content\",\n      \"text\": \"Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait.\"\n    },\n    {\n      \"id\": \"criterion-portrait-style\",\n      \"text\": \"Use a cohesive limited-palette native-vector style with the face as the focal point.\"\n    },\n    {\n      \"id\": \"criterion-portrait-layering\",\n      \"text\": \"Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss.\"\n    }\n  ],\n  \"requiredCapabilities\": [\n    \"capability_discovery\",\n    \"authoritative_state_read\",\n    \"staged_authoring\",\n    \"semantic_mutation\",\n    \"visual_inspection\",\n    \"targeted_correction\"\n  ],\n  \"initialState\": {\n    \"kind\": \"blank\"\n  },\n  \"publicTaskPacket\": {\n    \"kind\": \"drawing\",\n    \"materials\": [\n      {\n        \"id\": \"source-portrait-brief\",\n        \"title\": \"Three-quarter portrait brief\",\n        \"sourceKind\": \"task_authoritative_synthetic\",\n        \"content\": \"Draw a three-quarter portrait with a face, dark wavy hair, jacket collar, and one foreground hand. Preserve creative control of expression and palette.\"\n      }\n    ],\n    \"recognizableParts\": [\n      {\n        \"id\": \"portrait-face\",\n        \"label\": \"Face\",\n        \"description\": \"A readable three-quarter face.\"\n      },\n      {\n        \"id\": \"portrait-hair\",\n        \"label\": \"Dark wavy hair\",\n        \"description\": \"Hair framing and partially overlapping the face.\"\n      },\n      {\n        \"id\": \"portrait-collar\",\n        \"label\": \"Jacket collar\",\n        \"description\": \"A collar layered over the torso.\"\n      },\n      {\n        \"id\": \"portrait-hand\",\n        \"label\": \"Foreground hand\",\n        \"description\": \"One hand layered in front of the jacket.\"\n      }\n    ],\n    \"styleDirections\": [\n      {\n        \"id\": \"portrait-limited-palette\",\n        \"text\": \"Use a cohesive limited palette and consistent vector treatment.\"\n      },\n      {\n        \"id\": \"portrait-face-focal\",\n        \"text\": \"Make the face primary and the hand secondary.\"\n      }\n    ],\n    \"layeringConstraints\": [\n      {\n        \"id\": \"portrait-overlap\",\n        \"text\": \"Retain hair-over-face, collar-over-torso, and hand-over-jacket overlap.\"\n      }\n    ],\n    \"creativeFreedom\": [\n      \"Choose character identity, expression, exact palette, background accents, and path geometry.\"\n    ]\n  }\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Inspect the final pixels at the exact final revision before finishing. When the artifact is complete, state completion briefly without inventing evaluation results."
+    },
+    {
+      "ordinal": 8,
+      "attemptId": "attempt08",
+      "pairId": "pair-portrait",
+      "taskId": "dev-drawing-create-layered-portrait",
+      "freshProjectlessTaskRequired": true,
+      "uniqueLocalhostOriginRequired": true,
+      "signedGuestSessionRequired": true,
+      "promptTemplate": "Complete the following task in Jazzboard using the Codex in-app browser.\n\nOpen {{ORIGIN}}/ and join the exact private room code {{ROOM_CODE}} as a participant with display name \"Board author\". This exact room is authorized for the requested work.\n\nCreate an original native-vector three-quarter character portrait using deliberate artistic layering and overlap.\n\nPublic task packet:\n{\n  \"id\": \"dev-drawing-create-layered-portrait\",\n  \"title\": \"Layered character portrait\",\n  \"domain\": \"drawing\",\n  \"stratum\": \"creation\",\n  \"operation\": \"create\",\n  \"complexity\": \"medium\",\n  \"brief\": \"Create an original native-vector three-quarter character portrait using deliberate artistic layering and overlap.\",\n  \"stressors\": [\n    \"intentional_overlap\"\n  ],\n  \"antiGamingCases\": [\n    \"intentional_overlap\"\n  ],\n  \"publicEvaluationDimensions\": [\n    \"semantic_correctness\",\n    \"geometry_readability\",\n    \"perceptual_quality\",\n    \"self_correction\",\n    \"presentation_ux\",\n    \"efficiency\",\n    \"document_integrity\"\n  ],\n  \"acceptanceCriteria\": [\n    {\n      \"id\": \"criterion-portrait-content\",\n      \"text\": \"Include a recognizable face, dark wavy hair, jacket collar, and one foreground hand in a three-quarter portrait.\"\n    },\n    {\n      \"id\": \"criterion-portrait-style\",\n      \"text\": \"Use a cohesive limited-palette native-vector style with the face as the focal point.\"\n    },\n    {\n      \"id\": \"criterion-portrait-layering\",\n      \"text\": \"Preserve hair-over-face, collar-over-torso, and hand-over-jacket overlap without accidental essential-part loss.\"\n    }\n  ],\n  \"requiredCapabilities\": [\n    \"capability_discovery\",\n    \"authoritative_state_read\",\n    \"staged_authoring\",\n    \"semantic_mutation\",\n    \"visual_inspection\",\n    \"targeted_correction\"\n  ],\n  \"initialState\": {\n    \"kind\": \"blank\"\n  },\n  \"publicTaskPacket\": {\n    \"kind\": \"drawing\",\n    \"materials\": [\n      {\n        \"id\": \"source-portrait-brief\",\n        \"title\": \"Three-quarter portrait brief\",\n        \"sourceKind\": \"task_authoritative_synthetic\",\n        \"content\": \"Draw a three-quarter portrait with a face, dark wavy hair, jacket collar, and one foreground hand. Preserve creative control of expression and palette.\"\n      }\n    ],\n    \"recognizableParts\": [\n      {\n        \"id\": \"portrait-face\",\n        \"label\": \"Face\",\n        \"description\": \"A readable three-quarter face.\"\n      },\n      {\n        \"id\": \"portrait-hair\",\n        \"label\": \"Dark wavy hair\",\n        \"description\": \"Hair framing and partially overlapping the face.\"\n      },\n      {\n        \"id\": \"portrait-collar\",\n        \"label\": \"Jacket collar\",\n        \"description\": \"A collar layered over the torso.\"\n      },\n      {\n        \"id\": \"portrait-hand\",\n        \"label\": \"Foreground hand\",\n        \"description\": \"One hand layered in front of the jacket.\"\n      }\n    ],\n    \"styleDirections\": [\n      {\n        \"id\": \"portrait-limited-palette\",\n        \"text\": \"Use a cohesive limited palette and consistent vector treatment.\"\n      },\n      {\n        \"id\": \"portrait-face-focal\",\n        \"text\": \"Make the face primary and the hand secondary.\"\n      }\n    ],\n    \"layeringConstraints\": [\n      {\n        \"id\": \"portrait-overlap\",\n        \"text\": \"Retain hair-over-face, collar-over-torso, and hand-over-jacket overlap.\"\n      }\n    ],\n    \"creativeFreedom\": [\n      \"Choose character identity, expression, exact palette, background accents, and path geometry.\"\n    ]\n  }\n}\n\nUse only this room's native browser WebMCP tools, public application guidance, and browser pixels. Do not use terminal commands, filesystem access, repository context, direct HTTP requests, page evaluation, private APIs, other rooms, other tasks, or other authors' transcripts. Do not delegate or create additional tasks. Choose your own application workflow from the tools and guidance available in the room.\n\nFinish within 15 minutes. If blocked, state the blocker rather than guessing or claiming completion. Inspect the final pixels at the exact final revision before finishing. When the artifact is complete, state completion briefly without inventing evaluation results."
+    }
+  ]
+}

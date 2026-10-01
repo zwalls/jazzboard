@@ -1,4 +1,12 @@
+import { randomUUID } from "node:crypto";
+
+import type { AgentCanvasDraft, AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import {
+  AGENT_CANVAS_DRAFT_SCHEMA_VERSION,
+  AGENT_COMMITTED_REVEAL_DURATION_MS,
+} from "@/lib/agent-drafts/types";
+import {
+  actorFor,
   requireMutationRole,
   requireParticipant,
 } from "@/lib/domain/engine";
@@ -9,6 +17,7 @@ import type {
   Point,
 } from "@/lib/domain/types";
 import { renderDiagramMermaid } from "@/lib/interchange/mermaid";
+import { planMermaidImport } from "@/lib/interchange/mermaid-plan";
 import { projectJazzboardArtifact, serializeJazzboardArtifact } from "@/lib/interchange/project";
 import { renderJazzboardSvg } from "@/lib/interchange/svg";
 import { createJazzboardTemplate, planTemplateInstantiation } from "@/lib/interchange/templates";
@@ -26,7 +35,16 @@ import {
   runSemanticTransaction,
   type CanvasMutationOutcome,
 } from "./room-service";
+import { getAgentCanvasDraftStore } from "./agent-draft-store";
 import { getRoomStore } from "./room-store";
+
+function publicDraftSnapshot(draft: AgentCanvasDraft): AgentCanvasDraftSnapshot {
+  const { transaction, committing, authoritativeCommit, ...snapshot } = draft;
+  void transaction;
+  void committing;
+  void authoritativeCommit;
+  return snapshot;
+}
 
 export const JAZZBOARD_ARTIFACT_EXPORT_FORMATS = [
   "semantic_json",
@@ -150,6 +168,25 @@ export type TemplateInstantiationResult = CanvasMutationOutcome & {
   warnings: JazzboardArtifactWarning[];
 };
 
+export type MermaidImportResult = CanvasMutationOutcome & {
+  idMap: {
+    nodes: Record<string, string>;
+    edges: Record<string, string>;
+    groups: Record<string, string>;
+    diagramId: string;
+  };
+  counts: {
+    nodes: number;
+    edges: number;
+    groups: number;
+    diagrams: 1;
+  };
+  bounds: { x: number; y: number; width: number; height: number };
+  warnings: string[];
+  /** Short-lived shared presentation; never part of authoritative room state. */
+  presentation: AgentCanvasDraftSnapshot | null;
+};
+
 type TemplateInstantiationDependencies = {
   createId?: (kind: TemplateCreateIdKind, sourceId: string) => string;
 };
@@ -206,6 +243,104 @@ export async function instantiateAuthorizedRoomTemplate(
       idMap: plan.idMap,
       bounds: plan.bounds,
       warnings: plan.warnings,
+    };
+  } catch (error) {
+    return asDomainError(error);
+  }
+}
+
+/**
+ * Parse, plan, and apply one Mermaid flowchart as native Jazzboard objects.
+ * The semantic transaction remains subject to the room's live/review policy.
+ */
+export async function importAuthorizedRoomMermaidFlowchart(input: {
+  roomId: string;
+  participantId: string;
+  actorKind: ActorKind;
+  expectedRoomRevision: number;
+  source: string;
+  title?: string;
+  origin?: Point;
+  grouping?: "compact" | "boxed";
+  metadata?: ActivityMutationMetadata;
+}): Promise<MermaidImportResult> {
+  const room = await readAuthorizedRoom(input.roomId, input.participantId);
+  const participant = requireParticipant(room, input.participantId);
+  requireMutationRole(participant, input.actorKind);
+  // Planning creates the IDs embedded in the transaction. Check a verified
+  // receipt first so an acknowledged retry cannot plan a second import or fail
+  // against its own now-stale expected revision.
+  await getRoomStore().assertMutationNotReplayed(input.roomId);
+
+  try {
+    const plan = await planMermaidImport(input.source, {
+      title: input.title,
+      origin: input.origin,
+      grouping: input.grouping,
+    });
+    const result = await runSemanticTransaction({
+      roomId: input.roomId,
+      participantId: input.participantId,
+      actorKind: input.actorKind,
+      transaction: plan.transaction,
+      metadata: input.metadata,
+      expectedRoomRevision: input.expectedRoomRevision,
+    });
+    let presentation: AgentCanvasDraftSnapshot | null = null;
+    if (result.outcome === "applied") {
+      const now = Date.now();
+      const draft: AgentCanvasDraft = {
+        schemaVersion: AGENT_CANVAS_DRAFT_SCHEMA_VERSION,
+        id: `draft_mermaid_reveal_${randomUUID().replaceAll("-", "")}`,
+        roomId: input.roomId,
+        ownerParticipantId: input.participantId,
+        author: actorFor(participant, input.actorKind),
+        revision: 1,
+        baselineRoomRevision: input.expectedRoomRevision,
+        status: "presenting",
+        transaction: structuredClone(plan.transaction),
+        temporaryReferences: {},
+        previewObjects: result.changedObjectIds.flatMap((objectId) => {
+          const object = result.room.objects[objectId];
+          return object ? [{ ...structuredClone(object), authority: "draft" as const }] : [];
+        }),
+        previewDiagrams: result.changedDiagramIds.flatMap((diagramId) => {
+          const diagram = result.room.diagrams?.[diagramId];
+          return diagram ? [{ ...structuredClone(diagram), authority: "draft" as const }] : [];
+        }),
+        metadata: input.metadata ? structuredClone(input.metadata) : null,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + AGENT_COMMITTED_REVEAL_DURATION_MS,
+        hardExpiresAt: now + AGENT_COMMITTED_REVEAL_DURATION_MS,
+        awaitingReview: null,
+        committing: null,
+        authoritativeCommit: {
+          mutationId: `mermaid_reveal_${result.room.roomRevision}`,
+          roomRevision: result.room.roomRevision,
+          committedAt: now,
+        },
+      };
+      try {
+        presentation = publicDraftSnapshot(await getAgentCanvasDraftStore().create(draft));
+      } catch {
+        // Presentation is intentionally best effort. The authoritative Mermaid
+        // import has already committed and must never be rolled back by a
+        // transient collaboration-sidecar failure.
+      }
+    }
+    return {
+      ...result,
+      idMap: plan.idMap,
+      counts: {
+        nodes: Object.keys(plan.idMap.nodes).length,
+        edges: Object.keys(plan.idMap.edges).length,
+        groups: Object.keys(plan.idMap.groups).length,
+        diagrams: 1,
+      },
+      bounds: plan.bounds,
+      warnings: plan.warnings,
+      presentation,
     };
   } catch (error) {
     return asDomainError(error);

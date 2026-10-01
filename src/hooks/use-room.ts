@@ -27,6 +27,7 @@ import type {
   AgentCanvasDraftListResult,
   AgentCanvasDraftSnapshot,
 } from "@/lib/agent-drafts/types";
+import { AGENT_COMMITTED_REVEAL_DURATION_MS } from "@/lib/agent-drafts/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import { reconcileRoomSnapshot } from "@/lib/client/room-reconciliation";
 import {
@@ -80,7 +81,13 @@ export type LeaseBatchAction =
       targets: Array<{ objectId: string; leaseId: string }>;
     };
 
-type RoomResponse = { ok: true; room: RoomState; participantId?: string };
+type RoomResponse = {
+  ok: true;
+  room: RoomState;
+  participantId?: string;
+  presentations?: AgentCanvasDraftSnapshot[];
+  serverTime?: number;
+};
 type PresenceResponse = { ok: true; presence: RoomPresenceDelta };
 type DraftListResponse = { ok: true } & AgentCanvasDraftListResult;
 
@@ -162,6 +169,7 @@ export function useRoom(roomId: string) {
   const pendingDraftListAbsencesRef = useRef(
     new Map<string, { draftRevision: number; serverTime: number }>(),
   );
+  const receivedPresentationIdsRef = useRef(new Set<string>());
   const reconcileCommittedDraftRemovalsRef = useRef<(roomRevision: number) => void>(
     () => undefined,
   );
@@ -312,6 +320,46 @@ export function useRoom(roomId: string) {
     publishDraftState();
     return true;
   }, [publishDraftState]);
+
+  const acceptRoomPresentations = useCallback((
+    presentations: readonly AgentCanvasDraftSnapshot[],
+    serverTime: number,
+  ) => {
+    const activeVisit = roomVisitRef.current;
+    if (!activeVisit || !presentations.length) return;
+    const receivedAt = Date.now();
+    const visitTiming = roomVisitStartedAtRef.current;
+    const visitStartedAt = visitTiming?.visit === activeVisit
+      ? visitTiming.startedAt
+      : performance.now();
+    const elapsedSinceVisitStarted = Math.max(0, performance.now() - visitStartedAt);
+    const estimatedServerTimeAtVisitStart = serverTime - elapsedSinceVisitStarted;
+    const historicalIds: string[] = [];
+
+    for (const presentation of presentations) {
+      if (presentation.roomId !== activeVisit.roomId || presentation.status !== "presenting") continue;
+      if (presentation.updatedAt <= estimatedServerTimeAtVisitStart) historicalIds.push(presentation.id);
+      if (receivedPresentationIdsRef.current.has(presentation.id)) continue;
+      const accepted = acceptAgentDraft({
+        ...presentation,
+        // Give each browser a full local playback window. Server expiry bounds
+        // discovery only; network and polling delay must not consume animation.
+        expiresAt: receivedAt + AGENT_COMMITTED_REVEAL_DURATION_MS,
+        hardExpiresAt: receivedAt + AGENT_COMMITTED_REVEAL_DURATION_MS,
+      });
+      if (accepted) receivedPresentationIdsRef.current.add(presentation.id);
+    }
+
+    if (historicalIds.length) {
+      setInitialDraftIdsState((current) => {
+        const existing = current.visit === activeVisit ? current.value : [];
+        return {
+          visit: activeVisit,
+          value: [...new Set([...existing, ...historicalIds])],
+        };
+      });
+    }
+  }, [acceptAgentDraft]);
 
   const removeAgentDraft = useCallback((draftId: string, revision = Number.MAX_SAFE_INTEGER) => {
     const deferred = deferredCommittedDraftRemovalsRef.current.get(draftId);
@@ -505,7 +553,11 @@ export function useRoom(roomId: string) {
         }
         continue;
       }
-      if (!returned.has(draftId) && draft.updatedAt < result.serverTime) {
+      if (
+        draft.status !== "presenting" &&
+        !returned.has(draftId) &&
+        draft.updatedAt < result.serverTime
+      ) {
         // A missing sidecar can mean a successful commit. Refresh authority
         // after observing the absence, then retire the ghost. This makes list-
         // first and realtime-event-first delivery equally gap-free.
@@ -606,6 +658,7 @@ export function useRoom(roomId: string) {
     const pendingCommittedDraftRemovals = pendingCommittedDraftRemovalsRef.current;
     const deferredCommittedDraftRemovals = deferredCommittedDraftRemovalsRef.current;
     const pendingDraftListAbsences = pendingDraftListAbsencesRef.current;
+    const receivedPresentationIds = receivedPresentationIdsRef.current;
     roomVisitRef.current = roomVisit;
     refreshGenerationRef.current += 1;
     roomRef.current = null;
@@ -623,6 +676,7 @@ export function useRoom(roomId: string) {
     }
     deferredCommittedDraftRemovals.clear();
     pendingDraftListAbsences.clear();
+    receivedPresentationIds.clear();
     initialDraftListVisitRef.current = null;
     roomVisitStartedAtRef.current = { visit: roomVisit, startedAt: performance.now() };
 
@@ -644,6 +698,7 @@ export function useRoom(roomId: string) {
       }
       deferredCommittedDraftRemovals.clear();
       pendingDraftListAbsences.clear();
+      receivedPresentationIds.clear();
       initialDraftListVisitRef.current = null;
       if (roomVisitStartedAtRef.current?.visit === roomVisit) {
         roomVisitStartedAtRef.current = null;
@@ -660,7 +715,13 @@ export function useRoom(roomId: string) {
       const matchesActiveRoom =
         requestVisit === roomVisitRef.current &&
         response.room.id === requestRoomId;
-      if (matchesActiveRoom) acceptRoom(response.room);
+      if (matchesActiveRoom) {
+        acceptRoomPresentations(
+          response.presentations ?? [],
+          response.serverTime ?? Date.now(),
+        );
+        acceptRoom(response.room);
+      }
       if (matchesActiveRoom && response.participantId) {
         setParticipant((current) => {
           if (
@@ -701,7 +762,7 @@ export function useRoom(roomId: string) {
       }
       throw nextError;
     }
-  }, [acceptRoom, roomId, roomVisit]);
+  }, [acceptRoom, acceptRoomPresentations, roomId, roomVisit]);
 
   useEffect(() => {
     refreshRoomRef.current = refresh;

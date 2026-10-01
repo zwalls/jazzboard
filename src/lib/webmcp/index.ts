@@ -5,10 +5,24 @@ export {
   JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
 } from "./registration";
 export {
+  LocalWebMcpToolActivityTracker,
+  type WebMcpToolActivityRelease,
+  type WebMcpToolActivitySnapshot,
+} from "./tool-activity";
+export {
   createJazzboardCanvasCapabilityWebMcpTools,
   JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
 } from "./capability-tools";
 export type { JazzboardCanvasCapabilities } from "./capability-tools";
+export {
+  createJazzboardGuidedWalkthroughWebMcpTools,
+  JAZZBOARD_GUIDED_WALKTHROUGH_TOOL_NAMES,
+} from "./guided-walkthrough-tools";
+export {
+  createJazzboardLocalViewportWebMcpTools,
+  JAZZBOARD_LOCAL_VIEWPORT_TOOL_NAMES,
+  LOCAL_VIEWPORT_LIMITS,
+} from "./local-viewport-tools";
 export { JazzboardLandingWebMcpRegistrar } from "./landing-registration";
 export {
   createJazzboardLandingWebMcpTools,

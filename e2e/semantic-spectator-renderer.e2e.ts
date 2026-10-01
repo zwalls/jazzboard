@@ -21,14 +21,17 @@ const GROUP_ID = "semantic-spectator-group";
 
 const SPECTATOR_TOOL_NAMES = [
   "analyze_diagram_layout",
+  "control_local_viewport",
   "describe_diagram",
   "export_canvas_artifact",
   "export_canvas_png",
   "find_diagrams",
   "get_canvas_capabilities",
+  "get_guided_walkthrough_status",
   "inspect_canvas_scope",
   "list_activity",
   "list_agent_edit_proposals",
+  "navigate_guided_walkthrough",
   "query_objects",
   "read_activity",
   "read_agent_edit_proposal",
@@ -38,6 +41,8 @@ const SPECTATOR_TOOL_NAMES = [
   "read_neighborhood",
   "read_room_state",
   "read_selection",
+  "start_guided_walkthrough",
+  "stop_guided_walkthrough",
 ] as const;
 
 const MUTATION_TOOL_NAMES = [

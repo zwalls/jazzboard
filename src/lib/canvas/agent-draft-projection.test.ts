@@ -98,4 +98,25 @@ describe("projectAgentDraft", () => {
     expect(projection?.visibleObjects.map((object) => object.id)).toEqual(["painted-first"]);
     expect(projection?.objects.map(({ object }) => object.id)).toEqual(["painted-first"]);
   });
+
+  it("projects an exact committed presentation but yields immediately to a later edit", () => {
+    const candidate = { ...draft(), status: "presenting" as const };
+    const exact = {
+      ...candidate.previewObjects[0],
+      authority: undefined,
+    } as unknown as CanvasObject;
+    const first = projectAgentDraft(candidate, { [exact.id]: exact }, {});
+    expect(first?.visibleObjects.map((object) => object.id)).toEqual(["created-first"]);
+
+    const edited = { ...exact, revision: exact.revision + 1 };
+    const afterEdit = projectAgentDraft(candidate, { [edited.id]: edited }, {});
+    expect(afterEdit).toBeNull();
+
+    const afterDelete = projectAgentDraft(candidate, {}, {});
+    expect(afterDelete).toBeNull();
+
+    const recreated = { ...exact, createdAt: exact.createdAt + 1 };
+    const afterRecreate = projectAgentDraft(candidate, { [recreated.id]: recreated }, {});
+    expect(afterRecreate).toBeNull();
+  });
 });

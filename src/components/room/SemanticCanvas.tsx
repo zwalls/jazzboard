@@ -103,6 +103,7 @@ import {
   SemanticTransformSessionEngine,
   type SemanticObjectStylePatch,
   type SemanticResizeHandle,
+  type SemanticTransformFrame,
   type SemanticTransformToken,
 } from "@/lib/canvas/semantic-transform-session";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
@@ -131,6 +132,7 @@ import {
   type SemanticCanvasContextMenuItem,
 } from "./SemanticCanvasContextMenu";
 import { SemanticCanvasObject } from "./SemanticCanvasObject";
+import { GuidedWalkthroughOverlay } from "./GuidedWalkthroughOverlay";
 import {
   SemanticImagePicker,
   type SemanticImagePickerHandle,
@@ -138,6 +140,7 @@ import {
 } from "./SemanticImagePicker";
 import {
   SemanticSelectionControls,
+  semanticSelectionFrameForSceneObjects,
   type SemanticTransformPointerStart,
 } from "./SemanticSelectionControls";
 import {
@@ -158,12 +161,35 @@ import {
 import { useCanvasMobileLayout } from "./useCanvasMobileLayout";
 import styles from "./semantic-canvas.module.css";
 
+export function semanticTransformFrameContainsPoint(
+  frame: SemanticTransformFrame,
+  point: Point,
+): boolean {
+  const centerX = frame.bounds.x + frame.bounds.width / 2;
+  const centerY = frame.bounds.y + frame.bounds.height / 2;
+  const dx = point.x - centerX;
+  const dy = point.y - centerY;
+  const cosine = Math.cos(-frame.rotation);
+  const sine = Math.sin(-frame.rotation);
+  const localX = centerX + dx * cosine - dy * sine;
+  const localY = centerY + dx * sine + dy * cosine;
+  return localX >= frame.bounds.x
+    && localX <= frame.bounds.x + frame.bounds.width
+    && localY >= frame.bounds.y
+    && localY <= frame.bounds.y + frame.bounds.height;
+}
+
 export type SemanticCanvasProps = Pick<
   CanvasSurfaceProps,
   | "boardMenuActions"
   | "persistentChromeHost"
   | "cleanInspectionId"
   | "cleanInspectionDraftScope"
+  | "guidedWalkthrough"
+  | "localToolActivityActive"
+  | "onGuidedWalkthroughStepChange"
+  | "onGuidedWalkthroughExit"
+  | "onGuidedWalkthroughDisplayed"
   | "room"
   | "agentDrafts"
   | "initialAgentDraftIds"
@@ -463,6 +489,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   persistentChromeHost = null,
   cleanInspectionId = null,
   cleanInspectionDraftScope = null,
+  guidedWalkthrough = null,
+  localToolActivityActive = false,
+  onGuidedWalkthroughStepChange,
+  onGuidedWalkthroughExit,
+  onGuidedWalkthroughDisplayed,
   room,
   agentDrafts = [],
   initialAgentDraftIds = [],
@@ -487,6 +518,27 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     () => new Set(initialAgentDraftIds),
     [initialAgentDraftIds],
   );
+  // A committed reveal is meaningful only when observed live. A presentation
+  // discovered by the initial room load must never replay on page refresh.
+  const liveAgentDrafts = useMemo(
+    () => agentDrafts.filter((draft) =>
+      draft.status !== "presenting" || !initiallySettledDraftIds.has(draft.id)
+    ),
+    [agentDrafts, initiallySettledDraftIds],
+  );
+  const [presentationNow, setPresentationNow] = useState(() => Date.now());
+  const nextPresentationExpiry = liveAgentDrafts.reduce(
+    (current, draft) => draft.status === "presenting"
+      ? Math.min(current, draft.expiresAt, draft.hardExpiresAt)
+      : current,
+    Number.POSITIVE_INFINITY,
+  );
+  useEffect(() => {
+    if (!Number.isFinite(nextPresentationExpiry)) return;
+    const delay = Math.max(0, Math.min(nextPresentationExpiry - Date.now() + 1, 2_147_483_647));
+    const timer = window.setTimeout(() => setPresentationNow(Date.now()), delay);
+    return () => window.clearTimeout(timer);
+  }, [nextPresentationExpiry]);
   const shellRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!cleanInspectionActive) return;
@@ -598,10 +650,28 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     getProjectedRoom,
     getProjectedRoom,
   );
+  const presentingObjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const draft of liveAgentDrafts) {
+      if (
+        draft.status !== "presenting" ||
+        draft.expiresAt <= presentationNow ||
+        draft.hardExpiresAt <= presentationNow
+      ) continue;
+      for (const preview of draft.previewObjects) {
+        const authoritative = projectedRoom.objects[preview.id];
+        if (
+          authoritative?.revision === preview.revision &&
+          authoritative.createdAt === preview.createdAt
+        ) ids.add(preview.id);
+      }
+    }
+    return ids;
+  }, [liveAgentDrafts, presentationNow, projectedRoom]);
   const [activeTextEditor, setActiveTextEditor] = useState<ActiveTextEditor | null>(null);
   const renderedRoom = useMemo<RoomState>(() => {
     const inspectedDraft = cleanInspectionActive && cleanInspectionDraftScope
-      ? agentDrafts.find((draft) => (
+      ? liveAgentDrafts.find((draft) => (
           draft.roomId === projectedRoom.id
           && draft.id === cleanInspectionDraftScope.draftId
           && draft.revision === cleanInspectionDraftScope.expectedDraftRevision
@@ -639,7 +709,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     };
   }, [
     activeTextEditor,
-    agentDrafts,
+    liveAgentDrafts,
     cleanInspectionActive,
     cleanInspectionDraftScope,
     projectedRoom,
@@ -1125,6 +1195,22 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       { x: event.clientX - rect.left, y: event.clientY - rect.top },
       viewportRef.current,
     );
+  }
+
+  function selectionFrameMoveAnchor(
+    point: Point,
+    input: Readonly<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }>,
+  ): string | null {
+    if (input.shiftKey || input.metaKey || input.ctrlKey) return null;
+    const selectedObjects = selectionRef.current.flatMap((objectId) => {
+      const item = sceneRef.current.objectsById[objectId];
+      return item ? [item] : [];
+    });
+    if (!selectedObjects.length) return null;
+    if (selectedObjects.length === 1 && selectedObjects[0]!.object.kind === "connector") return null;
+    const frame = semanticSelectionFrameForSceneObjects(selectedObjects);
+    if (!frame || !semanticTransformFrameContainsPoint(frame, point)) return null;
+    return selectedObjects[0]!.object.id;
   }
 
   function releasePointerCapture(pointerId: number) {
@@ -2324,8 +2410,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     setContextMenu(null);
     setMenuOpen(false);
     if (touchPointersRef.current.size) clearTouchLongPress();
-    const targetId = target.closest<SVGElement>("[data-object-id]")?.dataset.objectId
+    const directTargetId = target.closest<SVGElement>("[data-object-id]")?.dataset.objectId
       ?? target.closest<SVGElement>("[data-connector-interaction-id]")?.dataset.connectorInteractionId;
+    const targetId = directTargetId ?? (mode.kind === "select"
+      ? selectionFrameMoveAnchor(viewportToPagePoint(position, viewportRef.current), event)
+      : null);
     touchPointersRef.current.set(event.pointerId, {
       additive: event.shiftKey || event.metaKey || event.ctrlKey,
       ...(targetId ? { targetId } : {}),
@@ -2372,6 +2461,18 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       return;
     }
     if (activeToolRef.current === "select") {
+      const point = pointerPage(event);
+      const moveAnchor = point ? selectionFrameMoveAnchor(point, event) : null;
+      if (moveAnchor) {
+        startObjectMove({
+          objectId: moveAnchor,
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          additive: false,
+        });
+        return;
+      }
       startMarquee(event);
       return;
     }
@@ -3039,6 +3140,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               selected={!cleanInspectionActive && selectionSet.has(object.id)}
               focused={!cleanInspectionActive && focusedObjectId === object.id}
               suppressFocusVisual={cleanInspectionActive}
+              presentationHidden={!cleanInspectionActive && presentingObjectIds.has(object.id)}
               tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
               className={styles.objectHitTarget}
               onSelect={handleObjectSelect}
@@ -3066,7 +3168,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       {!cleanInspectionActive ? <AgentDraftLayer
         authoritativeDiagrams={projectedRoom.diagrams}
         authoritativeObjects={projectedRoom.objects}
-        drafts={agentDrafts}
+        drafts={liveAgentDrafts}
         initiallySettledDraftIds={initiallySettledDraftIds}
         revealRegistry={agentDraftRevealRegistry}
         roomId={projectedRoom.id}
@@ -3101,13 +3203,31 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       ) : null}
 
       {!cleanInspectionActive ? <CanvasPresenceOverlay
-        agentDrafts={agentDrafts}
+        agentDrafts={liveAgentDrafts}
         initiallySettledDraftIds={initiallySettledDraftIds}
         revealRegistry={agentDraftRevealRegistry}
         runtime={runtime}
         room={projectedRoom}
         selfId={self.participantId}
+        localToolActivityActive={localToolActivityActive && !guidedWalkthrough}
+        suppressedAgentParticipantId={guidedWalkthrough ? self.participantId : null}
       /> : null}
+
+      {!cleanInspectionActive && guidedWalkthrough && onGuidedWalkthroughStepChange && onGuidedWalkthroughExit && onGuidedWalkthroughDisplayed ? (
+        <GuidedWalkthroughOverlay
+          agentDisplayName={self.displayName}
+          agentColor={self.color}
+          connectorRoutes={scene.connectorRoutes}
+          localToolActivityActive={localToolActivityActive}
+          room={projectedRoom}
+          runtime={runtime}
+          viewport={viewport}
+          walkthrough={guidedWalkthrough}
+          onStepChange={onGuidedWalkthroughStepChange}
+          onExit={onGuidedWalkthroughExit}
+          onDisplayed={onGuidedWalkthroughDisplayed}
+        />
+      ) : null}
 
       {!cleanInspectionActive && activeContextMenu ? (
         <SemanticCanvasContextMenu
@@ -3122,6 +3242,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
 
       {!cleanInspectionActive ? <SemanticSelectionControls
         selectedObjects={selection.flatMap((objectId) => scene.objectsById[objectId] ? [scene.objectsById[objectId]!] : [])}
+        groupMembers={scene.groupMembers}
         viewport={viewport}
         editing={editingEnabled && (!mobileLayout || activeTool === "select")}
         connectorRoute={selection.length === 1 ? scene.connectorRoutes[selection[0]!] : null}

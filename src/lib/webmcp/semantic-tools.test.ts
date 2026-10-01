@@ -291,6 +291,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(schemaFor(tools, "query_objects").required ?? []).not.toContain("limit");
     expect(schemaFor(tools, "query_objects").properties?.detail).toEqual({ enum: ["summary", "full"] });
     expect(schemaFor(tools, "read_neighborhood").properties?.detail).toEqual({ enum: ["summary", "full"] });
+    expect(schemaFor(tools, "describe_diagram").properties?.detail).toEqual({ enum: ["structure", "full"] });
     expect(schemaFor(tools, "find_diagrams").required ?? []).not.toContain("limit");
     const analyzeSchema = schemaFor(tools, "analyze_diagram_layout");
     expect(analyzeSchema.oneOf?.[0]?.required).toEqual([
@@ -390,7 +391,7 @@ describe("role-scoped semantic tool registration", () => {
     expect(transactionSchema.properties?.operations?.items?.properties?.nodeMetadata).toMatchObject({
       type: "object",
       additionalProperties: false,
-      description: expect.stringMatching(/only for decision or open_question.*omit for service.*component.*requirement/i),
+      description: expect.stringMatching(/decision\/open_question lifecycle only.*kind must match nodeType/i),
     });
     const batchDiagramRequired = operationSchema(transactionSchema, "create_diagram").required ?? [];
     expect(batchDiagramRequired).toEqual(["op"]);
@@ -2044,6 +2045,166 @@ describe("progressive draft delivery", () => {
 });
 
 describe("bounded semantic reads", () => {
+  it("returns a deterministic complete structural Diagram description without visual or edit detail", async () => {
+    const state = room([
+      node("api", "Checkout API", "service", 0),
+      node("db", "Orders DB", "component", 400),
+      connector(),
+      drawing(),
+    ]);
+    state.diagrams.architecture.memberObjectIds = ["api", "freehand-note", "db"];
+    state.objects.api.semanticName = "Checkout gateway";
+    state.objects.api.semanticRole = "architecture.edge_service";
+    const database = state.objects.db;
+    if (database.kind !== "shape") throw new Error("Expected the fixture database to be a shape.");
+    database.nodeType = "decision";
+    database.semanticName = "Order persistence choice";
+    database.semanticRole = "architecture.decision";
+    database.nodeMetadata = {
+      kind: "decision",
+      status: "accepted",
+      owner: "Payments",
+      resolution: "Use the order ledger.",
+      resolvedAt: NOW - 1,
+    };
+    const relationship = state.objects["api-db"];
+    if (relationship.kind !== "connector") throw new Error("Expected the fixture relationship to be a connector.");
+    relationship.semanticName = "Persist order";
+    relationship.semanticRole = "architecture.request_flow";
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+    const now = vi.spyOn(performance, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(106.25);
+
+    const described = await execute(tool(tools, "describe_diagram"), {
+      diagramId: "architecture",
+      detail: "structure",
+    });
+
+    expect(described).toEqual({
+      ok: true,
+      tool: "describe_diagram",
+      data: {
+        roomRevision: 7,
+        diagramId: "architecture",
+        title: "Checkout architecture",
+        revision: 1,
+        description: "Request path",
+        diagramType: "architecture",
+        category: "checkout",
+        tags: ["critical"],
+        memberObjectIds: ["api", "freehand-note", "db"],
+        connectorIds: ["api-db"],
+        counts: {
+          members: 3,
+          connectors: 1,
+          nodeTypes: { service: 1, component: 0, requirement: 0, decision: 1, open_question: 0 },
+          nodeStatuses: {
+            proposed: 0,
+            accepted: 1,
+            rejected: 0,
+            superseded: 0,
+            open: 0,
+            answered: 0,
+            deferred: 0,
+            closed: 0,
+          },
+        },
+        members: [
+          {
+            id: "api",
+            kind: "shape",
+            label: "Checkout API",
+            semanticName: "Checkout gateway",
+            semanticRole: "architecture.edge_service",
+            groupId: null,
+            nodeType: "service",
+            nodeMetadata: null,
+            revision: 1,
+          },
+          {
+            id: "freehand-note",
+            kind: "draw",
+            label: "",
+            semanticName: null,
+            semanticRole: null,
+            groupId: null,
+            nodeType: null,
+            nodeMetadata: null,
+            revision: 1,
+          },
+          {
+            id: "db",
+            kind: "shape",
+            label: "Orders DB",
+            semanticName: "Order persistence choice",
+            semanticRole: "architecture.decision",
+            groupId: null,
+            nodeType: "decision",
+            nodeMetadata: {
+              kind: "decision",
+              status: "accepted",
+              owner: "Payments",
+              resolution: "Use the order ledger.",
+              resolvedAt: NOW - 1,
+            },
+            revision: 1,
+          },
+        ],
+        connectors: [{
+          id: "api-db",
+          label: "writes",
+          semanticName: "Persist order",
+          semanticRole: "architecture.request_flow",
+          direction: "end",
+          startObjectId: "api",
+          endObjectId: "db",
+          revision: 1,
+        }],
+        executionTiming: {
+          handlerDurationMs: 6.25,
+          measurement: "execute_entry_to_result_preparation",
+          includes: ["authoritative_room_fetch"],
+          excludes: ["webmcp_transport"],
+        },
+      },
+    });
+    expect(request).toHaveBeenCalledWith("/api/rooms/room%2Fa%20b", {
+      method: "GET",
+      signal: expect.any(AbortSignal),
+    });
+    now.mockRestore();
+  });
+
+  it("keeps raw Diagram reads authoritative and reports handler timing", async () => {
+    const state = room();
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const tools = createJazzboardSemanticWebMcpTools(fixture(state).binding, { request });
+    const now = vi.spyOn(performance, "now")
+      .mockReturnValueOnce(200)
+      .mockReturnValueOnce(204.5);
+
+    const result = await execute(tool(tools, "read_diagram"), { diagramId: "architecture" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        diagram: { id: "architecture", bounds: { x: 0, y: 100, width: 600, height: 100 } },
+        objects: [{ id: "api" }, { id: "db" }],
+        connectors: [{ id: "api-db", start: { objectId: "api" }, end: { objectId: "db" } }],
+        executionTiming: {
+          handlerDurationMs: 4.5,
+          measurement: "execute_entry_to_result_preparation",
+          includes: ["authoritative_room_fetch"],
+          excludes: ["webmcp_transport"],
+        },
+      },
+    });
+    expect(request).toHaveBeenCalledOnce();
+    now.mockRestore();
+  });
+
   it("queries classified diagram members through an authorized GET without activating the agent", async () => {
     const state = room();
     const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
@@ -2133,19 +2294,32 @@ describe("bounded semantic reads", () => {
     expect(described).toMatchObject({
       ok: true,
       data: {
+        diagram: expect.objectContaining({
+          id: "architecture",
+          bounds: expect.any(Object),
+          memberObjectIds: ["api", "db"],
+          connectorIds: ["api-db"],
+        }),
         members: expect.arrayContaining([
           expect.objectContaining({
             id: "api",
             semanticName: "Netflix API gateway",
             semanticRole: "architecture.edge_service",
             label: "Checkout API",
+            bounds: expect.any(Object),
           }),
         ]),
         relationships: [expect.objectContaining({
           connectorId: "api-db",
           semanticName: "Playback metadata lookup",
           semanticRole: "architecture.request_flow",
+          routing: expect.any(Object),
+          start: expect.objectContaining({ objectId: "api" }),
+          end: expect.objectContaining({ objectId: "db" }),
         })],
+        executionTiming: expect.objectContaining({
+          measurement: "execute_entry_to_result_preparation",
+        }),
       },
     });
   });

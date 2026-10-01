@@ -78,6 +78,21 @@ describe("MemoryAgentCanvasDraftStore", () => {
     expect(JSON.stringify(events[0])).not.toContain("transaction");
   });
 
+  it("keeps short-lived committed presentations from blocking authoring drafts", async () => {
+    const store = new MemoryAgentCanvasDraftStore();
+    const presenting = await store.create(draft({
+      id: "draft_reveal",
+      status: "presenting",
+      expiresAt: NOW + 8_500,
+      hardExpiresAt: NOW + 8_500,
+    }));
+    await expect(store.create(draft({ id: "draft_authoring" }))).resolves.toMatchObject({
+      id: "draft_authoring",
+      status: "active",
+    });
+    await expect(store.get(presenting.roomId, presenting.id, NOW + 8_500)).resolves.toBeNull();
+  });
+
   it("uses exact CAS and strictly advances revisions for every visible phase transition", async () => {
     const store = new MemoryAgentCanvasDraftStore();
     const created = await store.create(draft());

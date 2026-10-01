@@ -169,10 +169,9 @@ describe("AskAgentPanel", () => {
     const { container } = renderPanel([selectedObject], { onFocus, onClose });
 
     expect(await screen.findByText("<img src=x onerror=alert(1)> Done safely.")).toBeInTheDocument();
-    const images = Array.from(container.querySelectorAll("img"));
-    expect(images).toHaveLength(1);
-    expect(images[0]?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
-    expect(images[0]).toHaveAttribute("alt", "");
+    const avatars = Array.from(container.querySelectorAll("[data-agent-avatar-family]"));
+    expect(avatars).toHaveLength(1);
+    expect(avatars[0]).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector('img[src="x"]')).toBeNull();
     expect(container.querySelector("[onerror]")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show context" }));

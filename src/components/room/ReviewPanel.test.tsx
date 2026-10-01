@@ -89,9 +89,9 @@ describe("ReviewPanel", () => {
     const { container } = renderPanel("spectator");
 
     expect(await screen.findByText("Ari’s agent")).toBeInTheDocument();
-    const avatar = container.querySelector("img");
-    expect(avatar?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
-    expect(avatar).toHaveAttribute("alt", "");
+    const avatar = container.querySelector("[data-agent-avatar-family]");
+    expect(avatar).toBeInTheDocument();
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("Add the authorization boundary")).toBeInTheDocument();
     expect(screen.getByText(/based on room r8/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve & apply" })).not.toBeInTheDocument();

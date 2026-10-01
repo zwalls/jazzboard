@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
+import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { AgentEditProposalSummary, RoomActivitySummary, RoomState } from "@/lib/domain/types";
 import { jazzboardTemplateV1Schema, parseJazzboardArtifactV1, parseJazzboardTemplateV1 } from "@/lib/interchange/schemas";
 import { JAZZBOARD_ARTIFACT_SCHEMA_URL } from "@/lib/interchange/types";
@@ -20,6 +21,7 @@ import type {
   WebMcpRequest,
 } from "./types";
 import { withActionableRecovery } from "./actionable-failure";
+import { recommendedCanvasInspection } from "./inspection-recommendation";
 
 const id = z.string().min(1).max(128);
 const point = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
@@ -51,6 +53,17 @@ const instantiateTemplateDescriptorInput = z
     template: z.unknown(),
     origin: point,
     baseZIndex: z.number().int().min(0).max(1_000_000).optional(),
+    intent: z.string().trim().min(1).max(1_000).optional(),
+    summary: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+const importMermaidFlowchartInput = z
+  .object({
+    expectedRoomRevision: z.number().int().positive(),
+    source: z.string().min(1).max(65_536),
+    title: z.string().trim().min(1).max(160).optional(),
+    origin: point.optional(),
+    grouping: z.enum(["compact", "boxed"]).optional(),
     intent: z.string().trim().min(1).max(1_000).optional(),
     summary: z.string().trim().min(1).max(500).optional(),
   })
@@ -106,6 +119,27 @@ type InstantiateTemplateResponse = {
   warnings: JazzboardArtifactWarning[];
   activity: RoomActivitySummary | null;
   proposal: AgentEditProposalSummary | null;
+};
+
+type MermaidImportResponse = {
+  ok: true;
+  outcome: "applied" | "proposed";
+  room: RoomState;
+  changedObjectIds: string[];
+  changedDiagramIds: string[];
+  membershipObjectIds: string[];
+  idMap: {
+    nodes: Record<string, string>;
+    edges: Record<string, string>;
+    groups: Record<string, string>;
+    diagramId: string;
+  };
+  counts: { nodes: number; edges: number; groups: number; diagrams: 1 };
+  bounds: { x: number; y: number; width: number; height: number };
+  warnings: string[];
+  activity: RoomActivitySummary | null;
+  proposal: AgentEditProposalSummary | null;
+  presentation: AgentCanvasDraftSnapshot | null;
 };
 
 function failure(tool: string, error: unknown): JazzboardToolFailure {
@@ -193,7 +227,10 @@ export const JAZZBOARD_INTERCHANGE_READ_TOOL_NAMES = [
   "export_canvas_artifact",
   "create_diagram_template",
 ] as const;
-export const JAZZBOARD_INTERCHANGE_MUTATION_TOOL_NAMES = ["instantiate_diagram_template"] as const;
+export const JAZZBOARD_INTERCHANGE_MUTATION_TOOL_NAMES = [
+  "instantiate_diagram_template",
+  "import_mermaid_flowchart",
+] as const;
 export const JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES = [
   ...JAZZBOARD_INTERCHANGE_READ_TOOL_NAMES,
   ...JAZZBOARD_INTERCHANGE_MUTATION_TOOL_NAMES,
@@ -288,7 +325,49 @@ export function createJazzboardInterchangeWebMcpTools(
     },
   });
 
-  return [exportTool, createTemplateTool, instantiateTemplateTool];
+  const importMermaidTool = defineTool({
+    name: "import_mermaid_flowchart",
+    title: "Import Mermaid flowchart",
+    description:
+      "Import Mermaid flowchart source as one native, editable Jazzboard Diagram at an exact room revision. Use grouping='boxed' for visible subgraph boundaries; the default 'compact' prioritizes connection layout. The server lays out the complete graph atomically through the room's live-or-review policy. Imported geometry is not visually certified: after an applied result, run the returned recommendedInspection request.",
+    schema: importMermaidFlowchartInput,
+    async execute(input, signal) {
+      const response = await request<MermaidImportResponse>(artifactsUrl(binding.roomId), {
+        method: "POST",
+        body: JSON.stringify({ action: "import_mermaid_flowchart", ...input }),
+        signal,
+      });
+      if (response.presentation) binding.context.acceptAgentDraft?.(response.presentation);
+      binding.context.acceptRoom(response.room);
+      const recommendedInspection = response.outcome === "applied"
+        ? recommendedCanvasInspection(
+            response.room,
+            response.changedObjectIds,
+            response.changedDiagramIds,
+          )
+        : null;
+      return {
+        outcome: response.outcome,
+        roomRevision: response.room.roomRevision,
+        idMap: response.idMap,
+        counts: response.counts,
+        bounds: response.bounds,
+        warnings: response.warnings,
+        nativeEditable: true,
+        geometryInspectionStatus: "not_performed",
+        recommendedInspection: recommendedInspection
+          ? {
+              ...recommendedInspection,
+              input: { ...recommendedInspection.input, representation: "overview" },
+            }
+          : null,
+        activityId: response.activity?.id ?? null,
+        proposal: response.proposal,
+      };
+    },
+  });
+
+  return [exportTool, createTemplateTool, instantiateTemplateTool, importMermaidTool];
 }
 
 export type { JazzboardTemplateV1 };

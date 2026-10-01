@@ -1,0 +1,240 @@
+{
+  "title": "Imagined Netflix-style streaming architecture",
+  "disclaimer": "Fictional educational architecture; not Netflix actual infrastructure.",
+  "groups": {
+    "edge": [
+      "clients",
+      "cdn",
+      "gateway",
+      "waf"
+    ],
+    "core": [
+      "identity",
+      "profiles",
+      "catalog",
+      "search",
+      "recommend",
+      "playback",
+      "entitlement",
+      "drm"
+    ],
+    "data": [
+      "accounts",
+      "metadata",
+      "index",
+      "features",
+      "cache"
+    ],
+    "media": [
+      "ingest",
+      "transcode",
+      "origin"
+    ],
+    "events": [
+      "bus",
+      "analytics",
+      "training"
+    ]
+  },
+  "nodes": {
+    "clients": "TV / Web / Mobile",
+    "cdn": "Video CDN",
+    "gateway": "API Gateway",
+    "waf": "Edge WAF",
+    "identity": "Identity Service",
+    "profiles": "Profile Service",
+    "catalog": "Catalog Service",
+    "search": "Search Service",
+    "recommend": "Recommendation Service",
+    "playback": "Playback Service",
+    "entitlement": "Entitlement Service",
+    "drm": "DRM License Service",
+    "accounts": "Account Database",
+    "metadata": "Catalog Database",
+    "index": "Search Index",
+    "features": "Feature Store",
+    "cache": "Session Cache",
+    "ingest": "Content Ingest",
+    "transcode": "Transcode Workers",
+    "origin": "Media Origin",
+    "bus": "Event Bus",
+    "analytics": "Stream Analytics",
+    "training": "Model Training"
+  },
+  "edges": [
+    [
+      "clients",
+      "cdn",
+      "video segments",
+      "sync"
+    ],
+    [
+      "clients",
+      "waf",
+      "API requests",
+      "sync"
+    ],
+    [
+      "waf",
+      "gateway",
+      "filtered requests",
+      "sync"
+    ],
+    [
+      "gateway",
+      "identity",
+      "authenticate",
+      "sync"
+    ],
+    [
+      "gateway",
+      "profiles",
+      "profiles",
+      "sync"
+    ],
+    [
+      "gateway",
+      "catalog",
+      "browse",
+      "sync"
+    ],
+    [
+      "gateway",
+      "search",
+      "search",
+      "sync"
+    ],
+    [
+      "gateway",
+      "recommend",
+      "personalize",
+      "sync"
+    ],
+    [
+      "gateway",
+      "playback",
+      "start playback",
+      "sync"
+    ],
+    [
+      "identity",
+      "accounts",
+      "credentials",
+      "sync"
+    ],
+    [
+      "identity",
+      "cache",
+      "sessions",
+      "sync"
+    ],
+    [
+      "profiles",
+      "accounts",
+      "profile data",
+      "sync"
+    ],
+    [
+      "catalog",
+      "metadata",
+      "titles",
+      "sync"
+    ],
+    [
+      "search",
+      "index",
+      "query",
+      "sync"
+    ],
+    [
+      "recommend",
+      "features",
+      "rank features",
+      "sync"
+    ],
+    [
+      "playback",
+      "entitlement",
+      "check access",
+      "sync"
+    ],
+    [
+      "entitlement",
+      "accounts",
+      "subscription",
+      "sync"
+    ],
+    [
+      "playback",
+      "drm",
+      "license request",
+      "sync"
+    ],
+    [
+      "playback",
+      "origin",
+      "manifest",
+      "sync"
+    ],
+    [
+      "ingest",
+      "transcode",
+      "encode jobs",
+      "async"
+    ],
+    [
+      "transcode",
+      "origin",
+      "encoded assets",
+      "async"
+    ],
+    [
+      "origin",
+      "cdn",
+      "cache fill",
+      "sync"
+    ],
+    [
+      "clients",
+      "bus",
+      "watch events",
+      "async"
+    ],
+    [
+      "playback",
+      "bus",
+      "playback events",
+      "async"
+    ],
+    [
+      "bus",
+      "analytics",
+      "event stream",
+      "async"
+    ],
+    [
+      "analytics",
+      "features",
+      "fresh features",
+      "async"
+    ],
+    [
+      "analytics",
+      "training",
+      "training data",
+      "async"
+    ],
+    [
+      "training",
+      "recommend",
+      "model release",
+      "async"
+    ],
+    [
+      "ingest",
+      "catalog",
+      "publish metadata",
+      "async"
+    ]
+  ]
+}

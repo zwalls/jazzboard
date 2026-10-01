@@ -52,9 +52,9 @@ describe("ActivityTimeline", () => {
     );
 
     expect(screen.getByText("Ari")).toBeInTheDocument();
-    const avatar = container.querySelector("img");
-    expect(avatar?.getAttribute("src")).toMatch(/^data:image\/svg\+xml,/);
-    expect(avatar).toHaveAttribute("alt", "");
+    const avatar = container.querySelector("[data-agent-avatar-family]");
+    expect(avatar).toBeInTheDocument();
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("agent · 1m ago")).toBeInTheDocument();
     expect(screen.getByText(activity.summary!)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show affected" })).toBeEnabled();

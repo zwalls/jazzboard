@@ -9,6 +9,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   readAuthorizedRoom: vi.fn(),
+  listAgentCanvasDrafts: vi.fn(),
   renameRoom: vi.fn(),
   requireGuestParticipantId: vi.fn(() => "p_session"),
   upgradeMembership: vi.fn(),
@@ -18,6 +19,9 @@ vi.mock("@/lib/server/room-service", () => ({
   readAuthorizedRoom: mocks.readAuthorizedRoom,
   renameRoom: mocks.renameRoom,
   upgradeMembership: mocks.upgradeMembership,
+}));
+vi.mock("@/lib/server/agent-draft-store", () => ({
+  getAgentCanvasDraftStore: () => ({ list: mocks.listAgentCanvasDrafts }),
 }));
 vi.mock("@/lib/server/session", () => ({
   requireGuestParticipantId: mocks.requireGuestParticipantId,
@@ -34,6 +38,7 @@ describe("GET /api/rooms/[roomId] client capability", () => {
       roomRevision: 4,
       stateRevision: 10,
     });
+    mocks.listAgentCanvasDrafts.mockResolvedValue([]);
   });
 
   it("returns split-revision room state to a negotiated current client", async () => {
@@ -49,6 +54,55 @@ describe("GET /api/rooms/[roomId] client capability", () => {
       ok: true,
       participantId: "p_session",
       room: { roomRevision: 4, stateRevision: 10 },
+      presentations: [],
+      serverTime: expect.any(Number),
+    });
+  });
+
+  it("returns only presentations fenced by the room and strips private commit data", async () => {
+    mocks.listAgentCanvasDrafts.mockResolvedValue([
+      {
+        id: "draft_reveal",
+        roomId: "room_1",
+        status: "presenting",
+        authoritativeCommit: { roomRevision: 4 },
+        transaction: { commands: [{ secret: true }] },
+        committing: null,
+      },
+      {
+        id: "draft_future",
+        roomId: "room_1",
+        status: "presenting",
+        authoritativeCommit: { roomRevision: 5 },
+      },
+      { id: "draft_authoring", roomId: "room_1", status: "active" },
+    ]);
+    const response = await GET(
+      new Request("https://jazzboard.test/api/rooms/room_1", {
+        headers: { [CLIENT_CAPABILITIES_HEADER]: SPLIT_STATE_CLIENT_CAPABILITY },
+      }),
+      { params: Promise.resolve({ roomId: "room_1" }) },
+    );
+    const body = await response.json();
+
+    expect(body.presentations).toEqual([expect.objectContaining({ id: "draft_reveal" })]);
+    expect(JSON.stringify(body.presentations)).not.toContain("transaction");
+    expect(JSON.stringify(body.presentations)).not.toContain("authoritativeCommit");
+  });
+
+  it("keeps authoritative room reads available when presentation storage fails", async () => {
+    mocks.listAgentCanvasDrafts.mockRejectedValueOnce(new Error("sidecar unavailable"));
+    const response = await GET(
+      new Request("https://jazzboard.test/api/rooms/room_1", {
+        headers: { [CLIENT_CAPABILITIES_HEADER]: SPLIT_STATE_CLIENT_CAPABILITY },
+      }),
+      { params: Promise.resolve({ roomId: "room_1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      room: { roomRevision: 4 },
+      presentations: [],
     });
   });
 

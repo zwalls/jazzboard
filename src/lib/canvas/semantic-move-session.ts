@@ -2,6 +2,10 @@ import {
   computeAffectedConnectorIds,
   computePotentialMoveConnectorIds,
 } from "@/lib/domain/connector-dependencies";
+import {
+  normalizeConnectorRouting,
+  translateAuthoredConnectorRouting,
+} from "@/lib/domain/connector-routing";
 import type {
   CanvasObject,
   CreateCanvasObject,
@@ -160,6 +164,7 @@ type InternalSession = {
   snapshot: SemanticMoveSession;
   baseline: RoomState;
   baseDrafts: ReadonlyMap<string, CreateCanvasObject>;
+  translatedConnectorDrafts: ReadonlyMap<string, CreateCanvasObject>;
   selectedObjectIds: readonly string[];
   requestedGroupIds: readonly string[];
   dependencyById: ReadonlyMap<string, SemanticMoveConnectorDependency>;
@@ -263,7 +268,7 @@ function nodeMetadataInput(
   return { kind, status, owner, resolution } as NodeMetadataInput;
 }
 
-function draftFromObject(object: MovableObject): CreateCanvasObject {
+function draftFromObject(object: CanvasObject): CreateCanvasObject {
   const {
     revision: _revision,
     createdAt: _createdAt,
@@ -375,10 +380,38 @@ function finishRequestedEvent(
 
 function changedEvent(internal: InternalSession): SemanticCanvasObjectsChangedEvent {
   const { snapshot } = internal;
+  const connectorChanges = [...internal.translatedConnectorDrafts].map(([objectId, baseDraft]) => {
+    if (baseDraft.kind !== "connector") {
+      throw new Error(`Semantic move connector ${objectId} lost its immutable base draft.`);
+    }
+    const delta = snapshot.delta;
+    return Object.freeze({
+      kind: "update" as const,
+      draft: Object.freeze({
+        ...baseDraft,
+        x: baseDraft.x + delta.x,
+        y: baseDraft.y + delta.y,
+        start: Object.freeze({
+          ...baseDraft.start,
+          x: baseDraft.start.x + delta.x,
+          y: baseDraft.start.y + delta.y,
+        }),
+        end: Object.freeze({
+          ...baseDraft.end,
+          x: baseDraft.end.x + delta.x,
+          y: baseDraft.end.y + delta.y,
+        }),
+        routing: Object.freeze(translateAuthoredConnectorRouting(baseDraft.routing, delta)),
+      }),
+      baseRevision: internal.baseline.objects[objectId]!.revision,
+      baseCreatedAt: internal.baseline.objects[objectId]!.createdAt,
+      operation: "connect" as const,
+    });
+  });
   return Object.freeze({
     type: "objects.changed",
     gestureId: snapshot.gestureId,
-    changes: Object.freeze(snapshot.cohort.map((member) => {
+    changes: Object.freeze([...snapshot.cohort.map((member) => {
       const baseDraft = internal.baseDrafts.get(member.objectId);
       const position = snapshot.positionOverrides[member.objectId];
       if (!baseDraft || !position) {
@@ -391,7 +424,7 @@ function changedEvent(internal: InternalSession): SemanticCanvasObjectsChangedEv
         baseCreatedAt: member.baseCreatedAt,
         operation: "move" as const,
       });
-    })),
+    }), ...connectorChanges]),
   });
 }
 
@@ -576,6 +609,22 @@ export class SemanticMoveSessionEngine {
       snapshot,
       baseline,
       baseDrafts: new Map(resolved.objects.map((object) => [object.id, draftFromObject(object)])),
+      translatedConnectorDrafts: new Map(connectorDependencies.flatMap((dependency) => {
+        const connector = baseline.objects[dependency.objectId];
+        const startObjectId = connector?.kind === "connector" ? connector.start.objectId : null;
+        const endObjectId = connector?.kind === "connector" ? connector.end.objectId : null;
+        if (
+          connector?.kind !== "connector"
+          || !normalizeConnectorRouting(connector.routing).waypoints
+          || !startObjectId
+          || !endObjectId
+          || !objectIds.includes(startObjectId)
+          || !objectIds.includes(endObjectId)
+        ) {
+          return [];
+        }
+        return [[connector.id, draftFromObject(connector)] as const];
+      })),
       selectedObjectIds: snapshot.selectedObjectIds,
       requestedGroupIds: snapshot.selectedGroupIds,
       dependencyById: new Map(connectorDependencies.map((dependency) => [dependency.objectId, dependency])),

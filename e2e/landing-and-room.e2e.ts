@@ -104,7 +104,10 @@ test.describe("landing and room entry", () => {
       { width: 480, height: 800 },
     ]) {
       await page.setViewportSize(viewport);
-      await expectTopNavigationToClearCanvasChrome(page);
+      // React switches collaboration chrome after the viewport resize event.
+      await expect(async () => {
+        await expectTopNavigationToClearCanvasChrome(page);
+      }).toPass({ timeout: 5_000 });
     }
 
     await page.setViewportSize({ width: 1_659, height: 303 });

@@ -52,6 +52,14 @@ import {
   createJazzboardCanvasCapabilityWebMcpTools,
   JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
 } from "./capability-tools";
+import {
+  createJazzboardGuidedWalkthroughWebMcpTools,
+  JAZZBOARD_GUIDED_WALKTHROUGH_TOOL_NAMES,
+} from "./guided-walkthrough-tools";
+import {
+  createJazzboardLocalViewportWebMcpTools,
+  JAZZBOARD_LOCAL_VIEWPORT_TOOL_NAMES,
+} from "./local-viewport-tools";
 import type {
   JazzboardWebMcpBinding,
   JazzboardWebMcpDependencies,
@@ -65,6 +73,8 @@ function documentModelContext(): WebMCP.ModelContext | undefined {
 
 export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
+  ...JAZZBOARD_GUIDED_WALKTHROUGH_TOOL_NAMES,
+  ...JAZZBOARD_LOCAL_VIEWPORT_TOOL_NAMES,
   ...JAZZBOARD_WEBMCP_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_TOOL_NAMES,
@@ -79,6 +89,8 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
 
 export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
+  ...JAZZBOARD_GUIDED_WALKTHROUGH_TOOL_NAMES,
+  ...JAZZBOARD_LOCAL_VIEWPORT_TOOL_NAMES,
   ...JAZZBOARD_WEBMCP_READ_TOOL_NAMES,
   ...JAZZBOARD_LIFECYCLE_READ_TOOL_NAMES,
   ...JAZZBOARD_SEMANTIC_READ_TOOL_NAMES,
@@ -97,6 +109,8 @@ export function createJazzboardRoomWebMcpTools(
 ): WebMCP.ModelContextTool[] {
   return [
     ...createJazzboardCanvasCapabilityWebMcpTools(binding),
+    ...createJazzboardGuidedWalkthroughWebMcpTools(binding, dependencies),
+    ...createJazzboardLocalViewportWebMcpTools(binding),
     ...createJazzboardWebMcpTools(binding, dependencies),
     ...createJazzboardLifecycleWebMcpTools(binding, dependencies),
     ...createJazzboardSemanticWebMcpTools(binding, dependencies),
@@ -117,6 +131,7 @@ export function createJazzboardRoomWebMcpTools(
  */
 export class JazzboardWebMcpRegistrar {
   private registrationController: AbortController | null = null;
+  private readonly activeToolActivityReleases = new Set<(immediate?: boolean) => void>();
   private generation = 0;
 
   constructor(
@@ -152,7 +167,48 @@ export class JazzboardWebMcpRegistrar {
     // Tool names and descriptions already carry the model-facing semantics.
     // Omit optional display titles from the registered production descriptor.
     const tools = createJazzboardRoomWebMcpTools(binding, this.dependencies).map((tool) => {
-      const registeredTool = { ...tool };
+      const execute = tool.execute;
+      const registeredTool: WebMCP.ModelContextTool = {
+        ...tool,
+        execute: async (input, options) => {
+          const receivedAtUnixMs = Date.now();
+          const executionStartedAt = performance.now();
+          const release = binding.context.beginWebMcpToolActivity?.(tool.name);
+          if (release) this.activeToolActivityReleases.add(release);
+          let activityReleased = false;
+          const finishActivity = (immediate = false) => {
+            if (!release || activityReleased) return;
+            activityReleased = true;
+            this.activeToolActivityReleases.delete(release);
+            if (immediate) release(true);
+            else release();
+          };
+          const handleAbort = () => finishActivity(true);
+          const executionSignal = options?.signal;
+          executionSignal?.addEventListener("abort", handleAbort, { once: true });
+          if (executionSignal?.aborted) handleAbort();
+          try {
+            const result = await execute(input, options);
+            const completedAtUnixMs = Date.now();
+            const durationMs = performance.now() - executionStartedAt;
+            if (result === null || typeof result !== "object" || Array.isArray(result)) {
+              return result;
+            }
+            return {
+              ...result,
+              transportTiming: {
+                receivedAtUnixMs,
+                completedAtUnixMs,
+                durationMs,
+                measurement: "registered_execute_entry_to_result_ready",
+              },
+            };
+          } finally {
+            executionSignal?.removeEventListener("abort", handleAbort);
+            finishActivity();
+          }
+        },
+      };
       delete registeredTool.title;
       return registeredTool;
     });
@@ -193,6 +249,8 @@ export class JazzboardWebMcpRegistrar {
     this.generation += 1;
     this.registrationController?.abort();
     this.registrationController = null;
+    for (const release of this.activeToolActivityReleases) release(true);
+    this.activeToolActivityReleases.clear();
     this.dependencies.canvasPreviewTransport?.dispose?.();
   }
 }

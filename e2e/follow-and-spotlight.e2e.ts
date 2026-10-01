@@ -82,10 +82,10 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
     const agentCursor = page.getByTestId(`agent-cursor-${collaborator.participantId}`);
     await expect(agentCursor).toBeInViewport();
     await expect(agentCursor.locator('[data-agent-avatar-state="working"]')).toBeVisible();
-    await expect(agentCursor.locator("svg")).toBeVisible();
+    await expect(agentCursor.locator("canvas")).toBeVisible();
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect.poll(() => agentCursor.locator(".mo-eye").first().evaluate(
-      (eye) => getComputedStyle(eye).animationName,
+    await expect.poll(() => agentCursor.locator("canvas").evaluate(
+      (body) => getComputedStyle(body.parentElement!).animationName,
     )).toBe("none");
     await page.emulateMedia({ reducedMotion: "no-preference" });
 

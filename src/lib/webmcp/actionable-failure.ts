@@ -82,6 +82,14 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
     case "OBJECT_REVISION_CONFLICT":
     case "ROOM_REVISION_CONFLICT":
     case "DIAGRAM_REVISION_CONFLICT":
+      if (["query_objects", "find_diagrams", "read_room_state"].includes(tool)) {
+        return {
+          retry: "after_refresh",
+          instructions:
+            "The room changed during retrieval. Discard the partial working set and restart the same query at offset 0 without expectedRoomRevision, then pin every subsequent page to its returned roomRevision and preserve the same filters. For read_room_state, refresh the same objectIds without expectedRoomRevision. Never combine pages from different room revisions.",
+          suggestedTools: [tool],
+        };
+      }
       return tool.includes("draft") || tool === "apply_canvas_transaction"
         ? {
             retry: "after_refresh",

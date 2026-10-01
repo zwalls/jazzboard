@@ -347,6 +347,98 @@ describe("SemanticSelectionControls", () => {
     }
   });
 
+  it("offers Group and Ungroup for the exact selection topology", () => {
+    const firstGrouped = {
+      ...shapeScene,
+      object: { ...shapeScene.object, groupId: "group-auth" },
+    } satisfies SemanticSceneObject;
+    const secondUngrouped = {
+      ...secondShapeScene,
+      object: { ...secondShapeScene.object, groupId: null },
+    } satisfies SemanticSceneObject;
+    const secondGroup = {
+      ...secondShapeScene,
+      object: { ...secondShapeScene.object, groupId: "group-payments" },
+    } satisfies SemanticSceneObject;
+    const actions = { onGroup: vi.fn(), onUngroup: vi.fn() };
+    const rendered = render(
+      <SemanticSelectionControls
+        {...defaultProps}
+        {...actions}
+        selectedObjects={[shapeScene, secondUngrouped]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Group" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Ungroup" })).toBeNull();
+
+    rendered.rerender(
+      <SemanticSelectionControls
+        {...defaultProps}
+        {...actions}
+        selectedObjects={[firstGrouped, secondShapeScene]}
+        groupMembers={{ "group-auth": ["shape-1", "shape-2"] }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Group" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ungroup" })).toBeVisible();
+
+    rendered.rerender(
+      <SemanticSelectionControls
+        {...defaultProps}
+        {...actions}
+        selectedObjects={[shapeScene, secondShapeScene]}
+        groupMembers={{ "group-auth": ["shape-2"] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Group" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ungroup" })).toBeVisible();
+
+    rendered.rerender(
+      <SemanticSelectionControls
+        {...defaultProps}
+        {...actions}
+        selectedObjects={[firstGrouped, secondGroup]}
+        groupMembers={{ "group-auth": ["shape-1"], "group-payments": ["shape-2"] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Group" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ungroup" })).toBeVisible();
+  });
+
+  it("does not offer Group while a selected connector binds outside the selection", () => {
+    render(
+      <SemanticSelectionControls
+        {...defaultProps}
+        selectedObjects={[shapeScene, connectorScene]}
+        onGroup={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Group" })).toBeNull();
+  });
+
+  it("shows only Ungroup for a complete single group on mobile", () => {
+    useMobileMediaQuery();
+    const firstGrouped = {
+      ...shapeScene,
+      object: { ...shapeScene.object, groupId: "group-auth" },
+    } satisfies SemanticSceneObject;
+    render(
+      <SemanticSelectionControls
+        {...defaultProps}
+        selectedObjects={[firstGrouped, secondShapeScene]}
+        groupMembers={{ "group-auth": ["shape-1", "shape-2"] }}
+        onGroup={vi.fn()}
+        onUngroup={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Style & actions" }));
+    expect(screen.queryByRole("button", { name: "Group" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ungroup" })).toBeVisible();
+  });
+
   it("moves the complete selection surface into a compact coordinated mobile sheet", () => {
     useMobileMediaQuery();
     const callbacks = {

@@ -20,7 +20,7 @@ import type {
 } from "@/lib/domain/types";
 
 import type { SemanticCanvasEditingHost } from "./canvas-surface-types";
-import { SemanticCanvas } from "./SemanticCanvas";
+import { SemanticCanvas, semanticTransformFrameContainsPoint } from "./SemanticCanvas";
 
 const actor = {
   participantId: "spectator-1",
@@ -368,6 +368,17 @@ afterEach(() => {
 });
 
 describe("SemanticCanvas", () => {
+  it("tests rotated selection frames in their local axes", () => {
+    const frame = {
+      bounds: { x: 0, y: 0, width: 100, height: 40 },
+      rotation: Math.PI / 2,
+      localAxes: true,
+    } as const;
+
+    expect(semanticTransformFrameContainsPoint(frame, { x: 50, y: 65 })).toBe(true);
+    expect(semanticTransformFrameContainsPoint(frame, { x: 80, y: 65 })).toBe(false);
+  });
+
   it("publishes a read-only semantic runtime and renders authoritative objects", async () => {
     const { onRuntimeChange } = renderCanvas();
 
@@ -392,6 +403,64 @@ describe("SemanticCanvas", () => {
     expect(screen.queryByLabelText("Canvas zoom controls")).not.toBeInTheDocument();
     expect(screen.queryByTestId("canvas-presence-overlay")).not.toBeInTheDocument();
     expect(document.querySelector('[data-semantic-selection-controls="true"]')).toBeNull();
+  });
+
+  it("keeps committed reveal objects in the semantic scene and exposes faithful paint for clean inspection", () => {
+    const presentation: AgentCanvasDraftSnapshot = {
+      schemaVersion: 1,
+      id: "draft_mermaid_reveal",
+      roomId: room.id,
+      ownerParticipantId: self.participantId,
+      author: { ...actor, kind: "agent" },
+      revision: 1,
+      baselineRoomRevision: room.roomRevision - 1,
+      status: "presenting",
+      temporaryReferences: {},
+      previewObjects: [{ ...room.objects["node-a"]!, authority: "draft" }],
+      previewDiagrams: [],
+      metadata: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 8_500,
+      hardExpiresAt: Date.now() + 8_500,
+      awaitingReview: null,
+    };
+    const common = {
+      boardMenuActions: menuActions,
+      room,
+      agentDrafts: [presentation],
+      self,
+      followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined),
+      transientPresence: vi.fn(() => true),
+      connection: "live" as const,
+      onSelectionChange: vi.fn(),
+      onRuntimeChange: vi.fn(),
+      onExitFollow: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...common} />);
+    const authoritative = document.querySelector('[data-object-id="node-a"]');
+    expect(authoritative).toHaveAttribute("data-presentation-hidden", "true");
+    expect(authoritative).toHaveStyle({ visibility: "hidden" });
+    expect(screen.getByTestId("agent-draft-layer")).toBeInTheDocument();
+
+    rendered.rerender(<SemanticCanvas {...common} cleanInspectionId="preview-reveal" />);
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveAttribute(
+      "data-presentation-hidden",
+    );
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveStyle({ visibility: "hidden" });
+    expect(screen.queryByTestId("agent-draft-layer")).not.toBeInTheDocument();
+
+    rendered.rerender(
+      <SemanticCanvas
+        {...common}
+        initialAgentDraftIds={[presentation.id]}
+      />,
+    );
+    expect(document.querySelector('[data-object-id="node-a"]')).not.toHaveAttribute(
+      "data-presentation-hidden",
+    );
+    expect(document.querySelector('[data-agent-draft-object-id="node-a"]')).toBeNull();
   });
 
   it("projects only the exact draft candidate into the clean inspection scene", () => {
@@ -1789,6 +1858,121 @@ describe("SemanticCanvas", () => {
     expect(screen.getByRole("button", { name: /Text: Authorized guest/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("2 canvas objects selected.")).toBeInTheDocument();
     expect(harness.command).not.toHaveBeenCalled();
+  });
+
+  it("moves an existing selection when dragging blank space inside its frame", async () => {
+    const groupedRoom = structuredClone(room);
+    groupedRoom.objects["edge-a-b"] = {
+      id: "edge-a-b",
+      kind: "connector",
+      x: 280,
+      y: 140,
+      width: 40,
+      height: 1,
+      rotation: 0,
+      zIndex: 3,
+      revision: 1,
+      groupId: "group-1",
+      diagramIds: [],
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: actor,
+      lastEditedBy: actor,
+      start: { x: 280, y: 140, objectId: "node-a" },
+      end: { x: 320, y: 140, objectId: "node-b" },
+      direction: "end",
+      label: "calls",
+      color: "black",
+    };
+    const harness = makeEditingHarness(groupedRoom);
+    const rendered = renderEditableCanvas(groupedRoom, harness.editing);
+    const runtime = rendered.getRuntime()!;
+    const canvas = screen.getByTestId("semantic-canvas");
+    const background = canvas.querySelector("svg > g")!;
+    const pointerCapture = installPointerCapture(canvas);
+    runtime.selectObjects(["node-a", "node-b", "edge-a-b"]);
+    await flushMicrotasks();
+    const start = clientPointForPage(runtime, 300, 140);
+    const end = clientPointForPage(runtime, 550, 170);
+    const frame = screen.getByTestId("semantic-selection-frame");
+    const initialFrame = {
+      left: Number.parseFloat(frame.style.left),
+      top: Number.parseFloat(frame.style.top),
+      width: Number.parseFloat(frame.style.width),
+      height: Number.parseFloat(frame.style.height),
+    };
+
+    fireEvent.pointerDown(background, { button: 0, pointerId: 61, ...start });
+
+    expect(screen.queryByTestId("semantic-marquee")).toBeNull();
+    expect(harness.editing.leaseMany).toHaveBeenCalledOnce();
+    fireEvent.pointerMove(canvas, { pointerId: 61, ...end });
+    expect(document.querySelector('[data-object-id="node-a"]')).toHaveAttribute("data-object-x", "350");
+    expect(document.querySelector('[data-object-id="node-b"]')).toHaveAttribute("data-object-x", "570");
+    expect(Number.parseFloat(frame.style.width)).toBeCloseTo(initialFrame.width, 8);
+    expect(Number.parseFloat(frame.style.height)).toBeCloseTo(initialFrame.height, 8);
+    expect(Number.parseFloat(frame.style.left)).toBeCloseTo(
+      initialFrame.left + end.clientX - start.clientX,
+      8,
+    );
+    expect(Number.parseFloat(frame.style.top)).toBeCloseTo(
+      initialFrame.top + end.clientY - start.clientY,
+      8,
+    );
+    expect(pointerCapture.setPointerCapture).toHaveBeenCalledWith(61);
+    fireEvent.pointerUp(canvas, { pointerId: 61, ...end });
+    await flushMicrotasks(24);
+
+    await waitFor(() => expect(harness.command).toHaveBeenCalledWith(expect.objectContaining({
+      type: "move",
+      targets: expect.arrayContaining([
+        expect.objectContaining({ objectId: "node-a", x: 350, y: 130 }),
+        expect.objectContaining({ objectId: "node-b", x: 570, y: 130 }),
+      ]),
+    }), "human"));
+  });
+
+  it("keeps modified drags inside a selection frame as marquee gestures", async () => {
+    const harness = makeEditingHarness(room);
+    const rendered = renderEditableCanvas(room, harness.editing);
+    const runtime = rendered.getRuntime()!;
+    const canvas = screen.getByTestId("semantic-canvas");
+    const background = canvas.querySelector("svg > g")!;
+    installPointerCapture(canvas);
+    runtime.selectObjects(["node-a", "node-b"]);
+    await flushMicrotasks();
+    const start = clientPointForPage(runtime, 300, 140);
+    const end = clientPointForPage(runtime, 310, 150);
+
+    fireEvent.pointerDown(background, { button: 0, pointerId: 62, shiftKey: true, ...start });
+    fireEvent.pointerMove(canvas, { pointerId: 62, ...end });
+
+    expect(screen.getByTestId("semantic-marquee")).toBeInTheDocument();
+    expect(harness.editing.leaseMany).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-object-id="node-a"]')).toHaveAttribute("data-object-x", "100");
+  });
+
+  it("moves an existing selection from blank frame space with touch hysteresis", async () => {
+    const harness = makeEditingHarness(room);
+    const rendered = renderEditableCanvas(room, harness.editing);
+    const runtime = rendered.getRuntime()!;
+    const canvas = screen.getByTestId("semantic-canvas");
+    const background = canvas.querySelector("svg > g")!;
+    installPointerCapture(canvas);
+    runtime.selectObjects(["node-a", "node-b"]);
+    await flushMicrotasks();
+    const start = clientPointForPage(runtime, 300, 140);
+    const end = clientPointForPage(runtime, 330, 160);
+
+    fireEvent.pointerDown(background, {
+      button: 0, pointerId: 63, pointerType: "touch", ...start,
+    });
+    fireEvent.pointerMove(canvas, { pointerId: 63, pointerType: "touch", ...end });
+
+    expect(screen.queryByTestId("semantic-marquee")).toBeNull();
+    expect(document.querySelector('[data-object-id="node-a"]')).toHaveAttribute("data-object-x", "130");
+    expect(document.querySelector('[data-object-id="node-b"]')).toHaveAttribute("data-object-x", "350");
+    expect(rendered.getRuntime()!.getSelectedObjectIds()).toEqual(["node-a", "node-b"]);
   });
 
   it("uses the hand tool to pan without starting a marquee or mutation", async () => {

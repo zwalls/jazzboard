@@ -3,6 +3,11 @@
 import type { ApiFailure } from "@/lib/client/api";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { AgentDraftPresentationStatus } from "@/lib/canvas/agent-draft-reveal";
+import type {
+  GuidedWalkthrough,
+  GuidedWalkthroughDisplay,
+} from "@/lib/canvas/guided-walkthrough";
+import type { CanvasRuntime } from "@/lib/canvas/runtime";
 import type { FollowTarget, RoomRole, RoomState, Viewport } from "@/lib/domain/types";
 
 import type {
@@ -12,13 +17,27 @@ import type {
   CanvasPreviewRenderRequest,
   CanvasPreviewTransportAdapter,
 } from "./canvas-preview";
+import type { WebMcpToolActivityRelease } from "./tool-activity";
 
 /** The narrow bridge the room UI supplies to the WebMCP client layer. */
 export interface JazzboardWebMcpContext {
   getRoom(): RoomState | null;
   getSelection(): readonly string[];
   getViewport(): Viewport | null;
+  /** Current renderer bridge for reversible, local-only camera operations. */
+  getCanvasRuntime?(): CanvasRuntime | null;
   getFollowTarget(): FollowTarget;
+  getGuidedWalkthrough?(): GuidedWalkthrough | null;
+  getGuidedWalkthroughDisplay?(): GuidedWalkthroughDisplay | null;
+  /** Begins a real, browser-local registered tool execution indicator. */
+  beginWebMcpToolActivity?(toolName: string): WebMcpToolActivityRelease;
+  presentGuidedWalkthrough?(walkthrough: GuidedWalkthrough): void;
+  stopGuidedWalkthrough?(walkthroughId?: string): void;
+  waitForGuidedWalkthroughDisplay?(
+    walkthroughId: string,
+    revision: number,
+    signal: AbortSignal,
+  ): Promise<boolean>;
   renderCanvasPreview?(
     request: CanvasPreviewRenderRequest,
     signal: AbortSignal,

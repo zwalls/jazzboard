@@ -352,7 +352,13 @@ export class MemoryAgentCanvasDraftStore implements AgentCanvasDraftStore {
       if (sameId) {
         throw new DomainError("REVISION_CONFLICT", "That draft ID is already in use in this room.");
       }
-      if ([...room.values()].some((record) => record.draft.ownerParticipantId === draft.ownerParticipantId)) {
+      if (
+        draft.status !== "presenting" &&
+        [...room.values()].some((record) =>
+          record.draft.ownerParticipantId === draft.ownerParticipantId &&
+          record.draft.status !== "presenting"
+        )
+      ) {
         throw new DomainError("REVISION_CONFLICT", "This participant already has an active canvas draft.");
       }
       if (room.size >= this.limits.draftsPerRoom) {
@@ -666,7 +672,13 @@ export class RedisAgentCanvasDraftStore implements AgentCanvasDraftStore {
         if (sameId) {
           throw new DomainError("REVISION_CONFLICT", "That draft ID is already in use in this room.");
         }
-        if ([...records.values()].some((record) => record.draft.ownerParticipantId === draft.ownerParticipantId)) {
+        if (
+          draft.status !== "presenting" &&
+          [...records.values()].some((record) =>
+            record.draft.ownerParticipantId === draft.ownerParticipantId &&
+            record.draft.status !== "presenting"
+          )
+        ) {
           throw new DomainError("REVISION_CONFLICT", "This participant already has an active canvas draft.");
         }
         if (records.size >= this.limits.draftsPerRoom) {

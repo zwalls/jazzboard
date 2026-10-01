@@ -9,10 +9,12 @@ import { computeAffectedConnectorIds } from "./connector-dependencies";
 import {
   CONNECTOR_ROUTING_BOUNDED_MAX_CANDIDATES,
   CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT,
+  commonBoundConnectorTranslation,
   connectorRouteBounds,
   materializeConnectorRoutes,
   normalizeConnectorRouting,
   resolveAffectedConnectorRoutes,
+  translateAuthoredConnectorRouting,
   type ResolvedConnectorRoute,
 } from "./connector-routing";
 import { MAX_ROOM_REVIEW_PROPOSALS } from "./review";
@@ -795,6 +797,11 @@ export function applySemanticTransaction(
   pruneExpiredLeases(room, now);
   const touchedObjectIds = new Set<string>();
   const touchedDiagramIds = new Set<string>();
+  const movedObjectIds = new Set(
+    transaction.commands.flatMap((command) =>
+      command.type === "move" ? command.targets.map((target) => target.objectId) : []
+    ),
+  );
 
   for (const command of transaction.commands) {
     applyObjectCommandMutable(room, command, actor, now, touchedObjectIds);
@@ -805,6 +812,30 @@ export function applySemanticTransaction(
   const positions = transaction.autoLayout
     ? applyLayoutMutable(room, baseline, transaction.autoLayout, actor, now, touchedObjectIds)
     : undefined;
+
+  // Authored elbow vertices are absolute page-space points. When a move
+  // translates both bound endpoint objects by the same delta, translate those
+  // vertices before authoritative route materialization. A connector explicitly
+  // updated in the transaction already carries the caller's intended routing.
+  for (const baselineObject of Object.values(baseline.objects)) {
+    if (
+      baselineObject.kind !== "connector"
+      || touchedObjectIds.has(baselineObject.id)
+      || !normalizeConnectorRouting(baselineObject.routing).waypoints
+    ) {
+      continue;
+    }
+    const delta = commonBoundConnectorTranslation(
+      baselineObject,
+      baseline.objects,
+      room.objects,
+      movedObjectIds,
+    );
+    if (!delta) continue;
+    const current = room.objects[baselineObject.id];
+    if (current?.kind !== "connector") continue;
+    current.routing = translateAuthoredConnectorRouting(current.routing, delta);
+  }
 
   // Bound connector geometry is authoritative server state. Implicit changes
   // honor active-object leases and receive the same actor attribution.

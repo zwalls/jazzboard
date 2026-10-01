@@ -1,0 +1,443 @@
+{
+  "schemaVersion": "jazzboard-exp0036-preparation/v1",
+  "status": "prepared_not_authorized",
+  "authorAttemptCount": 0,
+  "reviewerTaskCount": 0,
+  "productImprovementProven": false,
+  "baselineCommit": "f7762da4ea7d1603671a35b4912143c4bff83f34",
+  "candidateCommit": "5a67b21505b50c643bf282774f0e7bf4698edf05",
+  "nativeSmokes": [
+    {
+      "attemptId": "smoke-native-06",
+      "developmentSmoke": true,
+      "authorAttempt": false,
+      "receiptFileSha256": "sha256:3908936d8b94ccd692f75b360694ffe8da187e0a27fd4d76c950c482df670454",
+      "receiptSha256": "sha256:a91609c8c821e9bf5b021f80c0f963672baa0ce631f4a4a51482a0c78397e045",
+      "observerSourceSha256": "sha256:beead2d1f89434f16e0e46321570703dd942bb8f06ec2aba5774f60289b17a25",
+      "observerConfigSha256": "sha256:f47995e82797c3c3179f6bd51f1920474f950834c035494e837965a11291353f",
+      "complete": true,
+      "eventCount": 120,
+      "externalRejectedRequests": 0,
+      "inputUtf8Bytes": 92,
+      "outputUtf8Bytes": 1319,
+      "calls": [
+        {
+          "sequence": 1,
+          "tool": "list_recent_rooms",
+          "outcome": "success",
+          "inputUtf8Bytes": 2,
+          "outputUtf8Bytes": 103,
+          "inputSha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "outputSha256": "sha256:a7284846dc93757d4c3e9fd896a326e197851918bfd0c51e5f16442c2d3ec1aa"
+        },
+        {
+          "sequence": 2,
+          "tool": "create_room",
+          "outcome": "success",
+          "inputUtf8Bytes": 88,
+          "outputUtf8Bytes": 479,
+          "inputSha256": "sha256:568dff5b61a527d1f56e948f82fc7455cd6d1f8c4ea47ecb863c67b026dfe3e7",
+          "outputSha256": "sha256:fe81a33e990e462e49dc23d20be52c2cb3de886705d44c521835fb3070da8773"
+        },
+        {
+          "sequence": 3,
+          "tool": "read_room_state",
+          "outcome": "success",
+          "inputUtf8Bytes": 2,
+          "outputUtf8Bytes": 737,
+          "inputSha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "outputSha256": "sha256:57bb087bc8a4a069b35daf73dd54a63d7e2e10f475ec129a613762ead78ce4fc"
+        }
+      ]
+    },
+    {
+      "attemptId": "smoke-native-07",
+      "developmentSmoke": true,
+      "authorAttempt": false,
+      "receiptFileSha256": "sha256:a95750845feaffb2323d49ec318118580fef5af64f8be43cccc85b90d147cf10",
+      "receiptSha256": "sha256:e97ada59b85b2536b141f15cb621bb97439e7bbaffc516f77b9f27f3715e873f",
+      "observerSourceSha256": "sha256:a45c07ec6f46d47327b3220dbdddf3074a097cda1980da02953e5277e973de89",
+      "observerConfigSha256": "sha256:aa333fafcaa9d1fffc260ecbf3e50531a413c3d7e0df7552deaeaa1403ccd539",
+      "complete": true,
+      "eventCount": 124,
+      "externalRejectedRequests": 0,
+      "inputUtf8Bytes": 175,
+      "outputUtf8Bytes": 3016,
+      "calls": [
+        {
+          "sequence": 1,
+          "tool": "list_recent_rooms",
+          "outcome": "success",
+          "inputUtf8Bytes": 2,
+          "outputUtf8Bytes": 103,
+          "inputSha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "outputSha256": "sha256:a7284846dc93757d4c3e9fd896a326e197851918bfd0c51e5f16442c2d3ec1aa"
+        },
+        {
+          "sequence": 2,
+          "tool": "create_room",
+          "outcome": "success",
+          "inputUtf8Bytes": 89,
+          "outputUtf8Bytes": 481,
+          "inputSha256": "sha256:cd3ce7cae8783468e598905fdb42b7e61dd7b1248fa10e73e386418f18cbf4b2",
+          "outputSha256": "sha256:6011ab7fdc408c0746373791bc80d1b0ba4b7efad7dd93646ee814868317384f"
+        },
+        {
+          "sequence": 3,
+          "tool": "read_room_state",
+          "outcome": "success",
+          "inputUtf8Bytes": 20,
+          "outputUtf8Bytes": 1042,
+          "inputSha256": "sha256:8b03cf124217923937ead39165e1620995a495fd880b4ee5c337249a634209fc",
+          "outputSha256": "sha256:7eb30540587489ea61235f6b94bc3ffac1ab79a91009f0ed47955d7859097273"
+        },
+        {
+          "sequence": 4,
+          "tool": "read_room_state",
+          "outcome": "success",
+          "inputUtf8Bytes": 17,
+          "outputUtf8Bytes": 738,
+          "inputSha256": "sha256:f98b9990ec778d85210591d0efd87752979aa00b6fe85eb820684f2622059109",
+          "outputSha256": "sha256:ca9cea096973ef552103bad8c8304546a83a16b6d479264f529fd2746b01b864"
+        },
+        {
+          "sequence": 5,
+          "tool": "read_room_state",
+          "outcome": "error",
+          "inputUtf8Bytes": 47,
+          "outputUtf8Bytes": 652,
+          "inputSha256": "sha256:fe9b7b01fc3465f11f578ca3734314be4279d8f57a41b7ccd67c60e471afabc0",
+          "outputSha256": "sha256:80c180ff89668842f5fa44f3f8a336cc581df03ba3fff45bdfc341ecab48ecf7"
+        }
+      ]
+    }
+  ],
+  "calibrations": [
+    {
+      "evidenceFile": "recorder-calibration-vm-context-diagnostic.json",
+      "evidenceFileSha256": "sha256:925b8ef8c4aee35b1a1b5aee7229c6bee7710a937dd0075f8151e4ea4067dba1",
+      "report": {
+        "classification": "reconstructed_summary_of_synthetic_node_fresh_vm_context_run",
+        "rawSamplesAvailable": false,
+        "approximate": true,
+        "note": "Only the emitted aggregate report remained available. No raw per-sample values were logged; none were invented.",
+        "settings": {
+          "samples": 10,
+          "warmups": 3,
+          "targetOutputJsonUtf8Bytes": 267642,
+          "node": "v25.5.0",
+          "platform": "darwin",
+          "architecture": "arm64"
+        },
+        "claims": {
+          "nativeBrowserWebMcpMeasured": false,
+          "authorOutcomeMeasured": false,
+          "agentSpeedMeasured": false
+        },
+        "timing": {
+          "baselineExecutor": {
+            "count": 10,
+            "minMs": 0.0007499999992433004,
+            "medianMs": 0.004770499999722233,
+            "p95Ms": 0.015646050000032115,
+            "maxMs": 0.017334000000118976,
+            "meanMs": 0.006591599999887876
+          },
+          "generatedAdapterCompletion": {
+            "count": 10,
+            "minMs": 166.62462499999992,
+            "medianMs": 169.94164550000005,
+            "p95Ms": 186.38205814999986,
+            "maxMs": 194.38433299999997,
+            "meanMs": 172.53245399999983
+          },
+          "pairedAddedCompletionCost": {
+            "count": 10,
+            "minMs": 166.611042,
+            "medianMs": 169.94075000000043,
+            "p95Ms": 186.3768581499999,
+            "maxMs": 194.3762079999999,
+            "meanMs": 172.52586239999994
+          },
+          "collectorAckAfterCompletion": {
+            "count": 10,
+            "minMs": 339.61754199999996,
+            "medianMs": 1324.5273125000003,
+            "p95Ms": 2050.9370792,
+            "maxMs": 2095.1896670000006,
+            "meanMs": 1257.4855586
+          }
+        },
+        "proof": {
+          "observerSourceSha256": "sha256:ba44c4639bf2165c949a89afc1d2c806cabac97274283a8a7b43714307fcb8a9",
+          "observerConfigSha256": "sha256:dc913c32a72bb505f27e6e1ad0c6c5bea6fb9e99667791e09fa07ebbfa88725f",
+          "recordedInvocationCount": 13,
+          "acceptedEventCount": 30,
+          "rejectedEventCount": 0,
+          "rejectedAuxiliaryRequestCount": 0,
+          "gapCount": 0,
+          "collectorSealComplete": true,
+          "terminalLedgerJsonSha256": "sha256:61bd57f3b63eb840774af26607ff809577dd35f8944876901274c104e4d9c6c0",
+          "collectorReceiptSha256": "sha256:c470f771eab45abe909055e0a91aea485f629e38b00d7acc5cf84626e1212371"
+        }
+      }
+    },
+    {
+      "evidenceFile": "recorder-calibration-node-esm-pre-guard.json",
+      "evidenceFileSha256": "sha256:08bc41c9d4b08081c1b62e5266a9b635aa1b7cb9fd801bc096d46bc9527c81b5",
+      "report": {
+        "schemaVersion": "jazzboard-exp0036-recorder-calibration/v1",
+        "classification": "synthetic_node_esm_generated_adapter_and_loopback_collector",
+        "claims": {
+          "nativeBrowserWebMcpMeasured": false,
+          "authorOutcomeMeasured": false,
+          "agentSpeedMeasured": false,
+          "collectorNetworkExcludedFromWrappedCompletion": true
+        },
+        "settings": {
+          "samples": 10,
+          "warmups": 3,
+          "targetOutputJsonUtf8Bytes": 267642,
+          "alternatingOrder": true,
+          "node": "v25.5.0",
+          "platform": "darwin",
+          "architecture": "arm64"
+        },
+        "timing": {
+          "baselineExecutor": {
+            "count": 10,
+            "minMs": 0.0009999999983847374,
+            "medianMs": 0.004750000000058208,
+            "p95Ms": 0.016190250000090594,
+            "maxMs": 0.018834000000424567,
+            "meanMs": 0.006695999999840297
+          },
+          "generatedAdapterCompletion": {
+            "count": 10,
+            "minMs": 5.3069169999999986,
+            "medianMs": 10.69456250000053,
+            "p95Ms": 14.143314399999914,
+            "maxMs": 15.705582999999933,
+            "meanMs": 10.411291699999879
+          },
+          "pairedAddedCompletionCost": {
+            "count": 10,
+            "minMs": 5.298417000000086,
+            "medianMs": 10.69208350000099,
+            "p95Ms": 14.13418939999951,
+            "maxMs": 15.69420799999989,
+            "meanMs": 10.404595700000039
+          },
+          "collectorAckAfterCompletion": {
+            "count": 10,
+            "minMs": 321.058542,
+            "medianMs": 1367.1135625,
+            "p95Ms": 2100.341042150001,
+            "maxMs": 2238.9166670000013,
+            "meanMs": 1300.1869669000002
+          }
+        },
+        "proof": {
+          "observerSourceSha256": "sha256:ec4acf17d05a13bba006a4233b84cb888e3f16447ccc74ebda09317472761da4",
+          "observerConfigSha256": "sha256:f3299a2cd5f2ad6a9240eb852938d8fed25e7f90cbe41bf96bd12cd8764168ac",
+          "recordedInvocationCount": 13,
+          "acceptedEventCount": 30,
+          "rejectedEventCount": 0,
+          "rejectedAuxiliaryRequestCount": 0,
+          "gapCount": 0,
+          "collectorSealComplete": true,
+          "terminalLedgerJsonSha256": "sha256:79ada9318a04df32613795b35a7dff16c3b330c7c688087202a3f488b051f6d5",
+          "collectorReceiptSha256": "sha256:9c9b98ced5ee811480b46963b5b6945f63e6ce33f9aba9b7dfc88483e4f7d153"
+        }
+      }
+    },
+    {
+      "evidenceFile": "recorder-calibration-node-esm-post-guard.json",
+      "evidenceFileSha256": "sha256:34c835287d88c42960fc9000b390a56ec61bcb9b9910ac8421e487b400c93dfc",
+      "report": {
+        "schemaVersion": "jazzboard-exp0036-recorder-calibration/v1",
+        "classification": "synthetic_node_esm_generated_adapter_and_loopback_collector",
+        "claims": {
+          "nativeBrowserWebMcpMeasured": false,
+          "authorOutcomeMeasured": false,
+          "agentSpeedMeasured": false,
+          "collectorNetworkExcludedFromWrappedCompletion": true
+        },
+        "settings": {
+          "samples": 10,
+          "warmups": 3,
+          "targetOutputJsonUtf8Bytes": 267642,
+          "alternatingOrder": true,
+          "node": "v25.5.0",
+          "platform": "darwin",
+          "architecture": "arm64"
+        },
+        "timing": {
+          "baselineExecutor": {
+            "count": 10,
+            "minMs": 0.0011660000000119908,
+            "medianMs": 0.004395999999815103,
+            "p95Ms": 0.014400150000165006,
+            "maxMs": 0.01724999999987631,
+            "meanMs": 0.005608299999914834
+          },
+          "generatedAdapterCompletion": {
+            "count": 10,
+            "minMs": 5.211916000000201,
+            "medianMs": 10.466124500000433,
+            "p95Ms": 11.780933299999411,
+            "maxMs": 12.45983299999898,
+            "meanMs": 9.693103999999925
+          },
+          "pairedAddedCompletionCost": {
+            "count": 10,
+            "minMs": 5.210541000000376,
+            "medianMs": 10.456082500000548,
+            "p95Ms": 11.774694049999566,
+            "maxMs": 12.453874999999243,
+            "meanMs": 9.68749570000001
+          },
+          "collectorAckAfterCompletion": {
+            "count": 10,
+            "minMs": 300.019958,
+            "medianMs": 1313.154438,
+            "p95Ms": 2084.10121265,
+            "maxMs": 2313.8285000000014,
+            "meanMs": 1200.0576085000002
+          }
+        },
+        "proof": {
+          "observerSourceSha256": "sha256:559c2cb4fc93fd0b9258bb76dba67caf35751fc6b6ecaaa25e1d15ad3dea8934",
+          "observerConfigSha256": "sha256:c30cd89d097432f37f3b1550d06796f0d029dff8f6d20f904d9fa73d9b10ef6c",
+          "recordedInvocationCount": 13,
+          "acceptedEventCount": 30,
+          "rejectedEventCount": 0,
+          "rejectedAuxiliaryRequestCount": 0,
+          "gapCount": 0,
+          "collectorSealComplete": true,
+          "terminalLedgerJsonSha256": "sha256:6567c1bf716eeb6e8598ed9ec2d565065760b9a5ae12c6226ce8507a6f2a87ed",
+          "collectorReceiptSha256": "sha256:1162f0a0833dd0d79d15a3917515fe30f1c0189507dedc26cb249feefce91075"
+        }
+      }
+    },
+    {
+      "evidenceFile": "recorder-calibration-playwright-chromium-post-guard.json",
+      "evidenceFileSha256": "sha256:59bdb37bda4df101a055a8c18f1d07a9ff82a25b8de49a650934e7ec3987b71f",
+      "report": {
+        "schemaVersion": "jazzboard-exp0036-recorder-browser-calibration/v1",
+        "classification": "synthetic_playwright_chromium_generated_adapter_and_loopback_collector",
+        "claims": {
+          "targetBrowserJavaScriptEngineMeasured": true,
+          "nativeBrowserWebMcpMeasured": false,
+          "authorOutcomeMeasured": false,
+          "agentSpeedMeasured": false,
+          "collectorNetworkExcludedFromWrappedCompletion": true
+        },
+        "settings": {
+          "samples": 10,
+          "warmups": 3,
+          "targetOutputJsonUtf8Bytes": 267642,
+          "alternatingOrder": true,
+          "browserVersion": "151.0.7922.34",
+          "playwright": "1.62.1"
+        },
+        "timing": {
+          "baselineExecutor": {
+            "count": 10,
+            "minMs": 0,
+            "medianMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "meanMs": 0
+          },
+          "generatedAdapterCompletion": {
+            "count": 10,
+            "minMs": 8.5,
+            "medianMs": 13.899999976158142,
+            "p95Ms": 18.089999997615813,
+            "maxMs": 18.899999976158142,
+            "meanMs": 13.530000007152557
+          },
+          "pairedAddedCompletionCost": {
+            "count": 10,
+            "minMs": 8.5,
+            "medianMs": 13.899999976158142,
+            "p95Ms": 18.089999997615813,
+            "maxMs": 18.899999976158142,
+            "meanMs": 13.530000007152557
+          },
+          "collectorAckAfterEvaluation": {
+            "count": 10,
+            "minMs": 98.5609159999999,
+            "medianMs": 227.91660400000023,
+            "p95Ms": 353.1747667,
+            "maxMs": 389.45729200000005,
+            "meanMs": 221.42240410000005
+          }
+        },
+        "proof": {
+          "observerSourceSha256": "sha256:2e7077cacfc533bdf053bb86a8a9183f7ea7fa8e98315aeb3f380f3c1edf376c",
+          "observerConfigSha256": "sha256:8e8a366d014240dcb5998ec6bbaefec4864638d404ac2e7227d8a6f938d69831",
+          "recordedInvocationCount": 13,
+          "acceptedEventCount": 30,
+          "rejectedEventCount": 0,
+          "externalRejectedRequestCount": 0,
+          "gapCount": 0,
+          "collectorSealComplete": true,
+          "terminalLedgerJsonSha256": "sha256:cc320d388834ee7f1625623608ca840d5bae77aa27e09cba93e98a8b748ae9ac",
+          "collectorReceiptSha256": "sha256:3998eb0bdb14adb4ba6084091c99a3977a7a221372e95e87c690883d4b564b25"
+        }
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "path": "research/protocols/exp-0036-speed-quality.md",
+      "sha256": "sha256:40b1ddfc9d3cd73ee7f212911449e8db26d37483fa0c0a0f7c7f68fbc2fc2bb4"
+    },
+    {
+      "path": "research/protocols/exp-0036-frozen-packet-v1.md",
+      "sha256": "sha256:f15d1c2c9217dad5401606b38752228820e54c31a508aa25a67f999047aa981f"
+    },
+    {
+      "path": "research/protocols/exp-0036-blinded-pair-review-v1.md",
+      "sha256": "sha256:b139f18a11e5502eaefe2696fc3fb2e34e859d7d027758a71728510af1edf5c1"
+    },
+    {
+      "path": "research/data/exp-0036-author-packets-v1.json",
+      "sha256": "sha256:ebe82ce186b1f72a542e22bc92644d870b41e88f9ff3380c8fb30314bb6241a7"
+    },
+    {
+      "path": "research/data/exp-0036-grader-manifest-v1.json",
+      "sha256": "sha256:76ea4ad3e7744c29edc1b98bda68d86bdaa45294bffbfbb0d1c50a52c7ef840e"
+    },
+    {
+      "path": "research/scripts/exp0036-native-recorder.mjs",
+      "sha256": "sha256:edc6648fec757d45ef397157c486c786e738ac2140062f07a5ffd1794500a576"
+    },
+    {
+      "path": "research/scripts/exp0036-recorder-probe.mjs",
+      "sha256": "sha256:634cdd1c78638ead6d9bdd0f3ac516d09e1ebfceaf0cad1e215d10bd62dcf349"
+    },
+    {
+      "path": "research/scripts/exp0036-recorder-calibration.mjs",
+      "sha256": "sha256:d24483a87903b829bc09250cac4a34526db9edd684989f2c33b7830f6c47b9ea"
+    },
+    {
+      "path": "research/scripts/exp0036-recorder-browser-calibration.mjs",
+      "sha256": "sha256:d993fdcea53f6903cf20421858c2755c0fe7cac480c45c1349b8df8cb89c5e35"
+    },
+    {
+      "path": "research/scripts/exp0036-frozen-packet.mjs",
+      "sha256": "sha256:bbfe648e71cc93baaa3fd4285014a3a5f432236253525b75de32d16339ceda1c"
+    },
+    {
+      "path": "research/scripts/exp0036-attempt-preflight.mjs",
+      "sha256": "sha256:acd38d2b27bcb70f717e5ed59ab73f3613c965f64f3ed96f4dee85037baf5c7d"
+    },
+    {
+      "path": "research/scripts/exp0036-native-telemetry.mjs",
+      "sha256": "sha256:488d49b68f7fbf27880da50638bb78878b796c09a6425a6c4240d0c2e8e315c9"
+    }
+  ]
+}

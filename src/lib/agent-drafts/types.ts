@@ -7,8 +7,10 @@ import type {
 } from "@/lib/domain/types";
 
 export const AGENT_CANVAS_DRAFT_SCHEMA_VERSION = 1 as const;
+/** Client playback window for a committed atomic-import reveal. */
+export const AGENT_COMMITTED_REVEAL_DURATION_MS = 8_500;
 
-export type AgentCanvasDraftStatus = "active" | "committing" | "awaiting_review";
+export type AgentCanvasDraftStatus = "active" | "committing" | "awaiting_review" | "presenting";
 export type AgentCanvasDraftRemovalReason = "discarded" | "committed" | "proposed";
 
 export type AgentCanvasDraftAuthoritativeCommit = {
@@ -140,7 +142,7 @@ export function isAgentCanvasDraftEvent(value: unknown): value is AgentCanvasDra
     return typeof event.ownerParticipantId === "string" &&
       event.ownerParticipantId.length > 0 &&
       event.ownerParticipantId.length <= 160 &&
-      (event.status === "active" || event.status === "committing" || event.status === "awaiting_review") &&
+      (event.status === "active" || event.status === "committing" || event.status === "awaiting_review" || event.status === "presenting") &&
       Number.isSafeInteger(event.expiresAt) &&
       Number(event.expiresAt) >= 0;
   }
