@@ -39,6 +39,16 @@ function isSameOriginRoomBootstrapRequest(url: string, method: string): boolean 
   }
 }
 
+function guestSessionLocks(): LockManager | undefined {
+  try {
+    return typeof navigator === "undefined" ? undefined : navigator.locks;
+  } catch {
+    // Some browser policies deny access to the getter. Entry must remain
+    // available even where optional cross-tab coordination is unavailable.
+    return undefined;
+  }
+}
+
 export async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has(CLIENT_CAPABILITIES_HEADER)) {
@@ -66,29 +76,43 @@ export async function apiRequest<T>(url: string, init: RequestInit = {}): Promis
     method !== "HEAD" &&
     !(init.body instanceof FormData);
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await request();
-      const data = (await response.json()) as T & { ok?: boolean; error?: ApiFailure };
-      if (!response.ok || data.ok === false) {
-        throw new JazzboardApiError(
-          response.status,
-          data.error ?? { code: "REQUEST_FAILED", message: "Jazzboard could not complete that request." },
-        );
-      }
-      return data;
-    } catch (error) {
-      const ambiguousTransportFailure = error instanceof TypeError || error instanceof SyntaxError;
-      if (
-        attempt > 0 ||
-        !ambiguousTransportFailure ||
-        !canRetryAmbiguousMutation ||
-        init.signal?.aborted
-      ) {
-        throw error;
+  const requestWithRetry = async (): Promise<T> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await request();
+        const data = (await response.json()) as T & { ok?: boolean; error?: ApiFailure };
+        if (!response.ok || data.ok === false) {
+          throw new JazzboardApiError(
+            response.status,
+            data.error ?? { code: "REQUEST_FAILED", message: "Jazzboard could not complete that request." },
+          );
+        }
+        return data;
+      } catch (error) {
+        const ambiguousTransportFailure = error instanceof TypeError || error instanceof SyntaxError;
+        if (
+          attempt > 0 ||
+          !ambiguousTransportFailure ||
+          !canRetryAmbiguousMutation ||
+          init.signal?.aborted
+        ) {
+          throw error;
+        }
       }
     }
-  }
 
-  throw new Error("Jazzboard exhausted its bounded request retry.");
+    throw new Error("Jazzboard exhausted its bounded request retry.");
+  };
+
+  const locks = isSameOriginRoomBootstrapRequest(url, method) ? guestSessionLocks() : undefined;
+  if (typeof locks?.request === "function") {
+    // Fresh tabs otherwise create different signed identities concurrently,
+    // then overwrite the one shared guest cookie and lose room membership.
+    // Hold through the bounded retry so the next entry sends the settled cookie.
+    return locks.request("jazzboard-guest-session-bootstrap", {
+      mode: "exclusive",
+      ...(init.signal ? { signal: init.signal } : {}),
+    }, requestWithRetry);
+  }
+  return requestWithRetry();
 }
