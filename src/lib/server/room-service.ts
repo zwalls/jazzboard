@@ -17,6 +17,7 @@ import {
 import { DomainError } from "@/lib/domain/errors";
 import {
   agentEditProposalSummary,
+  assertAgentEditProposalTargets,
   buildAgentEditProposal,
   buildRoomActivity,
   canvasCommandActivityDescriptor,
@@ -701,6 +702,7 @@ export async function reviewAgentEditProposal(input: {
         };
       }
 
+      assertAgentEditProposalTargets(room, proposal);
       const baseline = structuredClone(room);
       const semanticResult = proposal.request.kind === "canvas_command"
         ? applySemanticTransaction(

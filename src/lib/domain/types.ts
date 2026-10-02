@@ -333,10 +333,15 @@ export type AgentEditProposal = {
   purpose: AgentEditProposalPurpose;
   /** Exact validated agent request, retained for conflict-safe replay. */
   request: AgentEditProposalRequest;
+  /** Server-recorded target fingerprints; absent in legacy persisted proposals. */
+  targetGuards?: {
+    objects: Record<string, string | null>;
+    diagrams: Record<string, string | null>;
+  };
   review: AgentEditProposalReview | null;
 };
 
-export type AgentEditProposalSummary = Omit<AgentEditProposal, "request">;
+export type AgentEditProposalSummary = Omit<AgentEditProposal, "request" | "targetGuards">;
 
 export type RoomState = {
   id: string;

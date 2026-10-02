@@ -165,6 +165,23 @@ describe("reviewable room activities", () => {
 });
 
 describe("agent edit review domain records", () => {
+  it("keeps target guards stable across persisted JSON property order and out of summaries", () => {
+    const target = object("target", 1, 10);
+    if (target.kind !== "text") throw new Error("Expected the text fixture");
+    const source = room([target], [], 4);
+    const request = { kind: "canvas_command" as const, command: {
+      type: "update" as const, objectId: "target", expectedRevision: 1, operation: "edit" as const, patch: { content: "Approved" },
+    } };
+    const first = buildAgentEditProposal({ room: source, actor, request, now: NOW });
+    source.objects.target = Object.fromEntries(Object.entries(target).reverse()) as CanvasObject;
+    const reordered = buildAgentEditProposal({ room: source, actor, request, now: NOW });
+    expect(first.targetGuards).toEqual(reordered.targetGuards);
+    expect(first.targetGuards?.objects.target).toMatch(/^[a-f0-9]{64}$/);
+    expect(agentEditProposalSummary(first)).not.toHaveProperty("targetGuards");
+    source.objects.target = { ...target, content: "Recreated with same timestamp, creator and revision" };
+    expect(buildAgentEditProposal({ room: source, actor, request, now: NOW }).targetGuards).not.toEqual(first.targetGuards);
+  });
+
   it("migrates pre-policy rooms to live editing with an authoritative empty queue", () => {
     const legacy = room([], [], 4) as Partial<RoomState>;
     delete legacy.agentEditPolicy;

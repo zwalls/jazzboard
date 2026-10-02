@@ -65,6 +65,8 @@ export function ReviewPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const displayedError = error ?? refreshError;
   const reviewUrl = `/api/rooms/${encodeURIComponent(room.id)}/review`;
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -75,11 +77,11 @@ export function ReviewPanel({
         method: "GET",
         signal,
       });
-      setError(null);
+      setRefreshError(null);
       setProposals(response.proposals);
     } catch (requestError) {
       if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
-        setError(messageFor(requestError));
+        setRefreshError(messageFor(requestError));
       }
     } finally {
       if (!signal?.aborted) setLoading(false);
@@ -179,6 +181,7 @@ export function ReviewPanel({
           onClick={() => {
             setLoading(true);
             setError(null);
+            setRefreshError(null);
             void refresh();
           }}
           aria-label="Refresh proposals"
@@ -255,7 +258,7 @@ export function ReviewPanel({
         {loading && !proposals.length ? (
           <div className={styles.empty}><LoaderCircle className={styles.spin} size={18} /><span>Reading the review queue…</span></div>
         ) : null}
-        {error ? <div className={styles.error} role="alert">{error}</div> : null}
+        {displayedError ? <div className={styles.error} role="alert">{displayedError}</div> : null}
       </div>
     </aside>
   );

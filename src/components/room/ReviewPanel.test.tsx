@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest } from "@/lib/client/api";
@@ -83,6 +83,39 @@ describe("ReviewPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(apiRequest).mockResolvedValue(listResponse());
+  });
+
+  it("retains an approval conflict when background queue refresh succeeds", async () => {
+    const interval = vi.spyOn(window, "setInterval");
+    try {
+      vi.mocked(apiRequest).mockImplementation(async (_url, init) => {
+        if (init?.method === "POST") throw new Error("Objects changed after this proposal");
+        return listResponse();
+      });
+      renderPanel("participant");
+      await screen.findByText("Ari’s agent");
+      fireEvent.click(screen.getByRole("button", { name: "Approve & apply" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Objects changed after this proposal");
+      const poll = interval.mock.calls.find(([, delay]) => delay === 4_000)?.[0];
+      if (typeof poll !== "function") throw new Error("Expected the background refresh callback");
+      await act(async () => { poll(); });
+      expect(screen.getByRole("alert")).toHaveTextContent("Objects changed after this proposal");
+      expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+    } finally { interval.mockRestore(); }
+  });
+
+  it("clears a queue read error when background refresh recovers", async () => {
+    const interval = vi.spyOn(window, "setInterval");
+    try {
+      vi.mocked(apiRequest).mockRejectedValueOnce(new Error("Synthetic queue read failure"));
+      renderPanel("participant");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Synthetic queue read failure");
+      const poll = interval.mock.calls.find(([, delay]) => delay === 4_000)?.[0];
+      if (typeof poll !== "function") throw new Error("Expected the background refresh callback");
+      await act(async () => { poll(); });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByText("Ari’s agent")).toBeInTheDocument();
+    } finally { interval.mockRestore(); }
   });
 
   it("lets spectators inspect attributed proposals but not decide or change policy", async () => {

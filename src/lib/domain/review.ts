@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+
+import { DomainError } from "./errors";
 
 import type {
   ActivityMutationMetadata,
@@ -207,6 +210,37 @@ export function agentEditProposalPurpose(request: AgentEditProposalRequest): Age
   };
 }
 
+function targetFingerprint(value: unknown): string {
+  // Persisted JSON can reorder properties. Hash authored state canonically,
+  // rather than relying on IDs, resettable revisions or creation times alone.
+  const canonical = JSON.stringify(value, (_key, item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]));
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+function proposalTargetGuards(room: RoomState, purpose: AgentEditProposalPurpose): NonNullable<AgentEditProposal["targetGuards"]> {
+  return {
+    objects: Object.fromEntries(purpose.objectIds.map((id) => [id, room.objects[id]
+      ? targetFingerprint({ ...room.objects[id], diagramIds: [] }) : null])),
+    diagrams: Object.fromEntries(purpose.diagramIds.map((id) => [id, room.diagrams?.[id]
+      ? targetFingerprint({ ...room.diagrams[id], bounds: null }) : null])),
+  };
+}
+
+/** Validate the queued targets before any part of an approved edit is applied. */
+export function assertAgentEditProposalTargets(room: RoomState, proposal: AgentEditProposal): void {
+  // Compensating proposals use their original activity's private post-state.
+  if (proposal.request.kind === "activity_revert") return;
+  if (!proposal.targetGuards) {
+    throw new DomainError("REVISION_CONFLICT", "This older proposal cannot verify its targets. Reject it and ask the agent to submit a fresh proposal.", { proposalId: proposal.id });
+  }
+  if (!isDeepStrictEqual(proposal.targetGuards, proposalTargetGuards(room, proposal.purpose))) {
+    throw new DomainError("REVISION_CONFLICT", "Objects or Diagrams changed after this proposal. Ask the agent to submit a fresh proposal.", { proposalId: proposal.id });
+  }
+}
+
 export function buildAgentEditProposal(input: {
   room: RoomState;
   actor: ActorRef;
@@ -216,6 +250,7 @@ export function buildAgentEditProposal(input: {
   now?: number;
 }): AgentEditProposal {
   const now = input.now ?? Date.now();
+  const purpose = agentEditProposalPurpose(input.request);
   return {
     id: input.id ?? `proposal_${randomUUID()}`,
     roomId: input.room.id,
@@ -227,8 +262,9 @@ export function buildAgentEditProposal(input: {
     author: structuredClone(input.actor),
     intent: input.metadata?.intent ?? null,
     summary: input.metadata?.summary ?? null,
-    purpose: agentEditProposalPurpose(input.request),
+    purpose,
     request: structuredClone(input.request),
+    ...(input.request.kind === "activity_revert" ? {} : { targetGuards: proposalTargetGuards(input.room, purpose) }),
     review: null,
   };
 }
@@ -236,5 +272,6 @@ export function buildAgentEditProposal(input: {
 export function agentEditProposalSummary(proposal: AgentEditProposal): AgentEditProposalSummary {
   const summary = structuredClone(proposal) as Partial<AgentEditProposal>;
   delete summary.request;
+  delete summary.targetGuards;
   return summary as AgentEditProposalSummary;
 }
