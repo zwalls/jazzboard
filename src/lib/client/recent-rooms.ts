@@ -7,8 +7,15 @@ export const MAX_RECENT_ROOMS = 8;
 
 export type BrowserStorage = Pick<Storage, "getItem" | "setItem">;
 
-function defaultStorage(): BrowserStorage | null {
-  return typeof window === "undefined" ? null : window.localStorage;
+export function getBrowserStorage(): BrowserStorage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    // Browser policy can deny the getter itself before getItem/setItem run.
+    // Local history is optional and must not prevent authorized room entry.
+    return null;
+  }
 }
 
 export function isRecentRoom(value: unknown): value is RecentRoom {
@@ -46,7 +53,7 @@ export function normalizeRecentRooms(values: readonly unknown[]): RecentRoom[] {
  * Reads only this origin's browser-local access history. It never calls the
  * room service and therefore cannot enumerate rooms belonging to anyone else.
  */
-export function readRecentRooms(storage: BrowserStorage | null = defaultStorage()): RecentRoom[] {
+export function readRecentRooms(storage: BrowserStorage | null = getBrowserStorage()): RecentRoom[] {
   if (!storage) return [];
   try {
     const raw = storage.getItem(RECENT_ROOMS_KEY);
@@ -60,7 +67,7 @@ export function readRecentRooms(storage: BrowserStorage | null = defaultStorage(
 
 export function persistRecentRooms(
   rooms: readonly RecentRoom[],
-  storage: BrowserStorage | null = defaultStorage(),
+  storage: BrowserStorage | null = getBrowserStorage(),
 ): boolean {
   if (!storage) return false;
   try {
@@ -74,7 +81,7 @@ export function persistRecentRooms(
 
 export function upsertRecentRoom(
   room: RecentRoom,
-  storage: BrowserStorage | null = defaultStorage(),
+  storage: BrowserStorage | null = getBrowserStorage(),
 ): { rooms: RecentRoom[]; stored: boolean } {
   const rooms = normalizeRecentRooms([room, ...readRecentRooms(storage)]);
   return { rooms, stored: persistRecentRooms(rooms, storage) };
@@ -83,7 +90,7 @@ export function upsertRecentRoom(
 export function touchRecentRoom(
   roomId: string,
   lastOpenedAt: number,
-  storage: BrowserStorage | null = defaultStorage(),
+  storage: BrowserStorage | null = getBrowserStorage(),
 ): { room: RecentRoom; rooms: RecentRoom[]; stored: boolean } | null {
   const current = readRecentRooms(storage);
   const room = current.find((entry) => entry.roomId === roomId);
@@ -95,7 +102,7 @@ export function touchRecentRoom(
 
 export function removeRecentRoom(
   roomId: string,
-  storage: BrowserStorage | null = defaultStorage(),
+  storage: BrowserStorage | null = getBrowserStorage(),
 ): { removed: RecentRoom | null; rooms: RecentRoom[]; stored: boolean } {
   const current = readRecentRooms(storage);
   const removed = current.find((entry) => entry.roomId === roomId) ?? null;
@@ -103,7 +110,7 @@ export function removeRecentRoom(
   return { removed, rooms, stored: persistRecentRooms(rooms, storage) };
 }
 
-export function readDisplayName(storage: BrowserStorage | null = defaultStorage()): string {
+export function readDisplayName(storage: BrowserStorage | null = getBrowserStorage()): string {
   if (!storage) return "";
   try {
     return storage.getItem(DISPLAY_NAME_KEY) ?? "";
@@ -114,7 +121,7 @@ export function readDisplayName(storage: BrowserStorage | null = defaultStorage(
 
 export function persistDisplayName(
   displayName: string,
-  storage: BrowserStorage | null = defaultStorage(),
+  storage: BrowserStorage | null = getBrowserStorage(),
 ): boolean {
   if (!storage) return false;
   try {

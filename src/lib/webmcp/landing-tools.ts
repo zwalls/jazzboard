@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
+  getBrowserStorage,
   persistDisplayName,
   readRecentRooms,
   removeRecentRoom,
@@ -199,7 +200,7 @@ export function createJazzboardLandingWebMcpTools(
 ): WebMCP.ModelContextTool[] {
   const request = dependencies.request ?? (apiRequest as WebMcpRequest);
   const storage = dependencies.storage === undefined
-    ? (typeof window === "undefined" ? null : window.localStorage)
+    ? getBrowserStorage()
     : dependencies.storage;
   const now = dependencies.now ?? Date.now;
 

@@ -1,4 +1,4 @@
-# Canvas history data-loss fixes
+# Verified product-failure fixes
 
 Base: remote main `6276b7dafa1aa80aaa71f2dc0b4bf8a272a470a3`. Vercel production metadata also identified this commit before the fixes. Work was isolated from the canonical checkout and the separate OpenAI plugin branch.
 
@@ -38,3 +38,21 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:4288 npm run test:e2e -- \
 `npm run check` cannot be reported green. Its research suite encounters research/provenance/runtime failures, and the broad run was interrupted after those failures appeared. The frozen spectator allowlist test was rerun in an unchanged `6276b7d` checkout and fails there too: the frozen research allowlist lacks `start_guided_walkthrough`, `get_guided_walkthrough_status`, `navigate_guided_walkthrough`, `stop_guided_walkthrough`, and `control_local_viewport`. These changes do not alter that registry or the research authority contracts. Product tests, focused browser regressions, type checking, lint, and production compilation were verified separately; no research/security gate was changed or bypassed.
 
 No additional critical finding is claimed by this focused pass. These are verified high-impact product data-loss failures, not claims of a general security audit or an authentication bypass.
+
+## Follow-up: blocked browser storage
+
+**Material availability failure:** browser policy can throw `SecurityError` when accessing the `window.localStorage` getter itself. The old default-argument access occurred outside the existing read/write exception handlers. In an actual Chrome page with a synthetic policy denial, creating a room returned a successful API response but left the person on the homepage, and none of the five landing WebMCP tools registered. Exact-code entry was also vulnerable to the same storage access.
+
+The shared storage accessor now catches getter failures and returns unavailable storage. Authorized room creation/joining and agent tool registration proceed; optional local room history reports that it was not stored. No authorization rule, cookie setting, or server persistence behavior changed.
+
+The unit and browser regressions failed before the fix. Verification after the fix:
+
+- Storage and landing-tool unit tests: **25 passed**.
+- Product unit/integration suite: **1,641 passed, 12 skipped**, across 162 passing files and one skipped file.
+- Two actual Chrome regressions against the local production build passed: create, signed-session membership, reload, tool discovery, empty local history, invalid-code error recovery, and exact-code join with denied storage.
+- Six additional Chrome scenarios against the local development server passed: landing registration before hydration, discovery before hydration, skill/crawler/sitemap delivery, live agent Follow/Spotlight, shared semantic edits and object conflicts, and spectator authorization/explicit upgrade.
+- Production build, TypeScript check, and changed-file ESLint passed.
+
+Production browser authorization was checked through same-origin browser fetch. Existing collaboration tests use Playwright API request helpers; those helpers do not send production Secure cookies over local HTTP, so their additional coverage runs against the isolated development server. An initial local-production run of those helper-based tests returned `AUTH_REQUIRED`; the cookie security policy was preserved. Sandbox-only attempts to launch Chrome also failed before browser startup; successful browser runs used the approved local Chrome/loopback execution environment.
+
+This bounded follow-up does not claim another critical vulnerability. Its separate commit keeps the concrete storage availability fix reviewable alongside the earlier data-loss fix.

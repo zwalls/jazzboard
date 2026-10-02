@@ -75,6 +75,29 @@ function harness(options: { storage?: MemoryStorage; request?: ReturnType<typeof
 }
 
 describe("landing WebMCP tools", () => {
+  it("registers and opens an authorized room when the browser storage getter throws", async () => {
+    const getter = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage access is blocked", "SecurityError");
+    });
+    try {
+      const navigateToRoom = vi.fn();
+      const request = vi.fn(async () => roomResponse());
+      const tools = createJazzboardLandingWebMcpTools({
+        context: { acceptRecentRooms: vi.fn(), navigateToRoom },
+      }, { request: request as unknown as WebMcpRequest });
+      const created = await tools.find((tool) => tool.name === "create_room")!
+        .execute({ displayName: "Synthetic guest" }, { signal: new AbortController().signal });
+      expect(created).toMatchObject({ ok: true, data: { recentReferenceStored: false } });
+      expect(navigateToRoom).toHaveBeenCalledWith("room-1");
+      const recentRooms = await tools.find((tool) => tool.name === "list_recent_rooms")!
+        .execute({}, { signal: new AbortController().signal });
+      expect(recentRooms).toMatchObject({ ok: true, data: { rooms: [] } });
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      getter.mockRestore();
+    }
+  });
+
   it("publishes the complete lifecycle surface with truthful annotations", () => {
     const { tools, byName } = harness();
 

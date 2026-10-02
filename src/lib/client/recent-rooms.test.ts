@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { RecentRoom } from "@/lib/domain/types";
 
@@ -41,6 +41,22 @@ function room(index: number, overrides: Partial<RecentRoom> = {}): RecentRoom {
 }
 
 describe("browser-private recent rooms", () => {
+  it("keeps browser defaults usable when accessing localStorage itself throws", () => {
+    const getter = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage access is blocked", "SecurityError");
+    });
+    try {
+      expect(readRecentRooms()).toEqual([]);
+      expect(readDisplayName()).toBe("");
+      expect(persistDisplayName("Synthetic guest")).toBe(false);
+      expect(upsertRecentRoom(room(1))).toEqual({ rooms: [room(1)], stored: false });
+      expect(touchRecentRoom("room-1", 100)).toBeNull();
+      expect(removeRecentRoom("room-1")).toEqual({ removed: null, rooms: [], stored: false });
+    } finally {
+      getter.mockRestore();
+    }
+  });
+
   it("validates, de-duplicates, orders, and bounds local references", () => {
     const values: unknown[] = [
       { ...room(2), lastOpenedAt: 2 },
