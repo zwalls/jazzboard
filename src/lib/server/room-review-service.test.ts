@@ -543,6 +543,42 @@ describe("server-authoritative agent edit review", () => {
     });
   });
 
+  it("keeps a compensating proposal pending when its object incarnation changes before approval", async () => {
+    const { store, room } = await seededRoom();
+    const original = await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("reused-review-note", "Original"),
+    });
+    if (original.outcome !== "applied") throw new Error("Expected the original creation.");
+    await setAgentEditPolicy({ roomId: room.id, participantId: "p_owner", actorKind: "human", policy: "review" });
+    const proposed = await runActivityRevert({ roomId: room.id, participantId: "p_owner", actorKind: "agent",
+      revert: { activityId: original.activity.id,
+        objectExpectations: [{ objectId: "reused-review-note", state: "present", expectedRevision: 1 }],
+        diagramExpectations: [],
+      },
+    });
+    if (proposed.outcome !== "proposed") throw new Error("Expected a compensating proposal.");
+    await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: { type: "delete", targets: [{ objectId: "reused-review-note", expectedRevision: 1 }] },
+    });
+    // Keep the fixed clock and same creator: different content must still be
+    // protected even if timestamps and revision numbers collide.
+    await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("reused-review-note", "Replacement saved work"),
+    });
+    const before = await store.getRoom(room.id);
+    const historyBefore = await store.listActivities(room.id);
+    await expectDomainError(reviewAgentEditProposal({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      proposalId: proposed.proposal.id, expectedProposalRevision: 1, action: "approve",
+    }), "REVISION_CONFLICT");
+    expect(await store.getRoom(room.id)).toEqual(before);
+    expect(await store.listActivities(room.id)).toEqual(historyBefore);
+    expect(before?.reviewProposals[0]).toMatchObject({ status: "pending", revision: 1, review: null });
+    const rejected = await reviewAgentEditProposal({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      proposalId: proposed.proposal.id, expectedProposalRevision: 1, action: "reject",
+    });
+    expect(rejected.outcome).toBe("rejected");
+  });
+
   it("bounds an all-pending queue and leaves room state unchanged when it is full", async () => {
     const { store, room } = await seededRoom();
     await setAgentEditPolicy({ roomId: room.id, participantId: "p_owner", actorKind: "human", policy: "review" });

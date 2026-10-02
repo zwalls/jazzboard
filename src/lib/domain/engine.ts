@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { DomainError } from "./errors";
 import {
@@ -1095,6 +1096,9 @@ export function applyActivityRevert(
   assertExactExpectationIds(Object.keys(activity.objectGuards), objectExpectations.keys(), "object");
   assertExactExpectationIds(Object.keys(activity.diagramGuards), diagramExpectations.keys(), "Diagram");
 
+  const recordedObjects = new Map(activity.objectChanges.map((change) => [change.objectId, change.after]));
+  const recordedDiagrams = new Map(activity.diagramChanges.map((change) => [change.diagramId, change.after]));
+
   for (const [objectId, guard] of Object.entries(activity.objectGuards)) {
     const expectation = objectExpectations.get(objectId)!;
     if (!expectationMatchesGuard(expectation, guard)) {
@@ -1122,6 +1126,18 @@ export function applyActivityRevert(
         objectId,
         required: guard,
         current: current ? { state: "present", revision: current.revision } : { state: "absent" },
+      });
+    }
+    const recorded = recordedObjects.get(objectId);
+    // IDs and revisions can be reused after deletion. Compare the immutable
+    // post-state too, including creation identity. Reverse Diagram membership
+    // is derived independently and is validated through its own guards.
+    if (!recorded || !isDeepStrictEqual({ ...current, diagramIds: [] }, { ...recorded, diagramIds: [] })) {
+      rejectUnsafeRevert(`Canvas object ${objectId} was recreated or changed after this activity.`, {
+        activityId: activity.id,
+        objectId,
+        required: guard,
+        current: { state: "present", revision: current.revision },
       });
     }
     verifyLease(
@@ -1159,6 +1175,18 @@ export function applyActivityRevert(
         required: guard,
         current: current ? { state: "present", revision: current.revision } : { state: "absent" },
       });
+    } else {
+      const recorded = recordedDiagrams.get(diagramId);
+      // Bounds are derived from member geometry; the retained post-state
+      // fences the Diagram's authored metadata and creation identity.
+      if (!recorded || !isDeepStrictEqual({ ...current, bounds: null }, { ...recorded, bounds: null })) {
+        rejectUnsafeRevert(`Diagram ${diagramId} was recreated or changed after this activity.`, {
+          activityId: activity.id,
+          diagramId,
+          required: guard,
+          current: { state: "present", revision: current.revision },
+        });
+      }
     }
   }
 

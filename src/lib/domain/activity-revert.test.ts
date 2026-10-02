@@ -176,6 +176,94 @@ function captureDomainError(run: () => unknown): DomainError {
 }
 
 describe("compensating activity revert", () => {
+  it("preserves a recreated object with a reused revision and rejects the whole creation revert", () => {
+    const { result, activity } = recordedMutation(room([]), {
+      commands: [
+        { type: "create", object: node("api") as never },
+        { type: "create", object: node("worker", 400) as never },
+      ],
+      diagramCommands: [],
+    });
+    const deleted = applySemanticTransaction(result.room, "bob", "human", {
+      commands: [{ type: "delete", targets: [{ objectId: "api", expectedRevision: 1 }] }], diagramCommands: [],
+    }, NOW + 150).room;
+    const recreated = applySemanticTransaction(deleted, "bob", "human", {
+      commands: [{ type: "create", object: { ...node("api"), label: "Bob's replacement" } as never }], diagramCommands: [],
+    }, NOW + 160).room;
+    const before = structuredClone(recreated);
+    expect(recreated.objects.api.revision).toBe(activity.objectGuards.api.state === "present" ? activity.objectGuards.api.revision : -1);
+    expect(recreated.objects.api.createdAt).not.toBe(result.room.objects.api.createdAt);
+    const error = captureDomainError(() => applyActivityRevert(recreated, "alice", "human", activity, requestFor(activity), NOW + 200));
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { objectId: "api" } });
+    expect(recreated).toEqual(before);
+    expect(Object.keys(recreated.objects).sort()).toEqual(["api", "worker"]);
+  });
+
+  it("preserves a replacement object that reaches the revision of an older update", () => {
+    const { result, activity } = recordedMutation(room([node("api")]), {
+      commands: [{ type: "update", objectId: "api", expectedRevision: 1, operation: "edit", patch: { label: "Original edit" } }],
+      diagramCommands: [],
+    });
+    const deleted = applySemanticTransaction(result.room, "bob", "human", {
+      commands: [{ type: "delete", targets: [{ objectId: "api", expectedRevision: 2 }] }], diagramCommands: [],
+    }, NOW + 150).room;
+    const recreated = applySemanticTransaction(deleted, "bob", "human", {
+      commands: [{ type: "create", object: { ...node("api"), label: "Replacement" } as never }], diagramCommands: [],
+    }, NOW + 160).room;
+    const updated = applySemanticTransaction(recreated, "bob", "human", {
+      commands: [{ type: "update", objectId: "api", expectedRevision: 1, operation: "edit", patch: { label: "Replacement saved work" } }], diagramCommands: [],
+    }, NOW + 170).room;
+    const before = structuredClone(updated);
+    const error = captureDomainError(() => applyActivityRevert(updated, "alice", "human", activity, requestFor(activity), NOW + 200));
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { objectId: "api" } });
+    expect(updated).toEqual(before);
+  });
+
+  it("preserves a recreated Diagram with the revision recorded for its older incarnation", () => {
+    const { result, activity } = recordedMutation(room([]), {
+      commands: [], diagramCommands: [{ type: "diagram.create", diagram: diagram([]) as never }],
+    });
+    const deleted = applyActivityRevert(result.room, "bob", "human", activity, requestFor(activity), NOW + 150).room;
+    const recreated = applySemanticTransaction(deleted, "bob", "human", {
+      commands: [], diagramCommands: [{ type: "diagram.create", diagram: { ...diagram([]), title: "Bob's replacement diagram" } as never }],
+    }, NOW + 160).room;
+    const before = structuredClone(recreated);
+    const error = captureDomainError(() => applyActivityRevert(recreated, "alice", "human", activity, requestFor(activity), NOW + 200));
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { diagramId: "diagram-main" } });
+    expect(recreated).toEqual(before);
+  });
+
+  it("preserves a replacement even when revision, creation time and creator collide", () => {
+    const { result, activity } = recordedMutation(room([]), {
+      commands: [{ type: "create", object: node("api") as never }], diagramCommands: [],
+    });
+    const deleted = applySemanticTransaction(result.room, "alice", "agent", {
+      commands: [{ type: "delete", targets: [{ objectId: "api", expectedRevision: 1 }] }], diagramCommands: [],
+    }, NOW + 100).room;
+    const recreated = applySemanticTransaction(deleted, "alice", "agent", {
+      commands: [{ type: "create", object: { ...node("api"), label: "Different saved content" } as never }], diagramCommands: [],
+    }, NOW + 100).room;
+    expect(recreated.objects.api.createdAt).toBe(result.room.objects.api.createdAt);
+    expect(recreated.objects.api.createdBy).toEqual(result.room.objects.api.createdBy);
+    const before = structuredClone(recreated);
+    const error = captureDomainError(() => applyActivityRevert(recreated, "alice", "human", activity, requestFor(activity), NOW + 200));
+    expect(error).toMatchObject({ code: "REVISION_CONFLICT", details: { objectId: "api" } });
+    expect(recreated).toEqual(before);
+  });
+
+  it("still compensates a label edit while retaining a later unrelated Diagram membership", () => {
+    const { result, activity } = recordedMutation(room([node("api")]), {
+      commands: [{ type: "update", objectId: "api", expectedRevision: 1, operation: "edit", patch: { label: "Edited" } }], diagramCommands: [],
+    });
+    const later = applySemanticTransaction(result.room, "bob", "human", {
+      commands: [], diagramCommands: [{ type: "diagram.create", diagram: diagram(["api"]) as never }],
+    }, NOW + 150).room;
+    expect(later.objects.api.revision).toBe(2);
+    const reverted = applyActivityRevert(later, "alice", "human", activity, requestFor(activity), NOW + 200);
+    expect(reverted.room.objects.api).toMatchObject({ label: "api", revision: 3, diagramIds: ["diagram-main"] });
+    expect(reverted.room.diagrams["diagram-main"].memberObjectIds).toEqual(["api"]);
+  });
+
   it("restores semantic state as a new revision with the reverting actor's attribution", () => {
     const source = room([node("api")]);
     const { result, activity } = recordedMutation(source, {

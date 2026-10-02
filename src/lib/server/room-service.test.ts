@@ -830,6 +830,36 @@ describe("room service authorization", () => {
     expect(await store.listActivities(room.id)).toEqual(beforeRejectedRevert);
   });
 
+  it("does not persist an activity compensation after its object ID and revision are reused", async () => {
+    const { store, room } = await seededRoom();
+    const original = await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("reused-activity-note", "Original"),
+    });
+    if (original.outcome !== "applied") throw new Error("Expected the original creation.");
+    await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: { type: "delete", targets: [{ objectId: "reused-activity-note", expectedRevision: 1 }] },
+    });
+    vi.setSystemTime(new Date(START.getTime() + 1));
+    await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("reused-activity-note", "Replacement saved work"),
+    });
+    const before = await store.getRoom(room.id);
+    const historyBefore = await store.listActivities(room.id);
+    const events: RoomEvent[] = [];
+    const unsubscribe = subscribeToLocalRoomEvents((event) => events.push(event));
+    try {
+      await expectDomainError(runActivityRevert({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+        revert: { activityId: original.activity.id,
+          objectExpectations: [{ objectId: "reused-activity-note", state: "present", expectedRevision: 1 }],
+          diagramExpectations: [],
+        },
+      }), "REVISION_CONFLICT");
+    } finally { unsubscribe(); }
+    expect(await store.getRoom(room.id)).toEqual(before);
+    expect(await store.listActivities(room.id)).toEqual(historyBefore);
+    expect(events).toEqual([]);
+  });
+
   it("bounds the immutable per-room log while retaining newest-first order", async () => {
     const { store, room } = await seededRoom();
     for (let index = 0; index <= 200; index += 1) {
