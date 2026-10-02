@@ -162,6 +162,7 @@ function renderPanel(
     sourceRoom?: RoomState;
     selection?: string[];
     runtime?: CanvasRuntime | null;
+    prepareForArtifact?: () => Promise<RoomState>;
   } = {},
 ) {
   const sourceRoom = options.sourceRoom ?? room;
@@ -182,6 +183,7 @@ function renderPanel(
       role={role}
       selection={options.selection ?? []}
       runtime={options.runtime === undefined ? defaultRuntime : options.runtime}
+      prepareForArtifact={options.prepareForArtifact ?? (() => Promise.resolve(sourceRoom))}
       getImportOrigin={() => ({ x: 10, y: 20 })}
       acceptRoom={vi.fn()}
       onClose={vi.fn()}
@@ -207,6 +209,101 @@ describe("buildArtifactUrl", () => {
 
 describe("DurabilityPanel", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("drains pending canvas persistence before requesting a semantic export", async () => {
+    let finish!: (room: RoomState) => void;
+    const prepareForArtifact = vi.fn(() => new Promise<RoomState>((resolve) => { finish = resolve; }));
+    vi.mocked(apiRequest).mockResolvedValue({ ok: true, export: {
+      content: "{}", filename: "saved.json", mediaType: "application/json", warnings: [],
+    } });
+    renderPanel("participant", "export", vi.fn(), { prepareForArtifact });
+    fireEvent.click(screen.getByRole("button", { name: "Semantic JSON" }));
+    await waitFor(() => expect(prepareForArtifact).toHaveBeenCalledOnce());
+    expect(apiRequest).not.toHaveBeenCalled();
+    finish(room);
+    await waitFor(() => expect(downloadTextFile).toHaveBeenCalledOnce());
+  });
+
+  it("does not download a delayed server export after closing its panel", async () => {
+    let finish!: (value: unknown) => void;
+    vi.mocked(apiRequest).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const onAnnounce = vi.fn();
+    const panel = renderPanel("participant", "export", onAnnounce);
+    fireEvent.click(screen.getByRole("button", { name: /^SVG$/ }));
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledOnce());
+    panel.unmount();
+    finish({ ok: true, export: { content: "<svg/>", filename: "closed.svg", mediaType: "image/svg+xml", warnings: [] } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(downloadTextFile).not.toHaveBeenCalled();
+    expect(onAnnounce).not.toHaveBeenCalled();
+  });
+
+  it("does not submit a template whose file reading completes after the panel closes", async () => {
+    let finish!: (value: string) => void;
+    const file = new File(["{}"], "synthetic-template.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: () => new Promise<string>((resolve) => { finish = resolve; }) });
+    const panel = renderPanel("participant");
+    fireEvent.change(panel.container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    panel.unmount();
+    finish("{}");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not request an export when its persistence wait completes after closing", async () => {
+    let finish!: (room: RoomState) => void;
+    const prepareForArtifact = vi.fn(() => new Promise<RoomState>((resolve) => { finish = resolve; }));
+    const panel = renderPanel("participant", "export", vi.fn(), { prepareForArtifact });
+    fireEvent.click(screen.getByRole("button", { name: "Semantic JSON" }));
+    await waitFor(() => expect(prepareForArtifact).toHaveBeenCalledOnce());
+    panel.unmount();
+    finish(room);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("captures a newly created canvas selection before waiting for its persistence", async () => {
+    vi.mocked(apiRequest).mockResolvedValueOnce({ ok: true, export: {
+      content: "{}", filename: "selection.json", mediaType: "application/json", warnings: [],
+    } });
+    renderPanel("participant", "export", vi.fn(), { selection: ["new-pending-object"] });
+    fireEvent.click(screen.getByRole("button", { name: "Selection · 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Semantic JSON" }));
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith(
+      "/api/rooms/room%2Fa%20b/artifacts?format=semantic_json&scope=selection&objectId=new-pending-object",
+      { signal: expect.any(AbortSignal) },
+    ));
+  });
+
+  it("shows a persistence failure without requesting an artifact and allows retry", async () => {
+    const prepareForArtifact = vi.fn().mockRejectedValueOnce(new Error("Synthetic save unavailable"))
+      .mockResolvedValueOnce(room);
+    vi.mocked(apiRequest).mockResolvedValueOnce({ ok: true, export: {
+      content: "{}", filename: "retried.json", mediaType: "application/json", warnings: [],
+    } });
+    renderPanel("participant", "export", vi.fn(), { prepareForArtifact });
+    fireEvent.click(screen.getByRole("button", { name: "Semantic JSON" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Synthetic save unavailable"));
+    expect(apiRequest).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Semantic JSON" }));
+    await waitFor(() => expect(downloadTextFile).toHaveBeenCalledOnce());
+  });
+
+  it("imports against the room revision obtained after draining pending canvas saves", async () => {
+    const preparedRoom = { ...room, roomRevision: room.roomRevision + 1 };
+    const prepareForArtifact = vi.fn().mockResolvedValue(preparedRoom);
+    vi.mocked(apiRequest).mockResolvedValueOnce({ ok: true, room: preparedRoom,
+      changedObjectIds: ["imported-object"], changedDiagramIds: [], warnings: [],
+    });
+    const file = new File(["{}"], "synthetic-template.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => "{}" });
+    const panel = renderPanel("participant", "export", vi.fn(), { prepareForArtifact });
+    fireEvent.change(panel.container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledOnce());
+    expect(prepareForArtifact).toHaveBeenCalledOnce();
+    expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string).expectedRoomRevision)
+      .toBe(preparedRoom.roomRevision);
+  });
 
   it("keeps spectator sharing passive while exposing safe downloads", () => {
     renderPanel("spectator");
@@ -242,6 +339,7 @@ describe("DurabilityPanel", () => {
     }));
     expect(apiRequest).toHaveBeenCalledWith(
       "/api/rooms/room%2Fa%20b/artifacts?format=semantic_json&scope=room",
+      { signal: expect.any(AbortSignal) },
     );
   });
 

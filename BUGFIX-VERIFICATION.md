@@ -69,3 +69,19 @@ The persistence driver now treats a missing affected object as incompatible once
 Focused driver/controller tests passed (48). Eleven actual Chrome scenarios passed: confirmed create/update supersession with a subsequent save and reload; delayed replay with a newer local generation; same-participant live-lease delete and reload; image upload failure/cancel/retry/reload; completed-but-delayed upload cancellation followed by a new upload and reload; duplicate and group identity (three); and disjoint/older-save recovery (two). Production compilation, TypeScript, and changed-file lint passed. Detailed coverage and negative results are in `BUG-COVERAGE.md`.
 
 An initial broad product run concurrent with compilation passed 1,644 tests but timed out one unchanged 5-second bounded semantic-read test. The final run after compilation passed **1,645 tests, with 12 skipped**, across 162 passing files and one skipped file, using four workers. No test timeout, assertion, or research/security gate was relaxed.
+
+## Pass 4: artifact persistence and cancellation
+
+Three material artifact failures reproduced before fixing them:
+
+1. A downloaded semantic JSON file omitted a visible pending edit. Chrome showed the rectangle at x=181 while its save was held; the downloaded file contained the older persisted x=180.
+2. Closing Export while its server response was delayed still triggered the download after closing. The before-fix Chrome assertion saw one unexpected download, and the component regression reproduced the same behavior for SVG.
+3. Closing Export while reading a valid template still submitted the import after the file read completed. The before-fix browser test verified a new persisted shape appeared after the panel closed, despite the expected cancellation.
+
+Semantic exports now use the canvas persistence drain and authority refresh before requesting an artifact. They capture the live selection at invocation, so a selected optimistic creation is not discarded merely because the older room props lack it. Template import uses the same drain and its returned room revision before submission. Active gestures must finish first; active text is committed through the existing canvas path. PNG keeps its faithful local renderer behavior.
+
+All artifact requests share a cancellation controller. Closing or unmounting aborts it, and continuation guards after file reading, persistence waiting and HTTP completion prevent late submission, download and UI callbacks. This does not promise to roll back an import already committed by the server.
+
+Seven added component regressions passed alongside the existing eleven tests (18 total). Three actual Chrome scenarios passed, including held-save export, export rejection/retry/reload, delayed export cancellation, delayed template-read cancellation, reopening, import rejection/retry with fresh IDs, and reload. Existing spectator sharing/export and participant image PNG-export browser scenarios also passed. The browser checks used the isolated port-4294 server and synthetic data. Two runs timed out during Chrome page-fixture setup before test actions; successful runs verified the actual assertions independently.
+
+Production build, TypeScript and changed-file lint passed. The four-worker product run passed 1,650 tests, with 12 skipped and two existing five-second timeouts in semantic-tools/Mermaid tests. A one-worker recheck of both complete affected files passed all 62 tests unchanged. The broad run is not reported green, and no timeout or test assertion was relaxed.

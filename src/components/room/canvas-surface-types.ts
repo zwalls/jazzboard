@@ -84,6 +84,7 @@ export type CanvasSurfaceHandle = {
   getCanvasElement(): HTMLElement | null;
   getAgentDraftPresentation(draftId: string, revision: number): AgentDraftPresentationStatus;
   prepareSelectionForAgentMessage(): Promise<{ objectIds: string[]; room: RoomState }>;
+  prepareForArtifact(): Promise<RoomState>;
 };
 
 export type BoardMenuActions = {

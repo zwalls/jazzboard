@@ -1277,12 +1277,16 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
       {durabilityOpen ? (
         <div className={styles.mobileDurabilityHost}>
           <DurabilityPanel
-            key={durabilityMode}
+            key={`${room.id}:${durabilityMode}`}
             mode={durabilityMode}
             room={room}
             role={self.role}
             selection={selection}
             runtime={canvasRuntime}
+            prepareForArtifact={async () => {
+              if (!canvasRef.current) throw new Error("The canvas is still loading. Try again shortly.");
+              return canvasRef.current.prepareForArtifact();
+            }}
             getImportOrigin={() => {
               const viewport = canvasRuntimeRef.current?.getViewport();
               return viewport ? { x: viewport.x + 64, y: viewport.y + 64 } : { x: 120, y: 120 };

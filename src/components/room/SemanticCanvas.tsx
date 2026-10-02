@@ -1094,6 +1094,14 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         room: controller?.getAuthoritativeRoom() ?? roomRef.current,
       };
     },
+    async prepareForArtifact() {
+      if (hasActivePointerSession()) {
+        throw new Error("Finish the active canvas gesture before exporting or importing.");
+      }
+      if (activeTextRef.current) commitTextEditRef.current();
+      if (!controller) return roomRef.current;
+      return controller.flushAndDrain(Object.keys(controller.getSnapshot().objects));
+    },
   }), [agentDraftRevealRegistry, controller]);
 
   useLayoutEffect(() => {

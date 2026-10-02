@@ -71,6 +71,7 @@ export function DurabilityPanel({
   role,
   selection,
   runtime,
+  prepareForArtifact,
   getImportOrigin,
   acceptRoom,
   onClose,
@@ -81,6 +82,7 @@ export function DurabilityPanel({
   role: "participant" | "spectator";
   selection: string[];
   runtime: CanvasRuntime | null;
+  prepareForArtifact(): Promise<RoomState>;
   getImportOrigin(): Point;
   acceptRoom(room: RoomState): void;
   onClose(): void;
@@ -102,14 +104,14 @@ export function DurabilityPanel({
   const [canvasVersion, setCanvasVersion] = useState(0);
   const templateInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
-  const pngExportController = useRef<AbortController | null>(null);
+  const artifactController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      pngExportController.current?.abort();
-      pngExportController.current = null;
+      artifactController.current?.abort();
+      artifactController.current = null;
     };
   }, []);
 
@@ -147,14 +149,11 @@ export function DurabilityPanel({
   }, [canvasVersion, runtime, effectiveScope, room.objects, selectedDiagram]);
   const pngReady = Boolean(runtime?.capabilities.renderPng && pngObjectIds.length);
 
-  function artifactUrl(format: ArtifactFormat): string {
-    return buildArtifactUrl({
-      roomId: room.id,
-      format,
-      scope: effectiveScope,
-      diagramId: effectiveDiagramId,
-      selection: validSelection,
-    });
+  function beginArtifact(): AbortController {
+    artifactController.current?.abort();
+    const controller = new AbortController();
+    artifactController.current = controller;
+    return controller;
   }
 
   async function exportArtifact(format: ArtifactFormat | "png") {
@@ -162,7 +161,8 @@ export function DurabilityPanel({
     setBusyAction(format);
     setError(null);
     setWarnings([]);
-    let exportController: AbortController | null = null;
+    const exportController = beginArtifact();
+    const selectedIds = runtime ? [...runtime.getSelectedObjectIds()] : validSelection;
     try {
       if (format === "png") {
         const currentObjectIds = !runtime
@@ -176,9 +176,6 @@ export function DurabilityPanel({
         if (!runtime || !currentObjectIds.length) {
           throw new Error("This canvas scope has no visible objects to export.");
         }
-        exportController = new AbortController();
-        pngExportController.current?.abort();
-        pngExportController.current = exportController;
         const label = effectiveScope === "diagram" && selectedDiagram
           ? selectedDiagram.title
           : effectiveScope === "selection"
@@ -195,7 +192,17 @@ export function DurabilityPanel({
         onAnnounce("PNG downloaded.");
         return;
       } else {
-        const response = await apiRequest<{ ok: true; export: ArtifactExport }>(artifactUrl(format));
+        const preparedRoom = await prepareForArtifact();
+        if (exportController.signal.aborted || !mounted.current) return;
+        if (preparedRoom.id !== room.id) throw new Error("The active board changed. Open Export again.");
+        const response = await apiRequest<{ ok: true; export: ArtifactExport }>(buildArtifactUrl({
+          roomId: room.id,
+          format,
+          scope: effectiveScope,
+          diagramId: effectiveDiagramId,
+          selection: selectedIds,
+        }), { signal: exportController.signal });
+        if (exportController.signal.aborted || !mounted.current) return;
         setWarnings(response.export.warnings.map((warning) => warning.message));
         downloadTextFile({
           content: response.export.content,
@@ -205,12 +212,12 @@ export function DurabilityPanel({
         onAnnounce(`${response.export.filename} downloaded.`);
       }
     } catch (requestError) {
-      if (!exportController?.signal.aborted && mounted.current) setError(messageFor(requestError));
+      if (!exportController.signal.aborted && mounted.current) setError(messageFor(requestError));
     } finally {
-      if (exportController && pngExportController.current === exportController) {
-        pngExportController.current = null;
+      if (artifactController.current === exportController) {
+        artifactController.current = null;
+        if (mounted.current) setBusyAction(null);
       }
-      if (mounted.current) setBusyAction(null);
     }
   }
 
@@ -218,27 +225,37 @@ export function DurabilityPanel({
     setBusyAction("import");
     setError(null);
     setWarnings([]);
+    const importController = beginArtifact();
     try {
       if (file.size > 2_000_000) throw new Error("Template files must be smaller than 2 MB.");
       const template = JSON.parse(await file.text()) as unknown;
+      if (importController.signal.aborted || !mounted.current) return;
+      const preparedRoom = await prepareForArtifact();
+      if (importController.signal.aborted || !mounted.current) return;
+      if (preparedRoom.id !== room.id) throw new Error("The active board changed. Open Export again.");
       const response = await apiRequest<MutationResponse>(`/api/rooms/${encodeURIComponent(room.id)}/artifacts`, {
         method: "POST",
+        signal: importController.signal,
         body: JSON.stringify({
-          expectedRoomRevision: room.roomRevision,
+          expectedRoomRevision: preparedRoom.roomRevision,
           template,
           origin: getImportOrigin(),
           intent: "Instantiate a reusable Jazzboard diagram template",
           summary: `Imported ${file.name}`,
         }),
       });
+      if (importController.signal.aborted || !mounted.current) return;
       acceptRoom(response.room);
       setWarnings(response.warnings.map((warning) => warning.message));
       onAnnounce(`Template added with ${response.changedObjectIds.length} objects.`);
     } catch (requestError) {
-      setError(messageFor(requestError));
+      if (!importController.signal.aborted && mounted.current) setError(messageFor(requestError));
     } finally {
-      if (templateInput.current) templateInput.current.value = "";
-      setBusyAction(null);
+      if (artifactController.current === importController) {
+        artifactController.current = null;
+        if (templateInput.current) templateInput.current.value = "";
+        if (mounted.current) setBusyAction(null);
+      }
     }
   }
 
@@ -287,7 +304,10 @@ export function DurabilityPanel({
       <div className={styles.heading}>
         <span className={styles.headingIcon}>{sharing ? <Share2 size={17} /> : <Download size={17} />}</span>
         <div><span>{sharing ? "Live collaboration" : "Portable work"}</span><strong>{sharing ? "Share board" : "Export"}</strong></div>
-        <button className={styles.closeButton} onClick={onClose} aria-label={sharing ? "Close share board" : "Close export"}>
+        <button className={styles.closeButton} onClick={() => {
+          artifactController.current?.abort();
+          onClose();
+        }} aria-label={sharing ? "Close share board" : "Close export"}>
           <X size={16} />
         </button>
       </div>
