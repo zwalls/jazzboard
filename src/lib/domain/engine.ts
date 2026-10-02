@@ -1844,7 +1844,8 @@ export function acquireObjectLeases(
   const leases = targets.map((target, index): ObjectLease => {
     const existing = room.leases[target.objectId];
     return existing && existing.actor.participantId === participantId && existing.actor.kind === actorKind
-      ? { ...existing, operation: target.operation, expiresAt: now + LEASE_DURATION_MS }
+      ? { ...existing, operation: target.operation, objectRevision: objects[index].revision,
+          expiresAt: now + LEASE_DURATION_MS }
       : {
           leaseId: randomUUID(),
           objectId: target.objectId,

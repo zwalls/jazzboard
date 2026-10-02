@@ -1033,6 +1033,21 @@ describe("active-object leases", () => {
     });
   });
 
+  it("reacquires the same token at the newly verified object revision", () => {
+    const first = acquireObjectLease(roomWith(textObject("note")), "alice", "human", "note", 1, "edit", START + 10);
+    const saved = applyCanvasCommand(first.room, "alice", "human", {
+      type: "update", objectId: "note", expectedRevision: 1, leaseId: first.lease.leaseId,
+      operation: "edit", patch: { content: "Saved in the other tab" },
+    }, START + 20);
+    const refreshed = acquireObjectLease(saved.room, "alice", "human", "note", 2, "delete", START + 30);
+    expect(refreshed.lease).toMatchObject({
+      leaseId: first.lease.leaseId, acquiredAt: first.lease.acquiredAt,
+      operation: "delete", objectRevision: 2,
+    });
+    expect(refreshed.room.objects.note.revision).toBe(2);
+    expect(first.lease.objectRevision).toBe(1);
+  });
+
   it("renews only the exact actor and lease token", () => {
     const acquired = acquireObjectLease(
       roomWith(textObject("note")),

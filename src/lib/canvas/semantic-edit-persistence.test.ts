@@ -1350,6 +1350,66 @@ describe("SemanticCanvasEditPersistenceDriver", () => {
     expect(coordinator.get("a") ?? null).toBeNull();
   });
 
+  it.each(["update", "create"] as const)("settles a committed %s superseded by an authoritative deletion", async (mode) => {
+    const object = shape("a", 12);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith(mode === "update" ? [object] : [], 20));
+    const replay = new Error("The exact mutation already committed.");
+    harness.classifyImpl = () => ({ kind: "committed-replay", committedRoomRevision: 21 });
+    harness.commandImpl = async () => { throw replay; };
+    // Revision 22 is a newer durable deletion, not a lagging pre-commit read.
+    harness.refreshImpl = async () => roomWith([], 22);
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    if (mode === "update") {
+      startUpdate(lifecycle, driver, object, draft(object, { x: 140 }));
+    } else {
+      consumeAll(driver, lifecycle.dispatch({
+        type: "objects.changed", gestureId: null, cohortId: "cohort",
+        changes: [{ kind: "create", draft: draft(object), baseRevision: null, baseCreatedAt: null }],
+      }));
+    }
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    try {
+      await waitUntil(() => harness.recoverySettlements.length > 0);
+      await driver.whenIdle();
+      expect(harness.room.objects.a).toBeUndefined();
+      expect(harness.releaseCalls).toHaveLength(1);
+      expect(coordinator.protectedObjectIds()).toEqual(new Set());
+      expect(clock.pending).toBe(0);
+      expect(harness.commandCalls).toHaveLength(1);
+    } finally {
+      driver.dispose();
+    }
+  });
+
+  it("waits for a receipt-confirmed create when its missing-object snapshot predates the commit", async () => {
+    const object = shape("new", 1);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith([], 20));
+    harness.classifyImpl = () => ({ kind: "committed-replay", committedRoomRevision: 21 });
+    harness.commandImpl = async () => { throw new Error("Committed replay"); };
+    let refreshCount = 0;
+    harness.refreshImpl = async () => ++refreshCount === 1 ? roomWith([], 20) : roomWith([object], 21);
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    consumeAll(driver, lifecycle.dispatch({
+      type: "objects.changed", gestureId: null, cohortId: "cohort",
+      changes: [{ kind: "create", draft: draft(object), baseRevision: null, baseCreatedAt: null }],
+    }));
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await microtasks();
+    expect(harness.rollbacks).toEqual([]);
+    expect(harness.acknowledgements).toEqual([]);
+    clock.advance(SEMANTIC_EDIT_RECOVERY_RETRY_MS);
+    await driver.whenIdle();
+    expect(harness.acknowledgements).toHaveLength(1);
+    expect(harness.releaseCalls).toHaveLength(1);
+    driver.dispose();
+  });
+
   it("handles text cancellation through authoritative recovery without flushing", async () => {
     const object = shape("label", 3);
     const coordinator = new CanvasObjectSyncCoordinator();

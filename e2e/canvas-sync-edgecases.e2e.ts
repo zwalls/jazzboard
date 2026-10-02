@@ -200,6 +200,124 @@ function semanticMoveTargets(request: Request) {
 }
 
 test.describe("canvas synchronization edge cases", () => {
+  test("deletes a newer object while reacquiring the same participant's live lease", async ({ page }) => {
+    const host = await createRoomViaApi(page.request, "Reacquiring editor", "Newer lease revision");
+    await seedPair(page, host.room.id);
+    await page.goto(`/room/${host.room.id}`);
+    await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+    // These requests model another authorized tab retaining its edit lease
+    // after a save, before this tab begins a new operation on revision 2.
+    const acquired = await jsonBody<LeaseResponse>(await page.request.post(`/api/rooms/${host.room.id}/leases`, {
+      data: { action: "acquire", objectId: LEFT_ID, expectedRevision: 1, operation: "move" },
+    }));
+    const keepAlive = setInterval(() => {
+      void page.request.post(`/api/rooms/${host.room.id}/leases`, { data: {
+        action: "renew", objectId: LEFT_ID, leaseId: acquired.lease!.leaseId,
+      } }).catch(() => undefined);
+    }, 750);
+    try {
+      await jsonBody(await page.request.post(`/api/rooms/${host.room.id}/commands`, { data: {
+        command: { type: "move", targets: [{ objectId: LEFT_ID, expectedRevision: 1,
+          leaseId: acquired.lease!.leaseId, x: 185, y: 210 }] },
+      } }));
+      await page.reload();
+      await expectRenderedRevision(page, LEFT_ID, 2);
+      await jsonBody(await page.request.post(`/api/rooms/${host.room.id}/leases`, { data: {
+        action: "renew", objectId: LEFT_ID, leaseId: acquired.lease!.leaseId,
+      } }));
+      const acquisition = page.waitForResponse((response) => {
+        if (new URL(response.url()).pathname !== `/api/rooms/${host.room.id}/leases` || response.request().method() !== "POST") return false;
+        return response.request().postDataJSON().action === "acquire";
+      });
+      await renderedShape(page, LEFT_ID).click();
+      await semanticCanvas(page).press("Delete");
+      const response = await acquisition;
+      const leasePayload = await response.json();
+      expect(leasePayload.lease.leaseId).toBe(acquired.lease!.leaseId);
+      expect(leasePayload.lease.objectRevision).toBe(2);
+      await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID] ?? null).toBeNull();
+      await page.reload();
+      await expect(renderedShape(page, RIGHT_ID)).toBeVisible({ timeout: 20_000 });
+      await expect(renderedShape(page, LEFT_ID)).toHaveCount(0);
+    } finally {
+      clearInterval(keepAlive);
+    }
+  });
+
+  for (const mode of ["create", "update"] as const) {
+    test(`recovers a receipt-confirmed ${mode} after another tab deletes its object`, async ({ page, context }) => {
+      test.setTimeout(60_000);
+      const host = await createRoomViaApi(page.request, "Two-tab editor", "Superseded committed save");
+      await seedPair(page, host.room.id);
+      const roomPath = `/room/${host.room.id}`;
+      await page.goto(roomPath);
+      await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+      const otherTab = await context.newPage();
+      await otherTab.goto(roomPath);
+      await expect(renderedShape(otherTab, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+      let releaseResponse!: () => void;
+      const responseGate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+      let markCommitted!: () => void;
+      const committed = new Promise<void>((resolve) => { markCommitted = resolve; });
+      let firstCommand = true;
+      let editedObjectId = LEFT_ID;
+      const commandUrl = `**/api/rooms/${host.room.id}/commands`;
+      const handler = async (route: Route, request: Request) => {
+        if (request.method() !== "POST" || !firstCommand) { await route.continue(); return; }
+        firstCommand = false;
+        if (mode === "create") editedObjectId = request.postDataJSON().command.object.id;
+        const upstream = await route.fetch();
+        expect(upstream.ok()).toBe(true);
+        const payload = await upstream.json();
+        markCommitted();
+        await responseGate;
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({
+          ok: false, error: { code: "MUTATION_OUTCOME_UNKNOWN", message: "The exact mutation already committed.",
+            details: { replayed: true, committedRoomRevision: payload.room.roomRevision } },
+        }) });
+      };
+      await page.route(commandUrl, handler);
+      try {
+        if (mode === "create") {
+          await page.getByRole("button", { name: "Rectangle tool", exact: true }).click();
+          const bounds = await semanticCanvas(page).boundingBox();
+          if (!bounds) throw new Error("Canvas is unavailable.");
+          await page.mouse.move(bounds.x + 450, bounds.y + 420);
+          await page.mouse.down();
+          await page.mouse.move(bounds.x + 570, bounds.y + 500, { steps: 4 });
+          await page.mouse.up();
+        } else {
+          await selectSemanticObject(page, LEFT_ID);
+          await semanticCanvas(page).press("ArrowRight");
+        }
+        await committed;
+        await expectRenderedRevision(otherTab, editedObjectId, mode === "create" ? 1 : 2);
+        // A second authorized tab can issue a delete while the first response
+        // remains delayed. Carry its current human lease token explicitly.
+        const latest = (await getRoom(otherTab.request, host.room.id)).room;
+        const deleted = await otherTab.request.post(`/api/rooms/${host.room.id}/commands`, { data: {
+          command: { type: "delete", targets: [{ objectId: editedObjectId, expectedRevision: latest.objects[editedObjectId].revision,
+            leaseId: latest.leases[editedObjectId]?.leaseId }] },
+        } });
+        await jsonBody(deleted);
+        await expect.poll(async () => (await getRoom(otherTab.request, host.room.id)).room.objects[editedObjectId] ?? null).toBeNull();
+        releaseResponse();
+        await expect(renderedShape(page, editedObjectId)).toHaveCount(0, { timeout: 12_000 });
+        // Recovery must permit a subsequent save, not merely clear the pixels.
+        await selectSemanticObject(page, RIGHT_ID);
+        await semanticCanvas(page).press("ArrowRight");
+        await expect.poll(async () => (await getRoom(page.request, host.room.id)).room.objects[RIGHT_ID]?.revision).toBe(2);
+        await page.reload();
+        await expect(renderedShape(page, RIGHT_ID)).toBeVisible({ timeout: 20_000 });
+        await expect(renderedShape(page, editedObjectId)).toHaveCount(0);
+      } finally {
+        releaseResponse();
+        await page.unroute(commandUrl, handler).catch(() => undefined);
+        await otherTab.close();
+      }
+    });
+  }
+
   test("acknowledges a verified replay without rolling back a newer local generation", async ({ page }) => {
     test.setTimeout(45_000);
     const host = await createRoomViaApi(page.request, "Replay Mover", "Replay reconciliation");

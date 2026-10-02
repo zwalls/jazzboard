@@ -1412,6 +1412,13 @@ export class SemanticCanvasEditPersistenceDriver {
     ) {
       return "pending";
     }
+    // Once a receipt's durable revision is visible, a missing created/updated
+    // object reflects a later deletion. Waiting for it to reappear keeps the
+    // optimistic overlay and queue protected forever (creates have no lease
+    // renewal to independently trigger recovery).
+    const missingObjectVisibility: "incompatible" | "pending" = committedRoomRevision !== null
+      ? "incompatible"
+      : "pending";
     for (const object of plan.objects) {
       const current = room.objects[object.objectId];
       if (object.mode === "delete" || object.mode === "delete-noop") {
@@ -1425,10 +1432,10 @@ export class SemanticCanvasEditPersistenceDriver {
         return "pending";
       }
       if (object.mode === "create") {
-        if (!current) return "pending";
+        if (!current) return missingObjectVisibility;
         continue;
       }
-      if (!current) return "pending";
+      if (!current) return missingObjectVisibility;
       if (
         object.expectedCreatedAt !== null &&
         current.createdAt !== object.expectedCreatedAt
