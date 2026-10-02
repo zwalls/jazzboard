@@ -229,6 +229,81 @@ function record(
 }
 
 describe("SemanticHistorySessionEngine", () => {
+  it("rejects undo atomically when another participant changes one of its objects", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+    const collaboratorEdit = committed(edited, { label: "Collaborator's saved work" });
+
+    expect(() => engine.prepareUndo(room([collaboratorEdit]))).toThrowError(
+      expect.objectContaining({ code: "HISTORY_CONFLICT" }),
+    );
+    expect(engine.getState()).toMatchObject({ undoDepth: 1, redoDepth: 0, replayPending: false });
+  });
+
+  it("preserves every object in a multi-object history conflict", () => {
+    const originals = [shape("left"), shape("right")];
+    const edited = originals.map((object) => committed(object, { x: 500 }));
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "multi-move", room(originals), room(edited), ["left", "right"]);
+    expect(() => engine.prepareUndo(room([edited[0], committed(edited[1], { fill: "red" })])))
+      .toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(engine.getState()).toMatchObject({ undoDepth: 1, replayPending: false });
+    // Rejection leaves the history retryable once the conflicting edit is undone.
+    expect(engine.prepareUndo(room(edited))?.objectIds).toEqual(["left", "right"]);
+  });
+
+  it("does not resurrect a collaborator-deleted object or overwrite a reused ID", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+    expect(() => engine.prepareUndo(room([])))
+      .toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(() => engine.prepareUndo(room([{ ...edited, createdAt: 999 }])))
+      .toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+  });
+
+  it("rejects redo after a collaborator changes the restored object", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+    const undo = engine.prepareUndo(room([edited]))!;
+    const restored = committed(edited, { x: original.x });
+    engine.acknowledgeReplay(undo.token, room([restored]));
+    expect(() => engine.prepareRedo(room([committed(restored, { label: "New work" })])))
+      .toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(engine.getState()).toMatchObject({ undoDepth: 0, redoDepth: 1, replayPending: false });
+  });
+
+  it("rejects changed diagram membership and metadata before emitting object edits", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const beforeDiagram = diagram("diagram-auth", { memberObjectIds: ["node"] });
+    const afterDiagram = { ...beforeDiagram, title: "Local title", revision: 2 };
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move-and-title", room([original], { diagrams: [beforeDiagram] }),
+      room([edited], { diagrams: [afterDiagram] }), ["node"], ["diagram-auth"]);
+    expect(() => engine.prepareUndo(room([edited], {
+      diagrams: [{ ...afterDiagram, title: "Collaborator title", revision: 3 }],
+    }))).toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(engine.getState().replayPending).toBe(false);
+  });
+
+  it("acknowledges already-restored history without issuing a mutation", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+    const alreadyRestored = room([committed(edited, { x: original.x })]);
+    const undo = engine.prepareUndo(alreadyRestored)!;
+    expect(undo.isNoop).toBe(true);
+    engine.acknowledgeReplay(undo.token, alreadyRestored);
+    expect(engine.getState()).toMatchObject({ undoDepth: 0, redoDepth: 1 });
+  });
+
   it("records only acknowledged human gesture transactions, never transient frames", () => {
     const beforeObject = shape("node");
     const before = room([beforeObject]);

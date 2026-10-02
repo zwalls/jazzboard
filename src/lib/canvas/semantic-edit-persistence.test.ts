@@ -483,6 +483,52 @@ function startUpdate(
 }
 
 describe("SemanticCanvasEditPersistenceDriver", () => {
+  it("does not rebase a Diagram restoration over a change during lease acquisition", async () => {
+    const object = shape("a", 1);
+    const diagram: Diagram = {
+      id: "diagram-1", title: "Local title", description: "", diagramType: "architecture",
+      category: "system", tags: [], memberObjectIds: ["a"], connectorIds: [],
+      bounds: { x: 10, y: 20, width: 160, height: 90 }, revision: 2,
+      createdAt: 1, updatedAt: 2, createdBy: actor, lastEditedBy: actor,
+    };
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const initial = roomWith([object]);
+    initial.diagrams[diagram.id] = diagram;
+    const harness = new PersistenceHarness(coordinator, initial);
+    harness.ensureImpl = async (targets) => {
+      const next = structuredClone(harness.room);
+      next.diagrams[diagram.id] = { ...diagram, title: "Collaborator's title", revision: 3 };
+      const leases = targets.map(leaseFor);
+      for (const lease of leases) next.leases[lease.objectId] = lease;
+      return { room: next, leases };
+    };
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    const gestureId = "history:diagram-race";
+    driver.registerDiagramRestorations(gestureId, [{
+      diagramId: diagram.id, target: { ...diagram, title: "Original title" },
+    }]);
+    consumeAll(driver, lifecycle.dispatch({
+      type: "gesture.started", gestureId, source: "keyboard",
+      objects: [{ objectId: object.id, baseRevision: object.revision, baseCreatedAt: object.createdAt, operation: "move" }],
+    }));
+    startUpdate(lifecycle, driver, object, draft(object, { x: 50 }), "move", gestureId, gestureId);
+    const settle = lifecycle.dispatch({
+      type: "gesture.finish-requested", gestureId, reason: "keyboard-idle",
+    }).find((intent) => intent.type === "gesture.settle");
+    if (!settle || settle.type !== "gesture.settle") throw new Error("Missing settlement");
+    consumeAll(driver, lifecycle.dispatch({ type: "gesture.settled", token: settle.token }));
+    await driver.whenIdle();
+
+    expect(harness.transactionCalls).toEqual([]);
+    expect(harness.commandCalls).toEqual([]);
+    expect(harness.room.diagrams[diagram.id].title).toBe("Collaborator's title");
+    expect(harness.confirmedFailures).toHaveLength(1);
+    expect(harness.releaseCalls).toContain(gestureId);
+    driver.dispose();
+  });
+
   it("explicitly unregisters Diagram restorations when replay dispatch never reaches a batch", async () => {
     const object = shape("a", 1);
     const coordinator = new CanvasObjectSyncCoordinator();

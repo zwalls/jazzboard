@@ -22,6 +22,7 @@ export type SemanticHistoryErrorCode =
   | "PENDING_HUMAN_TRANSACTION"
   | "EMPTY_HISTORY"
   | "STALE_REPLAY"
+  | "HISTORY_CONFLICT"
   | "LOCKED_IMAGE"
   | "INVALID_CAPACITY";
 
@@ -466,6 +467,41 @@ export class SemanticHistorySessionEngine {
     }
     source.pop();
     destination.push(entry);
+    // A history-owned recreation legitimately receives a new createdAt.
+    // Rebase only that incarnation in retained history so repeated undo/redo
+    // remains valid without accepting an unrelated reuse of the same ID.
+    const restoredIncarnations = new Map<string, { previous: number; current: number }>();
+    for (const event of pending.replay.events) {
+      if (event.type !== "objects.changed") continue;
+      for (const change of event.changes) {
+        if (change.kind !== "create") continue;
+        const target = pending.targetObjects.get(change.draft.id);
+        const restored = room.objects[change.draft.id];
+        if (!target || !restored || target.createdAt === restored.createdAt) continue;
+        restoredIncarnations.set(target.id, { previous: target.createdAt, current: restored.createdAt });
+      }
+    }
+    if (restoredIncarnations.size) {
+      const rebase = (object: CanvasObject | null) => {
+        const incarnation = object ? restoredIncarnations.get(object.id) : null;
+        return object && incarnation?.previous === object.createdAt
+          ? cloneObject({ ...object, createdAt: incarnation.current })
+          : object;
+      };
+      for (const retainedStack of [this.undoStack, this.redoStack]) {
+        for (let index = 0; index < retainedStack.length; index += 1) {
+          const retained = retainedStack[index];
+          retainedStack[index] = deepFreeze({
+            ...retained,
+            objectChanges: retained.objectChanges.map((snapshot) => ({
+              ...snapshot,
+              before: rebase(snapshot.before),
+              after: rebase(snapshot.after),
+            })),
+          });
+        }
+      }
+    }
     while (destination.length > this.capacity) destination.shift();
     this.pendingReplay = null;
     return entry;
@@ -494,6 +530,37 @@ export class SemanticHistorySessionEngine {
     const stack = direction === "undo" ? this.undoStack : this.redoStack;
     const entry = stack[stack.length - 1];
     if (!entry) return null;
+
+    // Revisions fence races after replay starts. They cannot prove that the
+    // current document still belongs to this history step: rebasing an old
+    // snapshot onto a collaborator's latest revision would overwrite their
+    // work. Validate the complete transaction before emitting any edits.
+    for (const snapshot of entry.objectChanges) {
+      const source = direction === "undo" ? snapshot.after : snapshot.before;
+      const target = direction === "undo" ? snapshot.before : snapshot.after;
+      const current = room.objects[snapshot.objectId] ?? null;
+      const matchesSource = objectSemanticsEqual(current, source)
+        && current?.createdAt === source?.createdAt;
+      if (!matchesSource && !objectSemanticsEqual(current, target)) {
+        throw new SemanticHistorySessionError(
+          "HISTORY_CONFLICT",
+          `Cannot ${direction}: canvas object ${snapshot.objectId} changed since this history step. Its current work has been preserved.`,
+        );
+      }
+    }
+    for (const snapshot of entry.diagramChanges) {
+      const source = direction === "undo" ? snapshot.after : snapshot.before;
+      const target = direction === "undo" ? snapshot.before : snapshot.after;
+      const current = room.diagrams[snapshot.diagramId] ?? null;
+      const matchesSource = diagramSemanticsEqual(current, source)
+        && current?.createdAt === source?.createdAt;
+      if (!matchesSource && !diagramSemanticsEqual(current, target)) {
+        throw new SemanticHistorySessionError(
+          "HISTORY_CONFLICT",
+          `Cannot ${direction}: diagram ${snapshot.diagramId} changed since this history step. Its current work has been preserved.`,
+        );
+      }
+    }
 
     const targetObjects = new Map<string, CanvasObject | null>();
     const gestureObjects: SemanticCanvasGestureObject[] = [];

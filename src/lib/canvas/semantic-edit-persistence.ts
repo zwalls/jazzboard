@@ -274,7 +274,10 @@ export class SemanticCanvasEditPersistenceDriver {
   private readonly gestureIdByCohort = new Map<string, string | null>();
   private readonly diagramRestorationsByCohort = new Map<
     string,
-    readonly SemanticEditDiagramRestoration[]
+    readonly (SemanticEditDiagramRestoration & Readonly<{
+      expectedRevision: number | null;
+      expectedCreatedAt: number | null;
+    }>)[]
   >();
   private readonly operations = new Set<Promise<unknown>>();
   private readonly pendingTimerPromises = new Map<number, Promise<void>>();
@@ -302,11 +305,14 @@ export class SemanticCanvasEditPersistenceDriver {
     restorations: readonly SemanticEditDiagramRestoration[],
   ): void {
     if (this.disposed) return;
+    const room = this.host.currentRoom();
     this.diagramRestorationsByCohort.set(
       gestureId,
       restorations.map((restoration) => ({
         diagramId: restoration.diagramId,
         target: structuredClone(restoration.target),
+        expectedRevision: room.diagrams[restoration.diagramId]?.revision ?? null,
+        expectedCreatedAt: room.diagrams[restoration.diagramId]?.createdAt ?? null,
       })),
     );
   }
@@ -1128,6 +1134,14 @@ export class SemanticCanvasEditPersistenceDriver {
     const commands: DiagramCommand[] = [];
     for (const restoration of this.diagramRestorationsByCohort.get(cohortId) ?? []) {
       const current = room.diagrams[restoration.diagramId];
+      if (
+        (current?.revision ?? null) !== restoration.expectedRevision
+        || (current?.createdAt ?? null) !== restoration.expectedCreatedAt
+      ) {
+        throw new SemanticEditAuthorityError(
+          `Diagram ${restoration.diagramId} changed before its history step could be saved.`,
+        );
+      }
       const target = restoration.target;
       const patch = {
         title: target.title,
