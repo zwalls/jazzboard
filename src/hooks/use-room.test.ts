@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Participant, RoomEvent, RoomState } from "@/lib/domain/types";
+import { SemanticLocalDocumentStore } from "@/lib/canvas/semantic-local-document";
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import { AGENT_COMMITTED_REVEAL_DURATION_MS } from "@/lib/agent-drafts/types";
 import type { RoomRealtimeOptions } from "@/lib/realtime/client";
@@ -276,11 +277,16 @@ describe("reconcileRoomSnapshot", () => {
     expect(reconciled?.participants["participant-a"]).toMatchObject({ connected: false, lastSeenAt: 80 });
   });
 
-  it("returns the original newer snapshot when both planes advance and rejects dominated snapshots", () => {
+  it("advances both planes while sharing unchanged document maps and rejects dominated snapshots", () => {
     const current = room("room-a", 2, ["participant-a"], 5);
     const newer = room("room-a", 3, ["participant-a"], 6);
 
-    expect(reconcileRoomSnapshot(current, newer)).toBe(newer);
+    const reconciled = reconcileRoomSnapshot(current, newer);
+    expect(reconciled).toEqual(newer);
+    expect(reconciled?.objects).toBe(current.objects);
+    expect(reconciled?.diagrams).toBe(current.diagrams);
+    expect(reconciled?.participants).toBe(newer.participants);
+    expect(reconciled?.leases).toBe(newer.leases);
     expect(reconcileRoomSnapshot(newer, current)).toBeNull();
     expect(reconcileRoomSnapshot(current, structuredClone(current))).toBeNull();
   });
@@ -1661,5 +1667,78 @@ describe("useRoom request ordering", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(draftReads).toBe(4);
+  });
+});
+
+describe("transient presence after independent document sharing", () => {
+  it.each(["objects", "diagrams", "both"] as const)("accepts transient presence after independently sharing %s, without trusting decoded equal values", (changedPlane) => {
+    const initial = room("shared-room", 1, ["peer"]);
+    const actor = { participantId: "peer", displayName: "Peer", color: "blue", kind: "human" as const };
+    const note = (id: string, content: string): RoomState["objects"][string] => ({
+      id, kind: "text", content, x: 0, y: 0, width: 120, height: 50,
+      rotation: 0, zIndex: 1, revision: 1, groupId: null, diagramIds: [],
+      createdAt: 1, updatedAt: 1, createdBy: actor, lastEditedBy: actor,
+      color: "black", size: "m", align: "start",
+    });
+    initial.objects = { changed: note("changed", "before"), stable: note("stable", "same") };
+    const diagram = (id: string, memberObjectIds: string[]): RoomState["diagrams"][string] => ({
+      id, title: id, description: "Container", diagramType: "architecture", category: "system",
+      tags: [], memberObjectIds, connectorIds: [], bounds: { x: 0, y: 0, width: 120, height: 50 },
+      revision: 1, createdAt: 1, updatedAt: 1, createdBy: actor, lastEditedBy: actor,
+    });
+    initial.diagrams = { changed: diagram("changed", ["changed"]), stable: diagram("stable", ["stable"]) };
+    const store = new SemanticLocalDocumentStore(initial);
+    const decodedEdit = structuredClone(initial);
+    decodedEdit.roomRevision = 2;
+    decodedEdit.stateRevision = 2;
+    const changed = decodedEdit.objects.changed;
+    if (changed.kind !== "text") throw new Error("Expected text fixture");
+    if (changedPlane !== "diagrams") {
+      changed.content = "after";
+      changed.revision += 1;
+    }
+    if (changedPlane !== "objects") {
+      decodedEdit.diagrams.changed.title = "Renamed";
+      decodedEdit.diagrams.changed.revision += 1;
+    }
+
+    // The hook and controller accept the same decoded response independently.
+    const hookRoom = reconcileRoomSnapshot(initial, decodedEdit)!;
+    expect(store.acceptAuthoritative(decodedEdit)).toBe(true);
+    const storeRoom = store.getAuthoritativeRoom();
+    if (changedPlane === "diagrams") expect(hookRoom.objects).toBe(storeRoom.objects);
+    else expect(hookRoom.objects).not.toBe(storeRoom.objects);
+    expect(hookRoom.objects.changed).toBe(storeRoom.objects.changed);
+    expect(hookRoom.objects.stable).toBe(storeRoom.objects.stable);
+    if (changedPlane === "objects") expect(hookRoom.diagrams).toBe(storeRoom.diagrams);
+    else expect(hookRoom.diagrams).not.toBe(storeRoom.diagrams);
+    expect(hookRoom.diagrams.changed).toBe(storeRoom.diagrams.changed);
+    expect(hookRoom.diagrams.stable).toBe(storeRoom.diagrams.stable);
+    expect(hookRoom.leases).toBe(storeRoom.leases);
+    expect(hookRoom.reviewProposals).toBe(storeRoom.reviewProposals);
+
+    const viewport = { x: 20, y: 30, width: 800, height: 600, zoom: 1.5 };
+    const transient = applyTransientHumanPresence(hookRoom, "peer", { x: 80, y: 90 }, viewport);
+    expect(store.acceptAuthoritative(transient)).toBe(true);
+    expect(store.getSnapshot().participants.peer.human.cursor).toEqual({ x: 80, y: 90 });
+    expect(store.getSnapshot().participants.peer.human.viewport).toEqual(viewport);
+    expect(store.getSnapshot().objects).toBe(storeRoom.objects);
+    expect(store.getSnapshot().diagrams).toBe(storeRoom.diagrams);
+    expect(hookRoom.participants.peer.human.cursor).toBeNull();
+
+    // Keep trusted coordination references to isolate the entity-reference gate.
+    const independentlyDecoded = { ...transient, objects: structuredClone(transient.objects) };
+    expect(store.acceptAuthoritative(independentlyDecoded)).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, diagrams: structuredClone(transient.diagrams) })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, objects: { stable: transient.objects.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, objects: { ...transient.objects, extra: transient.objects.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, objects: { changed: transient.objects.changed, extra: transient.objects.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, diagrams: { stable: transient.diagrams.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, diagrams: { ...transient.diagrams, extra: transient.diagrams.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, diagrams: { changed: transient.diagrams.changed, extra: transient.diagrams.stable } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, leases: { ...transient.leases } })).toBe(false);
+    expect(store.acceptAuthoritative({ ...transient, reviewProposals: [...transient.reviewProposals] })).toBe(false);
+    expect(store.getSnapshot().objects).toBe(storeRoom.objects);
+    expect(store.getSnapshot().participants.peer.human.cursor).toEqual({ x: 80, y: 90 });
   });
 });

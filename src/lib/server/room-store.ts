@@ -2469,6 +2469,30 @@ export class RedisRoomStore implements RoomStore {
   }
 
   async getRoom(roomId: string): Promise<RoomState | null> {
+    const keys = roomPlaneKeys(roomId);
+    // Stable modern rooms need only an atomic read. Do not call helpers that
+    // can WATCH or MULTI on this shared client; those remain connection-owned.
+    const encoded = await this.redis.mget(
+      keys.document,
+      keys.awareness,
+      keys.coordination,
+    );
+    const current = encoded.every(Boolean) ? parsePersistedPlanes(encoded) : null;
+    if (
+      current?.coordination.legacyRetired === true &&
+      current.coordination.roomRevision === current.document.roomRevision &&
+      reconcileDerivedState(
+        current.awareness,
+        current.coordination,
+        current.document.roomRevision,
+        Date.now(),
+      ) === null
+    ) {
+      return currentRoomCopy(composeRoomState(current));
+    }
+
+    // Migration, incomplete/fenced planes, and derived transitions still take
+    // the existing dedicated path, including its fresh read and CAS retries.
     const connection = this.redis.duplicate();
     try {
       const read = await this.readOrMigratePlanes(connection, roomId);

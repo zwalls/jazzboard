@@ -786,24 +786,37 @@ function boundsIntersect(left: CanvasBounds, right: CanvasBounds): boolean {
   );
 }
 
-function collisionIds(
+/** Preserve context ordering and scope while sharing expanded bounds across this solve. */
+function prepareConnectorObstacles(
   connector: ConnectorObject,
-  points: readonly Point[],
-  labelBounds: CanvasBounds | null,
   context: ConnectorRoutingContext,
-): string[] {
+): readonly RoutingObstacle[] {
   const allowed = context.obstacleIdsByConnector.get(connector.id);
   const excluded = new Set([connector.start.objectId, connector.end.objectId].filter(Boolean));
-  const collisions: string[] = [];
-  const routeEnvelope = unionBounds(connectorRouteBounds(points, 0), labelBounds);
+  const prepared: RoutingObstacle[] = [];
   for (const obstacle of context.obstacles) {
     if (excluded.has(obstacle.id) || (allowed && !allowed.has(obstacle.id))) continue;
-    const expanded = expandBounds(obstacle.bounds, context.options.obstaclePadding);
-    if (!boundsIntersect(routeEnvelope, expanded)) continue;
+    prepared.push({
+      id: obstacle.id,
+      bounds: expandBounds(obstacle.bounds, context.options.obstaclePadding),
+    });
+  }
+  return prepared;
+}
+
+function collisionIds(
+  points: readonly Point[],
+  labelBounds: CanvasBounds | null,
+  obstacles: readonly RoutingObstacle[],
+): string[] {
+  const collisions: string[] = [];
+  const routeEnvelope = unionBounds(connectorRouteBounds(points, 0), labelBounds);
+  for (const obstacle of obstacles) {
+    if (!boundsIntersect(routeEnvelope, obstacle.bounds)) continue;
     const pathHit = points.slice(1).some((point, index) =>
-      segmentIntersectsBounds(points[index], point, expanded),
+      segmentIntersectsBounds(points[index], point, obstacle.bounds),
     );
-    if (pathHit || (labelBounds && boundsIntersect(labelBounds, expanded))) collisions.push(obstacle.id);
+    if (pathHit || (labelBounds && boundsIntersect(labelBounds, obstacle.bounds))) collisions.push(obstacle.id);
   }
   return collisions;
 }
@@ -960,13 +973,32 @@ function crossingCount(
   return count;
 }
 
-function routeVisualConflictCount(
+/** The path-to-prior-label score is independent of this route's label position. */
+function routePathLabelConflictCount(
   points: readonly Point[],
-  labelBounds: CanvasBounds | null,
   resolvedRoutes: readonly ResolvedConnectorRoute[],
 ): number {
   let count = 0;
   const pathBounds = connectorRouteBounds(points, 0);
+  for (const route of resolvedRoutes) {
+    if (!route.labelBounds || !boundsIntersect(pathBounds, route.labelBounds)) continue;
+    for (let index = 1; index < points.length; index += 1) {
+      if (segmentIntersectsBounds(points[index - 1], points[index], route.labelBounds)) {
+        count += 2;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+function routeVisualConflictCount(
+  points: readonly Point[],
+  labelBounds: CanvasBounds | null,
+  resolvedRoutes: readonly ResolvedConnectorRoute[],
+  pathLabelConflicts = routePathLabelConflictCount(points, resolvedRoutes),
+): number {
+  let count = pathLabelConflicts;
   for (const route of resolvedRoutes) {
     if (labelBounds && boundsIntersect(labelBounds, route.pathBounds)) {
       for (let index = 1; index < route.points.length; index += 1) {
@@ -976,16 +1008,8 @@ function routeVisualConflictCount(
         }
       }
     }
-    if (route.labelBounds) {
-      if (labelBounds && boundsIntersect(labelBounds, route.labelBounds)) count += 4;
-      if (boundsIntersect(pathBounds, route.labelBounds)) {
-        for (let index = 1; index < points.length; index += 1) {
-          if (segmentIntersectsBounds(points[index - 1], points[index], route.labelBounds)) {
-            count += 2;
-            break;
-          }
-        }
-      }
+    if (route.labelBounds && labelBounds && boundsIntersect(labelBounds, route.labelBounds)) {
+      count += 4;
     }
   }
   return count;
@@ -1039,19 +1063,13 @@ function corridorCongestion(
 }
 
 function labelObjectCollisionCount(
-  connector: ConnectorObject,
   labelBounds: CanvasBounds | null,
-  context: ConnectorRoutingContext,
+  obstacles: readonly RoutingObstacle[],
 ): number {
   if (!labelBounds) return 0;
-  const allowed = context.obstacleIdsByConnector.get(connector.id);
-  const excluded = new Set([connector.start.objectId, connector.end.objectId].filter(Boolean));
   let count = 0;
-  for (const obstacle of context.obstacles) {
-    if (excluded.has(obstacle.id) || (allowed && !allowed.has(obstacle.id))) continue;
-    if (boundsIntersect(labelBounds, expandBounds(obstacle.bounds, context.options.obstaclePadding))) {
-      count += 1;
-    }
+  for (const obstacle of obstacles) {
+    if (boundsIntersect(labelBounds, obstacle.bounds)) count += 1;
   }
   return count;
 }
@@ -1062,6 +1080,7 @@ function solveAutoLabelPlacement(
   points: readonly Point[],
   context: ConnectorRoutingContext,
   resolvedRoutes: readonly ResolvedConnectorRoute[],
+  obstacles: readonly RoutingObstacle[],
 ): { position: number; bounds: CanvasBounds | null; visualConflictCount: number } {
   const generatedAuto = routing.mode === "auto" && routing.labelPositionSource !== "authored";
   const startingPosition = generatedAuto && context.options.resolutionMode === "bounded"
@@ -1081,15 +1100,16 @@ function solveAutoLabelPlacement(
     };
   }
 
+  const pathLabelConflicts = routePathLabelConflictCount(points, resolvedRoutes);
   const placements = AUTO_LABEL_POSITIONS.map((position, ordinal) => {
     const bounds = connectorLabelBoundsForRoute(connector.label, points, position);
-    const visualConflictCount = routeVisualConflictCount(points, bounds, resolvedRoutes);
+    const visualConflictCount = routeVisualConflictCount(points, bounds, resolvedRoutes, pathLabelConflicts);
     return {
       position,
       bounds,
       visualConflictCount,
       score: [
-        labelObjectCollisionCount(connector, bounds, context),
+        labelObjectCollisionCount(bounds, obstacles),
         visualConflictCount,
         Math.abs(position - 0.5),
         ordinal,
@@ -1104,11 +1124,21 @@ export function connectorRouteBounds(
   points: readonly Point[],
   padding: number = CONNECTOR_ROUTING_LIMITS.routeBoundsPadding,
 ): CanvasBounds {
-  const safePoints = points.length ? points : [{ x: 0, y: 0 }];
-  const minX = Math.min(...safePoints.map((point) => point.x)) - padding;
-  const minY = Math.min(...safePoints.map((point) => point.y)) - padding;
-  const maxX = Math.max(...safePoints.map((point) => point.x)) + padding;
-  const maxY = Math.max(...safePoints.map((point) => point.y)) + padding;
+  let minX = points.length ? Infinity : 0;
+  let minY = points.length ? Infinity : 0;
+  let maxX = points.length ? -Infinity : 0;
+  let maxY = points.length ? -Infinity : 0;
+  for (const point of points) {
+    // Math.min/max preserve NaN propagation and the sign of zero.
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  minX -= padding;
+  minY -= padding;
+  maxX += padding;
+  maxY += padding;
   return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
 }
 
@@ -1199,6 +1229,7 @@ export function resolveConnectorRoute(
   resolvedRoutes: readonly ResolvedConnectorRoute[] = [],
 ): ResolvedConnectorRoute {
   const sourceRouting = normalizeConnectorRouting(connector.routing);
+  const obstacles = prepareConnectorObstacles(connector, context);
   const startObject = connector.start.objectId ? context.room.objects[connector.start.objectId] : undefined;
   const endObject = connector.end.objectId ? context.room.objects[connector.end.objectId] : undefined;
   const startReference = startObject ? objectCenter(startObject) : connector.start;
@@ -1251,6 +1282,7 @@ export function resolveConnectorRoute(
       input.points,
       context,
       resolvedRoutes,
+      obstacles,
     );
     const candidate = {
       ...input,
@@ -1258,7 +1290,7 @@ export function resolveConnectorRoute(
       pathLength: polylineLength(input.points),
       labelPosition: labelPlacement.position,
       labelBounds: labelPlacement.bounds,
-      collisionObjectIds: collisionIds(connector, input.points, labelPlacement.bounds, context),
+      collisionObjectIds: collisionIds(input.points, labelPlacement.bounds, obstacles),
       crossingCount: context.options.resolutionMode === "bounded"
         ? 0
         : crossingCount(connector, input.points, resolvedRoutes, context.room),
@@ -1368,6 +1400,37 @@ export function resolveConnectorRoute(
     }
   };
 
+  // Quality mode ranks nonnegative obstacle, crossing, visual-conflict and
+  // corridor penalties before kind. A zero-penalty straight route is the
+  // unique best-ranked candidate for lane zero; a preferred-bend curve is
+  // likewise unbeatable for a parallel lane. Score that candidate exactly
+  // before searching, while retaining the existing quality label placement.
+  // The original search has at most 80 elbows, 9 unique curves and 1 straight.
+  // Below that complete budget the preferred candidate may not exist in the
+  // original candidate set, so an early probe would change bounded quality.
+  let preferredCandidateIsOptimal = false;
+  if (
+    sourceRouting.mode === "auto" &&
+    context.options.resolutionMode === "quality" &&
+    context.options.maxCandidates >= 90
+  ) {
+    if (laneIndex === 0) addStraight();
+    else if (Math.abs(preferredLaneBend) >= CONNECTOR_ROUTING_LIMITS.minCurvedBend) {
+      addCurved(preferredLaneBend);
+    }
+    const preferred = candidates[0];
+    preferredCandidateIsOptimal = Boolean(
+      preferred &&
+      preferred.collisionObjectIds.length === 0 &&
+      preferred.crossingCount === 0 &&
+      preferred.visualConflictCount === 0 &&
+      preferred.corridorCongestion === 0,
+    );
+    // A failed/degenerate probe must not consume a slot or shift ordinals in
+    // the original exhaustive search. Its order and budget stay unchanged.
+    if (!preferredCandidateIsOptimal) candidates.length = 0;
+  }
+
   if (sourceRouting.mode === "straight") addStraight();
   else if (sourceRouting.mode === "curved") addCurved(sourceRouting.bend);
   else if (sourceRouting.mode === "elbow") addElbows([sourceRouting.elbowMidPoint]);
@@ -1391,7 +1454,7 @@ export function resolveConnectorRoute(
     }
     if (!boundedClearCandidate && laneIndex !== 0) addStraight();
   }
-  else {
+  else if (!preferredCandidateIsOptimal) {
     addElbows(ELBOW_MIDPOINTS);
     // A full two-spacing sagitta keeps ordinary one-line labels on adjacent
     // routes from overlapping at their default midpoint.

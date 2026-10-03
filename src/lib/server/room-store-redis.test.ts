@@ -328,6 +328,44 @@ function fakeRedis(initial: Iterable<readonly [string, string]> = []) {
   return { connection: new FakeRedisConnection(state), state };
 }
 
+// Keep the existing fake's version-based WATCH/EXEC behavior. These spies only
+// observe connection ownership; they do not choose fast-path or retry outcomes.
+function trackReadConnectionOwnership(connection: FakeRedisConnection) {
+  const failShared = (): never => {
+    throw new Error("A shared Redis read used connection-owned transaction state");
+  };
+  const shared = {
+    mget: vi.spyOn(connection, "mget"),
+    watch: vi.spyOn(connection, "watch").mockImplementation(async () => failShared()),
+    unwatch: vi.spyOn(connection, "unwatch").mockImplementation(async () => failShared()),
+    multi: vi.spyOn(connection, "multi").mockImplementation(failShared),
+    quit: vi.spyOn(connection, "quit").mockImplementation(async () => failShared()),
+  };
+  const observeDedicated = (owned: FakeRedisConnection) => ({
+    connection: owned,
+    mget: vi.spyOn(owned, "mget"),
+    watch: vi.spyOn(owned, "watch"),
+    unwatch: vi.spyOn(owned, "unwatch"),
+    multi: vi.spyOn(owned, "multi"),
+    quit: vi.spyOn(owned, "quit"),
+  });
+  const dedicated: Array<ReturnType<typeof observeDedicated>> = [];
+  const duplicateConnection = connection.duplicate.bind(connection);
+  const duplicate = vi.spyOn(connection, "duplicate").mockImplementation(() => {
+    const owned = duplicateConnection();
+    dedicated.push(observeDedicated(owned));
+    return owned;
+  });
+  return { shared, duplicate, dedicated };
+}
+
+function expectSharedReadOnly(ownership: ReturnType<typeof trackReadConnectionOwnership>) {
+  expect(ownership.shared.watch).not.toHaveBeenCalled();
+  expect(ownership.shared.unwatch).not.toHaveBeenCalled();
+  expect(ownership.shared.multi).not.toHaveBeenCalled();
+  expect(ownership.shared.quit).not.toHaveBeenCalled();
+}
+
 const PRIVATE_IMAGE_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 function privateBlobPathname(roomId: string): string {
@@ -716,6 +754,7 @@ describe("RedisRoomStore v3 persistence", () => {
     const source = presenceRoom();
     const legacyKey = `jazzboard:room:${source.id}`;
     const { connection, state } = fakeRedis([[legacyKey, JSON.stringify(source)]]);
+    const ownership = trackReadConnectionOwnership(connection);
     const store = new RedisRoomStore(connection as unknown as Redis);
 
     const migrated = await store.getRoom(source.id);
@@ -726,6 +765,12 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(JSON.parse(state.values.get(`jazzboard:room:v3:coordination:${source.id}`)!))
       .toMatchObject({ legacyRetired: true });
 
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalled();
+    expect(ownership.dedicated[0].multi).toHaveBeenCalled();
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
+
     state.mgets.length = 0;
     state.watches.length = 0;
     state.deletions.length = 0;
@@ -733,6 +778,8 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.mgets.flat()).not.toContain(legacyKey);
     expect(state.watches.flat()).not.toContain(legacyKey);
     expect(state.deletions).toEqual([]);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
   });
 
   it("DEL-fences a legacy transaction that began before cutover", async () => {
@@ -1243,9 +1290,10 @@ describe("RedisRoomStore v3 persistence", () => {
       [coordinationKey, JSON.stringify(planes.coordination)],
     ]);
 
-    await expect(
-      new RedisRoomStore(connection as unknown as Redis).getRoom(source.id),
-    ).resolves.toMatchObject({
+    const ownership = trackReadConnectionOwnership(connection);
+    const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.getRoom(source.id);
+    expect(room).toMatchObject({
       id: source.id,
       stateRevision: source.stateRevision,
       participants: { p_owner: { connected: true } },
@@ -1254,6 +1302,19 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.watches).toEqual([]);
     expect(state.writes).toEqual([]);
     expect(state.streamPayloads).toEqual([]);
+    expect(ownership.shared.mget).toHaveBeenCalledTimes(1);
+    expect(ownership.duplicate).not.toHaveBeenCalled();
+    expectSharedReadOnly(ownership);
+
+    // Caller-owned copies must not become a cache or mutate persisted planes.
+    room!.title = "Changed only by the caller";
+    room!.participants.p_owner.displayName = "Changed only by the caller";
+    await expect(store.getRoom(source.id)).resolves.toMatchObject({
+      title: source.title,
+      participants: { p_owner: { displayName: "Owner" } },
+    });
+    expect(ownership.duplicate).not.toHaveBeenCalled();
+    expectSharedReadOnly(ownership);
   });
 
   it("rechecks stale derived state under WATCH before persisting it", async () => {
@@ -1269,8 +1330,10 @@ describe("RedisRoomStore v3 persistence", () => {
       [awarenessKey, JSON.stringify(planes.awareness)],
       [coordinationKey, JSON.stringify(planes.coordination)],
     ]);
+    const ownership = trackReadConnectionOwnership(connection);
     vi.advanceTimersByTime(75_001);
     let refreshed = false;
+    let fullPlaneReads = 0;
     state.afterMget = (keys) => {
       if (
         refreshed ||
@@ -1281,6 +1344,10 @@ describe("RedisRoomStore v3 persistence", () => {
       ) {
         return;
       }
+      fullPlaneReads += 1;
+      // Inject after the dedicated fallback read, leaving the WATCH reread to
+      // observe the heartbeat. The first full read is now the shared probe.
+      if (fullPlaneReads !== 2) return;
       refreshed = true;
       const awareness = JSON.parse(
         state.values.get(awarenessKey)!,
@@ -1312,11 +1379,17 @@ describe("RedisRoomStore v3 persistence", () => {
     });
     expect(state.mgets).toEqual([
       [documentKey, awarenessKey, coordinationKey],
+      [documentKey, awarenessKey, coordinationKey],
       [awarenessKey, coordinationKey],
     ]);
     expect(state.watches).toEqual([[awarenessKey, coordinationKey]]);
     expect(state.writes).toEqual([]);
     expect(state.streamPayloads).toEqual([]);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].multi).not.toHaveBeenCalled();
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
   });
 
   it("does not bypass a mismatched durable-document fence on a stable read", async () => {
@@ -1333,6 +1406,7 @@ describe("RedisRoomStore v3 persistence", () => {
       [awarenessKey, JSON.stringify(planes.awareness)],
       [coordinationKey, JSON.stringify(planes.coordination)],
     ]);
+    const ownership = trackReadConnectionOwnership(connection);
 
     await expect(
       new RedisRoomStore(connection as unknown as Redis).getRoom(source.id),
@@ -1343,6 +1417,20 @@ describe("RedisRoomStore v3 persistence", () => {
     );
     expect(state.writes).toEqual([]);
     expect(state.streamPayloads).toEqual([]);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalledTimes(8);
+    expect(ownership.dedicated[0].multi).not.toHaveBeenCalled();
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
+
+    writeFakeValue(state, coordinationKey, JSON.stringify({
+      ...planes.coordination,
+      roomRevision: planes.document.roomRevision,
+    }));
+    await expect(new RedisRoomStore(connection as unknown as Redis).getRoom(source.id))
+      .resolves.toMatchObject({ roomRevision: source.roomRevision });
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
   });
 
   it("persists derived expiry once without consulting legacy storage", async () => {
@@ -1375,6 +1463,7 @@ describe("RedisRoomStore v3 persistence", () => {
       [awarenessKey, JSON.stringify(planes.awareness)],
       [coordinationKey, JSON.stringify(planes.coordination)],
     ]);
+    const ownership = trackReadConnectionOwnership(connection);
     const store = new RedisRoomStore(connection as unknown as Redis);
 
     vi.advanceTimersByTime(75_001);
@@ -1387,6 +1476,7 @@ describe("RedisRoomStore v3 persistence", () => {
     });
     expect(state.mgets).toEqual([
       [documentKey, awarenessKey, coordinationKey],
+      [documentKey, awarenessKey, coordinationKey],
       [awarenessKey, coordinationKey],
     ]);
     expect(state.watches).toEqual([[awarenessKey, coordinationKey]]);
@@ -1395,6 +1485,10 @@ describe("RedisRoomStore v3 persistence", () => {
       coordinationKey,
     ]);
     expect(state.streamPayloads).toHaveLength(1);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].multi).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
 
     state.mgets.length = 0;
     state.watches.length = 0;
@@ -1407,6 +1501,181 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.writes).toEqual([]);
     expect(state.streamPayloads).toEqual([]);
     expect(state.mgets.flat()).not.toContain(`jazzboard:room:${source.id}`);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
+  });
+
+  it.each(["document", "awareness", "coordination"] as const)(
+    "uses dedicated repair or absence handling when the %s plane is missing",
+    async (missing) => {
+      const source = presenceRoom();
+      const planes = splitRoomState(source);
+      const keys = {
+        document: `jazzboard:room:v3:document:${source.id}`,
+        awareness: `jazzboard:room:v3:awareness:${source.id}`,
+        coordination: `jazzboard:room:v3:coordination:${source.id}`,
+      };
+      const initial = (Object.keys(keys) as Array<keyof typeof keys>)
+        .filter((plane) => plane !== missing)
+        .map((plane): [string, string] => [keys[plane], JSON.stringify(planes[plane])]);
+      const { connection, state } = fakeRedis(initial);
+      const ownership = trackReadConnectionOwnership(connection);
+
+      const room = await new RedisRoomStore(connection as unknown as Redis).getRoom(source.id);
+
+      expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+      expect(ownership.dedicated[0].watch).toHaveBeenCalled();
+      expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+      expectSharedReadOnly(ownership);
+      if (missing === "document") {
+        expect(room).toBeNull();
+        expect(state.writes).toEqual([]);
+        expect(state.values.has(keys.document)).toBe(false);
+      } else {
+        expect(room).toMatchObject({
+          id: source.id,
+          title: source.title,
+          roomRevision: source.roomRevision,
+          participants: { p_owner: { displayName: "Owner" } },
+        });
+        expect(state.values.has(keys[missing])).toBe(true);
+        expect(JSON.parse(state.values.get(keys.coordination)!)).toMatchObject({ legacyRetired: true });
+        expect(ownership.dedicated[0].multi).toHaveBeenCalled();
+        expect(state.values.get(keys.document)).toBe(JSON.stringify(planes.document));
+      }
+    },
+  );
+
+  it("retires a stale legacy mirror before treating complete planes as read-only", async () => {
+    const source = presenceRoom();
+    const planes = preRetirementPlanes(source);
+    const legacyKey = `jazzboard:room:${source.id}`;
+    const staleMirror = { ...source, title: "Stale mirror", roomRevision: 2, stateRevision: 6 };
+    const { connection, state } = fakeRedis([
+      [`jazzboard:room:v3:document:${source.id}`, JSON.stringify(planes.document)],
+      [`jazzboard:room:v3:awareness:${source.id}`, JSON.stringify(planes.awareness)],
+      [`jazzboard:room:v3:coordination:${source.id}`, JSON.stringify(planes.coordination)],
+      [legacyKey, JSON.stringify(staleMirror)],
+    ]);
+    state.ttls.set(legacyKey, 60);
+    const ownership = trackReadConnectionOwnership(connection);
+
+    await expect(new RedisRoomStore(connection as unknown as Redis).getRoom(source.id))
+      .resolves.toMatchObject({ title: source.title, roomRevision: 3, stateRevision: 7 });
+
+    expect(state.values.has(legacyKey)).toBe(false);
+    expect(JSON.parse(state.values.get(`jazzboard:room:v3:coordination:${source.id}`)!))
+      .toMatchObject({ legacyRetired: true });
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalled();
+    expect(ownership.dedicated[0].multi).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
+  });
+
+  it("keeps a missing legacy document fence on the dedicated compatibility path", async () => {
+    const source = presenceRoom();
+    const planes = splitRoomState(source);
+    delete planes.coordination.roomRevision;
+    const { connection, state } = fakeRedis([
+      [`jazzboard:room:v3:document:${source.id}`, JSON.stringify(planes.document)],
+      [`jazzboard:room:v3:awareness:${source.id}`, JSON.stringify(planes.awareness)],
+      [`jazzboard:room:v3:coordination:${source.id}`, JSON.stringify(planes.coordination)],
+    ]);
+    const ownership = trackReadConnectionOwnership(connection);
+
+    await expect(new RedisRoomStore(connection as unknown as Redis).getRoom(source.id))
+      .resolves.toMatchObject({ roomRevision: source.roomRevision, stateRevision: source.stateRevision });
+
+    expect(ownership.shared.mget).toHaveBeenCalledTimes(1);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].mget).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expect(state.writes).toEqual([]);
+    expectSharedReadOnly(ownership);
+  });
+
+  it("retries expiry after a concurrent document commit without losing its content or awareness", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const source = presenceRoom();
+    source.leases.object_1 = {
+      leaseId: "expired_lease",
+      objectId: "object_1",
+      actor: { participantId: "p_owner", displayName: "Owner", color: "blue", kind: "human" },
+      operation: "move",
+      objectRevision: 1,
+      acquiredAt: Date.now() - 6_000,
+      expiresAt: Date.now() - 1,
+    };
+    const planes = splitRoomState(source);
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const awarenessKey = `jazzboard:room:v3:awareness:${source.id}`;
+    const coordinationKey = `jazzboard:room:v3:coordination:${source.id}`;
+    const { connection, state } = fakeRedis([
+      [documentKey, JSON.stringify(planes.document)],
+      [awarenessKey, JSON.stringify(planes.awareness)],
+      [coordinationKey, JSON.stringify(planes.coordination)],
+    ]);
+    const ownership = trackReadConnectionOwnership(connection);
+    const committed = structuredClone(planes);
+    committed.document.roomRevision += 1;
+    committed.document.title = "Concurrent committed document";
+    committed.document.updatedAt = Date.now();
+    committed.coordination.roomRevision = committed.document.roomRevision;
+    committed.coordination.stateRevision += 1;
+    committed.awareness.participants.p_owner.human.cursor = { x: 321, y: 654 };
+    let injected = false;
+    state.afterMget = (keys) => {
+      if (injected || keys.length !== 2 || !keys.includes(awarenessKey) || !keys.includes(coordinationKey)) return;
+      injected = true;
+      // One synchronous foreign commit after WATCH/read, before EXEC. The fake's
+      // real version checks must reject the first attempted expiry transaction.
+      writeFakeValue(state, documentKey, JSON.stringify(committed.document));
+      writeFakeValue(state, awarenessKey, JSON.stringify(committed.awareness));
+      writeFakeValue(state, coordinationKey, JSON.stringify(committed.coordination));
+    };
+
+    const room = await new RedisRoomStore(connection as unknown as Redis).getRoom(source.id);
+
+    expect(injected).toBe(true);
+    expect(room).toMatchObject({
+      title: "Concurrent committed document",
+      roomRevision: source.roomRevision + 1,
+      stateRevision: planes.coordination.stateRevision + 2,
+      participants: { p_owner: { connected: true, human: { cursor: { x: 321, y: 654 } } } },
+      leases: {},
+    });
+    expect(state.values.get(documentKey)).toBe(JSON.stringify(committed.document));
+    expect(state.writes.map(({ key }) => key)).toEqual([awarenessKey, coordinationKey]);
+    expect(state.streamPayloads).toHaveLength(1);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalledTimes(3);
+    expect(ownership.dedicated[0].multi).toHaveBeenCalledTimes(2);
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expectSharedReadOnly(ownership);
+  });
+
+  it("propagates a shared read failure without creating or closing a transaction connection", async () => {
+    const source = presenceRoom();
+    const planes = splitRoomState(source);
+    const { connection, state } = fakeRedis([
+      [`jazzboard:room:v3:document:${source.id}`, JSON.stringify(planes.document)],
+      [`jazzboard:room:v3:awareness:${source.id}`, JSON.stringify(planes.awareness)],
+      [`jazzboard:room:v3:coordination:${source.id}`, JSON.stringify(planes.coordination)],
+    ]);
+    const ownership = trackReadConnectionOwnership(connection);
+    const failure = new Error("Redis read unavailable");
+    ownership.shared.mget.mockRejectedValueOnce(failure);
+    const store = new RedisRoomStore(connection as unknown as Redis);
+
+    await expect(store.getRoom(source.id)).rejects.toBe(failure);
+    await expect(store.getRoom(source.id)).resolves.toMatchObject({ id: source.id });
+
+    expect(ownership.duplicate).not.toHaveBeenCalled();
+    expect(state.writes).toEqual([]);
+    expect(state.streamPayloads).toEqual([]);
+    expectSharedReadOnly(ownership);
   });
 
   it("strictly retires grandfathered legacy data under the provider wire limit", async () => {

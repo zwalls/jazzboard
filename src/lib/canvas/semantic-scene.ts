@@ -10,6 +10,7 @@ import type {
   RoomState,
 } from "@/lib/domain/types";
 import { vectorPathBounds } from "@/lib/domain/vector-path";
+import { equalDocumentValue } from "@/lib/domain/document-sharing";
 
 import { SEMANTIC_DRAW_STROKE_WIDTHS } from "./semantic-visual-style";
 
@@ -144,6 +145,7 @@ function objectBounds(
 export function buildSemanticScene(
   room: SemanticSceneRoom,
   options: SemanticSceneBuildOptions = {},
+  previousScene?: SemanticScene,
 ): SemanticScene {
   const sortedObjects = Object.values(room.objects).sort(compareObjects);
   const materializedConnectorRoutes = options.optimisticConnectorIds?.size
@@ -152,12 +154,22 @@ export function buildSemanticScene(
   const connectorRoutes = Object.fromEntries(
     sortedObjects
       .filter((object) => object.kind === "connector")
-      .map((object) => [object.id, materializedConnectorRoutes[object.id]]),
+      .map((object) => {
+        const route = materializedConnectorRoutes[object.id];
+        const previous = previousScene?.connectorRoutes[object.id];
+        // Always recompute connectors: targets, lanes, and other routes may
+        // change even when the connector itself has the same object reference.
+        return [object.id, previous && equalDocumentValue(previous, route) ? previous : route];
+      }),
   );
-  const objects = sortedObjects.map((object): SemanticSceneObject => ({
-    object,
-    bounds: objectBounds(object, connectorRoutes),
-  }));
+  const objects = sortedObjects.map((object): SemanticSceneObject => {
+    const previous = previousScene?.objectsById[object.id];
+    if (previous?.object === object && (
+      object.kind !== "connector"
+      || previousScene?.connectorRoutes[object.id] === connectorRoutes[object.id]
+    )) return previous;
+    return { object, bounds: objectBounds(object, connectorRoutes) };
+  });
   const objectsById = Object.fromEntries(objects.map((item) => [item.object.id, item]));
   const bounds = objects.reduce<CanvasBounds | null>(
     (current, item) => unionBounds(current, item.bounds),

@@ -884,8 +884,8 @@ function semanticCanvasConnectorOverlayPropsEqual(
     && previous.connectorRoute === next.connectorRoute
     && previous.bounds === next.bounds
     && previous.focused === next.focused
-    && Boolean(previous.onSelect) === Boolean(next.onSelect)
-    && Boolean(previous.onPointerStart) === Boolean(next.onPointerStart);
+    && previous.onSelect === next.onSelect
+    && previous.onPointerStart === next.onPointerStart;
 }
 
 export function semanticCanvasObjectPropsEqual(
@@ -902,14 +902,13 @@ export function semanticCanvasObjectPropsEqual(
     && previous.className === next.className
     && previous.tabIndex === next.tabIndex
     && previous.connectorLayer === next.connectorLayer
-    // Canvas handlers are intentionally ref-driven. Their availability can
-    // change at a role boundary, but aggregate presence envelopes must not
-    // invalidate every object merely by recreating parent closures.
-    && Boolean(previous.onSelect) === Boolean(next.onSelect)
-    && Boolean(previous.onPointerStart) === Boolean(next.onPointerStart)
-    && Boolean(previous.onEditRequested) === Boolean(next.onEditRequested)
-    && Boolean(previous.onFocus) === Boolean(next.onFocus)
-    && Boolean(previous.onBlur) === Boolean(next.onBlur);
+    // The canvas supplies stable dispatchers backed by committed handler refs.
+    // Standalone callers may replace callbacks and must observe those changes.
+    && previous.onSelect === next.onSelect
+    && previous.onPointerStart === next.onPointerStart
+    && previous.onEditRequested === next.onEditRequested
+    && previous.onFocus === next.onFocus
+    && previous.onBlur === next.onBlur;
 }
 
 export const SemanticCanvasObject = memo(SemanticCanvasObjectComponent, semanticCanvasObjectPropsEqual);

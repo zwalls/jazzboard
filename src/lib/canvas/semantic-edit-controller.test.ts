@@ -1129,3 +1129,36 @@ describe("SemanticCanvasEditController", () => {
     expect(controller.optimisticConnectorIds()).toEqual(new Set());
   });
 });
+
+describe("group projection publication", () => {
+  it("shows the complete grouped move synchronously in one observer notification", () => {
+    const objects = [shape("a", 10), shape("b", 110), shape("c", 210)];
+    const { controller } = setup(roomWith(objects));
+    controller.dispatch({
+      type: "gesture.started",
+      gestureId: "atomic-group",
+      source: "pointer",
+      objects: objects.map((object) => ({
+        objectId: object.id, baseRevision: object.revision,
+        baseCreatedAt: object.createdAt, operation: "move" as const,
+      })),
+    });
+    const observed: number[][] = [];
+    const unsubscribe = controller.subscribe(() => observed.push(
+      objects.map((object) => controller.getSnapshot().objects[object.id].x),
+    ));
+    controller.dispatch({
+      type: "objects.changed",
+      gestureId: "atomic-group",
+      changes: objects.map((object) => ({
+        kind: "update" as const, draft: draft(object, { x: object.x + 75 }),
+        baseRevision: object.revision, baseCreatedAt: object.createdAt,
+        operation: "move" as const,
+      })),
+    });
+    expect(observed).toEqual([[85, 185, 285]]);
+    expect((controller.getSnapshot().objects.a as Shape).nodeMetadata).toEqual(objects[0].nodeMetadata);
+    unsubscribe();
+    controller.dispose();
+  });
+});

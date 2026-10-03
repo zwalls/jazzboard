@@ -32,7 +32,12 @@ import {
   type SemanticLeaseAction,
   type SemanticLeaseBatchAction,
 } from "./semantic-lease-manager";
-import { SemanticLocalDocumentStore } from "./semantic-local-document";
+import {
+  SemanticLocalDocumentStore,
+  type SemanticAuthoritativeRoomOptions,
+  type SemanticLocalObjectFence,
+  type SemanticLocalObjectOverride,
+} from "./semantic-local-document";
 import { CanvasObjectSyncCoordinator } from "./sync-coordinator";
 
 type CommandResult = Readonly<{ room: RoomState; changedObjectIds: readonly string[] }>;
@@ -282,13 +287,15 @@ export class SemanticCanvasEditController {
           if (this.disposed) return;
           // Persistence has already accepted event.room. Exact fences prevent
           // an N acknowledgement from clearing optimistic generation N+1.
+          const settled: (SemanticLocalObjectFence & { objectId: string })[] = [];
           for (const acknowledgement of event.acknowledgements) {
             const override = this.store.getOverride(acknowledgement.objectId);
             if (
               acknowledgement.latestGenerationSettled &&
               override?.generation === acknowledgement.generation
             ) {
-              this.store.clearAcknowledged(acknowledgement.objectId, {
+              settled.push({
+                objectId: acknowledgement.objectId,
                 generation: override.generation,
                 recoveryEpoch: override.recoveryEpoch,
               });
@@ -298,6 +305,7 @@ export class SemanticCanvasEditController {
               acknowledgement.generation,
             );
           }
+          this.store.clearAcknowledgedMany(settled);
           if (event.final && event.gestureId) {
             const replay = this.historyReplaysByGesture.get(event.gestureId);
             if (replay) {
@@ -395,8 +403,8 @@ export class SemanticCanvasEditController {
     return this.replayHistory("redo");
   }
 
-  acceptRoom(room: RoomState): RoomState {
-    if (!this.disposed) this.store.acceptAuthoritative(room);
+  acceptRoom(room: RoomState, options?: SemanticAuthoritativeRoomOptions): RoomState {
+    if (!this.disposed) this.store.acceptAuthoritative(room, options);
     return this.store.getAuthoritativeRoom();
   }
 
@@ -533,19 +541,21 @@ export class SemanticCanvasEditController {
   }
 
   private applyOptimisticEdits(edits: readonly PendingSemanticCanvasEdit[]): void {
-    for (const edit of edits) {
-      if (this.disposed) return;
+    if (this.disposed) return;
+    // The lifecycle emits one final edit per object ID. Build each draft from
+    // the same immutable starting projection, then publish the whole intent.
+    const projected = this.store.getSnapshot();
+    const overrides = edits.map((edit): SemanticLocalObjectOverride => {
       const fence = { generation: edit.generation, recoveryEpoch: edit.recoveryEpoch };
-      if (edit.kind === "delete") {
-        this.store.applyOverride({ kind: "delete", objectId: edit.objectId, ...fence });
-        continue;
-      }
-      this.store.applyOverride({
-        kind: "upsert",
-        object: optimisticObject(edit, this.store.getSnapshot(), this.actor, this.now()),
-        ...fence,
-      });
-    }
+      return edit.kind === "delete"
+        ? { kind: "delete", objectId: edit.objectId, ...fence }
+        : {
+            kind: "upsert",
+            object: optimisticObject(edit, projected, this.actor, this.now()),
+            ...fence,
+          };
+    });
+    this.store.applyOverrides(overrides);
   }
 
   private scheduleSettlement(intent: Extract<SemanticCanvasEditIntent, { type: "gesture.settle" }>): void {

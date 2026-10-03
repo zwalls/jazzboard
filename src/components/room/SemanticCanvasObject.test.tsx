@@ -44,7 +44,7 @@ function inSvg(node: React.ReactNode) {
 afterEach(cleanup);
 
 describe("SemanticCanvasObject", () => {
-  it("keeps presence-driven parent closures behind a stable semantic render gate", () => {
+  it("keeps stable callback dispatchers behind the semantic render gate and observes replacements", () => {
     const object: CanvasObject = {
       ...base("stable-object", "shape"),
       kind: "shape",
@@ -64,11 +64,12 @@ describe("SemanticCanvasObject", () => {
       onFocus: vi.fn(),
     };
 
+    expect(semanticCanvasObjectPropsEqual(first, { ...first })).toBe(true);
     expect(semanticCanvasObjectPropsEqual(first, {
       ...first,
       onSelect: vi.fn(),
       onFocus: vi.fn(),
-    })).toBe(true);
+    })).toBe(false);
     expect(semanticCanvasObjectPropsEqual(first, { ...first, selected: true })).toBe(false);
     expect(semanticCanvasObjectPropsEqual(first, { ...first, object: { ...object, label: "Changed" } })).toBe(false);
   });
@@ -572,5 +573,49 @@ describe("SemanticCanvasObject", () => {
     expect(path).toHaveAttribute("stroke-linecap", "square");
     expect(path).toHaveAttribute("stroke-linejoin", "bevel");
     expect(path).toHaveAttribute("fill-rule", "evenodd");
+  });
+});
+
+describe("memoized semantic object callback replacement", () => {
+  it("uses current object callbacks when geometry and all visual props remain unchanged", () => {
+    const object: CanvasObject = {
+      ...base("callback-shape", "shape"), kind: "shape", shape: "rectangle", nodeType: "component",
+      label: "Callbacks", fill: "white", stroke: "blue",
+    };
+    const first = { onSelect: vi.fn(), onPointerStart: vi.fn(), onEditRequested: vi.fn(), onFocus: vi.fn(), onBlur: vi.fn() };
+    const next = { onSelect: vi.fn(), onPointerStart: vi.fn(), onEditRequested: vi.fn(), onFocus: vi.fn(), onBlur: vi.fn() };
+    const view = render(<svg><SemanticCanvasObject object={object} {...first} /></svg>);
+    view.rerender(<svg><SemanticCanvasObject object={object} {...next} /></svg>);
+    const target = view.container.querySelector('[data-object-id="callback-shape"]')!;
+    fireEvent.pointerDown(target, { button: 0, pointerId: 81, clientX: 40, clientY: 50 });
+    fireEvent.keyDown(target, { key: "Enter" });
+    fireEvent.doubleClick(target);
+    fireEvent.focus(target);
+    fireEvent.blur(target);
+    for (const callback of Object.values(first)) expect(callback).not.toHaveBeenCalled();
+    expect(next.onSelect).toHaveBeenCalledTimes(2);
+    expect(next.onPointerStart).toHaveBeenCalledWith(expect.objectContaining({ objectId: object.id }));
+    expect(next.onEditRequested).toHaveBeenCalledWith(object.id);
+    expect(next.onFocus).toHaveBeenCalledWith(object.id);
+    expect(next.onBlur).toHaveBeenCalledWith(object.id);
+  });
+
+  it("uses current connector overlay handlers without requiring new geometry", () => {
+    const object: Extract<CanvasObject, { kind: "connector" }> = {
+      ...base("callback-overlay", "connector"), kind: "connector", rotation: 0,
+      start: { x: 0, y: 0, objectId: null }, end: { x: 200, y: 0, objectId: null },
+      direction: "end", label: "Choose edge", color: "blue",
+    };
+    const first = { onSelect: vi.fn(), onPointerStart: vi.fn() };
+    const next = { onSelect: vi.fn(), onPointerStart: vi.fn() };
+    const view = render(<svg><SemanticCanvasConnectorOverlay object={object} {...first} /></svg>);
+    view.rerender(<svg><SemanticCanvasConnectorOverlay object={object} {...next} /></svg>);
+    const label = view.container.querySelector('.semantic-canvas-object__connector-label')!;
+    expect(label).not.toBeNull();
+    fireEvent.pointerDown(label, { button: 0, pointerId: 82, clientX: 100, clientY: 0 });
+    expect(first.onSelect).not.toHaveBeenCalled();
+    expect(first.onPointerStart).not.toHaveBeenCalled();
+    expect(next.onSelect).toHaveBeenCalledWith(object.id, false);
+    expect(next.onPointerStart).toHaveBeenCalledWith(expect.objectContaining({ objectId: object.id }));
   });
 });

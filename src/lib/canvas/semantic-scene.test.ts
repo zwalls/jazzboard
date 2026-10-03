@@ -263,3 +263,61 @@ describe("buildSemanticScene", () => {
     );
   });
 });
+
+describe("shared semantic scene projection", () => {
+  it("reuses unchanged object bounds and routes while recomputing exact scene indexes and aggregate bounds", () => {
+    const a = shape("a", 0, 0, 1);
+    const b = shape("b", 500, 0, 2);
+    const extreme = { ...shape("extreme", 2000, 0, 4), groupId: "removed-group" };
+    const edge = connector("edge", a.id, b.id, 3);
+    const initial = room([a, b, edge, extreme]);
+    const previous = buildSemanticScene(initial);
+    const next = room([a, b, edge]);
+    const shared = buildSemanticScene(next, {}, previous);
+    expect(shared).toEqual(buildSemanticScene(next));
+    expect(shared.objectsById.a).toBe(previous.objectsById.a);
+    expect(shared.objectsById.b.bounds).toBe(previous.objectsById.b.bounds);
+    expect(shared.connectorRoutes.edge).toBe(previous.connectorRoutes.edge);
+    expect(shared.objectsById.edge).toBe(previous.objectsById.edge);
+    expect(shared.objectsById.extreme).toBeUndefined();
+    expect(shared.groupMembers["removed-group"]).toBeUndefined();
+    expect(shared.bounds!.width).toBeLessThan(previous.bounds!.width);
+  });
+
+  it("observes same-revision optimistic geometry and recomputes connector target-dependent elbows", () => {
+    const a = shape("a", 0, 0, 1);
+    const b = shape("b", 500, 0, 2);
+    const edge = {
+      ...connector("edge", a.id, b.id, 3),
+      routing: normalizeConnectorRouting({ mode: "elbow", elbowMidPoint: 0.4 }),
+    };
+    const initial = room([a, b, edge]);
+    const previous = buildSemanticScene(initial);
+    const moved = { ...a, x: 700, y: 300, rotation: Math.PI / 4 };
+    const next = room([moved, b, edge]);
+    const shared = buildSemanticScene(next, {}, previous);
+    expect(shared).toEqual(buildSemanticScene(next));
+    expect(shared.objectsById.a).not.toBe(previous.objectsById.a);
+    expect(shared.objectsById.a.bounds).not.toEqual(previous.objectsById.a.bounds);
+    expect(shared.objectsById.a.object.revision).toBe(previous.objectsById.a.object.revision);
+    expect(shared.objectsById.b).toBe(previous.objectsById.b);
+    expect(shared.connectorRoutes.edge.points).not.toEqual(previous.connectorRoutes.edge.points);
+    expect(shared.connectorRoutes.edge).not.toBe(previous.connectorRoutes.edge);
+  });
+
+  it("does not preserve speculative routes after protection ends or reuse routes across lane changes", () => {
+    const a = shape("a", 0, 100, 1);
+    const b = shape("b", 500, 100, 2);
+    const edge = connector("edge", a.id, b.id, 3);
+    const next = room([{ ...a, x: 160, y: 260 }, b, edge]);
+    const options = { optimisticConnectorIds: new Set([edge.id]) };
+    const previous = buildSemanticScene(next, options);
+    const settled = buildSemanticScene(next, {}, previous);
+    expect(settled).toEqual(buildSemanticScene(next));
+    expect(settled.connectorRoutes.edge.start).toEqual(edge.start);
+    expect(settled.connectorRoutes.edge).not.toBe(previous.connectorRoutes.edge);
+    const parallel = room([...Object.values(next.objects), connector("edge-2", a.id, b.id, 4)]);
+    const projected = buildSemanticScene(parallel, options, previous);
+    expect(projected).toEqual(buildSemanticScene(parallel, options));
+  });
+});

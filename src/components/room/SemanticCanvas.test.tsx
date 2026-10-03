@@ -661,6 +661,22 @@ describe("SemanticCanvas", () => {
     rendered.rerender(<SemanticCanvas {...props} room={edited} />);
     expect(onDocumentChange).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: /service: Updated room API/i })).toBeInTheDocument();
+
+    // Same-revision content changes must still be observed at this raw prop
+    // boundary; stable geometry must never rely on revision-only equality.
+    const sameRevision = structuredClone(edited);
+    sameRevision.stateRevision = 6;
+    sameRevision.objects["node-a"] = {
+      ...sameRevision.objects["node-a"]!,
+      label: "Same revision change",
+    } as CanvasObject;
+    rendered.rerender(<SemanticCanvas {...props} room={sameRevision} />);
+    expect(onDocumentChange).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: /service: Same revision change/i })).toBeInTheDocument();
+    const decodedPresence = structuredClone(sameRevision);
+    decodedPresence.stateRevision = 7;
+    rendered.rerender(<SemanticCanvas {...props} room={decodedPresence} />);
+    expect(onDocumentChange).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
 
@@ -2634,5 +2650,132 @@ describe("SemanticCanvas", () => {
     expect(harness.command).not.toHaveBeenCalled();
     expect(harness.editing.lease).not.toHaveBeenCalled();
     expect(harness.editing.leaseMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("selection publication during document projection", () => {
+  it("suppresses unchanged selections while retaining repeated focus requests, ordering, and deletion", async () => {
+    const initial = structuredClone(room);
+    initial.objects["node-a"].groupId = null;
+    initial.objects["node-b"].groupId = null;
+    const harness = makeEditingHarness(initial);
+    const rendered = renderEditableCanvas(initial, harness.editing);
+    act(() => rendered.getRuntime()!.selectObjects(["node-a", "node-b"]));
+    await flushMicrotasks();
+    rendered.onSelectionChange.mockClear();
+    const first = screen.getByRole("button", { name: /service: Room API/i });
+    const second = screen.getByRole("button", { name: /Text: Authorized guest/i });
+    act(() => second.focus());
+    act(() => rendered.getRuntime()!.selectObjects(["node-a", "node-b"]));
+    await flushMicrotasks();
+    expect(first).toHaveFocus();
+    expect(rendered.onSelectionChange).not.toHaveBeenCalled();
+
+    const moved = structuredClone(initial);
+    moved.objects["node-a"].x += 80;
+    moved.roomRevision += 1;
+    moved.stateRevision = (moved.stateRevision ?? 0) + 1;
+    rendered.rerenderRoom(moved);
+    await flushMicrotasks();
+    expect(rendered.onSelectionChange).not.toHaveBeenCalled();
+    act(() => rendered.getRuntime()!.selectObjects(["node-b", "node-a"]));
+    expect(rendered.onSelectionChange).toHaveBeenLastCalledWith(["node-b", "node-a"]);
+    rendered.onSelectionChange.mockClear();
+    const deleted = structuredClone(moved);
+    delete deleted.objects["node-b"];
+    deleted.roomRevision += 1;
+    deleted.stateRevision = (deleted.stateRevision ?? 0) + 1;
+    rendered.rerenderRoom(deleted);
+    await flushMicrotasks();
+    expect(rendered.onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(rendered.onSelectionChange).toHaveBeenLastCalledWith(["node-a"]);
+  });
+});
+
+describe("selection subscriber contract", () => {
+  it("publishes initial empty selection and a replacement callback once without repeating unchanged document frames", () => {
+    const first = vi.fn();
+    const replacement = vi.fn();
+    let runtime: CanvasRuntime | null = null;
+    const props = {
+      boardMenuActions: menuActions,
+      room,
+      self,
+      followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined),
+      transientPresence: vi.fn(() => true),
+      connection: "live" as const,
+      onRuntimeChange: vi.fn((value: CanvasRuntime | null) => { runtime = value; }),
+      onExitFollow: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...props} onSelectionChange={first} />);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenLastCalledWith([]);
+    act(() => runtime!.selectObjects(["node-b", "node-a"]));
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(first).toHaveBeenLastCalledWith(["node-b", "node-a"]);
+    rendered.rerender(<SemanticCanvas {...props} onSelectionChange={replacement} />);
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(replacement).toHaveBeenCalledTimes(1);
+    expect(replacement).toHaveBeenLastCalledWith(["node-b", "node-a"]);
+    rendered.rerender(<SemanticCanvas
+      {...props}
+      room={{ ...room, roomRevision: room.roomRevision + 1 }}
+      onSelectionChange={replacement}
+    />);
+    expect(replacement).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("memoized canvas object dispatch", () => {
+  it("selects an unchanged unselected object through the replacement subscriber", () => {
+    const initial = structuredClone(room);
+    initial.objects["node-a"].groupId = null;
+    initial.objects["node-b"].groupId = null;
+    const first = vi.fn();
+    const replacement = vi.fn();
+    const props = {
+      room: initial, self, boardMenuActions: menuActions, followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined), transientPresence: vi.fn(() => true),
+      connection: "live" as const, onRuntimeChange: vi.fn(), onExitFollow: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...props} onSelectionChange={first} />);
+    const target = screen.getByRole("button", { name: /Text: Authorized guest/i });
+    expect(target).toHaveAttribute("data-selected", "false");
+    rendered.rerender(<SemanticCanvas {...props} onSelectionChange={replacement} />);
+    first.mockClear();
+    replacement.mockClear();
+    expect(screen.getByRole("button", { name: /Text: Authorized guest/i })).toBe(target);
+    fireEvent.keyDown(target, { key: "Enter" });
+    expect(first).not.toHaveBeenCalled();
+    expect(replacement).toHaveBeenCalledTimes(1);
+    expect(replacement).toHaveBeenLastCalledWith(["node-b"]);
+  });
+
+  it("starts a pointer gesture with the current follow-exit callback on an unchanged object", async () => {
+    const initial = structuredClone(room);
+    initial.objects["node-a"].groupId = null;
+    initial.objects["node-b"].groupId = null;
+    const harness = makeEditingHarness(initial);
+    const firstExit = vi.fn();
+    const currentExit = vi.fn();
+    const props = {
+      room: initial, self: { ...self, role: "participant" as const }, editing: harness.editing,
+      boardMenuActions: menuActions, followTarget: null,
+      presence: vi.fn().mockResolvedValue(undefined), transientPresence: vi.fn(() => true),
+      connection: "live" as const, onRuntimeChange: vi.fn(), onSelectionChange: vi.fn(),
+    };
+    const rendered = render(<SemanticCanvas {...props} onExitFollow={firstExit} />);
+    const target = screen.getByRole("button", { name: /service: Room API/i });
+    const canvas = screen.getByTestId("semantic-canvas");
+    installPointerCapture(canvas);
+    rendered.rerender(<SemanticCanvas {...props} onExitFollow={currentExit} />);
+    firstExit.mockClear();
+    currentExit.mockClear();
+    fireEvent.pointerDown(target, { button: 0, pointerId: 83, clientX: 100, clientY: 100 });
+    expect(firstExit).not.toHaveBeenCalled();
+    expect(currentExit).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(canvas, { pointerId: 83, clientX: 100, clientY: 100 });
+    await flushMicrotasks();
   });
 });

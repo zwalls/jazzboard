@@ -7,6 +7,7 @@ import type {
   ConnectorRouting,
   Diagram,
   RoomState,
+  ShapeObject,
 } from "./types";
 import {
   createConnectorRoutingContext,
@@ -21,6 +22,7 @@ import {
   materializeConnectorRoutes,
   normalizeConnectorRouting,
   pointAlongConnectorRoute,
+  resolveConnectorRoute,
   resolveConnectorRoutes,
 } from "./connector-routing";
 
@@ -50,7 +52,7 @@ function base(id: string, createdAt = 1) {
   };
 }
 
-function node(id: string, x: number, y: number, width = 100, height = 80): CanvasObject {
+function node(id: string, x: number, y: number, width = 100, height = 80): ShapeObject {
   return {
     ...base(id),
     kind: "shape",
@@ -184,6 +186,43 @@ describe("canonical connector routing", () => {
   });
 });
 
+describe("connector route bounds numeric behavior", () => {
+  it("retains empty, single-point, and negative-padding bounds", () => {
+    const padding = CONNECTOR_ROUTING_LIMITS.routeBoundsPadding;
+    expect(connectorRouteBounds([])).toEqual({
+      x: -padding, y: -padding, width: Math.max(padding * 2, 1), height: Math.max(padding * 2, 1),
+    });
+    expect(connectorRouteBounds([], 0)).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    expect(connectorRouteBounds([{ x: 7, y: -3 }], 0)).toEqual({ x: 7, y: -3, width: 1, height: 1 });
+    expect(connectorRouteBounds([{ x: -3, y: -4 }, { x: 7, y: 6 }], -2))
+      .toEqual({ x: -1, y: -2, width: 6, height: 6 });
+  });
+
+  it("preserves signed-zero extrema and padding arithmetic", () => {
+    const negative = connectorRouteBounds([{ x: -0, y: -0 }], 0);
+    const positive = connectorRouteBounds([{ x: -0, y: -0 }], -0);
+    const mixed = connectorRouteBounds([{ x: 0, y: -0 }, { x: -0, y: 0 }], 0);
+    expect(Object.is(negative.x, -0)).toBe(true);
+    expect(Object.is(negative.y, -0)).toBe(true);
+    expect(Object.is(positive.x, 0)).toBe(true);
+    expect(Object.is(positive.y, 0)).toBe(true);
+    expect(Object.is(mixed.x, -0)).toBe(true);
+    expect(Object.is(mixed.y, -0)).toBe(true);
+    expect(mixed.width).toBe(1);
+    expect(mixed.height).toBe(1);
+  });
+
+  it("propagates non-finite coordinates without changing unaffected dimensions", () => {
+    const notANumber = connectorRouteBounds([{ x: NaN, y: 4 }, { x: 10, y: 9 }], 2);
+    expect(notANumber.x).toBeNaN();
+    expect(notANumber.width).toBeNaN();
+    expect(notANumber.y).toBe(2);
+    expect(notANumber.height).toBe(9);
+    expect(connectorRouteBounds([{ x: -Infinity, y: 3 }, { x: Infinity, y: 3 }], 0))
+      .toEqual({ x: -Infinity, y: 3, width: Infinity, height: 1 });
+  });
+});
+
 describe("deterministic route geometry", () => {
   it("resolves legacy straight geometry, route-relative labels, and complete bounds", () => {
     const left = node("left", 0, 0);
@@ -302,7 +341,13 @@ describe("deterministic route geometry", () => {
       right.id,
       normalizeConnectorRouting({ mode: "auto" }),
     );
-    const route = resolveConnectorRoutes(room([left, blocker, right, edge])).edge;
+    const routingRoom = room([left, blocker, right, edge]);
+    const originalSearch = resolveConnectorRoutes(routingRoom, { maxCandidates: 89 }).edge;
+    const route = resolveConnectorRoutes(routingRoom, { maxCandidates: 90 }).edge;
+
+    // The blocked preferred route must leave the complete fallback search,
+    // its geometry, and its candidate budget unchanged.
+    expect(route).toEqual(originalSearch);
 
     expect(route.routing).toMatchObject({ mode: "auto", kind: "elbow" });
     expect(route.collisionObjectIds).toEqual([]);
@@ -747,7 +792,7 @@ describe("deterministic route geometry", () => {
       "bound-edge",
       left.id,
       right.id,
-      normalizeConnectorRouting({ mode: "auto" }),
+      normalizeConnectorRouting({ mode: "auto", labelPosition: 0.75 }),
     );
     edge.start = {
       ...edge.start,
@@ -764,6 +809,9 @@ describe("deterministic route geometry", () => {
 
     const route = resolveConnectorRoutes(room([left, right, edge]))[edge.id];
 
+    expect(route.routing).toMatchObject({ labelPosition: 0.75, labelPositionSource: "authored" });
+    expect(route.labelPoint).toEqual(pointAlongConnectorRoute(route.points, 0.75));
+    expect(route.candidateCount).toBe(1);
     expect(route.start).toMatchObject({
       normalizedAnchor: { x: 1, y: 0.2 },
       isPrecise: true,
@@ -850,6 +898,149 @@ describe("deterministic route geometry", () => {
 });
 
 
+describe("quality routing search preserves visible geometry", () => {
+  it("keeps clean route geometry identical across the 89/90 candidate budget boundary", () => {
+    const left = node("budget-left", 0, 0);
+    const right = node("budget-right", 500, 0);
+    const edge = connector("budget-edge", left.id, right.id, normalizeConnectorRouting({ mode: "auto" }));
+    const routingRoom = room([left, right, edge]);
+    const constrained = resolveConnectorRoutes(routingRoom, { maxCandidates: 89 })[edge.id];
+    const complete = resolveConnectorRoutes(routingRoom, { maxCandidates: 90 })[edge.id];
+
+    expect(complete.points).toEqual([{ x: 100, y: 40 }, { x: 500, y: 40 }]);
+    expect(complete.collisionObjectIds).toEqual([]);
+    expect({ ...complete, candidateCount: constrained.candidateCount }).toEqual(constrained);
+    expect(constrained.candidateCount).toBe(89);
+    expect(complete.candidateCount).toBe(1);
+  });
+
+  it("preserves a clamped reverse parallel curve without routing the whole lane cohort", () => {
+    const left = node("clamp-left", 0, 0);
+    const right = node("clamp-right", 500, 0);
+    const edges = Array.from({ length: 43 }, (_, index) => {
+      const edge = connector(
+        "clamp-" + String(index).padStart(2, "0"),
+        index % 2 ? right.id : left.id,
+        index % 2 ? left.id : right.id,
+        normalizeConnectorRouting({ mode: "auto" }),
+        index + 1,
+      );
+      edge.label = "";
+      return edge;
+    });
+    const routingRoom = room([left, right, ...edges]);
+    const target = edges[39];
+    const constrained = resolveConnectorRoute(target, createConnectorRoutingContext(routingRoom, {
+      resolutionMode: "quality", laneSpacing: 256, maxCandidates: 89,
+    }));
+    const complete = resolveConnectorRoute(target, createConnectorRoutingContext(routingRoom, {
+      resolutionMode: "quality", laneSpacing: 256, maxCandidates: 90,
+    }));
+
+    expect(complete.laneIndex).toBe(20);
+    expect(complete.routing.kind).toBe("curved");
+    expect(Math.abs(complete.routing.bend)).toBe(CONNECTOR_ROUTING_LIMITS.maxBend);
+    expect(complete.start.objectId).toBe(right.id);
+    expect(complete.end.objectId).toBe(left.id);
+    expect(complete.arc).not.toBeNull();
+    expect(complete.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+    expect({ ...complete, candidateCount: constrained.candidateCount }).toEqual(constrained);
+    expect(constrained.candidateCount).toBeGreaterThan(1);
+    expect(complete.candidateCount).toBe(1);
+  });
+
+  it("keeps an unlabeled path clear of a prior route's label", () => {
+    const prior = connector("prior-labeled", "missing-a", "missing-b", normalizeConnectorRouting({ mode: "straight" }), 1);
+    prior.start = { x: 0, y: 0, objectId: null };
+    prior.end = { x: 600, y: 0, objectId: null };
+    prior.label = "Prior route label";
+    const following = connector("following-unlabeled", "missing-c", "missing-d", normalizeConnectorRouting({ mode: "auto" }), 2);
+    following.start = { x: 0, y: 8, objectId: null };
+    following.end = { x: 600, y: 8, objectId: null };
+    following.label = "";
+
+    const visibleLabel = resolveConnectorRoutes(room([prior, following], false));
+    const withoutLabel = resolveConnectorRoutes(room([{ ...prior, label: "" }, following], false));
+    const route = visibleLabel[following.id];
+    const priorLabel = visibleLabel[prior.id].labelBounds!;
+
+    expect(route.labelBounds).toBeNull();
+    expect(route.crossingCount).toBe(0);
+    expect(route.collisionObjectIds).toEqual([]);
+    expect(route.routing.kind).toBe("curved");
+    expect(route.labelPoint.y).toBeGreaterThan(priorLabel.y + priorLabel.height);
+    expect(withoutLabel[following.id].routing.kind).toBe("straight");
+    expect(withoutLabel[following.id].points).toEqual([{ x: 0, y: 8 }, { x: 600, y: 8 }]);
+  });
+});
+
+describe("connector obstacle preparation preserves routing scope", () => {
+  it("keeps the same collision-free scoped route among 1,000 unrelated obstacles", () => {
+    const left = node("scope-left", 0, 100);
+    const right = node("scope-right", 500, 100);
+    const blocker = node("scope-blocker", 250, 100);
+    const otherMembers = Array.from({ length: 5 }, (_, index) =>
+      node("scope-member-" + index, index * 150, 500),
+    );
+    const edge = connector("scope-edge", left.id, right.id, normalizeConnectorRouting({ mode: "auto" }));
+    edge.label = "Scoped decision";
+    const scoped = room([left, right, blocker, ...otherMembers, edge]);
+    const crowded = {
+      ...scoped,
+      objects: {
+        ...scoped.objects,
+        ...Object.fromEntries(Array.from({ length: 1_000 }, (_, index) => {
+          const outside = node("outside-" + String(index).padStart(4, "0"),
+            (index % 20) * 30, Math.floor(index / 20) * 10 - 100, 18, 18);
+          return [outside.id, outside];
+        })),
+      },
+    };
+
+    const reference = resolveConnectorRoutes(scoped)[edge.id];
+    const route = resolveConnectorRoutes(crowded)[edge.id];
+    expect(route).toEqual(reference);
+    expect(route.routing.kind).toBe("elbow");
+    expect(route.collisionObjectIds).toEqual([]);
+    expect(crowded.diagrams["diagram-routing"].memberObjectIds).toHaveLength(8);
+  });
+
+  it("retains sorted collision IDs and endpoint exclusions when an allowed map entry is absent", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const firstAlongPath = node("z-obstacle", 180, 0);
+    const lastAlongPath = node("a-obstacle", 350, 0);
+    const edge = connector("edge", left.id, right.id, normalizeConnectorRouting({ mode: "straight" }));
+    edge.label = "";
+    const context = createConnectorRoutingContext(room([left, right, firstAlongPath, lastAlongPath, edge], false));
+
+    const absent = resolveConnectorRoute(edge, { ...context, obstacleIdsByConnector: new Map() });
+    const empty = resolveConnectorRoute(edge, {
+      ...context, obstacleIdsByConnector: new Map([[edge.id, new Set<string>()]]),
+    });
+    expect(absent.collisionObjectIds).toEqual(["a-obstacle", "z-obstacle"]);
+    expect(empty.collisionObjectIds).toEqual([]);
+    expect(empty.points).toEqual(absent.points);
+  });
+
+  it("applies obstacle padding to label-only collisions as well as paths", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const edge = connector("edge", left.id, right.id, normalizeConnectorRouting({ mode: "straight" }));
+    const clear = resolveConnectorRoutes(room([left, right, edge]))[edge.id];
+    const label = clear.labelBounds!;
+    const nearLabel = node("label-padding", label.x + label.width / 2, label.y - 2, 4, 1);
+    const routingRoom = room([left, right, nearLabel, edge]);
+    const unpadded = resolveConnectorRoutes(routingRoom, { obstaclePadding: 0 })[edge.id];
+    const padded = resolveConnectorRoutes(routingRoom, { obstaclePadding: 2 })[edge.id];
+
+    expect(unpadded.collisionObjectIds).toEqual([]);
+    expect(padded.collisionObjectIds).toEqual([nearLabel.id]);
+    expect(padded.points).toEqual(unpadded.points);
+    expect(padded.labelBounds).toEqual(unpadded.labelBounds);
+  });
+});
+
 describe("native Mermaid group boundaries", () => {
   function groupedRoom() {
     const container = { ...node("group-box", 0, 0, 400, 300), label: "", groupId: "g", semanticRole: "diagram.group_container" };
@@ -870,6 +1061,20 @@ describe("native Mermaid group boundaries", () => {
       expect(context.obstacleIdsByConnector.get(connection.id)?.has(inside.id)).toBe(true);
     }
   });
+  it("keeps a passable background boundary out of collision results while retaining titles", () => {
+    const { container, inside, outside, title, edge } = groupedRoom();
+    const passable = resolveConnectorRoutes(room([container, inside, outside, title, edge]))[edge.id];
+    const titleAcrossRoute = { ...title, x: 250, y: 120, width: 80, height: 40 };
+    const titleBlocked = resolveConnectorRoutes(room([container, inside, outside, titleAcrossRoute, edge]))[edge.id];
+    const labeledBoundary = resolveConnectorRoutes(room([
+      { ...container, label: "Visible boundary" }, inside, outside, title, edge,
+    ]))[edge.id];
+
+    expect(passable.collisionObjectIds).toEqual([]);
+    expect(titleBlocked.collisionObjectIds).toEqual([title.id]);
+    expect(labeledBoundary.collisionObjectIds).toEqual([container.id]);
+  });
+
   it("retains unrelated, foreground, labeled, and non-containing boundaries as obstacles", () => {
     const { container, inside, outside, edge } = groupedRoom();
     for (const boundary of [

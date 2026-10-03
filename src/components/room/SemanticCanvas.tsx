@@ -85,6 +85,7 @@ import {
 import { SemanticPresencePublisher } from "@/lib/canvas/semantic-presence-publisher";
 import { createSemanticCanvasRuntime } from "@/lib/canvas/semantic-runtime";
 import { buildSemanticScene } from "@/lib/canvas/semantic-scene";
+import { shareDocumentRecords } from "@/lib/domain/document-sharing";
 import {
   hitTestSemanticScene,
   hitTestSemanticSceneObjects,
@@ -293,12 +294,11 @@ const CONTEXT_MENU_MARGIN = 8;
 const emptySubscribe = () => () => undefined;
 let fallbackSemanticId = 0;
 
-function semanticDocumentKey(room: RoomState): string {
-  // Aggregate room envelopes may replace object-map references for presence or
-  // lease updates. A structural document key keeps that coordination traffic
-  // from rebuilding routes and bounds while still observing every optimistic
-  // pixel (whose object revision intentionally remains unchanged until ack).
-  return `${room.id}\u0000${room.roomRevision}\u0000${JSON.stringify(room.objects)}\u0000${JSON.stringify(room.diagrams)}`;
+/** Stable object dispatchers must observe committed handlers, not abandoned renders. */
+function useCommittedCanvasCallback<Args extends unknown[]>(callback: (...args: Args) => void) {
+  const callbackRef = useRef(callback);
+  useLayoutEffect(() => { callbackRef.current = callback; }, [callback]);
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
 
 function useSemanticSceneProjection(
@@ -308,18 +308,18 @@ function useSemanticSceneProjection(
   const optimisticConnectorKey = optimisticConnectorIds?.size
     ? [...optimisticConnectorIds].sort().join("\u0000")
     : "";
-  const documentKey = semanticDocumentKey(room);
-  return useMemo(
-    () => buildSemanticScene(room, {
+  const previousScene = useRef<ReturnType<typeof buildSemanticScene> | undefined>(undefined);
+  const { id, roomRevision, objects, diagrams } = room;
+  const scene = useMemo(
+    () => buildSemanticScene({ id, roomRevision, objects, diagrams }, {
       optimisticConnectorIds: optimisticConnectorKey
         ? new Set(optimisticConnectorKey.split("\u0000"))
         : undefined,
-    }),
-    // The structural document key deliberately replaces aggregate RoomState
-    // identity. Presence and lease envelopes do not belong in this memo.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [documentKey, optimisticConnectorKey],
+    }, previousScene.current),
+    [id, roomRevision, objects, diagrams, optimisticConnectorKey],
   );
+  useLayoutEffect(() => { previousScene.current = scene; }, [scene]);
+  return scene;
 }
 
 function withCount(label: string, count: number, suffix: string): string {
@@ -509,6 +509,13 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   editing = null,
 }, ref) {
   const cleanInspectionActive = Boolean(cleanInspectionId);
+  // Register these layout effects before focus effects can invoke object
+  // callbacks. Memoized objects retain stable dispatchers, never stale props.
+  const dispatchObjectSelect = useCommittedCanvasCallback(handleObjectSelect);
+  const dispatchObjectPointerStart = useCommittedCanvasCallback(handleObjectPointerStart);
+  const dispatchObjectEditRequested = useCommittedCanvasCallback(requestTextEdit);
+  const dispatchObjectFocus = useCommittedCanvasCallback(handleObjectFocus);
+  const dispatchObjectBlur = useCommittedCanvasCallback(handleObjectBlur);
   const mobileLayout = useCanvasMobileLayout();
   const agentDraftRevealRegistry = useMemo(
     () => ({ roomId: room.id, value: new AgentDraftRevealRegistry() }),
@@ -619,8 +626,23 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   }, [editingEnabled, room.id, self.participantId]);
   controllerRef.current = controller;
 
+  // Standalone read-only callers may supply decoded envelopes directly,
+  // without the useRoom/controller ingress that shares document records.
+  // Compare once per incoming prop envelope, never on optimistic edit frames.
+  const readOnlyRoomRef = useRef(room);
+  const readOnlyRoom = useMemo(() => {
+    const previous = readOnlyRoomRef.current;
+    if (controller || previous.id !== room.id) return room;
+    const objects = shareDocumentRecords(previous.objects, room.objects);
+    const diagrams = shareDocumentRecords(previous.diagrams, room.diagrams);
+    return objects === room.objects && diagrams === room.diagrams
+      ? room
+      : { ...room, objects, diagrams };
+  }, [controller, room]);
+  useLayoutEffect(() => { readOnlyRoomRef.current = readOnlyRoom; }, [readOnlyRoom]);
+
   useLayoutEffect(() => {
-    controller?.acceptRoom(room);
+    controller?.acceptRoom(room, { canonicalDocument: true });
   }, [controller, room]);
 
   useLayoutEffect(() => {
@@ -642,8 +664,8 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     [controller],
   );
   const getProjectedRoom = useCallback(
-    () => controller?.getSnapshot() ?? room,
-    [controller, room],
+    () => controller?.getSnapshot() ?? readOnlyRoom,
+    [controller, readOnlyRoom],
   );
   const projectedRoom = useSyncExternalStore(
     subscribeProjectedRoom,
@@ -725,6 +747,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const sceneRef = useRef(scene);
   const [selection, setSelection] = useState<string[]>([]);
   const selectionRef = useRef<readonly string[]>(selection);
+  const selectionCallbackRef = useRef<typeof onSelectionChange | null>(null);
   const [focusedObjectId, setFocusedObjectId] = useState<string | null>(null);
   const [tabStopObjectId, setTabStopObjectId] = useState<string | null>(null);
   const pendingFocusObjectIdRef = useRef<string | null>(null);
@@ -883,9 +906,18 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     const next = [...new Set(objectIds)].filter((objectId) => Boolean(
       sceneRef.current.objectsById[objectId] || projected?.objects[objectId],
     ));
-    selectionRef.current = next;
-    setSelection(next);
-    onSelectionChange(next);
+    const current = selectionRef.current;
+    const unchanged = current.length === next.length && current.every((id, index) => id === next[index]);
+    if (!unchanged) {
+      selectionRef.current = next;
+      setSelection(next);
+    }
+    // A new subscriber still receives current selection once, including []
+    // on mount. Unchanged document frames need no repeated publication.
+    if (!unchanged || selectionCallbackRef.current !== onSelectionChange) {
+      selectionCallbackRef.current = onSelectionChange;
+      onSelectionChange(next);
+    }
   }, [onSelectionChange]);
 
   const updateViewport = useCallback((
@@ -2156,6 +2188,10 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     setFocusedObjectId(objectId);
   }
 
+  function handleObjectBlur(objectId: string) {
+    setFocusedObjectId((current) => current === objectId ? null : current);
+  }
+
   function moveObjectFocus(
     objectId: string,
     offset: number,
@@ -3151,11 +3187,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
               presentationHidden={!cleanInspectionActive && presentingObjectIds.has(object.id)}
               tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
               className={styles.objectHitTarget}
-              onSelect={handleObjectSelect}
-              onPointerStart={controller ? handleObjectPointerStart : undefined}
-              onEditRequested={controller ? requestTextEdit : undefined}
-              onFocus={handleObjectFocus}
-              onBlur={(objectId) => setFocusedObjectId((current) => current === objectId ? null : current)}
+              onSelect={dispatchObjectSelect}
+              onPointerStart={controller ? dispatchObjectPointerStart : undefined}
+              onEditRequested={controller ? dispatchObjectEditRequested : undefined}
+              onFocus={dispatchObjectFocus}
+              onBlur={dispatchObjectBlur}
             />
           ))}
           {!cleanInspectionActive && activeMarqueeSession ? (

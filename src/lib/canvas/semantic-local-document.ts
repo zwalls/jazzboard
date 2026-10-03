@@ -13,7 +13,23 @@ export type SemanticLocalObjectOverride = SemanticLocalObjectFence &
     | { kind: "delete"; objectId: string }
   >;
 
+export type SemanticAuthoritativeRoomOptions = Readonly<{
+  /** The room hook already owns canonical document-record sharing. */
+  canonicalDocument?: boolean;
+}>;
+
 type Listener = () => void;
+
+/** Map wrappers may differ after independent reconciliation of one decoded room. */
+function sharesDocumentRecords(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  if (left === right) return true;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length
+    && keys.every((key) => Object.hasOwn(right, key) && left[key] === right[key]);
+}
 
 function objectIdForOverride(override: SemanticLocalObjectOverride): string {
   return override.kind === "upsert" ? override.object.id : override.objectId;
@@ -38,6 +54,7 @@ function compareFence(
 export class SemanticLocalDocumentStore {
   private authoritative: RoomState;
   private projected: RoomState;
+  private projectedAuthoritativeObjects: RoomState["objects"];
   private readonly overrides = new Map<string, SemanticLocalObjectOverride>();
   private readonly listeners = new Set<Listener>();
   private disposed = false;
@@ -45,6 +62,7 @@ export class SemanticLocalDocumentStore {
   constructor(room: RoomState) {
     this.authoritative = room;
     this.projected = room;
+    this.projectedAuthoritativeObjects = room.objects;
   }
 
   getSnapshot = (): RoomState => this.projected;
@@ -73,22 +91,24 @@ export class SemanticLocalDocumentStore {
    * coordination planes; this is the socket-local transient-presence path.
    * A separately decoded equal snapshot can never replace document objects.
    */
-  acceptAuthoritative(room: RoomState): boolean {
+  acceptAuthoritative(room: RoomState, options: SemanticAuthoritativeRoomOptions = {}): boolean {
     if (this.disposed || room.id !== this.authoritative.id) return false;
     const currentStateRevision = roomStateRevision(this.authoritative);
     const nextStateRevision = roomStateRevision(room);
-    const reconciled = reconcileRoomSnapshot(this.authoritative, room);
+    const reconciled = reconcileRoomSnapshot(this.authoritative, room, {
+      shareDocumentRecords: !options.canonicalDocument,
+    });
     if (reconciled) {
       this.authoritative = reconciled;
-      this.reproject();
+      this.reproject(false);
       return true;
     }
     if (
       nextStateRevision === currentStateRevision &&
       room.roomRevision === this.authoritative.roomRevision &&
       (
-        room.objects !== this.authoritative.objects ||
-        room.diagrams !== this.authoritative.diagrams ||
+        !sharesDocumentRecords(room.objects, this.authoritative.objects) ||
+        !sharesDocumentRecords(room.diagrams, this.authoritative.diagrams) ||
         room.leases !== this.authoritative.leases ||
         room.spotlight !== this.authoritative.spotlight ||
         room.agentEditPolicy !== this.authoritative.agentEditPolicy ||
@@ -102,29 +122,54 @@ export class SemanticLocalDocumentStore {
       room.roomRevision !== this.authoritative.roomRevision
     ) return false;
     if (room === this.authoritative) return false;
-    this.authoritative = room;
-    this.reproject();
+    // Preserve the store's document-map identities when the hook and store
+    // independently shared the same decoded records into different wrappers.
+    // No separately decoded entity is trusted at an equal watermark.
+    this.authoritative = room.objects === this.authoritative.objects
+      && room.diagrams === this.authoritative.diagrams
+      ? room
+      : { ...room, objects: this.authoritative.objects, diagrams: this.authoritative.diagrams };
+    this.reproject(false);
     return true;
   }
 
   applyOverride(override: SemanticLocalObjectOverride): boolean {
+    return this.applyOverrides([override]);
+  }
+
+  /** Publish the complete intent synchronously, with no partially moved group. */
+  applyOverrides(overrides: readonly SemanticLocalObjectOverride[]): boolean {
     if (this.disposed) return false;
-    const objectId = objectIdForOverride(override);
-    const current = this.overrides.get(objectId);
-    if (current && compareFence(override, current) < 0) return false;
-    this.overrides.set(objectId, override);
-    this.reproject();
-    return true;
+    let changed = false;
+    for (const override of overrides) {
+      const objectId = objectIdForOverride(override);
+      const current = this.overrides.get(objectId);
+      if (current && compareFence(override, current) < 0) continue;
+      this.overrides.set(objectId, override);
+      changed = true;
+    }
+    if (changed) this.reproject();
+    return changed;
   }
 
   /** Clear only the exact local generation whose authority is now installed. */
   clearAcknowledged(objectId: string, fence: SemanticLocalObjectFence): boolean {
+    return this.clearAcknowledgedMany([{ objectId, ...fence }]);
+  }
+
+  clearAcknowledgedMany(
+    acknowledgements: readonly (SemanticLocalObjectFence & { objectId: string })[],
+  ): boolean {
     if (this.disposed) return false;
-    const current = this.overrides.get(objectId);
-    if (!current || compareFence(current, fence) !== 0) return false;
-    this.overrides.delete(objectId);
-    this.reproject();
-    return true;
+    let changed = false;
+    for (const { objectId, ...fence } of acknowledgements) {
+      const current = this.overrides.get(objectId);
+      if (!current || compareFence(current, fence) !== 0) continue;
+      this.overrides.delete(objectId);
+      changed = true;
+    }
+    if (changed) this.reproject();
+    return changed;
   }
 
   /**
@@ -148,18 +193,22 @@ export class SemanticLocalDocumentStore {
     this.listeners.clear();
   }
 
-  private reproject(): void {
+  private reproject(overridesChanged = true): void {
     if (!this.overrides.size) {
       this.projected = this.authoritative;
-      this.emit();
-      return;
+    } else if (!overridesChanged && this.projectedAuthoritativeObjects === this.authoritative.objects) {
+      // Coordination-only arrivals must not invalidate optimistic document
+      // identities; observers still receive the new presence/lease envelope.
+      this.projected = { ...this.authoritative, objects: this.projected.objects };
+    } else {
+      const objects = { ...this.authoritative.objects };
+      for (const override of this.overrides.values()) {
+        if (override.kind === "delete") delete objects[override.objectId];
+        else objects[override.object.id] = override.object;
+      }
+      this.projected = { ...this.authoritative, objects };
     }
-    const objects = { ...this.authoritative.objects };
-    for (const override of this.overrides.values()) {
-      if (override.kind === "delete") delete objects[override.objectId];
-      else objects[override.object.id] = override.object;
-    }
-    this.projected = { ...this.authoritative, objects };
+    this.projectedAuthoritativeObjects = this.authoritative.objects;
     this.emit();
   }
 
