@@ -281,6 +281,7 @@ export class SemanticCanvasEditLifecycleController {
     intents.push({
       type: "sync.schedule",
       batchKey: gesture?.batchKey ?? event.cohortId ?? `objects:${objectIds.join("|")}`,
+      gestureId: gesture?.gestureId ?? null,
       objectIds,
       edits: this.pendingEditsFor(objectIds),
     });

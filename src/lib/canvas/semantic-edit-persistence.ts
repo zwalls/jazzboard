@@ -642,10 +642,9 @@ export class SemanticCanvasEditPersistenceDriver {
   ): ScheduledBatch {
     this.rememberEdits(intent.edits);
     let batch = this.batches.get(intent.batchKey);
-    const gestureId =
-      intent.type === "sync.flush"
-        ? intent.gestureId
-        : intent.edits.find((edit) => edit.gestureId !== null)?.gestureId ?? null;
+    // Cohort identity belongs to the lifecycle intent, not the first
+    // pending edit: connector dependencies can retain another gesture's edit.
+    const gestureId = intent.gestureId;
     const cohortId = gestureId ?? `batch:${intent.batchKey}`;
     this.gestureIdByCohort.set(cohortId, gestureId);
     if (!batch) {

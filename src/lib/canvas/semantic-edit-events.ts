@@ -201,6 +201,8 @@ export type SemanticCanvasLeaseAcquireIntent = Readonly<{
 export type SemanticCanvasSyncScheduleIntent = Readonly<{
   type: "sync.schedule";
   batchKey: string;
+  /** Owning gesture; dependency edits may belong to earlier gestures. */
+  gestureId: string | null;
   objectIds: readonly string[];
   edits: readonly PendingSemanticCanvasEdit[];
 }>;

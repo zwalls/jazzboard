@@ -13,7 +13,8 @@ import type {
   SemanticTransaction,
 } from "@/lib/domain/types";
 
-import type { SemanticCanvasEditIntent } from "./semantic-edit-events";
+import type { SemanticCanvasEditEvent, SemanticCanvasEditIntent } from "./semantic-edit-events";
+import { SemanticConnectorSessionEngine } from "./semantic-connector-session";
 import { SemanticCanvasEditLifecycleController } from "./semantic-edit-lifecycle";
 import {
   SEMANTIC_EDIT_DEBOUNCE_MS,
@@ -1689,5 +1690,105 @@ describe("SemanticCanvasEditPersistenceDriver", () => {
     expect(harness.rollbacks).toHaveLength(0);
     expect(harness.acceptedRooms).toHaveLength(0);
     expect(harness.releaseCalls).toEqual(["batch:cohort"]);
+  });
+});
+
+describe("explicit persistence gesture identity with pending connector dependencies", () => {
+  it.each([false, true])("keeps the creating gesture's cohort when dependency is added later: %s", async (lateDependency) => {
+    const nodeA = shape("node-a", 1, 0);
+    const nodeB = shape("node-b", 1, 500);
+    const existing = connector("a-existing", nodeA.id, nodeB.id);
+    if (existing.kind !== "connector") throw new Error("Expected connector fixture");
+    existing.routing = normalizeConnectorRouting({ mode: "auto" });
+    existing.groupId = null;
+    const initial = roomWith([nodeA, nodeB, existing]);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, initial);
+    const firstSave = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+    const originalCommand = harness.commandImpl;
+    harness.commandImpl = (command) => harness.commandCalls.length === 1
+      ? firstSave.promise
+      : originalCommand(command);
+    const host: SemanticEditPersistenceHost = {
+      ...harness.host,
+      onAcknowledged: (event) => {
+        harness.host.onAcknowledged(event);
+        for (const acknowledgement of event.acknowledgements) {
+          lifecycle.clearPendingEdit(acknowledgement.objectId, acknowledgement.generation);
+        }
+      },
+    };
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, host, new FakeClock());
+    const schedules: Extract<SemanticCanvasEditIntent, { type: "sync.schedule" }>[] = [];
+    const dispatch = (event: SemanticCanvasEditEvent): void => {
+      for (const intent of lifecycle.dispatch(event)) {
+        if (intent.type === "sync.schedule") schedules.push(intent);
+        driver.consume(intent);
+        if (intent.type === "gesture.settle") dispatch({ type: "gesture.settled", token: intent.token });
+      }
+    };
+    const dispatchEvents = (events: readonly SemanticCanvasEditEvent[]) => events.forEach(dispatch);
+    const engine = new SemanticConnectorSessionEngine();
+    try {
+      const previous = engine.beginEdit({ room: initial, connectorId: existing.id });
+      dispatchEvents(previous.lifecycleEvents);
+      const changed = engine.update(previous.session.token, { label: "Earlier local label still saving" });
+      if (changed.status !== "updated") throw new Error("Expected update");
+      dispatchEvents(changed.lifecycleEvents);
+      const previousFinished = engine.finish(previous.session.token);
+      if (previousFinished.status !== "finished") throw new Error("Expected prior finish");
+      dispatchEvents(previousFinished.lifecycleEvents);
+      await waitUntil(() => harness.commandCalls.length === 1);
+      expect(lifecycle.getPendingEdit(existing.id)?.gestureId).toBe(previous.session.gestureId);
+
+      const projected: RoomState = {
+        ...harness.room,
+        objects: { ...harness.room.objects, [existing.id]: { ...existing, ...changed.session.draft } },
+      };
+      const prepared = engine.prepareCreate({
+        room: projected, id: "z-new", zIndex: 4,
+        start: lateDependency
+          ? { point: { x: 1_500, y: 1_500 } }
+          : { point: { x: 160, y: 65 }, objectId: nodeA.id },
+        end: lateDependency
+          ? { point: { x: 1_600, y: 1_500 } }
+          : { point: { x: 500, y: 65 }, objectId: nodeB.id },
+      });
+      const published = engine.publish(prepared.session.token);
+      if (published.status !== "published") throw new Error("Expected publication");
+      expect(published.session.affectedConnectorIds.includes(existing.id)).toBe(!lateDependency);
+      dispatchEvents(published.lifecycleEvents);
+      if (lateDependency) {
+        const updated = engine.updatePointer(prepared.session.token, { point: { x: 160, y: 65 }, objectId: nodeA.id });
+        if (updated.status !== "updated") throw new Error("Expected endpoint update");
+        expect(updated.session.affectedConnectorIds).toContain(existing.id);
+        dispatchEvents(updated.lifecycleEvents);
+      }
+      // The new schedule includes the old connector's pending edit before its
+      // own edit in sorted ID order. Its batch must nevertheless own its cohort.
+      const mixed = schedules.find((intent) => intent.edits.some((edit) => edit.gestureId === previous.session.gestureId)
+        && intent.edits.some((edit) => edit.gestureId === prepared.session.gestureId));
+      expect(mixed).toBeDefined();
+      const finished = engine.finish(prepared.session.token);
+      if (finished.status !== "finished") throw new Error("Expected connector finish");
+      dispatchEvents(finished.lifecycleEvents);
+      expect(mixed?.gestureId).toBe(prepared.session.gestureId);
+
+      firstSave.resolve({ room: applyCommands(harness.room, [harness.commandCalls[0]]), changedObjectIds: [existing.id] });
+      await driver.whenIdle();
+      expect(harness.confirmedFailures).toEqual([]);
+      expect(harness.rollbacks).toEqual([]);
+      expect(harness.commandCalls).toHaveLength(2);
+      expect(harness.transactionCalls).toEqual([]);
+      expect(harness.room.objects[existing.id]).toMatchObject({ label: "Earlier local label still saving", revision: 2 });
+      expect(harness.room.objects["z-new"]).toMatchObject({ kind: "connector", revision: 1 });
+      expect(harness.releaseCalls).toEqual([previous.session.gestureId, prepared.session.gestureId]);
+      expect(harness.acknowledgements.filter((event) => event.final).map((event) => event.gestureId))
+        .toEqual([previous.session.gestureId, prepared.session.gestureId]);
+      expect(coordinator.protectedObjectIds()).toEqual(new Set());
+    } finally {
+      driver.dispose();
+    }
   });
 });
