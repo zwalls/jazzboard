@@ -573,6 +573,57 @@ describe("SemanticCanvasEditPersistenceDriver", () => {
     driver.dispose();
   });
 
+  it("publishes the latest edit within one window even while inputs continue", async () => {
+    const object = shape("a", 4);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith([object]));
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    startUpdate(lifecycle, driver, object, draft(object, { x: 40 }));
+    clock.advance(100);
+    startUpdate(lifecycle, driver, object, draft(object, { x: 60 }));
+    clock.advance(100);
+    startUpdate(lifecycle, driver, object, draft(object, { x: 80 }));
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS - 200);
+    await microtasks();
+    expect(harness.commandCalls).toHaveLength(1);
+    expect(harness.room.objects.a.x).toBe(80);
+    driver.dispose();
+  });
+
+  it("coalesces edits behind a slow save rather than queuing every intermediate state", async () => {
+    const object = shape("a", 4);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith([object]));
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    let resume!: () => void;
+    const held = new Promise<void>((resolve) => { resume = resolve; });
+    const original = harness.commandImpl;
+    harness.commandImpl = async (command) => {
+      await held;
+      return original(command);
+    };
+    startUpdate(lifecycle, driver, object, draft(object, { x: 40 }));
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await waitUntil(() => harness.commandCalls.length === 1);
+    for (const x of [60, 80, 100]) {
+      startUpdate(lifecycle, driver, object, draft(object, { x }));
+      clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+      await microtasks();
+    }
+    expect(harness.commandCalls).toHaveLength(1);
+    resume();
+    await microtasks();
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await driver.whenIdle();
+    expect(harness.commandCalls).toHaveLength(2);
+    expect(harness.room.objects.a.x).toBe(100);
+    driver.dispose();
+  });
+
   it("does not report idle while a local edit is still waiting in the debounce window", async () => {
     const object = shape("a", 4);
     const coordinator = new CanvasObjectSyncCoordinator();

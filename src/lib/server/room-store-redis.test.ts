@@ -960,6 +960,44 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.expirations).toEqual([]);
   });
 
+  it("reads stable mutation planes once under WATCH without a migration probe", async () => {
+    const { connection, state } = fakeRedis();
+    const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Before" });
+    state.mgets.length = 0;
+    state.watches.length = 0;
+    await store.transact(room.id, (current) => {
+      current.title = "After";
+      return { room: current, result: current.title };
+    });
+    const keys = [
+      `jazzboard:room:v3:document:${room.id}`,
+      `jazzboard:room:v3:awareness:${room.id}`,
+      `jazzboard:room:v3:coordination:${room.id}`,
+    ];
+    expect(state.mgets).toEqual([keys]);
+    expect(state.watches).toEqual([keys]);
+    expect((await store.getRoom(room.id))?.title).toBe("After");
+  });
+
+  it("still migrates legacy-only rooms before their first fenced mutation", async () => {
+    const { connection, state } = fakeRedis();
+    const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Legacy" });
+    for (const plane of ["document", "awareness", "coordination"]) {
+      state.values.delete(`jazzboard:room:v3:${plane}:${room.id}`);
+    }
+    state.values.set(`jazzboard:room:${room.id}`, JSON.stringify(room));
+    const title = await store.transact(room.id, (current) => {
+      expect(current.participants.p_owner.displayName).toBe("Owner");
+      current.title = "Migrated edit";
+      return { room: current, result: current.title };
+    });
+    expect(title).toBe("Migrated edit");
+    expect((await store.getRoom(room.id))?.title).toBe("Migrated edit");
+    expect(state.values.has(`jazzboard:room:${room.id}`)).toBe(false);
+  });
+
   it("lets a document transaction outlive sustained awareness contention", async () => {
     const { connection, state } = fakeRedis();
     const store = new RedisRoomStore(connection as unknown as Redis);

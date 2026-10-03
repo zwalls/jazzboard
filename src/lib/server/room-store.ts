@@ -2692,9 +2692,8 @@ export class RedisRoomStore implements RoomStore {
     const connection = this.redis.duplicate();
     const keys = roomPlaneKeys(roomId);
     const identity = currentMutationContext()?.idempotency ?? null;
+    let initialized = false;
     try {
-      const initial = await this.readOrMigratePlanes(connection, roomId);
-      if (!initial) throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
       for (let attempt = 0; attempt < ROOM_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
         await connection.watch(
           keys.document,
@@ -2706,6 +2705,24 @@ export class RedisRoomStore implements RoomStore {
           connection.mget(keys.document, keys.awareness, keys.coordination),
           identity ? connection.get(identity.receiptKey) : Promise.resolve(null),
         ]);
+        const persisted = parsePersistedPlanes(encoded);
+        if (!encoded.every(Boolean) || !persisted?.coordination.legacyRetired) {
+          // The fenced read is also the stable-room initialization check. Only
+          // legacy/incomplete rooms need the separate migration read; normal
+          // edits avoid a duplicate full-plane read and parse before WATCH.
+          await connection.unwatch();
+          const migrated = await this.readOrMigratePlanes(connection, roomId);
+          if (!migrated) {
+            throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
+          }
+          // Preserve the original mutation retry budget after initial migration.
+          if (!initialized) {
+            initialized = true;
+            attempt -= 1;
+          }
+          continue;
+        }
+        initialized = true;
         if (identity && encodedReceipt) {
           await connection.unwatch();
           const receipt = parseMutationReceipt(encodedReceipt);
@@ -2718,19 +2735,6 @@ export class RedisRoomStore implements RoomStore {
           assertReceiptMatches(receipt, identity);
           assertRoomReceiptTarget(receipt, roomId);
           throw committedMutationReplay(receipt);
-        }
-        const persisted = parsePersistedPlanes(encoded);
-        if (!persisted) {
-          await connection.unwatch();
-          throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
-        }
-        if (!persisted.coordination.legacyRetired) {
-          await connection.unwatch();
-          const retired = await this.readOrMigratePlanes(connection, roomId);
-          if (!retired) {
-            throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
-          }
-          continue;
         }
         const basePlanes = persisted;
         const persistedBefore = currentRoomCopy(composeRoomState(basePlanes));

@@ -715,14 +715,21 @@ export class SemanticCanvasEditPersistenceDriver {
   }
 
   private schedule(intent: SemanticCanvasSyncScheduleIntent): void {
-    const batch = this.updateBatch(intent);
-    this.clearBatchTimer(batch);
+    this.scheduleBatch(this.updateBatch(intent));
+  }
+
+  private scheduleBatch(batch: ScheduledBatch): void {
+    // Retain the first unsaved edit's deadline so continuous input cannot
+    // starve peers. While a save is unacknowledged, keep only the latest edits;
+    // its completion sends the latest state if that deadline already expired.
+    if (batch.timer !== null) return;
     let timer = 0;
     timer = this.clock.setTimeout(() => {
       this.settlePendingTimer(timer);
       if (this.disposed || batch.timer !== timer) return;
       batch.timer = null;
       this.clearCoordinatorTimer(batch.objectIds, timer);
+      if (batch.queuedVersion > batch.acknowledgedVersion) return;
       const operation = this.queueBatch(batch);
       if (operation) this.track(operation);
     }, SEMANTIC_EDIT_DEBOUNCE_MS);
@@ -840,7 +847,17 @@ export class SemanticCanvasEditPersistenceDriver {
       async () => this.executeBatch(batch, queuedVersion, objects),
       (entry) => this.coordinator.prune(entry.objectId),
     );
-    return operation;
+    return operation.then(() => {
+      if (
+        !this.disposed && !this.shuttingDown &&
+        this.batches.get(batch.batchKey) === batch &&
+        batch.version > batch.queuedVersion &&
+        batch.queuedVersion <= batch.acknowledgedVersion &&
+        batch.timer === null
+      ) {
+        return this.queueBatch(batch) ?? undefined;
+      }
+    });
   }
 
   private async executeBatch(
