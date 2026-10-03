@@ -662,7 +662,7 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(redis.eval).not.toHaveBeenCalled();
   });
 
-  it("recovers a receipt-only no-op commit after an ambiguous transaction response", async () => {
+  it.each(["watched", "activity-cas"] as const)("recovers a receipt-only no-op commit after an ambiguous %s transaction response", async (mode) => {
     const { connection, state } = fakeRedis();
     const store = new RedisRoomStore(connection as unknown as Redis);
     const room = await store.createRoom({
@@ -687,7 +687,7 @@ describe("RedisRoomStore v3 persistence", () => {
       store.transact(room.id, (current) => ({
         room: current,
         result: { room: current, changed: false },
-      })),
+      }), "room.updated", mode),
     )).rejects.toMatchObject({
       code: "MUTATION_OUTCOME_UNKNOWN",
       details: {
@@ -1770,5 +1770,83 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.values.has(legacyKey)).toBe(true);
     expect(state.writes).toEqual([]);
     expect(state.deletions).toEqual([]);
+  });
+});
+
+describe("activity CAS connection ownership", () => {
+  function mutation(current: RoomState) {
+    const image = privateImage(current, privateBlobPathname(current.id));
+    image.url = "https://images.example.com/synthetic.png";
+    current.objects[image.id] = image;
+    return { room: current, result: { room: current }, eventActor: image.createdBy, activity: privateImageActivity(current, image) };
+  }
+
+  it("commits activity through the shared connection without WATCH, MULTI, or QUIT", async () => {
+    const { connection, state } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Shared CAS" });
+    const ownership = trackReadConnectionOwnership(connection);
+    const result = await store.transact(room.id, mutation, "room.updated", "activity-cas");
+    expect(result.room.objects.image_private).toBeDefined();
+    expect(state.activityCommitCalls).toHaveLength(1);
+    expect(ownership.duplicate).not.toHaveBeenCalled(); expectSharedReadOnly(ownership);
+  });
+
+  it("moves non-activity results to a fresh owned WATCH transaction", async () => {
+    const { connection } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Before" });
+    const ownership = trackReadConnectionOwnership(connection);
+    expect(await store.transact(room.id, (current) => { current.title = "After"; return { room: current, result: true }; }, "room.updated", "activity-cas")).toBe(true);
+    expect(ownership.shared.mget).toHaveBeenCalledTimes(1);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalled(); expect(ownership.dedicated[0].multi).toHaveBeenCalled();
+    expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1); expectSharedReadOnly(ownership);
+  });
+
+  it("migrates legacy rooms only on an owned connection", async () => {
+    const { connection, state } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Legacy CAS" });
+    for (const plane of ["document", "awareness", "coordination"]) state.values.delete(`jazzboard:room:v3:${plane}:${room.id}`);
+    state.values.set(`jazzboard:room:${room.id}`, JSON.stringify(room));
+    const ownership = trackReadConnectionOwnership(connection);
+    await store.transact(room.id, mutation, "room.updated", "activity-cas");
+    expect(ownership.shared.mget).toHaveBeenCalledTimes(1);
+    expect(ownership.duplicate).toHaveBeenCalledTimes(1); expectSharedReadOnly(ownership);
+    expect(ownership.dedicated[0].watch).toHaveBeenCalled(); expect(ownership.dedicated[0].quit).toHaveBeenCalledTimes(1);
+    expect(state.values.has(`jazzboard:room:${room.id}`)).toBe(false);
+  });
+
+  it("reads private reference guards without putting shared connection state under WATCH", async () => {
+    const { connection, state } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Private CAS" });
+    const pathname = privateBlobPathname(room.id); const key = privateBlobAssetRegistrationRedisKey(pathname);
+    const encoded = JSON.stringify(privateBlobRegistration(room.id, pathname)); writeFakeValue(state, key, encoded);
+    const ownership = trackReadConnectionOwnership(connection);
+    await store.transact(room.id, (current) => { const result = mutation(current); result.room.objects.image_private = privateImage(current, pathname);
+      result.activity = privateImageActivity(current, result.room.objects.image_private as ImageObject); return result; }, "room.updated", "activity-cas");
+    expect(state.activityCommitCalls[0].keys.slice(12)).toEqual([key]);
+    expect(state.activityCommitCalls[0].arguments.slice(35)).toEqual(["1", encoded]);
+    expect(ownership.duplicate).not.toHaveBeenCalled(); expectSharedReadOnly(ownership);
+  });
+
+  it("replays a confirmed receipt without reacquiring connection-owned state", async () => {
+    const { connection, state } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Replay CAS" });
+    const context = () => createMutationContext({ request: new Request("https://jazzboard.test/api/commands", { method: "POST", headers: { "idempotency-key": "shared-cas-replay-0001" } }),
+      participantId: "p_owner", roomId: room.id, operation: "room.canvas.command", actorKind: "human", parsedBody: { synthetic: true } });
+    const ownership = trackReadConnectionOwnership(connection);
+    await runWithMutationContext(context(), () => store.transact(room.id, mutation, "room.updated", "activity-cas"));
+    const duplicateUpdater = vi.fn(mutation);
+    await expect(runWithMutationContext(context(), () => store.transact(room.id, duplicateUpdater, "room.updated", "activity-cas"))).rejects.toMatchObject({ code: "MUTATION_OUTCOME_UNKNOWN", details: { replayed: true } });
+    expect(duplicateUpdater).not.toHaveBeenCalled(); expect(state.activityCommitCalls).toHaveLength(1);
+    expect(ownership.duplicate).not.toHaveBeenCalled(); expectSharedReadOnly(ownership);
+  });
+
+  it("leaves shared connection state untouched on preparation failure", async () => {
+    const { connection } = fakeRedis(); const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Rejected CAS" });
+    const ownership = trackReadConnectionOwnership(connection);
+    await expect(store.transact(room.id, () => { throw new Error("Rejected intent"); }, "room.updated", "activity-cas")).rejects.toThrow("Rejected intent");
+    await store.transact(room.id, mutation, "room.updated", "activity-cas");
+    expect(ownership.duplicate).not.toHaveBeenCalled(); expectSharedReadOnly(ownership);
   });
 });

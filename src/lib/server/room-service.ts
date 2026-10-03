@@ -309,6 +309,7 @@ export async function runCanvasCommand(input: {
       };
     },
     input.actorKind === "agent" ? "agent.activity" : "room.updated",
+    "activity-cas",
   );
 }
 
@@ -450,6 +451,7 @@ export async function runSemanticTransaction(input: {
       };
     },
     input.actorKind === "agent" ? "agent.activity" : "room.updated",
+    "activity-cas",
   );
 }
 

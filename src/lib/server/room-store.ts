@@ -279,7 +279,8 @@ export interface RoomStore {
   getActivity(roomId: string, activityId: string): Promise<RoomActivity | null>;
   updatePresence(input: PresenceUpdateInput): Promise<RoomPresenceDelta>;
   assertMutationNotReplayed(roomId: string): Promise<void>;
-  transact<T>(roomId: string, updater: RoomUpdater<T>, eventType?: RoomEvent["type"]): Promise<T>;
+  transact<T>(roomId: string, updater: RoomUpdater<T>, eventType?: RoomEvent["type"],
+    mode?: "watched" | "activity-cas"): Promise<T>;
 }
 
 type LocalState = {
@@ -456,6 +457,7 @@ async function readRedisPrivateBlobReferenceGuards(
   connection: Redis,
   roomId: string,
   pathnames: readonly string[],
+  watch = true,
 ): Promise<PrivateBlobReferenceGuard[]> {
   if (!pathnames.length) return [];
   const {
@@ -464,7 +466,7 @@ async function readRedisPrivateBlobReferenceGuards(
     privateBlobAssetRegistrationRedisKey,
   } = await import("./blob-asset-registry");
   const keys = pathnames.map(privateBlobAssetRegistrationRedisKey);
-  await connection.watch(...keys);
+  if (watch) await connection.watch(...keys);
   const values = await connection.mget(...keys);
   try {
     return values.map((value, index) => {
@@ -483,7 +485,7 @@ async function readRedisPrivateBlobReferenceGuards(
       return { key: keys[index], expectedValue: value };
     });
   } catch (error) {
-    await connection.unwatch().catch(() => undefined);
+    if (watch) await connection.unwatch().catch(() => undefined);
     throw error;
   }
 }
@@ -2688,8 +2690,13 @@ export class RedisRoomStore implements RoomStore {
     roomId: string,
     updater: RoomUpdater<T>,
     eventType: RoomEvent["type"] = "room.updated",
+    mode: "watched" | "activity-cas" = "watched",
   ): Promise<T> {
-    const connection = this.redis.duplicate();
+    // Activity commits already CAS every encoded plane, receipt, and private
+    // reference inside one Lua command. They need no connection-owned WATCH.
+    // Keep migration and non-activity MULTI paths on dedicated connections.
+    let ownsConnection = mode !== "activity-cas";
+    let connection = ownsConnection ? this.redis.duplicate() : this.redis;
     const keys = roomPlaneKeys(roomId);
     const context = currentMutationContext();
     const identity = context?.idempotency ?? null;
@@ -2709,7 +2716,7 @@ export class RedisRoomStore implements RoomStore {
       for (let attempt = 0; attempt < ROOM_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
         attempts += 1;
         enterPhase("read");
-        await connection.watch(
+        if (ownsConnection) await connection.watch(
           keys.document,
           keys.awareness,
           keys.coordination,
@@ -2722,11 +2729,17 @@ export class RedisRoomStore implements RoomStore {
         enterPhase("prepare");
         const persisted = parsePersistedPlanes(encoded);
         if (!encoded.every(Boolean) || !persisted?.coordination.legacyRetired) {
+          if (!ownsConnection) {
+            connection = this.redis.duplicate();
+            ownsConnection = true;
+            attempt -= 1;
+            continue;
+          }
           // The fenced read is also the stable-room initialization check. Only
           // legacy/incomplete rooms need the separate migration read; normal
           // edits avoid a duplicate full-plane read and parse before WATCH.
           enterPhase("read");
-          await connection.unwatch();
+          if (ownsConnection) await connection.unwatch();
           const migrated = await this.readOrMigratePlanes(connection, roomId);
           if (!migrated) {
             throw new DomainError("ROOM_NOT_FOUND", "This Jazzboard no longer exists.");
@@ -2741,7 +2754,7 @@ export class RedisRoomStore implements RoomStore {
         initialized = true;
         if (identity && encodedReceipt) {
           enterPhase("commit");
-          await connection.unwatch();
+          if (ownsConnection) await connection.unwatch();
           const receipt = parseMutationReceipt(encodedReceipt);
           if (!receipt) {
             throw new DomainError(
@@ -2769,11 +2782,20 @@ export class RedisRoomStore implements RoomStore {
             }))
           : persistedBefore;
         const updated = updater(structuredClone(before));
+        if (!updated.activity && !ownsConnection) {
+          // Review proposals/no-ops still use the existing WATCH/MULTI receipt
+          // fence. Re-read and re-run the pure updater under that fence.
+          connection = this.redis.duplicate();
+          ownsConnection = true;
+          attempt -= 1;
+          continue;
+        }
         const mutation = normalizeMutationRevisions(persistedBefore, updated.room);
         const privateBlobReferenceGuards = await readRedisPrivateBlobReferenceGuards(
           connection,
           roomId,
           introducedPrivateBlobPathnames(before, mutation.room),
+          ownsConnection,
         );
         const changedPlanes = {
           document: mutation.documentChanged,
@@ -2798,7 +2820,7 @@ export class RedisRoomStore implements RoomStore {
         if (!mutation.changed && !updated.activity) {
           enterPhase("commit");
           if (!receipt || !identity) {
-            await connection.unwatch();
+            if (ownsConnection) await connection.unwatch();
             return updated.result;
           }
           let committedReceipt;
@@ -2842,7 +2864,7 @@ export class RedisRoomStore implements RoomStore {
 
         if (updated.activity) {
           if (!event) {
-            await connection.unwatch();
+            if (ownsConnection) await connection.unwatch();
             throw new Error("An activity-bearing mutation must publish a compact room event.");
           }
           const serializedReceipt = receipt && identity
@@ -2890,7 +2912,7 @@ export class RedisRoomStore implements RoomStore {
             },
           );
           enterPhase("commit");
-          await connection.unwatch();
+          if (ownsConnection) await connection.unwatch();
           let committed;
           try {
             committed = await executeActivityHistoryRoomCommit(connection, command);
@@ -2993,7 +3015,7 @@ export class RedisRoomStore implements RoomStore {
       throw new DomainError("REVISION_CONFLICT", "The room changed too quickly; inspect the latest state and retry.");
     } finally {
       enterPhase("cleanup");
-      await connection.quit().catch(() => undefined);
+      if (ownsConnection) await connection.quit().catch(() => undefined);
       enterPhase("cleanup");
       if (context) {
         const timing = context.redisTimings ??= {
