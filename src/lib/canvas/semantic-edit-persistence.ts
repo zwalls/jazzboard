@@ -322,6 +322,15 @@ export class SemanticCanvasEditPersistenceDriver {
     this.diagramRestorationsByCohort.delete(gestureId);
   }
 
+  /** Retry sleeping recoveries promptly, without treating connectivity as authority. */
+  connectivityRestored(): void {
+    if (this.disposed) return;
+    for (const [timer, resume] of [...this.delayResolvers]) {
+      this.clock.clearTimeout(timer);
+      resume();
+    }
+  }
+
   consume(intent: SemanticCanvasEditIntent): Promise<void> | null {
     if (this.disposed) return null;
     switch (intent.type) {

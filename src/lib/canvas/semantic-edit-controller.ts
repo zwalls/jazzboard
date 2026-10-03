@@ -439,6 +439,10 @@ export class SemanticCanvasEditController {
     return this.dispatchLifecycleOnly(event);
   }
 
+  connectivityRestored(): void {
+    if (!this.disposed) this.persistence.connectivityRestored();
+  }
+
   async whenIdle(): Promise<void> {
     await this.persistence.whenIdle();
   }

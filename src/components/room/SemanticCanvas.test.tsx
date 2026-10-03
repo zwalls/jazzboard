@@ -1876,6 +1876,37 @@ describe("SemanticCanvas", () => {
     expect(harness.command).not.toHaveBeenCalled();
   });
 
+  it("keeps the first move immediate, coalesces later points, and flushes the final point before pointer-up", async () => {
+    vi.useFakeTimers();
+    const harness = makeEditingHarness(room);
+    const rendered = renderEditableCanvas(room, harness.editing);
+    const runtime = rendered.getRuntime()!;
+    const canvas = screen.getByTestId("semantic-canvas");
+    installPointerCapture(canvas);
+    const start = clientPointForPage(runtime, 190, 140);
+    const first = clientPointForPage(runtime, 220, 155);
+    const final = clientPointForPage(runtime, 260, 180);
+    fireEvent.pointerDown(semanticObject("shape"), { button: 0, pointerId: 91, ...start });
+    fireEvent.pointerMove(canvas, { pointerId: 91, ...first });
+    expect(semanticObject("shape")).toHaveAttribute("data-object-x", "130");
+    fireEvent.pointerMove(canvas, { pointerId: 91, ...final });
+    expect(semanticObject("shape")).toHaveAttribute("data-object-x", "130");
+    // Finishing before the queued animation frame must retain the latest input.
+    fireEvent.pointerUp(canvas, { pointerId: 91, ...final });
+    expect(semanticObject("shape")).toHaveAttribute("data-object-x", "170");
+    await act(async () => { vi.advanceTimersByTime(64); });
+    await flushMicrotasks(24);
+    expect(harness.command).toHaveBeenCalledOnce();
+    expect(harness.command).toHaveBeenCalledWith(expect.objectContaining({
+      type: "move", targets: expect.arrayContaining([
+        expect.objectContaining({ objectId: "node-a", x: 170, y: 140 }),
+        expect.objectContaining({ objectId: "node-b", x: 390, y: 140 }),
+      ]),
+    }), "human");
+    await act(async () => { vi.advanceTimersByTime(64); });
+    expect(harness.command).toHaveBeenCalledOnce();
+  });
+
   it("moves an existing selection when dragging blank space inside its frame", async () => {
     const groupedRoom = structuredClone(room);
     groupedRoom.objects["edge-a-b"] = {

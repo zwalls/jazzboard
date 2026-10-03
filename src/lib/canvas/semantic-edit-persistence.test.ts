@@ -1235,6 +1235,92 @@ describe("SemanticCanvasEditPersistenceDriver", () => {
     expect(harness.room.objects.remove).toBeUndefined();
   });
 
+  it("wakes recovery backoff on connectivity restoration but keeps authority and release fences", async () => {
+    const object = shape("a", 4);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith([object]));
+    harness.commandImpl = async () => { throw new Error("offline command"); };
+    const fresh = deferred<RoomState>();
+    let refreshCount = 0;
+    harness.refreshImpl = () => ++refreshCount === 1
+      ? Promise.reject(new Error("offline refresh")) : fresh.promise;
+    const released = deferred<void>();
+    const originalRelease = harness.host.releaseLeaseCohort;
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, {
+      ...harness.host,
+      releaseLeaseCohort: async (id) => { await released.promise; await originalRelease(id); },
+    }, clock);
+    harness.recoveryLifecycle = lifecycle;
+    consumeAll(driver, lifecycle.dispatch({
+      type: "gesture.started", gestureId: "reconnect", source: "pointer",
+      objects: [{ objectId: "a", baseRevision: object.revision, baseCreatedAt: object.createdAt, operation: "move" }],
+    }));
+    startUpdate(lifecycle, driver, object, draft(object, { x: 120 }), "move", "reconnect");
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await microtasks();
+    expect(refreshCount).toBe(1);
+    expect(coordinator.get("a")?.awaitingRecovery).toBe(true);
+    expect(clock.pending).toBe(1);
+
+    driver.connectivityRestored();
+    driver.connectivityRestored();
+    await microtasks();
+    expect(refreshCount).toBe(2);
+    expect(clock.pending).toBe(0);
+    expect(coordinator.get("a")?.awaitingRecovery).toBe(true);
+    expect(harness.rollbacks).toHaveLength(0);
+    driver.connectivityRestored();
+    expect(refreshCount).toBe(2);
+    fresh.resolve(roomWith([shape("a", 5, 333)], 11));
+    await microtasks();
+    expect(harness.rollbacks[0].room.objects.a.x).toBe(333);
+    expect(coordinator.get("a")?.awaitingRecovery).toBe(true);
+    released.resolve();
+    await driver.whenIdle();
+    expect(coordinator.get("a") ?? null).toBeNull();
+    expect(harness.commandCalls).toHaveLength(1);
+    expect(harness.recoverySettlements).toHaveLength(1);
+    clock.advance(SEMANTIC_EDIT_RECOVERY_RETRY_MS);
+    driver.connectivityRestored();
+    expect(refreshCount).toBe(2);
+  });
+
+  it("retains recovery backoff after a failed connectivity wake and ignores disposed notifications", async () => {
+    const object = shape("a", 4);
+    const coordinator = new CanvasObjectSyncCoordinator();
+    const lifecycle = new SemanticCanvasEditLifecycleController(coordinator);
+    const harness = new PersistenceHarness(coordinator, roomWith([object]));
+    harness.commandImpl = async () => { throw new Error("offline command"); };
+    let refreshCount = 0;
+    harness.refreshImpl = async () => { refreshCount += 1; throw new Error("still offline"); };
+    const clock = new FakeClock();
+    const driver = new SemanticCanvasEditPersistenceDriver(coordinator, harness.host, clock);
+    consumeAll(driver, lifecycle.dispatch({
+      type: "gesture.started", gestureId: "reconnect", source: "pointer",
+      objects: [{ objectId: "a", baseRevision: object.revision, baseCreatedAt: object.createdAt, operation: "move" }],
+    }));
+    startUpdate(lifecycle, driver, object, draft(object, { x: 120 }), "move", "reconnect");
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await microtasks();
+    driver.connectivityRestored();
+    await microtasks();
+    expect(refreshCount).toBe(2);
+    expect(clock.pending).toBe(1);
+    expect(coordinator.get("a")?.awaitingRecovery).toBe(true);
+    expect(harness.rollbacks).toHaveLength(0);
+    clock.advance(SEMANTIC_EDIT_RECOVERY_RETRY_MS - 1);
+    await microtasks();
+    expect(refreshCount).toBe(2);
+    driver.dispose();
+    driver.connectivityRestored();
+    clock.advance(SEMANTIC_EDIT_RECOVERY_RETRY_MS);
+    await microtasks();
+    expect(refreshCount).toBe(2);
+    expect(clock.pending).toBe(0);
+  });
+
   it("fences a failed cohort, retries only refresh, then rolls back once", async () => {
     const object = shape("a", 4);
     const coordinator = new CanvasObjectSyncCoordinator();

@@ -580,6 +580,8 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
   const marqueeEngineRef = useRef(new SemanticMarqueeSelectionSessionEngine());
   const textEngineRef = useRef(new SemanticTextEditSessionEngine());
   const activeMoveRef = useRef<ActiveMovePointer | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
+  const pendingMoveRef = useRef<(() => void) | null>(null);
   const activeCreateRef = useRef<ActiveCreatePointer | null>(null);
   const activeConnectorRef = useRef<ActiveConnectorPointer | null>(null);
   const activeMarqueeRef = useRef<ActiveMarqueePointer | null>(null);
@@ -822,6 +824,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         rollback.error instanceof Error ? rollback.error.message : null,
       );
       if (activeMove.captured) releasePointerCapture(activeMove.pointerId);
+      cancelObjectMoveFrame();
       activeMoveRef.current = null;
     }
     const activeCreate = activeCreateRef.current;
@@ -1102,8 +1105,16 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     previousConnectionRef.current = connection;
     if (connection === "live" && previous !== "live") {
       presencePublisherRef.current?.connectionBecameLive();
+      controller?.connectivityRestored();
     }
-  }, [connection]);
+  }, [connection, controller]);
+
+  useEffect(() => {
+    if (!controller) return;
+    const restored = () => controller.connectivityRestored();
+    window.addEventListener("online", restored);
+    return () => window.removeEventListener("online", restored);
+  }, [controller]);
 
   commitTextEditRef.current = commitTextEdit;
 
@@ -1164,6 +1175,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       if (activeMarquee) releasePointerCapture(activeMarquee.pointerId);
       const pan = panRef.current;
       if (pan) releasePointerCapture(pan.pointerId);
+      cancelObjectMoveFrame();
       activeMoveRef.current = null;
       activeCreateRef.current = null;
       activeConnectorRef.current = null;
@@ -1432,6 +1444,25 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     };
   }
 
+  function cancelObjectMoveFrame(flush = false) {
+    if (moveFrameRef.current !== null) window.cancelAnimationFrame(moveFrameRef.current);
+    moveFrameRef.current = null;
+    const pending = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (flush) pending?.();
+  }
+
+  function drainObjectMoveFrame() {
+    moveFrameRef.current = null;
+    const pending = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (!pending) return;
+    pending();
+    if (activeMoveRef.current) {
+      moveFrameRef.current = window.requestAnimationFrame(drainObjectMoveFrame);
+    }
+  }
+
   function updateObjectMove(event: Readonly<{ pointerId: number; clientX: number; clientY: number }>): boolean {
     const active = activeMoveRef.current;
     const currentController = controllerRef.current;
@@ -1442,9 +1473,22 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       shellRef.current?.setPointerCapture?.(active.pointerId);
       activeMoveRef.current = { ...active, captured: true };
     }
-    const result = moveEngineRef.current.updatePointer(active.token, point);
-    if (result.status === "updated") {
-      for (const lifecycleEvent of result.lifecycleEvents) currentController.dispatch(lifecycleEvent);
+    const apply = () => {
+      if (activeMoveRef.current?.token !== active.token || controllerRef.current !== currentController) return;
+      const result = moveEngineRef.current.updatePointer(active.token, point);
+      if (result.status === "updated") {
+        for (const lifecycleEvent of result.lifecycleEvents) currentController.dispatch(lifecycleEvent);
+      }
+    };
+    // Keep the first pixel immediate. During a delayed frame, only the latest
+    // absolute move matters; avoid rerouting/publishing every queued event.
+    if (moveFrameRef.current === null) {
+      apply();
+      if (activeMoveRef.current?.token === active.token) {
+        moveFrameRef.current = window.requestAnimationFrame(drainObjectMoveFrame);
+      }
+    } else {
+      pendingMoveRef.current = apply;
     }
     return true;
   }
@@ -1456,6 +1500,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     const active = activeMoveRef.current;
     const currentController = controllerRef.current;
     if (!active || active.pointerId !== event.pointerId || !currentController) return false;
+    cancelObjectMoveFrame(true);
     const point = pointerPage(event) ?? undefined;
     const result = reason === "pointer-cancel"
       ? moveEngineRef.current.pointerCancel(active.token, point)
@@ -1464,6 +1509,7 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
       for (const lifecycleEvent of result.lifecycleEvents) currentController.dispatch(lifecycleEvent);
     }
     if (active.captured) releasePointerCapture(active.pointerId);
+    cancelObjectMoveFrame();
     activeMoveRef.current = null;
     return true;
   }
@@ -1725,9 +1771,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     const activeMove = activeMoveRef.current;
     const moveSession = activeMove ? moveEngineRef.current.current() : null;
     if (activeMove && moveSession?.objectIds.includes(objectId)) {
-      const finished = moveEngineRef.current.finish(activeMove.token, moveSession.pointerCurrent);
+      cancelObjectMoveFrame(true);
+      const finished = moveEngineRef.current.finish(activeMove.token);
       if (finished.status === "finished") dispatchEditEvents(finished.lifecycleEvents);
       if (activeMove.captured) releasePointerCapture(activeMove.pointerId);
+      cancelObjectMoveFrame();
       activeMoveRef.current = null;
       // A synthesized or accessibility-driven double-click can arrive before
       // the active pointer-up has reached this React root. Attach the newer
@@ -2110,9 +2158,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
           }
           const move = activeMoveRef.current;
           if (move) {
+            cancelObjectMoveFrame(true);
             const finished = moveEngineRef.current.pointerCancel(move.token, moveEngineRef.current.current()?.pointerCurrent);
             if (finished.status === "finished") dispatchEditEvents(finished.lifecycleEvents);
             releasePointerCapture(move.pointerId);
+            cancelObjectMoveFrame();
             activeMoveRef.current = null;
           }
           const create = activeCreateRef.current;
