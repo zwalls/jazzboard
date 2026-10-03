@@ -47,6 +47,8 @@ export type RealtimeServerMessage =
       type: "ready";
       protocol: typeof REALTIME_PROTOCOL_VERSION;
       connectionId: string;
+      /** Opaque process identity for transport diagnostics; optional for rolling clients. */
+      hubId?: string;
       roomId: string;
       participantId: string;
       role: RoomRole;
@@ -228,6 +230,7 @@ export function parseRealtimeServerMessage(value: unknown): RealtimeServerMessag
       if (
         message.protocol !== REALTIME_PROTOCOL_VERSION ||
         typeof message.connectionId !== "string" ||
+        (message.hubId !== undefined && typeof message.hubId !== "string") ||
         typeof message.roomId !== "string" ||
         typeof message.participantId !== "string" ||
         (message.role !== "participant" && message.role !== "spectator") ||

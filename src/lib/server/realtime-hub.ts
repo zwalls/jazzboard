@@ -12,6 +12,7 @@ import { isDomainError } from "@/lib/domain/errors";
 import {
   isCompactRoomEventPayload,
   isPresenceDeltaRoomEventPayload,
+  legacyRoomStateFromEvent,
   requiresLegacyRoomReconciliation,
   roomEventDocumentRevision,
   roomEventStateRevision,
@@ -34,6 +35,10 @@ import {
 
 import { buildRoomPatch, fingerprintRoomDocument, type DocumentFingerprints } from "./room-patch";
 import { readAuthorizedRoom } from "./room-service";
+import {
+  RedisTransientPresenceRelay, transientPresenceDTO,
+  type TransientPresence, type TransientPresenceRelay,
+} from "./transient-presence-relay";
 import { subscribeToLocalAgentDraftEvents } from "./agent-draft-store";
 import { getRedisForRealtime, getRoomStore, subscribeToLocalRoomEvents } from "./room-store";
 
@@ -61,6 +66,8 @@ export type RealtimeHubDependencies = {
   subscribeLocalDrafts?: LocalDraftSubscriber;
   getRedis?: () => Redis | null;
   createId?: () => string;
+  hubId?: string;
+  createTransientRelay?: (redis: Redis, hubId: string, receive: (message: TransientPresence) => void, now: () => number) => TransientPresenceRelay | null;
   now?: () => number;
   logger?: Pick<Console, "error" | "warn">;
 };
@@ -162,8 +169,12 @@ export class RealtimeHub {
   private readonly createId: () => string;
   private readonly now: () => number;
   private readonly logger: Pick<Console, "error" | "warn">;
+  private readonly hubId: string;
+  private readonly createTransientRelay: NonNullable<RealtimeHubDependencies["createTransientRelay"]>;
 
   private readonly peersByRoom = new Map<string, Set<Peer>>();
+  private readonly roomMembership = new Map<string, { revision: number; members: Set<string> }>();
+  private transientRelay: TransientPresenceRelay | null | undefined;
   private readonly documentFingerprints = new Map<string, DocumentFingerprints>();
   private readonly roomReconciliations = new Map<string, RoomReconciliation>();
   private unsubscribeLocal: (() => void) | null = null;
@@ -184,6 +195,10 @@ export class RealtimeHub {
     this.createId = dependencies.createId ?? randomUUID;
     this.now = dependencies.now ?? Date.now;
     this.logger = dependencies.logger ?? console;
+    this.hubId = dependencies.hubId ?? randomUUID();
+    this.createTransientRelay = dependencies.createTransientRelay ??
+      ((redis, hubId, receive, now) => new RedisTransientPresenceRelay(redis, hubId, receive, now,
+        () => this.logger.warn("Jazzboard transient presence relay is unavailable; local presence continues.")));
   }
 
   /**
@@ -244,6 +259,8 @@ export class RealtimeHub {
     this.peersByRoom.clear();
     this.roomReconciliations.clear();
     this.documentFingerprints.clear();
+    this.roomMembership.clear();
+    this.stopTransientRelay();
     this.unsubscribeLocal?.();
     this.unsubscribeLocal = null;
     this.unsubscribeLocalDrafts?.();
@@ -268,11 +285,17 @@ export class RealtimeHub {
     const peers = this.peersByRoom.get(peer.roomId);
     peers?.delete(peer);
     peer.documentFingerprints = null;
+    this.transientRelay?.forgetConnection(peer.id);
     if (peers?.size === 0) {
       this.peersByRoom.delete(peer.roomId);
       this.documentFingerprints.delete(peer.roomId);
+      this.roomMembership.delete(peer.roomId);
+      this.transientRelay?.leaveRoom(peer.roomId);
     }
-    if (this.peerCount() === 0) this.stopStreamReader();
+    if (this.peerCount() === 0) {
+      this.stopStreamReader();
+      this.stopTransientRelay();
+    }
   }
 
   private peerCount(): number {
@@ -323,6 +346,7 @@ export class RealtimeHub {
     if (
       source.disposed ||
       !source.ready ||
+      !this.roomMembership.get(source.roomId)?.members.has(source.participantId) ||
       (source.role !== "participant" && source.role !== "spectator") ||
       message.clientSequence <= source.lastTransientSequence
     ) {
@@ -333,22 +357,63 @@ export class RealtimeHub {
     if (now - source.lastTransientAt < TRANSIENT_PRESENCE_MIN_INTERVAL_MS) return;
     source.lastTransientAt = now;
 
-    const peers = this.peersByRoom.get(source.roomId);
-    if (!peers) return;
-    for (const peer of peers) {
-      if (peer === source || peer.disposed || !peer.ready) continue;
-      this.send(peer, {
-        type: "presence.transient",
-        roomId: source.roomId,
-        participantId: source.participantId,
-        connectionId: source.id,
-        clientSequence: message.clientSequence,
-        clientTime: message.clientTime,
-        serverTime: now,
-        cursor: message.cursor,
-        viewport: message.viewport,
-      });
+    const presence = transientPresenceDTO({
+      type: "presence.transient",
+      roomId: source.roomId,
+      participantId: source.participantId,
+      connectionId: source.id,
+      clientSequence: message.clientSequence,
+      clientTime: message.clientTime,
+      serverTime: now,
+      cursor: message.cursor,
+      viewport: message.viewport,
+    });
+    // Same-process peers retain the synchronous path. Redis runs independently
+    // and cannot block input, authorization snapshots or durable event delivery.
+    this.deliverTransientPresence(presence);
+    this.transientRelay?.publish(presence);
+  }
+
+  private deliverTransientPresence(message: TransientPresence): void {
+    const membership = this.roomMembership.get(message.roomId);
+    if (!membership?.members.has(message.participantId)) return;
+    const peers = this.peersByRoom.get(message.roomId);
+    for (const peer of peers ?? []) {
+      if (peer.id === message.connectionId || peer.disposed || !peer.ready ||
+        !membership.members.has(peer.participantId)) continue;
+      this.send(peer, message);
     }
+  }
+
+  private rememberRoomMembership(room: RoomState): void {
+    const revision = roomStateRevision(room);
+    if ((this.roomMembership.get(room.id)?.revision ?? -1) >= revision) return;
+    this.roomMembership.set(room.id, {
+      revision,
+      members: new Set(Object.values(room.participants)
+        .filter((participant) => participant.role === "participant" || participant.role === "spectator")
+        .map((participant) => participant.participantId)),
+    });
+  }
+
+  private ensureTransientRelay(roomId: string): void {
+    if (this.transientRelay === undefined) {
+      const redis = this.redisClient();
+      try {
+        this.transientRelay = redis
+          ? this.createTransientRelay(redis, this.hubId, (message) => this.deliverTransientPresence(message), this.now)
+          : null;
+      } catch (error) {
+        this.transientRelay = null;
+        this.logger.warn("Jazzboard transient presence relay could not start.", error);
+      }
+    }
+    this.transientRelay?.joinRoom(roomId);
+  }
+
+  private stopTransientRelay(): void {
+    this.transientRelay?.dispose();
+    this.transientRelay = undefined;
   }
 
   private requestSynchronization(peer: Peer, cursor: string | null): void {
@@ -384,12 +449,15 @@ export class RealtimeHub {
       const participant = room.participants[peer.participantId];
       if (!participant) throw new Error("Membership disappeared during realtime synchronization.");
       peer.role = participant.role;
+      this.rememberRoomMembership(room);
+      this.ensureTransientRelay(peer.roomId);
 
       if (!peer.readySent) {
         this.send(peer, {
           type: "ready",
           protocol: REALTIME_PROTOCOL_VERSION,
           connectionId: peer.id,
+          hubId: this.hubId,
           roomId: peer.roomId,
           participantId: peer.participantId,
           role: participant.role,
@@ -542,6 +610,8 @@ export class RealtimeHub {
     // Full-state rolling events change the document baseline outside the
     // sparse path. Presence deltas alone leave the document fingerprints valid.
     if (!isPresenceDeltaRoomEventPayload(event.payload, event.roomId, event.sequence)) peer.documentFingerprints = null;
+    const fullRoom = legacyRoomStateFromEvent(event);
+    if (fullRoom) this.rememberRoomMembership(fullRoom);
     this.send(peer, { type: "event", cursor, event });
     rememberDelivered(peer, event.id);
     peer.snapshotStateRevision = Math.max(
@@ -621,6 +691,7 @@ export class RealtimeHub {
         const peers = this.peersByRoom.get(roomId);
         if (!peers?.size) return;
 
+        this.rememberRoomMembership(room);
         const fingerprints = [...peers].some((peer) => peer.supportsRoomPatches)
           ? this.captureDocument(room) : null;
         const satisfied = [...state.signals.values()].filter((entry) =>

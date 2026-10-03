@@ -1,4 +1,6 @@
 // @vitest-environment node
+// Durable stream fixtures own only their stream reader. The actual cursor
+// transport and hub integration are covered in transient-presence-relay.test.ts.
 
 import { EventEmitter } from "node:events";
 
@@ -129,6 +131,7 @@ describe("RealtimeHub", () => {
     let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
     const readRoom = vi.fn(async () => room());
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom,
       subscribeLocal: (listener) => {
         publishLocal = listener;
@@ -170,6 +173,7 @@ describe("RealtimeHub", () => {
     let publishDraft: ((draftEvent: AgentCanvasDraftEvent) => void) | null = null;
     const readRoomSnapshot = vi.fn(async () => room());
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -224,6 +228,7 @@ describe("RealtimeHub", () => {
     const readRoom = vi.fn(async () => structuredClone(sharedRoom));
     const readRoomSnapshot = vi.fn(async () => structuredClone(sharedRoom));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom,
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -293,6 +298,7 @@ describe("RealtimeHub", () => {
     let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
     const readRoomSnapshot = vi.fn(async () => room(11, 4));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -321,6 +327,7 @@ describe("RealtimeHub", () => {
     let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
     const readRoomSnapshot = vi.fn(async () => room(12, 5));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -349,6 +356,7 @@ describe("RealtimeHub", () => {
     let publishLocal: ((roomEvent: RoomEvent) => void) | null = null;
     const readRoomSnapshot = vi.fn(async () => room(12, 4));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -381,6 +389,7 @@ describe("RealtimeHub", () => {
     });
     const readRoomSnapshot = vi.fn(() => snapshot);
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -419,6 +428,7 @@ describe("RealtimeHub", () => {
       resolveRoom = resolve;
     });
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: () => roomPromise,
       subscribeLocal: (listener) => {
         publishLocal = listener;
@@ -461,6 +471,7 @@ describe("RealtimeHub", () => {
       xrange: oversizedHistoryRead,
     } as unknown as Redis;
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       subscribeLocal: () => vi.fn(),
       getRedis: () => redis,
@@ -526,6 +537,7 @@ describe("RealtimeHub", () => {
     const readRoom = vi.fn(async () => room(10));
     const logger = { error: vi.fn(), warn: vi.fn() };
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom,
       subscribeLocal: () => vi.fn(),
       getRedis: () => redis,
@@ -601,6 +613,7 @@ describe("RealtimeHub", () => {
       xrange: vi.fn(),
     } as unknown as Redis;
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom,
       subscribeLocal: () => vi.fn(),
       getRedis: () => redis,
@@ -659,6 +672,7 @@ describe("RealtimeHub", () => {
       xrange: vi.fn(),
     } as unknown as Redis;
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom,
       subscribeLocal: () => vi.fn(),
       getRedis: () => redis,
@@ -713,6 +727,7 @@ describe("RealtimeHub", () => {
     } as unknown as Redis;
     const readRoomSnapshot = vi.fn(async () => room(11));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -759,6 +774,7 @@ describe("RealtimeHub", () => {
     } as unknown as Redis;
     const readRoomSnapshot = vi.fn(async () => room(11, 4));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -818,6 +834,7 @@ describe("RealtimeHub", () => {
     // revision and advances aggregate state beyond the hot-path awareness.
     const readRoomSnapshot = vi.fn(async () => room(101, 5));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(100, 4),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -871,6 +888,7 @@ describe("RealtimeHub", () => {
     } as unknown as Redis;
     const readRoomSnapshot = vi.fn(async () => room(11, 4));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10, 4),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -919,6 +937,7 @@ describe("RealtimeHub", () => {
       .mockResolvedValueOnce(room(11));
     const logger = { error: vi.fn(), warn: vi.fn() };
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -961,6 +980,7 @@ describe("RealtimeHub", () => {
     } as unknown as Redis;
     const readRoomSnapshot = vi.fn(async () => room(11));
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -1012,6 +1032,7 @@ describe("RealtimeHub", () => {
         }),
     );
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       readRoomSnapshot,
       subscribeLocal: () => vi.fn(),
@@ -1052,6 +1073,7 @@ describe("RealtimeHub", () => {
         }),
     );
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => room(10),
       readRoomSnapshot,
       subscribeLocal: (listener) => {
@@ -1104,6 +1126,7 @@ describe("RealtimeHub", () => {
   it("closes a socket when membership cannot be revalidated during bootstrap", async () => {
     const logger = { error: vi.fn(), warn: vi.fn() };
     const hub = new RealtimeHub({
+      createTransientRelay: () => null,
       readRoom: async () => {
         throw new Error("forbidden");
       },
@@ -1124,7 +1147,8 @@ describe("negotiated room patches", () => {
   it("bootstraps with snapshots, sparsely reconciles metadata, retains legacy fallback, and resynchronizes gaps", async () => {
     let current = room(1, 1);
     let publish!: (event: RoomEvent) => void;
-    const hub = new RealtimeHub({ readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
+    const hub = new RealtimeHub({
+      createTransientRelay: () => null, readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
       subscribeLocal: (listener) => { publish = listener; return () => {}; }, getRedis: () => null });
     const modern = new FakeSocket(); const legacy = new FakeSocket();
     hub.attach(modern as unknown as WebSocket, { roomId: "room_1", participantId: "p_1", supportsRoomPatches: true });
@@ -1151,7 +1175,8 @@ describe("negotiated room patches", () => {
 
   it("resets a sparse baseline after a rolling full-state event", async () => {
     let current = room(1, 1); let publish!: (event: RoomEvent) => void;
-    const hub = new RealtimeHub({ readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
+    const hub = new RealtimeHub({
+      createTransientRelay: () => null, readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
       subscribeLocal: (listener) => { publish = listener; return () => {}; }, getRedis: () => null });
     const socket = new FakeSocket();
     hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1", supportsRoomPatches: true });
