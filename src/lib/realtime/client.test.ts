@@ -439,3 +439,20 @@ it("repairs a malformed final patch immediately without advancing its cursor", (
   expect(socket.sent.filter((value) => JSON.parse(value).type === "sync.request")).toHaveLength(1);
   connection.close();
 });
+
+it("delivers independent agent draft invalidations during document repair without advancing the cursor", () => {
+  const socket = new FakeBrowserSocket("https://jazzboard.example/api/ws");
+  const onDraftInvalidated = vi.fn();
+  const connection = connectRoomRealtime({ roomId: "room_1", url: socket.url, onSnapshot: vi.fn(), onEvent: vi.fn(),
+    onPatch: () => false, onDraftInvalidated, webSocketFactory: () => socket as unknown as WebSocket });
+  socket.open(); socket.serverMessage({ type: "snapshot", cursor: "1-0", room: room(1), replayTruncated: false });
+  socket.serverMessage({ type: "room.patch", cursor: "2-0", baseStateRevision: 1, baseRoomRevision: 1,
+    room: { ...room(2), stateRevision: 2 }, objects: {}, diagrams: {}, deletedObjectIds: [], deletedDiagramIds: [] });
+  const draft = { schemaVersion: 1 as const, id: "draft_event_repair", roomId: "room_1", occurredAt: 3, type: "draft.upsert" as const,
+    draftId: "draft_repair", ownerParticipantId: "p_1", revision: 1, status: "active" as const, expiresAt: 90_003 };
+  socket.serverMessage({ type: "draft.invalidated", cursor: "3-0", event: draft });
+  socket.serverMessage({ type: "draft.invalidated", cursor: "3-0", event: draft });
+  socket.serverMessage({ type: "checkpoint", cursor: "4-0" });
+  expect(onDraftInvalidated).toHaveBeenCalledExactlyOnceWith(draft);
+  expect(connection.getCursor()).toBe("1-0"); connection.close();
+});

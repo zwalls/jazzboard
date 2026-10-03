@@ -219,7 +219,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
 
     // Keep the last good cursor until a snapshot repairs a missing document
     // boundary. Later checkpoints/events cannot acknowledge the missing patch.
-    if (awaitingSnapshot && ["room.patch", "event", "replay", "checkpoint", "draft.invalidated"].includes(message.type)) return;
+    if (awaitingSnapshot && ["room.patch", "event", "replay", "checkpoint"].includes(message.type)) return;
     switch (message.type) {
       case "ready":
         if (message.roomId !== options.roomId) {
@@ -314,7 +314,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
           rejectMismatchedRoom();
           return;
         }
-        updateCursor(message.cursor);
+        if (!awaitingSnapshot) updateCursor(message.cursor);
         if (rememberEvent(message.event.id)) {
           invokeSafely(options.onDraftInvalidated, message.event);
         }
