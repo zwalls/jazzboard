@@ -1081,12 +1081,17 @@ function solveAutoLabelPlacement(
   context: ConnectorRoutingContext,
   resolvedRoutes: readonly ResolvedConnectorRoute[],
   obstacles: readonly RoutingObstacle[],
+  labelMetrics: ReturnType<typeof connectorLabelMetrics>,
 ): { position: number; bounds: CanvasBounds | null; visualConflictCount: number } {
   const generatedAuto = routing.mode === "auto" && routing.labelPositionSource !== "authored";
   const startingPosition = generatedAuto && context.options.resolutionMode === "bounded"
     ? 0.5
     : routing.labelPosition;
-  const defaultBounds = connectorLabelBoundsForRoute(connector.label, points, startingPosition);
+  // Reuse only within this candidate. No geometry, label or dependency cache
+  // survives a solve, so subsequent local/remote edits always recompute.
+  const measure = labelMetrics.normalizedLines.length ? measureConnectorPath(points) : undefined;
+  const boundsAt = (position: number) => connectorLabelBoundsFromMetrics(labelMetrics, points, position, measure);
+  const defaultBounds = boundsAt(startingPosition);
   if (context.options.resolutionMode === "bounded") {
     return { position: startingPosition, bounds: defaultBounds, visualConflictCount: 0 };
   }
@@ -1102,7 +1107,7 @@ function solveAutoLabelPlacement(
 
   const pathLabelConflicts = routePathLabelConflictCount(points, resolvedRoutes);
   const placements = AUTO_LABEL_POSITIONS.map((position, ordinal) => {
-    const bounds = connectorLabelBoundsForRoute(connector.label, points, position);
+    const bounds = position === startingPosition ? defaultBounds : boundsAt(position);
     const visualConflictCount = routeVisualConflictCount(points, bounds, resolvedRoutes, pathLabelConflicts);
     return {
       position,
@@ -1142,11 +1147,24 @@ export function connectorRouteBounds(
   return { x: minX, y: minY, width: Math.max(maxX - minX, 1), height: Math.max(maxY - minY, 1) };
 }
 
+type ConnectorPathMeasure = { lengths: readonly number[]; total: number };
+
+function measureConnectorPath(points: readonly Point[]): ConnectorPathMeasure {
+  const lengths = points.slice(1).map((point, index) => distance(points[index], point));
+  return { lengths, total: lengths.reduce((sum, length) => sum + length, 0) };
+}
+
 export function pointAlongConnectorRoute(points: readonly Point[], position: number): Point {
+  return pointAlongMeasuredConnectorRoute(points, position, measureConnectorPath(points));
+}
+
+function pointAlongMeasuredConnectorRoute(
+  points: readonly Point[],
+  position: number,
+  { lengths, total }: ConnectorPathMeasure,
+): Point {
   if (!points.length) return { x: 0, y: 0 };
   if (points.length === 1) return { ...points[0] };
-  const lengths = points.slice(1).map((point, index) => distance(points[index], point));
-  const total = lengths.reduce((sum, length) => sum + length, 0);
   if (total <= EPSILON) return { ...points[0] };
   let remaining = clamp(finiteOr(position, 0.5), 0, 1) * total;
   for (let index = 0; index < lengths.length; index += 1) {
@@ -1168,9 +1186,19 @@ export function connectorLabelBoundsForRoute(
   points: readonly Point[],
   labelPosition: number = 0.5,
 ): CanvasBounds | null {
-  const metrics = connectorLabelMetrics(label);
+  return connectorLabelBoundsFromMetrics(connectorLabelMetrics(label), points, labelPosition);
+}
+
+function connectorLabelBoundsFromMetrics(
+  metrics: ReturnType<typeof connectorLabelMetrics>,
+  points: readonly Point[],
+  labelPosition: number,
+  measure?: ConnectorPathMeasure,
+): CanvasBounds | null {
   if (!metrics.normalizedLines.length) return null;
-  const point = pointAlongConnectorRoute(points, labelPosition);
+  const point = measure
+    ? pointAlongMeasuredConnectorRoute(points, labelPosition, measure)
+    : pointAlongConnectorRoute(points, labelPosition);
   return {
     x: point.x - metrics.width / 2,
     y: point.y - metrics.height / 2,
@@ -1229,6 +1257,7 @@ export function resolveConnectorRoute(
   resolvedRoutes: readonly ResolvedConnectorRoute[] = [],
 ): ResolvedConnectorRoute {
   const sourceRouting = normalizeConnectorRouting(connector.routing);
+  const labelMetrics = connectorLabelMetrics(connector.label);
   const obstacles = prepareConnectorObstacles(connector, context);
   const startObject = connector.start.objectId ? context.room.objects[connector.start.objectId] : undefined;
   const endObject = connector.end.objectId ? context.room.objects[connector.end.objectId] : undefined;
@@ -1283,6 +1312,7 @@ export function resolveConnectorRoute(
       context,
       resolvedRoutes,
       obstacles,
+      labelMetrics,
     );
     const candidate = {
       ...input,

@@ -1086,3 +1086,36 @@ describe("native Mermaid group boundaries", () => {
     }
   });
 });
+
+
+describe("route-relative label measurements", () => {
+  it("preserves arc-length placement through zero-length and unequal segments", () => {
+    const points = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 30, y: 40 }, { x: 60, y: 40 }];
+    expect(pointAlongConnectorRoute(points, 0.5)).toEqual({ x: 24, y: 32 });
+    expect(pointAlongConnectorRoute(points, 0.8)).toEqual({ x: 44, y: 40 });
+    expect(pointAlongConnectorRoute(points, -1)).toEqual({ x: 0, y: 0 });
+    expect(pointAlongConnectorRoute(points, 2)).toEqual({ x: 60, y: 40 });
+    expect(pointAlongConnectorRoute(points, Number.NaN)).toEqual({ x: 24, y: 32 });
+    expect(connectorLabelBoundsForRoute("A🙂\n B ", points, 0.5)).toEqual({ x: 8.5, y: 0.5, width: 31, height: 63 });
+    expect(pointAlongConnectorRoute([], 0.5)).toEqual({ x: 0, y: 0 });
+    expect(pointAlongConnectorRoute([{ x: 2, y: 3 }, { x: 2, y: 3 }], 0.7)).toEqual({ x: 2, y: 3 });
+  });
+
+  it("remeasures labels and geometry on subsequent solves of the same mutable document", () => {
+    const source = node("source", 0, 0);
+    const target = node("target", 500, 0);
+    const edge = connector("edge", source.id, target.id, normalizeConnectorRouting({ mode: "auto" }));
+    edge.label = "A🙂\n B ";
+    const document = room([source, target, edge]);
+    const first = resolveConnectorRoutes(document)[edge.id];
+    expect(first.labelBounds).toMatchObject({ width: 31, height: 63 });
+    edge.label = "Z";
+    target.x = 700;
+    const second = resolveConnectorRoutes(document)[edge.id];
+    expect(second.labelBounds).toMatchObject({ width: 20, height: 36 });
+    expect(second.labelPoint).not.toEqual(first.labelPoint);
+    expect(first.labelBounds).toMatchObject({ width: 31, height: 63 });
+    edge.label = "   ";
+    expect(resolveConnectorRoutes(document)[edge.id].labelBounds).toBeNull();
+  });
+});
