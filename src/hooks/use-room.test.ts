@@ -1742,3 +1742,21 @@ describe("transient presence after independent document sharing", () => {
     expect(store.getSnapshot().participants.peer.human.cursor).toEqual({ x: 80, y: 90 });
   });
 });
+
+it("reconstructs exact-base room patches and refuses missing boundaries without replacing the document", async () => {
+  const initial = room("room-a", 1, ["participant-a"], 1);
+  mocks.apiRequest.mockResolvedValue({ room: initial });
+  const { result, unmount } = renderHook(() => useRoom("room-a"));
+  await act(async () => {});
+  const realtime = realtimeFor("room-a");
+  act(() => realtime.onSnapshot(initial, { cursor: "1-0", replayTruncated: false }));
+  const next = room("room-a", 2, ["participant-a"], 3);
+  const { objects, diagrams, ...metadata } = next;
+  const patch = { baseStateRevision: 1, baseRoomRevision: 1, room: metadata, objects, diagrams, deletedObjectIds: [], deletedDiagramIds: [] };
+  act(() => expect(realtime.onPatch?.(patch)).toBe(true));
+  expect(result.current.room).toEqual(next);
+  act(() => expect(realtime.onPatch?.({ ...patch, baseStateRevision: 4, baseRoomRevision: 2, room: { ...metadata, stateRevision: 5, roomRevision: 3 } })).toBe(false));
+  expect(result.current.room).toEqual(next);
+  act(() => expect(realtime.onPatch?.(patch)).toBe(true));
+  unmount();
+});

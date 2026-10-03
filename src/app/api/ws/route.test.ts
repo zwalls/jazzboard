@@ -58,6 +58,7 @@ describe("GET /api/ws", () => {
         cursor: "50-2",
         supportsPresenceDelta: true,
         supportsAgentDrafts: true,
+        supportsRoomPatches: false,
       },
     );
     expect(mocks.upgrade).toHaveBeenCalledWith(expect.any(Function), { maxPayload: 32 * 1024 });
@@ -127,4 +128,12 @@ describe("GET /api/ws", () => {
     expect(mocks.readAuthorizedRoom).not.toHaveBeenCalled();
     expect(mocks.upgrade).not.toHaveBeenCalled();
   });
+});
+
+it("passes optional room-patch negotiation through the same membership and origin gate", async () => {
+  mocks.requireGuestParticipantId.mockReturnValue("p_1"); mocks.readAuthorizedRoom.mockResolvedValue({});
+  mocks.upgrade.mockImplementation(async (handler: (socket: object) => void) => { handler({}); return new Response(null, { status: 204 }); });
+  const response = await GET(new Request("https://jazzboard.example/api/ws?roomId=room_1&capabilities=presence-delta-v1,room-patch-v1", { headers: { origin: "https://jazzboard.example" } }));
+  expect(response.status).toBe(204);
+  expect(mocks.attach).toHaveBeenLastCalledWith({}, expect.objectContaining({ supportsRoomPatches: true }));
 });

@@ -1119,3 +1119,49 @@ describe("RealtimeHub", () => {
     hub.dispose();
   });
 });
+
+describe("negotiated room patches", () => {
+  it("bootstraps with snapshots, sparsely reconciles metadata, retains legacy fallback, and resynchronizes gaps", async () => {
+    let current = room(1, 1);
+    let publish!: (event: RoomEvent) => void;
+    const hub = new RealtimeHub({ readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
+      subscribeLocal: (listener) => { publish = listener; return () => {}; }, getRedis: () => null });
+    const modern = new FakeSocket(); const legacy = new FakeSocket();
+    hub.attach(modern as unknown as WebSocket, { roomId: "room_1", participantId: "p_1", supportsRoomPatches: true });
+    hub.attach(legacy as unknown as WebSocket, { roomId: "room_1", participantId: "p_1" });
+    await vi.waitFor(() => expect(modern.messages().at(-1)?.type).toBe("snapshot"));
+    await vi.waitFor(() => expect(legacy.messages().at(-1)?.type).toBe("snapshot"));
+    current = { ...current, stateRevision: 2, title: "Changed coordination" };
+    publish(compactEvent("metadata2", 2, "room_1", 1));
+    await vi.waitFor(() => expect(modern.messages().at(-1)?.type).toBe("room.patch"));
+    expect(modern.messages().at(-1)).toMatchObject({ baseStateRevision: 1, baseRoomRevision: 1, objects: {}, diagrams: {}, room: { stateRevision: 2, roomRevision: 1, title: current.title } });
+    expect(legacy.messages().at(-1)?.type).toBe("snapshot");
+    // The server's next patch starts at the last delivered boundary.
+    current = { ...current, stateRevision: 3, roomRevision: 2 };
+    publish(compactEvent("document3", 3, "room_1", 2));
+    await vi.waitFor(() => expect(modern.messages().at(-1)).toMatchObject({ type: "room.patch", baseStateRevision: 2, baseRoomRevision: 1 }));
+    modern.emit("message", JSON.stringify({ type: "sync.request" }));
+    await vi.waitFor(() => expect(modern.messages().at(-1)?.type).toBe("snapshot"));
+    current = { ...current, stateRevision: 4, participants: {} };
+    publish(compactEvent("membership4", 4, "room_1", 2));
+    await vi.waitFor(() => expect(modern.closes).toContainEqual({ code: 1008, reason: "Room membership required" }));
+    expect(modern.messages().at(-1)?.type).toBe("error");
+    hub.dispose();
+  });
+
+  it("resets a sparse baseline after a rolling full-state event", async () => {
+    let current = room(1, 1); let publish!: (event: RoomEvent) => void;
+    const hub = new RealtimeHub({ readRoom: async () => structuredClone(current), readRoomSnapshot: async () => structuredClone(current),
+      subscribeLocal: (listener) => { publish = listener; return () => {}; }, getRedis: () => null });
+    const socket = new FakeSocket();
+    hub.attach(socket as unknown as WebSocket, { roomId: "room_1", participantId: "p_1", supportsRoomPatches: true });
+    await vi.waitFor(() => expect(socket.messages().at(-1)?.type).toBe("snapshot"));
+    current = room(2, 2); publish(event("full2", 2));
+    expect(socket.messages().at(-1)?.type).toBe("event");
+    current = room(3, 3); publish(compactEvent("compact3", 3));
+    await vi.waitFor(() => expect(socket.messages().at(-1)?.type).toBe("snapshot"));
+    current = room(4, 4); publish(compactEvent("compact4", 4));
+    await vi.waitFor(() => expect(socket.messages().at(-1)?.type).toBe("room.patch"));
+    hub.dispose();
+  });
+});

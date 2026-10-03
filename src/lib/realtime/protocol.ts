@@ -10,6 +10,9 @@ import {
   isPresenceDeltaRoomEventPayload,
 } from "./events";
 
+import { isRoomPatch, type RoomPatch } from "./room-patch";
+
+export const REALTIME_ROOM_PATCH_CAPABILITY = "room-patch-v1" as const;
 export const REALTIME_PROTOCOL_VERSION = 1 as const;
 export const REALTIME_PRESENCE_DELTA_CAPABILITY = "presence-delta-v1" as const;
 export const REALTIME_AGENT_DRAFT_CAPABILITY = "agent-draft-v1" as const;
@@ -39,6 +42,7 @@ export type RealtimeClientMessage =
     };
 
 export type RealtimeServerMessage =
+  | ({ type: "room.patch"; cursor: string | null } & RoomPatch)
   | {
       type: "ready";
       protocol: typeof REALTIME_PROTOCOL_VERSION;
@@ -243,6 +247,9 @@ export function parseRealtimeServerMessage(value: unknown): RealtimeServerMessag
       }
       return message as RealtimeServerMessage;
     }
+    case "room.patch":
+      if (message.cursor !== null && parseStreamCursor(message.cursor as string) === null) return null;
+      return isRoomPatch(message) ? message as RealtimeServerMessage : null;
     case "event": {
       const cursor = message.cursor;
       if (cursor !== null && parseStreamCursor(cursor as string) === null) return null;

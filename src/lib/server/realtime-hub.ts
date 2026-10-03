@@ -32,6 +32,7 @@ import {
   latestCursorFromXRead,
 } from "@/lib/realtime/redis-stream";
 
+import { buildRoomPatch, fingerprintRoomDocument, type DocumentFingerprints } from "./room-patch";
 import { readAuthorizedRoom } from "./room-service";
 import { subscribeToLocalAgentDraftEvents } from "./agent-draft-store";
 import { getRedisForRealtime, getRoomStore, subscribeToLocalRoomEvents } from "./room-store";
@@ -72,6 +73,8 @@ export type AttachRealtimeSocketOptions = {
   supportsPresenceDelta?: boolean;
   /** Negotiates compact draft invalidations; old clients simply omit ghost previews. */
   supportsAgentDrafts?: boolean;
+  /** Opt in to exact-base sparse updates; bootstrap/reconnect always snapshot. */
+  supportsRoomPatches?: boolean;
 };
 
 type PendingEvent = {
@@ -91,6 +94,8 @@ type Peer = {
   participantId: string;
   supportsPresenceDelta: boolean;
   supportsAgentDrafts: boolean;
+  supportsRoomPatches: boolean;
+  documentFingerprints: DocumentFingerprints | null;
   role: RoomRole | null;
   ready: boolean;
   readySent: boolean;
@@ -159,6 +164,7 @@ export class RealtimeHub {
   private readonly logger: Pick<Console, "error" | "warn">;
 
   private readonly peersByRoom = new Map<string, Set<Peer>>();
+  private readonly documentFingerprints = new Map<string, DocumentFingerprints>();
   private readonly roomReconciliations = new Map<string, RoomReconciliation>();
   private unsubscribeLocal: (() => void) | null = null;
   private unsubscribeLocalDrafts: (() => void) | null = null;
@@ -193,6 +199,8 @@ export class RealtimeHub {
       participantId: options.participantId,
       supportsPresenceDelta: options.supportsPresenceDelta ?? true,
       supportsAgentDrafts: options.supportsAgentDrafts ?? true,
+      supportsRoomPatches: options.supportsRoomPatches ?? false,
+      documentFingerprints: null,
       role: null,
       ready: false,
       readySent: false,
@@ -235,6 +243,7 @@ export class RealtimeHub {
     }
     this.peersByRoom.clear();
     this.roomReconciliations.clear();
+    this.documentFingerprints.clear();
     this.unsubscribeLocal?.();
     this.unsubscribeLocal = null;
     this.unsubscribeLocalDrafts?.();
@@ -258,7 +267,11 @@ export class RealtimeHub {
     peer.nextSyncCursor = undefined;
     const peers = this.peersByRoom.get(peer.roomId);
     peers?.delete(peer);
-    if (peers?.size === 0) this.peersByRoom.delete(peer.roomId);
+    peer.documentFingerprints = null;
+    if (peers?.size === 0) {
+      this.peersByRoom.delete(peer.roomId);
+      this.documentFingerprints.delete(peer.roomId);
+    }
     if (this.peerCount() === 0) this.stopStreamReader();
   }
 
@@ -385,6 +398,7 @@ export class RealtimeHub {
         peer.readySent = true;
       }
 
+      peer.documentFingerprints = peer.supportsRoomPatches ? this.captureDocument(room) : null;
       peer.snapshotStateRevision = roomStateRevision(room);
       peer.snapshotDocumentRevision = room.roomRevision;
       // A reconnect always establishes a fresh authoritative snapshot. The
@@ -525,6 +539,9 @@ export class RealtimeHub {
       this.requestRoomReconciliation(event, cursor);
       return;
     }
+    // Full-state rolling events change the document baseline outside the
+    // sparse path. Presence deltas alone leave the document fingerprints valid.
+    if (!isPresenceDeltaRoomEventPayload(event.payload, event.roomId, event.sequence)) peer.documentFingerprints = null;
     this.send(peer, { type: "event", cursor, event });
     rememberDelivered(peer, event.id);
     peer.snapshotStateRevision = Math.max(
@@ -572,6 +589,13 @@ export class RealtimeHub {
     void this.reconcileRoom(event.roomId, state);
   }
 
+  private captureDocument(room: RoomState): DocumentFingerprints | null {
+    const captured = fingerprintRoomDocument(room, this.documentFingerprints.get(room.id));
+    if (captured) this.documentFingerprints.set(room.id, captured);
+    else this.documentFingerprints.delete(room.id);
+    return captured;
+  }
+
   private async reconcileRoom(roomId: string, state: RoomReconciliation): Promise<void> {
     try {
       while (this.roomReconciliations.get(roomId) === state && state.signals.size > 0) {
@@ -597,6 +621,8 @@ export class RealtimeHub {
         const peers = this.peersByRoom.get(roomId);
         if (!peers?.size) return;
 
+        const fingerprints = [...peers].some((peer) => peer.supportsRoomPatches)
+          ? this.captureDocument(room) : null;
         const satisfied = [...state.signals.values()].filter((entry) =>
           this.roomCoversEvent(room, entry.event),
         );
@@ -629,10 +655,14 @@ export class RealtimeHub {
             roomStateRevision(room) > peer.snapshotStateRevision ||
             room.roomRevision > peer.snapshotDocumentRevision
           ) {
+            const patch = peer.supportsRoomPatches
+              ? buildRoomPatch(room, peer.documentFingerprints, fingerprints, peer.snapshotStateRevision, peer.snapshotDocumentRevision)
+              : null;
+            peer.documentFingerprints = peer.supportsRoomPatches ? fingerprints : null;
             peer.snapshotStateRevision = roomStateRevision(room);
             peer.snapshotDocumentRevision = room.roomRevision;
             peer.cursor = nextCursor;
-            this.send(peer, {
+            this.send(peer, patch ? { type: "room.patch", cursor: nextCursor, ...patch } : {
               type: "snapshot",
               cursor: nextCursor,
               room,

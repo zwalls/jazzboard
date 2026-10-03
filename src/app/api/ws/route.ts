@@ -5,6 +5,7 @@ import {
   REALTIME_MAX_CLIENT_PAYLOAD_BYTES,
   REALTIME_AGENT_DRAFT_CAPABILITY,
   REALTIME_PRESENCE_DELTA_CAPABILITY,
+  REALTIME_ROOM_PATCH_CAPABILITY,
   parseStreamCursor,
 } from "@/lib/realtime/protocol";
 import { errorResponse } from "@/lib/server/http";
@@ -85,6 +86,7 @@ export async function GET(request: Request): Promise<Response> {
           cursor,
           supportsPresenceDelta,
           supportsAgentDrafts,
+          supportsRoomPatches: capabilities.has(REALTIME_ROOM_PATCH_CAPABILITY),
         });
       },
       { maxPayload: REALTIME_MAX_CLIENT_PAYLOAD_BYTES },

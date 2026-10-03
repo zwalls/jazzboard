@@ -8,8 +8,11 @@ import {
   parseStreamCursor,
   REALTIME_AGENT_DRAFT_CAPABILITY,
   REALTIME_PRESENCE_DELTA_CAPABILITY,
+  REALTIME_ROOM_PATCH_CAPABILITY,
   type RealtimeConnectionStatus,
 } from "./protocol";
+
+import type { RoomPatch } from "./room-patch";
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
@@ -33,6 +36,8 @@ export type RoomRealtimeOptions = {
   roomId: string;
   initialCursor?: string | null;
   url?: string;
+  /** Return false to recover from a missing or mismatched patch base. */
+  onPatch?: (patch: RoomPatch) => boolean;
   onSnapshot: (room: RoomState, metadata: RealtimeSnapshotMetadata) => void;
   onEvent: (event: RoomEvent, metadata: RealtimeEventMetadata) => void;
   onReady?: (identity: { connectionId: string; participantId: string; role: "participant" | "spectator" }) => void;
@@ -101,7 +106,7 @@ function buildRealtimeUrl(options: RoomRealtimeOptions, cursor: string | null): 
   url.searchParams.set("roomId", options.roomId);
   url.searchParams.set(
     "capabilities",
-    `${REALTIME_PRESENCE_DELTA_CAPABILITY},${REALTIME_AGENT_DRAFT_CAPABILITY}`,
+    [REALTIME_PRESENCE_DELTA_CAPABILITY, REALTIME_AGENT_DRAFT_CAPABILITY, ...(options.onPatch ? [REALTIME_ROOM_PATCH_CAPABILITY] : [])].join(","),
   );
   if (cursor) url.searchParams.set("cursor", cursor);
   else url.searchParams.delete("cursor");
@@ -111,6 +116,7 @@ function buildRealtimeUrl(options: RoomRealtimeOptions, cursor: string | null): 
 export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeConnection {
   let socket: WebSocket | null = null;
   let stopped = false;
+  let awaitingSnapshot = false;
   let status: RealtimeConnectionStatus = "closed";
   let cursor = parseStreamCursor(options.initialCursor);
   let reconnectAttempt = 0;
@@ -199,9 +205,21 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
       return;
     }
     const message = parseRealtimeServerMessage(decoded);
-    if (!message) return;
+    if (!message) {
+      // A malformed patch is also a missing document boundary. Repair it even
+      // if no later room event arrives to reveal the gap.
+      if (options.onPatch && decoded && typeof decoded === "object" &&
+          (decoded as { type?: unknown }).type === "room.patch" && !awaitingSnapshot) {
+        awaitingSnapshot = true;
+        requestSync();
+      }
+      return;
+    }
     lastServerMessageAt = Date.now();
 
+    // Keep the last good cursor until a snapshot repairs a missing document
+    // boundary. Later checkpoints/events cannot acknowledge the missing patch.
+    if (awaitingSnapshot && ["room.patch", "event", "replay", "checkpoint", "draft.invalidated"].includes(message.type)) return;
     switch (message.type) {
       case "ready":
         if (message.roomId !== options.roomId) {
@@ -223,12 +241,31 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
         }
         // A snapshot is an authoritative synchronization boundary and may
         // intentionally clamp an invalid client-supplied future cursor.
+        awaitingSnapshot = false;
         cursor = message.cursor;
         invokeSafely(options.onSnapshot, message.room, {
           cursor: message.cursor,
           replayTruncated: message.replayTruncated,
         });
         return;
+      case "room.patch": {
+        if (message.room.id !== options.roomId) {
+          rejectMismatchedRoom();
+          return;
+        }
+        let accepted = false;
+        try {
+          accepted = options.onPatch?.(message) === true;
+        } catch (error) {
+          reportCallbackError(error);
+        }
+        if (accepted) updateCursor(message.cursor);
+        else {
+          awaitingSnapshot = true;
+          requestSync();
+        }
+        return;
+      }
       case "replay":
         if (message.event.roomId !== options.roomId) {
           rejectMismatchedRoom();
@@ -298,6 +335,7 @@ export function connectRoomRealtime(options: RoomRealtimeOptions): RoomRealtimeC
 
     const currentGeneration = ++generation;
     connectedAt = null;
+    awaitingSnapshot = false;
     setStatus(reconnectAttempt > 0 ? "reconnecting" : "connecting");
     try {
       socket = factory(url);

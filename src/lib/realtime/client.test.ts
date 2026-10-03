@@ -381,3 +381,61 @@ describe("connectRoomRealtime", () => {
     connection.close();
   });
 });
+
+describe("room patch recovery", () => {
+  it("negotiates only with a handler and keeps the last good cursor until a missing base is repaired", () => {
+    const sockets: FakeBrowserSocket[] = [];
+    const onPatch = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const onEvent = vi.fn(); const onSnapshot = vi.fn();
+    const connection = connectRoomRealtime({ roomId: "room_1", url: "https://jazzboard.example/api/ws", onPatch, onEvent, onSnapshot,
+      webSocketFactory: (url) => { const socket = new FakeBrowserSocket(url); sockets.push(socket); return socket as unknown as WebSocket; } });
+    const socket = sockets[0]; socket.open();
+    expect(new URL(socket.url).searchParams.get("capabilities")).toContain("room-patch-v1");
+    socket.serverMessage({ type: "snapshot", cursor: "1-0", room: { ...room(1), stateRevision: 1 }, replayTruncated: false });
+    const update = { type: "room.patch" as const, cursor: "3-0", baseStateRevision: 2, baseRoomRevision: 2,
+      room: { ...room(3), stateRevision: 3 }, objects: {}, diagrams: {}, deletedObjectIds: [], deletedDiagramIds: [] };
+    socket.serverMessage(update);
+    socket.serverMessage({ ...update, cursor: "4-0" });
+    socket.serverMessage({ type: "checkpoint", cursor: "5-0" });
+    socket.serverMessage({ type: "event", cursor: "6-0", event: event() });
+    expect(onPatch).toHaveBeenCalledTimes(1);
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(connection.getCursor()).toBe("1-0");
+    expect(socket.sent.map((value) => JSON.parse(value)).filter((value) => value.type === "sync.request")).toEqual([{ type: "sync.request", cursor: "1-0" }]);
+    socket.serverMessage({ type: "snapshot", cursor: "6-0", room: { ...room(3), stateRevision: 3 }, replayTruncated: false });
+    socket.serverMessage({ ...update, cursor: "7-0", baseStateRevision: 3, baseRoomRevision: 3, room: { ...room(4), stateRevision: 4 } });
+    expect(onPatch).toHaveBeenCalledTimes(2);
+    expect(connection.getCursor()).toBe("7-0");
+    connection.close();
+  });
+
+  it("treats a patch callback exception as a recoverable missing boundary", () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {});
+    const socket = new FakeBrowserSocket("https://jazzboard.example/api/ws");
+    const connection = connectRoomRealtime({ roomId: "room_1", url: socket.url, onSnapshot: vi.fn(), onEvent: vi.fn(),
+      onPatch: () => { throw new Error("Consumer failed"); }, webSocketFactory: () => socket as unknown as WebSocket });
+    socket.open();
+    socket.serverMessage({ type: "room.patch", cursor: "2-0", baseStateRevision: 1, baseRoomRevision: 1,
+      room: { ...room(2), stateRevision: 2 }, objects: {}, diagrams: {}, deletedObjectIds: [], deletedDiagramIds: [] });
+    expect(connection.getCursor()).toBeNull();
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "sync.request" });
+    expect(report).toHaveBeenCalled(); connection.close();
+  });
+});
+
+it("repairs a malformed final patch immediately without advancing its cursor", () => {
+  const socket = new FakeBrowserSocket("https://jazzboard.example/api/ws");
+  const onPatch = vi.fn();
+  const connection = connectRoomRealtime({ roomId: "room_1", url: socket.url,
+    onSnapshot: vi.fn(), onEvent: vi.fn(), onPatch, webSocketFactory: () => socket as unknown as WebSocket });
+  socket.open();
+  socket.serverMessage({ type: "snapshot", cursor: "1-0", room: room(1), replayTruncated: false });
+  const malformed = { type: "room.patch", cursor: "2-0", room: room(2) };
+  // Deliver malformed wire data rather than a type-checked application value.
+  socket.serverMessage(malformed as unknown as RealtimeServerMessage);
+  socket.serverMessage(malformed as unknown as RealtimeServerMessage);
+  expect(onPatch).not.toHaveBeenCalled();
+  expect(connection.getCursor()).toBe("1-0");
+  expect(socket.sent.filter((value) => JSON.parse(value).type === "sync.request")).toHaveLength(1);
+  connection.close();
+});

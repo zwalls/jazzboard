@@ -29,6 +29,7 @@ import type {
 } from "@/lib/agent-drafts/types";
 import { AGENT_COMMITTED_REVEAL_DURATION_MS } from "@/lib/agent-drafts/types";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
+import { applyRoomPatch } from "@/lib/realtime/room-patch";
 import { reconcileRoomSnapshot } from "@/lib/client/room-reconciliation";
 import {
   connectRoomRealtime,
@@ -992,6 +993,16 @@ export function useRoom(roomId: string) {
         if ([...draftsRef.current.values()].some((draft) => draft.status === "awaiting_review")) {
           requestDraftRefreshRef.current?.();
         }
+      },
+      onPatch(patch) {
+        if (connectionVisit !== roomVisitRef.current) return false;
+        const nextRoom = applyRoomPatch(roomRef.current, patch);
+        if (!nextRoom) return false;
+        if (nextRoom !== roomRef.current) acceptRoom(nextRoom);
+        if ([...draftsRef.current.values()].some((draft) => draft.status === "awaiting_review")) {
+          requestDraftRefreshRef.current?.();
+        }
+        return true;
       },
       onReady() {
         if (connectionVisit !== roomVisitRef.current) return;
