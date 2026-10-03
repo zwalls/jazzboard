@@ -413,6 +413,10 @@ export class SemanticCanvasEditController {
   optimisticConnectorIds(): ReadonlySet<string> {
     if (this.disposed) return new Set();
     const room = this.store.getSnapshot();
+    // Pointer-down protects the complete lease cohort before any movement.
+    // Those leases alone do not change pixels: keep persisted routes until
+    // local overrides make the projected document differ from authority.
+    if (room.objects === this.store.getAuthoritativeRoom().objects) return new Set();
     return new Set(
       [...this.coordinator.protectedObjectIds()].filter(
         (objectId) => room.objects[objectId]?.kind === "connector",

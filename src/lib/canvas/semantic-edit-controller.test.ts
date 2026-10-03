@@ -924,7 +924,33 @@ describe("SemanticCanvasEditController", () => {
     controller.dispose();
   });
 
-  it("exposes dynamically protected connector routes", () => {
+  it("protects lease-only connectors without requesting optimistic routes until pixels change", () => {
+    const a = shape("a");
+    const b = shape("b", 400);
+    const edge = connector("edge", "a", "b");
+    const initial = roomWith([a, b, edge]);
+    const { controller } = setup(initial);
+    controller.dispatch({
+      type: "gesture.started", gestureId: "select-a", source: "pointer",
+      objects: [
+        { objectId: "a", baseRevision: 1, baseCreatedAt: a.createdAt, operation: "move" },
+        { objectId: "edge", baseRevision: 1, baseCreatedAt: edge.createdAt, operation: "connect" },
+      ],
+    });
+    expect(controller.getSnapshot().objects).toBe(initial.objects);
+    expect(controller.isProjectionAuthoritative("a")).toBe(false);
+    expect(controller.isProjectionAuthoritative("edge")).toBe(false);
+    expect(controller.optimisticConnectorIds()).toEqual(new Set());
+    controller.dispatch({
+      type: "objects.changed", gestureId: "select-a",
+      changes: [{ kind: "update", draft: draft(a, { x: 40 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "move" }],
+    });
+    expect(controller.getSnapshot().objects.a.x).toBe(40);
+    expect(controller.optimisticConnectorIds()).toEqual(new Set(["edge"]));
+    controller.dispose();
+  });
+
+  it("exposes dynamically protected connector routes while local pixels differ", () => {
     const a = shape("a");
     const b = shape("b", 400);
     const edge = connector("edge", "a", "b");
@@ -934,6 +960,10 @@ describe("SemanticCanvasEditController", () => {
       gestureId: "move-a",
       source: "pointer",
       objects: [{ objectId: "a", baseRevision: 1, baseCreatedAt: a.createdAt, operation: "move" }],
+    });
+    controller.dispatch({
+      type: "objects.changed", gestureId: "move-a",
+      changes: [{ kind: "update", draft: draft(a, { x: 40 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "move" }],
     });
     controller.dispatch({
       type: "gesture.dependencies-added",
