@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   CanvasCommand,
@@ -485,6 +485,131 @@ describe("SemanticCanvasEditController", () => {
     });
     controller.dispose();
   });
+
+  it.each(["response", "committed-replay"] as const)("waits for the preceding %s acknowledgement before changing lease operation", async (acknowledgement) => {
+    const a = shape("a");
+    const { controller, harness, renderSettles } = setup(roomWith([a]));
+    const held = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+    const acquisitions: ObjectLeaseAcquireTarget[] = [];
+    const originalLease = harness.host.lease;
+    vi.spyOn(harness.host, "lease").mockImplementation(async (action, actorKind) => {
+      if (action.action === "acquire") {
+        acquisitions.push(action);
+        if (action.expectedRevision !== harness.serverRoom.objects[action.objectId].revision) {
+          throw new Error("stale lease acquisition revision");
+        }
+      }
+      return originalLease(action, actorKind);
+    });
+    harness.commandImpl = async (command) => {
+      harness.serverRoom = updatedRoom(harness.serverRoom, [command]);
+      return held.promise;
+    };
+    startUpdate(controller, a, draft(a, { x: 180 }), "move-a");
+    controller.dispatch({ type: "gesture.finish-requested", gestureId: "move-a", reason: "pointer-up" });
+    renderSettles.shift()!();
+    await microtasks(30);
+    expect(harness.serverRoom.objects.a.revision).toBe(2);
+    const moved = controller.getSnapshot().objects.a;
+    expect(moved).toMatchObject({ x: 180, revision: 1 });
+    controller.dispatch({
+      type: "gesture.started", gestureId: "resize-a", source: "pointer",
+      objects: [{ objectId: "a", baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+    });
+    controller.dispatch({
+      type: "objects.changed", gestureId: "resize-a",
+      changes: [{ kind: "update", draft: draft(moved, { width: 240 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+    });
+    await microtasks(30);
+    expect(acquisitions.map(({ operation }) => operation)).toEqual(["move"]);
+    expect(controller.getSnapshot().objects.a).toMatchObject({ x: 180, width: 240 });
+    const acknowledged = harness.serverRoom;
+    harness.commandImpl = async (command) => {
+      harness.serverRoom = updatedRoom(harness.serverRoom, [command]);
+      return { room: harness.serverRoom, changedObjectIds: changedIds([command]) };
+    };
+    if (acknowledgement === "committed-replay") {
+      held.reject({ code: "MUTATION_OUTCOME_UNKNOWN", details: { replayed: true, committedRoomRevision: acknowledged.roomRevision } });
+    } else {
+      held.resolve({ room: acknowledged, changedObjectIds: ["a"] });
+    }
+    await microtasks(80);
+    expect(harness.errors).toEqual([]);
+    expect(controller.getAuthoritativeRoom().objects.a.revision).toBe(2);
+    expect(acquisitions.at(-1)).toMatchObject({ operation: "resize", expectedRevision: 2 });
+    controller.dispatch({ type: "gesture.finish-requested", gestureId: "resize-a", reason: "pointer-up" });
+    renderSettles.shift()!();
+    await controller.whenIdle();
+    expect(harness.errors).toEqual([]);
+    expect(harness.rollbacks).toEqual([]);
+    expect(harness.serverRoom.objects.a).toMatchObject({ x: 180, width: 240, revision: 3 });
+    expect(controller.historyState()).toMatchObject({ undoDepth: 2, pendingHumanTransactions: 0 });
+    expect(await controller.undo()).toBe(true);
+    renderSettles.shift()!();
+    await controller.whenIdle();
+    expect(harness.serverRoom.objects.a).toMatchObject({ x: 180, width: 120 });
+    expect(await controller.undo()).toBe(true);
+    renderSettles.shift()!();
+    await controller.whenIdle();
+    expect(harness.serverRoom.objects.a).toMatchObject({ x: 10, width: 120 });
+    controller.dispose();
+  });
+
+  it.each(["external-edit", "replacement", "failed-save"] as const)(
+    "does not rebase a lease handoff across %s", async (failure) => {
+      const a = shape("a");
+      const { controller, harness, renderSettles } = setup(roomWith([a]));
+      const held = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+      const acquisitions: ObjectLeaseAcquireTarget[] = [];
+      const originalLease = harness.host.lease;
+      vi.spyOn(harness.host, "lease").mockImplementation(async (action, actorKind) => {
+        if (action.action === "acquire") acquisitions.push(action);
+        return originalLease(action, actorKind);
+      });
+      harness.commandImpl = async (command) => {
+        harness.serverRoom = updatedRoom(harness.serverRoom, [command]);
+        return held.promise;
+      };
+      startUpdate(controller, a, draft(a, { x: 180 }), "move-a");
+      controller.dispatch({ type: "gesture.finish-requested", gestureId: "move-a", reason: "pointer-up" });
+      renderSettles.shift()!();
+      await microtasks(30);
+      const receipt = harness.serverRoom;
+      const moved = controller.getSnapshot().objects.a;
+      controller.dispatch({
+        type: "gesture.started", gestureId: "resize-a", source: "pointer",
+        objects: [{ objectId: "a", baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+      });
+      controller.dispatch({
+        type: "objects.changed", gestureId: "resize-a",
+        changes: [{ kind: "update", draft: draft(moved, { width: 240 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+      });
+      await microtasks(30);
+      expect(acquisitions).toHaveLength(1);
+      if (failure === "failed-save") {
+        held.reject(new Error("save rejected"));
+      } else {
+        const external = structuredClone(receipt);
+        external.objects.a = { ...external.objects.a, x: 500,
+          revision: failure === "replacement" ? 1 : 3,
+          createdAt: failure === "replacement" ? 999 : a.createdAt };
+        external.roomRevision += 1;
+        external.stateRevision = (external.stateRevision ?? 0) + 1;
+        harness.serverRoom = external;
+        controller.acceptRoom(external);
+        held.resolve({ room: receipt, changedObjectIds: ["a"] });
+      }
+      await controller.whenIdle();
+      expect(acquisitions).toHaveLength(1);
+      expect(harness.errors.length).toBeGreaterThan(0);
+      expect(harness.rollbacks.length).toBeGreaterThan(0);
+      expect(controller.getSnapshot().objects.a).toMatchObject({
+        x: failure === "failed-save" ? 180 : 500, width: 120,
+        createdAt: failure === "replacement" ? 999 : a.createdAt,
+      });
+      controller.dispose();
+    },
+  );
 
   it("retains generation N+1 when acknowledgement N arrives", async () => {
     const a = shape("a");

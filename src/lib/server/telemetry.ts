@@ -28,6 +28,12 @@ export type JazzboardTelemetryEvent = {
   durationMs?: number;
   redisAttempts?: number;
   redisDurationMs?: number;
+  redisReadMs?: number;
+  /** Local preparation includes optional private-asset guard reads. */
+  redisPrepareMs?: number;
+  /** Includes retry backoff and ambiguous-commit verification. */
+  redisCommitMs?: number;
+  redisCleanupMs?: number;
   reconciliationAttempts?: number;
   roomRevisionBefore?: number;
   roomRevisionAfter?: number;
@@ -111,6 +117,10 @@ export function telemetryRecord(input: JazzboardTelemetryEvent, now = Date.now()
       durationMs: finiteNonnegative(input.durationMs),
       redisAttempts: finiteNonnegative(input.redisAttempts),
       redisDurationMs: finiteNonnegative(input.redisDurationMs),
+      redisReadMs: finiteNonnegative(input.redisReadMs),
+      redisPrepareMs: finiteNonnegative(input.redisPrepareMs),
+      redisCommitMs: finiteNonnegative(input.redisCommitMs),
+      redisCleanupMs: finiteNonnegative(input.redisCleanupMs),
       reconciliationAttempts: finiteNonnegative(input.reconciliationAttempts),
       roomRevisionBefore: finiteNonnegative(input.roomRevisionBefore),
       roomRevisionAfter: finiteNonnegative(input.roomRevisionAfter),

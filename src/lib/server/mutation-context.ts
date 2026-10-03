@@ -18,6 +18,15 @@ export type MutationContext = {
   participantHash: string;
   roomHash: string | null;
   idempotency: MutationIdentity | null;
+  /** Numeric transaction-stage totals only; no keys, arguments, or board content. */
+  redisTimings?: {
+    attempts: number;
+    totalMs: number;
+    readMs: number;
+    prepareMs: number;
+    commitMs: number;
+    cleanupMs: number;
+  };
   /** Set only after a stored receipt/resource has been verified and replayed. */
   replayed: boolean;
 };
@@ -85,4 +94,17 @@ export function currentMutationContext(): MutationContext | null {
 export function markCurrentMutationReplayed(): void {
   const context = currentMutationContext();
   if (context) context.replayed = true;
+}
+
+/** Stable numeric fields consumed by the existing telemetry whitelist. */
+export function mutationRedisTelemetry(context: MutationContext) {
+  const timing = context.redisTimings;
+  return timing ? {
+    redisAttempts: timing.attempts,
+    redisDurationMs: timing.totalMs,
+    redisReadMs: timing.readMs,
+    redisPrepareMs: timing.prepareMs,
+    redisCommitMs: timing.commitMs,
+    redisCleanupMs: timing.cleanupMs,
+  } : {};
 }

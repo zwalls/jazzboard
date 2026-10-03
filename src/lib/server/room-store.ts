@@ -2691,10 +2691,24 @@ export class RedisRoomStore implements RoomStore {
   ): Promise<T> {
     const connection = this.redis.duplicate();
     const keys = roomPlaneKeys(roomId);
-    const identity = currentMutationContext()?.idempotency ?? null;
+    const context = currentMutationContext();
+    const identity = context?.idempotency ?? null;
+    const started = performance.now();
+    let phase: "read" | "prepare" | "commit" | "cleanup" = "read";
+    let phaseStarted = started;
+    let attempts = 0;
+    const elapsed = { read: 0, prepare: 0, commit: 0, cleanup: 0 };
+    const enterPhase = (next: typeof phase) => {
+      const now = performance.now();
+      elapsed[phase] += now - phaseStarted;
+      phase = next;
+      phaseStarted = now;
+    };
     let initialized = false;
     try {
       for (let attempt = 0; attempt < ROOM_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
+        attempts += 1;
+        enterPhase("read");
         await connection.watch(
           keys.document,
           keys.awareness,
@@ -2705,11 +2719,13 @@ export class RedisRoomStore implements RoomStore {
           connection.mget(keys.document, keys.awareness, keys.coordination),
           identity ? connection.get(identity.receiptKey) : Promise.resolve(null),
         ]);
+        enterPhase("prepare");
         const persisted = parsePersistedPlanes(encoded);
         if (!encoded.every(Boolean) || !persisted?.coordination.legacyRetired) {
           // The fenced read is also the stable-room initialization check. Only
           // legacy/incomplete rooms need the separate migration read; normal
           // edits avoid a duplicate full-plane read and parse before WATCH.
+          enterPhase("read");
           await connection.unwatch();
           const migrated = await this.readOrMigratePlanes(connection, roomId);
           if (!migrated) {
@@ -2724,6 +2740,7 @@ export class RedisRoomStore implements RoomStore {
         }
         initialized = true;
         if (identity && encodedReceipt) {
+          enterPhase("commit");
           await connection.unwatch();
           const receipt = parseMutationReceipt(encodedReceipt);
           if (!receipt) {
@@ -2779,6 +2796,7 @@ export class RedisRoomStore implements RoomStore {
         }
         const receipt = mutationReceiptFor(mutation.room, updated.result, updated.activity);
         if (!mutation.changed && !updated.activity) {
+          enterPhase("commit");
           if (!receipt || !identity) {
             await connection.unwatch();
             return updated.result;
@@ -2871,6 +2889,7 @@ export class RedisRoomStore implements RoomStore {
               guards: privateBlobReferenceGuards,
             },
           );
+          enterPhase("commit");
           await connection.unwatch();
           let committed;
           try {
@@ -2944,6 +2963,7 @@ export class RedisRoomStore implements RoomStore {
             IDEMPOTENCY_RECEIPT_TTL_SECONDS,
           );
         }
+        enterPhase("commit");
         let committed;
         try {
           committed = await transaction.exec();
@@ -2972,7 +2992,20 @@ export class RedisRoomStore implements RoomStore {
       }
       throw new DomainError("REVISION_CONFLICT", "The room changed too quickly; inspect the latest state and retry.");
     } finally {
+      enterPhase("cleanup");
       await connection.quit().catch(() => undefined);
+      enterPhase("cleanup");
+      if (context) {
+        const timing = context.redisTimings ??= {
+          attempts: 0, totalMs: 0, readMs: 0, prepareMs: 0, commitMs: 0, cleanupMs: 0,
+        };
+        timing.attempts += attempts;
+        timing.totalMs += performance.now() - started;
+        timing.readMs += elapsed.read;
+        timing.prepareMs += elapsed.prepare;
+        timing.commitMs += elapsed.commit;
+        timing.cleanupMs += elapsed.cleanup;
+      }
     }
   }
 

@@ -14,6 +14,7 @@ import {
   runActivityRevert,
   runCanvasCommand,
   runLeaseAction,
+  runSemanticTransaction,
   updateSpotlight,
   updatePresence,
   upgradeMembership,
@@ -742,6 +743,32 @@ describe("room service authorization", () => {
     );
     expect(events.at(-1)?.payload).toMatchObject({ activity: updated.activity });
     expect(events.at(-1)?.payload).not.toHaveProperty("activity.objectChanges");
+  });
+
+  it("preserves the transaction input and activity before-images for both semantic writers", async () => {
+    const { store, room } = await seededRoom();
+    const transact = store.transact.bind(store);
+    const checkedInputs: string[] = [];
+    vi.spyOn(store, "transact").mockImplementation((roomId, updater, eventType) =>
+      transact(roomId, (input) => {
+        const before = structuredClone(input);
+        const outcome = updater(input);
+        expect(input).toEqual(before);
+        checkedInputs.push(roomId);
+        return outcome;
+      }, eventType),
+    );
+    await runCanvasCommand({ roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("immutable-note", "Before") });
+    const result = await runSemanticTransaction({ roomId: room.id, participantId: "p_owner", actorKind: "agent",
+      transaction: { commands: [{ type: "update", objectId: "immutable-note", expectedRevision: 1,
+        operation: "edit", patch: { content: "After" } }], diagramCommands: [] } });
+    if (result.outcome !== "applied") throw new Error("Expected a live semantic mutation.");
+    expect(checkedInputs).toHaveLength(2);
+    const activity = await store.getActivity(room.id, result.activity.id);
+    expect(activity?.objectChanges[0]).toMatchObject({
+      before: { content: "Before", revision: 1 }, after: { content: "After", revision: 2 },
+    });
   });
 
   it("creates an attributed forward compensation while retaining immutable history", async () => {

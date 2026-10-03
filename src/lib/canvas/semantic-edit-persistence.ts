@@ -280,6 +280,8 @@ export class SemanticCanvasEditPersistenceDriver {
     }>)[]
   >();
   private readonly operations = new Set<Promise<unknown>>();
+  /** Command acknowledgement boundaries exclude lease cleanup to avoid overlap deadlocks. */
+  private readonly mutationAcknowledgements = new Map<string, Set<Promise<RoomState | null>>>();
   private readonly pendingTimerPromises = new Map<number, Promise<void>>();
   private readonly pendingTimerResolvers = new Map<number, () => void>();
   private readonly recoveryByObjectId = new Map<string, ActiveRecoveryGroup>();
@@ -329,6 +331,67 @@ export class SemanticCanvasEditPersistenceDriver {
       this.clock.clearTimeout(timer);
       resume();
     }
+  }
+
+  /** Preserve a new gesture's pixels while its preceding local mutation is in flight. */
+  prepareLeaseAcquire(
+    targets: readonly ObjectLeaseAcquireTarget[],
+  ): readonly ObjectLeaseAcquireTarget[] | Promise<readonly ObjectLeaseAcquireTarget[]> {
+    const fences = targets.map((target) => {
+      const entry = this.coordinator.get(target.objectId);
+      const pending = [...(this.mutationAcknowledgements.get(target.objectId) ?? [])];
+      return {
+        target, entry, pending,
+        recoveryEpoch: entry?.recoveryEpoch,
+        createdAt: entry?.baseCreatedAt,
+        revision: entry?.baseRevision,
+      };
+    });
+    // Preserve eager pointer-down acquisition when there is no pending save.
+    if (fences.every(({ pending }) => !pending.length)) return targets;
+    return Promise.all(fences.map(async ({ target, entry, pending, recoveryEpoch, createdAt, revision }) => {
+      if (!pending.length) return target;
+      const receipts = await Promise.all(pending);
+      const receipt = receipts.at(-1)?.objects[target.objectId];
+      const current = this.host.currentRoom().objects[target.objectId];
+      if (
+        this.disposed || this.shuttingDown || !entry || target.expectedRevision !== revision ||
+        this.coordinator.get(target.objectId) !== entry || entry.awaitingRecovery ||
+        entry.recoveryEpoch !== recoveryEpoch || entry.baseCreatedAt !== createdAt ||
+        !receipt || receipt.createdAt !== createdAt || !current ||
+        current.createdAt !== receipt.createdAt || current.revision !== receipt.revision ||
+        current.revision !== entry.baseRevision
+      ) {
+        throw new SemanticEditAuthorityError(
+          `Canvas object ${target.objectId} changed while awaiting its preceding save.`,
+        );
+      }
+      return { ...target, expectedRevision: receipt.revision };
+    }));
+  }
+
+  private registerMutationAcknowledgement(objectIds: readonly string[]): (receipt?: RoomState) => void {
+    let resolve!: (receipt: RoomState | null) => void;
+    const acknowledgement = new Promise<RoomState | null>((done) => { resolve = done; });
+    for (const objectId of objectIds) {
+      let pending = this.mutationAcknowledgements.get(objectId);
+      if (!pending) {
+        pending = new Set();
+        this.mutationAcknowledgements.set(objectId, pending);
+      }
+      pending.add(acknowledgement);
+    }
+    let settled = false;
+    return (receipt) => {
+      if (settled) return;
+      settled = true;
+      for (const objectId of objectIds) {
+        const pending = this.mutationAcknowledgements.get(objectId);
+        pending?.delete(acknowledgement);
+        if (!pending?.size) this.mutationAcknowledgements.delete(objectId);
+      }
+      resolve(receipt ?? null);
+    };
   }
 
   consume(intent: SemanticCanvasEditIntent): Promise<void> | null {
@@ -867,6 +930,7 @@ export class SemanticCanvasEditPersistenceDriver {
   ): Promise<void> {
     if (this.disposed || this.isFenced(objects)) return;
     let plan: ExecutionPlan | null = null;
+    let settleAcknowledgement: ((receipt?: RoomState) => void) | null = null;
     try {
       const leaseTargets = this.dynamicLeaseTargets(objects, batch.cohortId);
       if (leaseTargets.length) {
@@ -876,6 +940,11 @@ export class SemanticCanvasEditPersistenceDriver {
       plan = this.buildExecutionPlan(objects, batch.cohortId);
 
       let result: SemanticEditCommandResult | SemanticEditTransactionResult | null = null;
+      if (plan.commands.length || plan.diagramCommands.length) {
+        settleAcknowledgement = this.registerMutationAcknowledgement(
+          objects.map(({ objectId }) => objectId),
+        );
+      }
       if (plan.commands.length === 1 && plan.diagramCommands.length === 0) {
         result = await this.host.command(plan.commands[0]);
       } else if (plan.commands.length > 0 || plan.diagramCommands.length > 0) {
@@ -904,6 +973,9 @@ export class SemanticCanvasEditPersistenceDriver {
         batch,
         this.isFinalAcknowledgement(batch, queuedVersion),
       );
+      // An overlapping lease acquisition may be awaited by releaseCohort.
+      // Resolve after the acknowledged base advances, before lease cleanup.
+      settleAcknowledgement?.(result?.room);
       const release = this.releaseFinalCohortIfAcknowledged(batch);
       if (release) await release;
     } catch (error) {
@@ -917,24 +989,31 @@ export class SemanticCanvasEditPersistenceDriver {
             plan,
             error,
             classification.committedRoomRevision,
+            settleAcknowledgement,
           );
           if (replayed) return;
         } catch (reconciliationError) {
-          await this.recoverConfirmed(
+          const recovery = this.recoverConfirmed(
             objects.map((object) => object.objectId),
             reconciliationError,
             null,
             batch.cohortId,
           );
+          settleAcknowledgement?.();
+          await recovery;
           return;
         }
       }
-      await this.recoverConfirmed(
+      const recovery = this.recoverConfirmed(
         objects.map((object) => object.objectId),
         error,
         null,
         batch.cohortId,
       );
+      settleAcknowledgement?.();
+      await recovery;
+    } finally {
+      settleAcknowledgement?.();
     }
   }
 
@@ -1373,6 +1452,7 @@ export class SemanticCanvasEditPersistenceDriver {
     plan: ExecutionPlan,
     error: unknown,
     committedRoomRevision: number | null,
+    settleAcknowledgement: ((receipt?: RoomState) => void) | null,
   ): Promise<boolean> {
     while (!this.disposed) {
       let authoritative: RoomState;
@@ -1394,12 +1474,14 @@ export class SemanticCanvasEditPersistenceDriver {
         committedRoomRevision,
       );
       if (visibility === "incompatible") {
-        await this.recoverConfirmed(
+        const recovery = this.recoverConfirmed(
           plan.objects.map((object) => object.objectId),
           error,
           null,
           batch.cohortId,
         );
+        settleAcknowledgement?.();
+        await recovery;
         return true;
       }
       if (visibility === "visible") {
@@ -1417,6 +1499,7 @@ export class SemanticCanvasEditPersistenceDriver {
           batch,
           this.isFinalAcknowledgement(batch, queuedVersion),
         );
+        settleAcknowledgement?.(authoritative);
         const release = this.releaseFinalCohortIfAcknowledged(batch);
         if (release) await release;
         return true;

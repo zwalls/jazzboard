@@ -960,6 +960,35 @@ describe("RedisRoomStore v3 persistence", () => {
     expect(state.expirations).toEqual([]);
   });
 
+  it("records transaction read and cleanup waits without changing commit results", async () => {
+    const { connection } = fakeRedis();
+    const store = new RedisRoomStore(connection as unknown as Redis);
+    const room = await store.createRoom({ participantId: "p_owner", displayName: "Owner", title: "Before" });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const watch = FakeRedisConnection.prototype.watch;
+    vi.spyOn(FakeRedisConnection.prototype, "watch").mockImplementation(async function (this: FakeRedisConnection, ...keys) {
+      const result = await watch.apply(this, keys);
+      elapsed += 10;
+      return result;
+    });
+    const quit = FakeRedisConnection.prototype.quit;
+    vi.spyOn(FakeRedisConnection.prototype, "quit").mockImplementation(async function (this: FakeRedisConnection) {
+      const result = await quit.call(this);
+      elapsed += 30;
+      return result;
+    });
+    const context = createMutationContext({ request: { method: "POST", headers: new Headers() },
+      participantId: "p_owner", roomId: room.id, operation: "room.canvas.command", actorKind: "human", parsedBody: {} });
+    await runWithMutationContext(context, async () => {
+      await store.transact(room.id, (current) => { current.title = "After"; return { room: current, result: true }; });
+      await expect(store.transact(room.id, () => { throw new Error("rejected edit"); })).rejects.toThrow("rejected edit");
+    });
+    expect((await store.getRoom(room.id))?.title).toBe("After");
+    expect(context.redisTimings).toEqual({ attempts: 2, totalMs: 80, readMs: 20,
+      prepareMs: 0, commitMs: 0, cleanupMs: 60 });
+  });
+
   it("reads stable mutation planes once under WATCH without a migration probe", async () => {
     const { connection, state } = fakeRedis();
     const store = new RedisRoomStore(connection as unknown as Redis);

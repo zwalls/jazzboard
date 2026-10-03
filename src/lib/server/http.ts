@@ -5,6 +5,7 @@ import { DEFAULT_JSON_REQUEST_BYTES } from "./capacity";
 import {
   createMutationContext,
   mutationDurationMs,
+  mutationRedisTelemetry,
   runWithMutationContext,
 } from "./mutation-context";
 import { emitTelemetry, unknownErrorTelemetryFields } from "./telemetry";
@@ -163,6 +164,7 @@ export async function runMutationRequest<T>(input: {
       outcome: context.replayed ? "replayed" : "committed",
       replayed: context.replayed,
       durationMs: mutationDurationMs(context),
+      ...mutationRedisTelemetry(context),
       participantHash: context.participantHash,
       roomHash: context.roomHash ?? undefined,
       mutationHash: context.idempotency?.scopedKeyHash,
@@ -184,6 +186,7 @@ export async function runMutationRequest<T>(input: {
         "replayed" in error.details &&
         error.details.replayed === true,
       durationMs: mutationDurationMs(context),
+      ...mutationRedisTelemetry(context),
       participantHash: context.participantHash,
       roomHash: context.roomHash ?? undefined,
       mutationHash: context.idempotency?.scopedKeyHash,

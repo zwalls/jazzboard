@@ -186,7 +186,8 @@ export async function runCanvasCommand(input: {
           input.metadata,
         );
       }
-      const baseline = structuredClone(room);
+      // The semantic engine owns its working copy; retain the unmodified activity baseline.
+      const baseline = room;
       const result = applySemanticTransaction(
         room,
         input.participantId,
@@ -403,7 +404,8 @@ export async function runSemanticTransaction(input: {
           input.metadata,
         );
       }
-      const baseline = structuredClone(room);
+      // The semantic engine owns its working copy; retain the unmodified activity baseline.
+      const baseline = room;
       const result = applySemanticTransaction(
         room,
         input.participantId,

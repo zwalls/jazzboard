@@ -408,6 +408,30 @@ export class SemanticHistorySessionEngine {
     });
     if (!entryHasChanges(entry)) return null;
 
+    // A following gesture can start before this one's response arrives. Its
+    // before-image must advance to the predecessor's confirmed result, so undo
+    // restores just that following gesture rather than both edits. Rebase only
+    // pending, later transactions and preserve object incarnation boundaries.
+    for (const following of this.pendingTransactions.values()) {
+      if (following.token.sequence <= entry.sequence) continue;
+      const beforeObjects = { ...following.beforeObjects };
+      for (const change of entry.objectChanges) {
+        const captured = beforeObjects[change.objectId] ?? null;
+        if ((captured?.createdAt ?? null) !== (change.before?.createdAt ?? null)) continue;
+        if (change.after) beforeObjects[change.objectId] = change.after;
+        else delete beforeObjects[change.objectId];
+      }
+      following.beforeObjects = deepFreeze(beforeObjects);
+      const beforeDiagrams = { ...following.beforeDiagrams };
+      for (const change of entry.diagramChanges) {
+        const captured = beforeDiagrams[change.diagramId] ?? null;
+        if ((captured?.createdAt ?? null) !== (change.before?.createdAt ?? null)) continue;
+        if (change.after) beforeDiagrams[change.diagramId] = change.after;
+        else delete beforeDiagrams[change.diagramId];
+      }
+      following.beforeDiagrams = deepFreeze(beforeDiagrams);
+    }
+
     this.redoStack.length = 0;
     const insertion = this.undoStack.findIndex((candidate) => candidate.sequence > entry.sequence);
     if (insertion === -1) this.undoStack.push(entry);

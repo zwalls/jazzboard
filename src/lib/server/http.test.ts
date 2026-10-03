@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DomainError } from "@/lib/domain/errors";
 
-import { markCurrentMutationReplayed } from "./mutation-context";
+import { currentMutationContext, markCurrentMutationReplayed } from "./mutation-context";
 import { errorResponse, readJsonBody, runMutationRequest } from "./http";
 
 describe("bounded JSON HTTP helpers", () => {
@@ -84,6 +84,25 @@ describe("bounded JSON HTTP helpers", () => {
     expect(logged).not.toContain("private board content");
     expect(logged).not.toContain("jazzboard:room:secret");
     errorSink.mockRestore();
+  });
+
+  it("emits only finite numeric Redis stage counters from the active mutation", async () => {
+    const sink = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await runMutationRequest({
+      request: new Request("https://jazzboard.test/api/mutate", { method: "POST" }),
+      participantId: "p_private", operation: "room.canvas.command", actorKind: "human", parsedBody: {},
+      execute: async () => {
+        currentMutationContext()!.redisTimings = { attempts: 2, totalMs: 80, readMs: 20,
+          prepareMs: Number.NaN, commitMs: -1, cleanupMs: 60 };
+        return true;
+      },
+    });
+    const logged = JSON.parse(String(sink.mock.calls.at(-1)?.[0]));
+    expect(logged).toMatchObject({ redisAttempts: 2, redisDurationMs: 80, redisReadMs: 20, redisCleanupMs: 60 });
+    expect(logged).not.toHaveProperty("redisPrepareMs");
+    expect(logged).not.toHaveProperty("redisCommitMs");
+    expect(JSON.stringify(logged)).not.toContain("p_private");
+    sink.mockRestore();
   });
 
   it("reports a verified successful replay truthfully", async () => {

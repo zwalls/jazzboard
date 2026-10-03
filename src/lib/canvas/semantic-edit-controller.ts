@@ -258,6 +258,7 @@ export class SemanticCanvasEditController {
 
     this.leaseManager = new SemanticLeaseCohortManager({
       coordinator: this.coordinator,
+      prepareAcquire: (targets) => this.persistence.prepareLeaseAcquire(targets),
       lease: (action) => this.host.lease(action, "human"),
       leaseMany: (action) => this.host.leaseMany(action, "human"),
       onRoom: (room) => {

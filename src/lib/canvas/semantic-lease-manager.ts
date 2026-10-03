@@ -46,6 +46,9 @@ export type SemanticLeaseCohortManagerOptions = Readonly<{
   coordinator: CanvasObjectSyncCoordinator;
   lease: (action: SemanticLeaseAction) => Promise<SemanticLeaseResult>;
   leaseMany: (action: SemanticLeaseBatchAction) => Promise<SemanticLeaseBatchResult>;
+  /** Waits for local mutation acknowledgements before replacing a lease operation. */
+  prepareAcquire?: (targets: readonly ObjectLeaseAcquireTarget[]) =>
+    readonly ObjectLeaseAcquireTarget[] | Promise<readonly ObjectLeaseAcquireTarget[]>;
   /** Lets the persistence host monotonically accept coordination revisions. */
   onRoom: (room: RoomState) => void;
   /** Must return true only for a definitive missing or stale lease token. */
@@ -107,6 +110,7 @@ export class SemanticLeaseCohortManager {
   private readonly coordinator: CanvasObjectSyncCoordinator;
   private readonly leaseTransport: SemanticLeaseCohortManagerOptions["lease"];
   private readonly leaseManyTransport: SemanticLeaseCohortManagerOptions["leaseMany"];
+  private readonly prepareAcquire: SemanticLeaseCohortManagerOptions["prepareAcquire"];
   private readonly onRoom: SemanticLeaseCohortManagerOptions["onRoom"];
   private readonly isLeaseNotFound: SemanticLeaseCohortManagerOptions["isLeaseNotFound"];
   private readonly onCohortRecovery: SemanticLeaseCohortManagerOptions["onCohortRecovery"];
@@ -130,6 +134,7 @@ export class SemanticLeaseCohortManager {
     this.coordinator = options.coordinator;
     this.leaseTransport = options.lease;
     this.leaseManyTransport = options.leaseMany;
+    this.prepareAcquire = options.prepareAcquire;
     this.onRoom = options.onRoom;
     this.isLeaseNotFound = options.isLeaseNotFound;
     this.onCohortRecovery = options.onCohortRecovery;
@@ -472,6 +477,13 @@ export class SemanticLeaseCohortManager {
   private async requestAcquire(
     targets: readonly ObjectLeaseAcquireTarget[],
   ): Promise<Map<string, ObjectLease>> {
+    // The cohort targets remain immutable. Only the physical request may advance
+    // to a revision proven by this client's preceding command acknowledgement.
+    const prepared = this.prepareAcquire?.(targets);
+    if (prepared) targets = Array.isArray(prepared) ? prepared : await prepared;
+    if (this.disposed) {
+      throw new SemanticLeaseManagerError("DISPOSED", "The semantic lease manager is disposed.");
+    }
     const result =
       targets.length === 1
         ? await this.leaseTransport({ action: "acquire", ...targets[0] }).then((single) => ({
