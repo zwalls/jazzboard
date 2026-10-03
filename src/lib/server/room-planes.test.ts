@@ -7,6 +7,8 @@ import type { RoomState } from "@/lib/domain/types";
 import {
   composeRoomState,
   documentContentFingerprint,
+  encodedRoomPlaneBytes,
+  encodedRoomStatePlaneBytes,
   reconcileLaterLegacyRoom,
   roomForLegacyCompatibility,
   splitRoomState,
@@ -55,6 +57,67 @@ function room(): RoomState {
 }
 
 describe("room storage planes", () => {
+  it("counts canonical UTF-8 plane bytes while preserving owned canvas snapshots", () => {
+    const source = room();
+    source.title = "測定 🏄🏽\n\u0000";
+    const actor = { participantId: "p_owner", displayName: "Owner", color: "blue", kind: "human" as const };
+    source.objects.ink = {
+      id: "ink", kind: "draw", x: 0, y: 0, width: 10, height: 10,
+      rotation: 0, zIndex: 1, revision: 1, groupId: null, diagramIds: ["diagram"],
+      createdAt: 1, updatedAt: 1, createdBy: actor, lastEditedBy: actor,
+      points: [{ x: 0, y: 0 }, { x: 10, y: 10 }], color: "red", size: "m",
+    };
+    source.diagrams.diagram = {
+      id: "diagram", title: "図", description: "測定", diagramType: "custom",
+      category: null, tags: ["設計"], memberObjectIds: ["ink"], connectorIds: [],
+      bounds: { x: 0, y: 0, width: 10, height: 10 }, revision: 1,
+      createdAt: 1, updatedAt: 1, createdBy: actor, lastEditedBy: actor,
+    };
+    const original = structuredClone(source);
+    const planes = splitRoomState(source);
+    const composed = composeRoomState(planes);
+    const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+    expect(encodedRoomStatePlaneBytes(source)).toEqual({
+      document: bytes(planes.document), awareness: bytes(planes.awareness),
+      coordination: bytes(planes.coordination), composed: bytes(composed),
+    });
+    expect(source).toEqual(original);
+
+    // Public snapshots still own both maps and their nested canvas values.
+    planes.document.objects.ink.x = 999;
+    planes.document.diagrams.diagram.tags.push("snapshot edit");
+    expect(source).toEqual(original);
+    expect(composed.objects.ink.x).toBe(0);
+    expect(composed.diagrams.diagram.tags).toEqual(["設計"]);
+    composed.objects.ink.x = 888;
+    expect(planes.document.objects.ink.x).toBe(999);
+    expect(source).toEqual(original);
+
+    // Reusing and mutating a map must be measured afresh, never cached by identity.
+    const beforeBytes = encodedRoomStatePlaneBytes(source);
+    source.objects.ink.points.push({ x: 20, y: 20 });
+    source.diagrams.diagram.tags.push("追加 🧑🏽‍💻");
+    const nextPlanes = splitRoomState(source);
+    expect(encodedRoomStatePlaneBytes(source)).toEqual({
+      document: bytes(nextPlanes.document), awareness: bytes(nextPlanes.awareness),
+      coordination: bytes(nextPlanes.coordination), composed: bytes(composeRoomState(nextPlanes)),
+    });
+    expect(encodedRoomStatePlaneBytes(source).document).toBeGreaterThan(beforeBytes.document);
+  });
+
+  it("measures legacy defaults and missing awareness with the canonical composed envelope", () => {
+    const source = room();
+    delete source.stateRevision;
+    const planes = splitRoomState(source);
+    const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+    expect(encodedRoomStatePlaneBytes(source).composed).toBe(bytes(composeRoomState(planes)));
+    expect(encodedRoomStatePlaneBytes(source).composed).not.toBe(bytes(source));
+    delete planes.awareness.participants.p_owner;
+    const original = structuredClone(planes);
+    expect(encodedRoomPlaneBytes(planes).composed).toBe(bytes(composeRoomState(planes)));
+    expect(planes).toEqual(original);
+  });
+
   it("keeps live presence and leases out of the durable document", () => {
     const source = room();
     const planes = splitRoomState(source);

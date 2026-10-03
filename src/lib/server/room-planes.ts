@@ -129,7 +129,9 @@ function awarenessWithDocumentMembers(
   };
 }
 
-export function splitRoomState(room: RoomState): PersistedRoomPlanes {
+// Borrowed canvas references are private to synchronous byte accounting.
+// Public snapshot builders always request independently owned canvas values.
+function projectRoomPlanes(room: RoomState, cloneCanvas: boolean): PersistedRoomPlanes {
   return {
     document: {
       schemaVersion: ROOM_STORAGE_SCHEMA_VERSION,
@@ -145,8 +147,8 @@ export function splitRoomState(room: RoomState): PersistedRoomPlanes {
           durableParticipant(participant),
         ]),
       ),
-      objects: structuredClone(room.objects),
-      diagrams: structuredClone(room.diagrams),
+      objects: cloneCanvas ? structuredClone(room.objects) : room.objects,
+      diagrams: cloneCanvas ? structuredClone(room.diagrams) : room.diagrams,
       agentEditPolicy: room.agentEditPolicy,
       reviewProposals: structuredClone(room.reviewProposals),
     },
@@ -168,6 +170,10 @@ export function splitRoomState(room: RoomState): PersistedRoomPlanes {
       leases: structuredClone(room.leases),
     },
   };
+}
+
+export function splitRoomState(room: RoomState): PersistedRoomPlanes {
+  return projectRoomPlanes(room, true);
 }
 
 function validRole(value: unknown): value is RoomRole {
@@ -193,7 +199,7 @@ function composeParticipant(
   };
 }
 
-export function composeRoomState(planes: PersistedRoomPlanes): RoomState {
+function projectComposedRoom(planes: PersistedRoomPlanes, cloneCanvas: boolean): RoomState {
   const { document, awareness, coordination } = planes;
   return {
     id: document.id,
@@ -209,13 +215,17 @@ export function composeRoomState(planes: PersistedRoomPlanes): RoomState {
         composeParticipant(participant, awareness.participants[participantId]),
       ]),
     ),
-    objects: structuredClone(document.objects),
-    diagrams: structuredClone(document.diagrams),
+    objects: cloneCanvas ? structuredClone(document.objects) : document.objects,
+    diagrams: cloneCanvas ? structuredClone(document.diagrams) : document.diagrams,
     leases: structuredClone(coordination.leases),
     spotlight: structuredClone(awareness.spotlight),
     agentEditPolicy: document.agentEditPolicy,
     reviewProposals: structuredClone(document.reviewProposals),
   };
+}
+
+export function composeRoomState(planes: PersistedRoomPlanes): RoomState {
+  return projectComposedRoom(planes, true);
 }
 
 /** Converts pre-plane persisted RoomState JSON without allowing it to overwrite initialized planes. */
@@ -314,6 +324,13 @@ export function encodedRoomPlaneBytes(planes: PersistedRoomPlanes): {
     document: Buffer.byteLength(JSON.stringify(planes.document)),
     awareness: Buffer.byteLength(JSON.stringify(planes.awareness)),
     coordination: Buffer.byteLength(JSON.stringify(planes.coordination)),
-    composed: Buffer.byteLength(JSON.stringify(composeRoomState(planes))),
+    composed: Buffer.byteLength(JSON.stringify(projectComposedRoom(planes, false))),
   };
+}
+
+/** Same canonical wire-byte counts without copying the canvas just to measure it.
+ * Borrowed references never escape: callers receive only four numbers.
+ */
+export function encodedRoomStatePlaneBytes(room: RoomState): ReturnType<typeof encodedRoomPlaneBytes> {
+  return encodedRoomPlaneBytes(projectRoomPlanes(room, false));
 }

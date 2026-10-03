@@ -3,8 +3,7 @@ import type { RoomActivity, RoomState } from "@/lib/domain/types";
 import { vectorPathPointCount } from "@/lib/domain/vector-path";
 
 import {
-  encodedRoomPlaneBytes,
-  splitRoomState,
+  encodedRoomStatePlaneBytes,
   type RoomAwarenessPlane,
 } from "./room-planes";
 
@@ -173,7 +172,7 @@ export function evaluateRoomCapacity(
   options: CapacityEvaluationOptions = {},
 ): CapacitySummary {
   const policy = resolveCapacityPolicy(options.policy);
-  const planeBytes = encodedRoomPlaneBytes(splitRoomState(room));
+  const planeBytes = encodedRoomStatePlaneBytes(room);
   const used: Record<CapacityMetricName, number> = {
     durableDocumentBytes: planeBytes.document,
     awarenessBytes: planeBytes.awareness,
@@ -332,7 +331,7 @@ export function assertRoomMutationCapacity(input: {
 
 /** Hard provider guard used even during warn-mode rollout and lazy migration. */
 export function assertRedisPlaneWriteCapacity(room: RoomState): void {
-  const bytes = encodedRoomPlaneBytes(splitRoomState(room));
+  const bytes = encodedRoomStatePlaneBytes(room);
   const oversized = (Object.entries({
     durableDocumentBytes: bytes.document,
     awarenessBytes: bytes.awareness,
