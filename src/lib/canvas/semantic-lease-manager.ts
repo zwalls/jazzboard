@@ -47,7 +47,7 @@ export type SemanticLeaseCohortManagerOptions = Readonly<{
   lease: (action: SemanticLeaseAction) => Promise<SemanticLeaseResult>;
   leaseMany: (action: SemanticLeaseBatchAction) => Promise<SemanticLeaseBatchResult>;
   /** Waits for local mutation acknowledgements before replacing a lease operation. */
-  prepareAcquire?: (targets: readonly ObjectLeaseAcquireTarget[]) =>
+  prepareAcquire?: (cohortId: string, targets: readonly ObjectLeaseAcquireTarget[]) =>
     readonly ObjectLeaseAcquireTarget[] | Promise<readonly ObjectLeaseAcquireTarget[]>;
   /** Lets the persistence host monotonically accept coordination revisions. */
   onRoom: (room: RoomState) => void;
@@ -409,7 +409,7 @@ export class SemanticLeaseCohortManager {
         continue;
       }
       if (missing.length) {
-        await this.acquireMissing(missing);
+        await this.acquireMissing(cohort.id, missing);
         continue;
       }
 
@@ -441,8 +441,8 @@ export class SemanticLeaseCohortManager {
     );
   }
 
-  private async acquireMissing(targets: readonly ObjectLeaseAcquireTarget[]): Promise<void> {
-    const batchRequest = this.requestAcquire(targets);
+  private async acquireMissing(cohortId: string, targets: readonly ObjectLeaseAcquireTarget[]): Promise<void> {
+    const batchRequest = this.requestAcquire(cohortId, targets);
     const perObject = new Map<
       string,
       {
@@ -475,11 +475,12 @@ export class SemanticLeaseCohortManager {
   }
 
   private async requestAcquire(
+    cohortId: string,
     targets: readonly ObjectLeaseAcquireTarget[],
   ): Promise<Map<string, ObjectLease>> {
     // The cohort targets remain immutable. Only the physical request may advance
     // to a revision proven by this client's preceding command acknowledgement.
-    const prepared = this.prepareAcquire?.(targets);
+    const prepared = this.prepareAcquire?.(cohortId, targets);
     if (prepared) targets = Array.isArray(prepared) ? prepared : await prepared;
     if (this.disposed) {
       throw new SemanticLeaseManagerError("DISPOSED", "The semantic lease manager is disposed.");

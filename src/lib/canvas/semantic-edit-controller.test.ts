@@ -555,7 +555,73 @@ describe("SemanticCanvasEditController", () => {
     controller.dispose();
   });
 
-  it.each(["external-edit", "replacement", "failed-save"] as const)(
+  it.each(["before-intermediate", "after-intermediate"] as const)(
+    "hands off a streamed gesture started %s acknowledgement", async (start) => {
+    const a = shape("a");
+    const { controller, harness, clock, renderSettles } = setup(roomWith([a]));
+    const intermediate = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+    const final = deferred<{ room: RoomState; changedObjectIds: string[] }>();
+    const acquisitions: ObjectLeaseAcquireTarget[] = [];
+    const lease = harness.host.lease;
+    vi.spyOn(harness.host, "lease").mockImplementation(async (action, actorKind) => {
+      if (action.action === "acquire") {
+        acquisitions.push(action);
+        if (action.expectedRevision !== harness.serverRoom.objects[action.objectId].revision) throw new Error("stale lease");
+      }
+      return lease(action, actorKind);
+    });
+    let saves = 0;
+    harness.commandImpl = async (command) => {
+      harness.serverRoom = updatedRoom(harness.serverRoom, [command]);
+      return ++saves === 1 ? intermediate.promise : final.promise;
+    };
+    startUpdate(controller, a, draft(a, { x: 100 }), "streamed-move");
+    clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+    await microtasks(30);
+    const intermediateReceipt = harness.serverRoom;
+    controller.dispatch({ type: "objects.changed", gestureId: "streamed-move",
+      changes: [{ kind: "update", draft: draft(a, { x: 180 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "move" }] });
+    controller.dispatch({ type: "gesture.finish-requested", gestureId: "streamed-move", reason: "pointer-up" });
+    renderSettles.shift()!();
+    if (start === "after-intermediate") {
+      intermediate.resolve({ room: intermediateReceipt, changedObjectIds: ["a"] });
+      await microtasks(80);
+      expect(saves).toBe(2);
+      expect(harness.serverRoom.objects.a.revision).toBe(3);
+    }
+    const visible = controller.getSnapshot().objects.a;
+    expect(visible).toMatchObject({ x: 180, revision: 1 });
+    expect(controller.getAuthoritativeRoom().objects.a.revision).toBe(start === "after-intermediate" ? 2 : 1);
+    controller.dispatch({ type: "gesture.started", gestureId: "resize-after-stream", source: "pointer",
+      objects: [{ objectId: "a", baseRevision: visible.revision, baseCreatedAt: a.createdAt, operation: "resize" }] });
+    controller.dispatch({ type: "objects.changed", gestureId: "resize-after-stream",
+      changes: [{ kind: "update", draft: draft(visible, { width: 240 }), baseRevision: visible.revision, baseCreatedAt: a.createdAt, operation: "resize" }] });
+    if (start === "before-intermediate") {
+      intermediate.resolve({ room: intermediateReceipt, changedObjectIds: ["a"] });
+      await microtasks(80);
+    }
+    expect(acquisitions).toHaveLength(1);
+    const finalReceipt = harness.serverRoom;
+    harness.commandImpl = async (command) => {
+      harness.serverRoom = updatedRoom(harness.serverRoom, [command]);
+      return { room: harness.serverRoom, changedObjectIds: changedIds([command]) };
+    };
+    final.resolve({ room: finalReceipt, changedObjectIds: ["a"] });
+    await microtasks(100);
+    expect(harness.errors).toEqual([]);
+    expect(acquisitions.at(-1)).toMatchObject({ operation: "resize", expectedRevision: 3 });
+    controller.dispatch({ type: "gesture.finish-requested", gestureId: "resize-after-stream", reason: "pointer-up" });
+    renderSettles.shift()!();
+    await controller.whenIdle();
+    expect(harness.serverRoom.objects.a).toMatchObject({ x: 180, width: 240, revision: 4 });
+    expect(await controller.undo()).toBe(true);
+    renderSettles.shift()!();
+    await controller.whenIdle();
+    expect(harness.serverRoom.objects.a).toMatchObject({ x: 180, width: 120 });
+    controller.dispose();
+  });
+
+  it.each(["external-edit", "replacement", "failed-save", "stale-intent"] as const)(
     "does not rebase a lease handoff across %s", async (failure) => {
       const a = shape("a");
       const { controller, harness, renderSettles } = setup(roomWith([a]));
@@ -578,16 +644,18 @@ describe("SemanticCanvasEditController", () => {
       const moved = controller.getSnapshot().objects.a;
       controller.dispatch({
         type: "gesture.started", gestureId: "resize-a", source: "pointer",
-        objects: [{ objectId: "a", baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+        objects: [{ objectId: "a", baseRevision: failure === "stale-intent" ? 0 : 1, baseCreatedAt: a.createdAt, operation: "resize" }],
       });
       controller.dispatch({
         type: "objects.changed", gestureId: "resize-a",
-        changes: [{ kind: "update", draft: draft(moved, { width: 240 }), baseRevision: 1, baseCreatedAt: a.createdAt, operation: "resize" }],
+        changes: [{ kind: "update", draft: draft(moved, { width: 240 }), baseRevision: failure === "stale-intent" ? 0 : 1, baseCreatedAt: a.createdAt, operation: "resize" }],
       });
       await microtasks(30);
       expect(acquisitions).toHaveLength(1);
       if (failure === "failed-save") {
         held.reject(new Error("save rejected"));
+      } else if (failure === "stale-intent") {
+        held.resolve({ room: receipt, changedObjectIds: ["a"] });
       } else {
         const external = structuredClone(receipt);
         external.objects.a = { ...external.objects.a, x: 500,
@@ -604,7 +672,7 @@ describe("SemanticCanvasEditController", () => {
       expect(harness.errors.length).toBeGreaterThan(0);
       expect(harness.rollbacks.length).toBeGreaterThan(0);
       expect(controller.getSnapshot().objects.a).toMatchObject({
-        x: failure === "failed-save" ? 180 : 500, width: 120,
+        x: failure === "failed-save" || failure === "stale-intent" ? 180 : 500, width: 120,
         createdAt: failure === "replacement" ? 999 : a.createdAt,
       });
       controller.dispose();

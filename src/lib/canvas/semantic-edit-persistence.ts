@@ -251,6 +251,13 @@ function roomObjectIdentity(
     : { revision: null, createdAt: null };
 }
 
+type MutationAcknowledgement = Readonly<{
+  cohortId: string;
+  receipt: Promise<RoomState | null>;
+  /** Original lease fence of the preceding gesture, before its intermediate saves. */
+  minimumRevision: number | null;
+}>;
+
 /**
  * The one persistence writer for renderer-neutral semantic edit intents.
  *
@@ -281,7 +288,7 @@ export class SemanticCanvasEditPersistenceDriver {
   >();
   private readonly operations = new Set<Promise<unknown>>();
   /** Command acknowledgement boundaries exclude lease cleanup to avoid overlap deadlocks. */
-  private readonly mutationAcknowledgements = new Map<string, Set<Promise<RoomState | null>>>();
+  private readonly mutationAcknowledgements = new Map<string, Set<MutationAcknowledgement>>();
   private readonly pendingTimerPromises = new Map<number, Promise<void>>();
   private readonly pendingTimerResolvers = new Map<number, () => void>();
   private readonly recoveryByObjectId = new Map<string, ActiveRecoveryGroup>();
@@ -335,11 +342,13 @@ export class SemanticCanvasEditPersistenceDriver {
 
   /** Preserve a new gesture's pixels while its preceding local mutation is in flight. */
   prepareLeaseAcquire(
+    cohortId: string,
     targets: readonly ObjectLeaseAcquireTarget[],
   ): readonly ObjectLeaseAcquireTarget[] | Promise<readonly ObjectLeaseAcquireTarget[]> {
     const fences = targets.map((target) => {
       const entry = this.coordinator.get(target.objectId);
-      const pending = [...(this.mutationAcknowledgements.get(target.objectId) ?? [])];
+      const pending = [...(this.mutationAcknowledgements.get(target.objectId) ?? [])]
+        .filter((acknowledgement) => acknowledgement.cohortId !== cohortId);
       return {
         target, entry, pending,
         recoveryEpoch: entry?.recoveryEpoch,
@@ -351,14 +360,17 @@ export class SemanticCanvasEditPersistenceDriver {
     if (fences.every(({ pending }) => !pending.length)) return targets;
     return Promise.all(fences.map(async ({ target, entry, pending, recoveryEpoch, createdAt, revision }) => {
       if (!pending.length) return target;
-      const receipts = await Promise.all(pending);
+      const receipts = await Promise.all(pending.map(({ receipt }) => receipt));
+      const minimumRevision = Math.min(...pending.map(({ minimumRevision }) => minimumRevision ?? revision ?? Infinity));
       const receipt = receipts.at(-1)?.objects[target.objectId];
       const current = this.host.currentRoom().objects[target.objectId];
       if (
-        this.disposed || this.shuttingDown || !entry || target.expectedRevision !== revision ||
+        this.disposed || this.shuttingDown || !entry || revision === null || revision === undefined ||
+        target.expectedRevision < minimumRevision ||
         this.coordinator.get(target.objectId) !== entry || entry.awaitingRecovery ||
         entry.recoveryEpoch !== recoveryEpoch || entry.baseCreatedAt !== createdAt ||
-        !receipt || receipt.createdAt !== createdAt || !current ||
+        !receipt || target.expectedRevision > receipt.revision ||
+        receipt.createdAt !== createdAt || !current ||
         current.createdAt !== receipt.createdAt || current.revision !== receipt.revision ||
         current.revision !== entry.baseRevision
       ) {
@@ -370,16 +382,27 @@ export class SemanticCanvasEditPersistenceDriver {
     }));
   }
 
-  private registerMutationAcknowledgement(objectIds: readonly string[]): (receipt?: RoomState) => void {
+  private registerMutationAcknowledgement(
+    objectIds: readonly string[],
+    cohortId: string,
+  ): (receipt?: RoomState) => void {
     let resolve!: (receipt: RoomState | null) => void;
     const acknowledgement = new Promise<RoomState | null>((done) => { resolve = done; });
+    const reservations = new Map<string, MutationAcknowledgement>();
     for (const objectId of objectIds) {
+      const reservation = {
+        cohortId,
+        receipt: acknowledgement,
+        minimumRevision: this.leaseTargetsByCohort.get(cohortId)?.get(objectId)?.expectedRevision
+          ?? this.coordinator.get(objectId)?.baseRevision ?? null,
+      };
+      reservations.set(objectId, reservation);
       let pending = this.mutationAcknowledgements.get(objectId);
       if (!pending) {
         pending = new Set();
         this.mutationAcknowledgements.set(objectId, pending);
       }
-      pending.add(acknowledgement);
+      pending.add(reservation);
     }
     let settled = false;
     return (receipt) => {
@@ -387,7 +410,7 @@ export class SemanticCanvasEditPersistenceDriver {
       settled = true;
       for (const objectId of objectIds) {
         const pending = this.mutationAcknowledgements.get(objectId);
-        pending?.delete(acknowledgement);
+        pending?.delete(reservations.get(objectId)!);
         if (!pending?.size) this.mutationAcknowledgements.delete(objectId);
       }
       resolve(receipt ?? null);
@@ -905,9 +928,19 @@ export class SemanticCanvasEditPersistenceDriver {
     if (!objects.length) return null;
     const objectIds = objects.map((object) => object.objectId);
     const queuedVersion = batch.version;
+    // Reserve the acknowledgement before queueing, so the next gesture also
+    // waits for the predecessor's queued final save, not just its active save.
+    // Lease acquisition excludes its own cohort to avoid waiting on itself.
+    const settleAcknowledgement = this.registerMutationAcknowledgement(objectIds, batch.cohortId);
     const operation = this.coordinator.enqueueBatch(
       objectIds,
-      async () => this.executeBatch(batch, queuedVersion, objects),
+      async () => {
+        try {
+          await this.executeBatch(batch, queuedVersion, objects, settleAcknowledgement);
+        } finally {
+          settleAcknowledgement();
+        }
+      },
       (entry) => this.coordinator.prune(entry.objectId),
     );
     return operation.then(() => {
@@ -927,10 +960,10 @@ export class SemanticCanvasEditPersistenceDriver {
     batch: ScheduledBatch,
     queuedVersion: number,
     objects: readonly QueuedObject[],
+    settleAcknowledgement: (receipt?: RoomState) => void,
   ): Promise<void> {
     if (this.disposed || this.isFenced(objects)) return;
     let plan: ExecutionPlan | null = null;
-    let settleAcknowledgement: ((receipt?: RoomState) => void) | null = null;
     try {
       const leaseTargets = this.dynamicLeaseTargets(objects, batch.cohortId);
       if (leaseTargets.length) {
@@ -940,11 +973,6 @@ export class SemanticCanvasEditPersistenceDriver {
       plan = this.buildExecutionPlan(objects, batch.cohortId);
 
       let result: SemanticEditCommandResult | SemanticEditTransactionResult | null = null;
-      if (plan.commands.length || plan.diagramCommands.length) {
-        settleAcknowledgement = this.registerMutationAcknowledgement(
-          objects.map(({ objectId }) => objectId),
-        );
-      }
       if (plan.commands.length === 1 && plan.diagramCommands.length === 0) {
         result = await this.host.command(plan.commands[0]);
       } else if (plan.commands.length > 0 || plan.diagramCommands.length > 0) {
@@ -975,7 +1003,7 @@ export class SemanticCanvasEditPersistenceDriver {
       );
       // An overlapping lease acquisition may be awaited by releaseCohort.
       // Resolve after the acknowledged base advances, before lease cleanup.
-      settleAcknowledgement?.(result?.room);
+      settleAcknowledgement(result?.room ?? authoritative);
       const release = this.releaseFinalCohortIfAcknowledged(batch);
       if (release) await release;
     } catch (error) {
