@@ -15,15 +15,15 @@ export const SEMANTIC_COLOR_NAMES = [
   "black", "grey", "light-violet", "violet", "blue", "light-blue", "yellow",
   "orange", "green", "light-green", "light-red", "red", "white",
 ] as const;
-const semanticHexColor = /^(?:#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8})$/i;
-export const semanticColorSchema = z.string().max(32).refine(
-  (value) => (SEMANTIC_COLOR_NAMES as readonly string[]).includes(value) || semanticHexColor.test(value),
-  "Use a supported semantic color name or #RGB, #RRGGBB, or #RRGGBBAA.",
-);
-export const semanticPaintSchema = z.string().max(32).refine(
-  (value) => value === "none" || semanticColorSchema.safeParse(value).success,
-  "Use none, a supported semantic color name, or #RGB, #RRGGBB, or #RRGGBBAA.",
-);
+// Enumerations and regex constraints serialize into agent field schemas;
+// named colors remain exact and the established hex acceptance stays intact.
+const semanticHexColorSchema = z.string().max(32).regex(/^(?:#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8})$/);
+export const semanticColorSchema = z.union([z.enum(SEMANTIC_COLOR_NAMES), semanticHexColorSchema], {
+  error: "Use a supported semantic color name or #RGB, #RRGGBB, or #RRGGBBAA.",
+});
+export const semanticPaintSchema = z.union([z.literal("none"), semanticColorSchema], {
+  error: "Use none, a supported semantic color name, or #RGB, #RRGGBB, or #RRGGBBAA.",
+});
 
 const nodeOwnerSchema = z.string().trim().min(1).max(160).nullable().default(null);
 const nodeResolutionSchema = z.string().trim().min(1).max(10_000).nullable().default(null);

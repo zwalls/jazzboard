@@ -2,6 +2,12 @@
 
 import { z } from "zod";
 
+import {
+  fitSemanticText,
+  semanticTextMeasurer,
+  SemanticTextMeasurementError,
+} from "@/lib/canvas/semantic-text-measurement";
+
 import { parseRoomAssetProxyReference } from "@/lib/assets/policy";
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
@@ -167,6 +173,7 @@ function activityMetadata(input: { intent?: string; summary?: string }) {
 const createTextInputSchema = z
   .object({
     content: z.string().min(1).max(20_000),
+    fit: z.literal("content").optional(),
     ...semanticIdentityFields,
     ...activityMetadataFields,
     ...placementFields,
@@ -174,7 +181,8 @@ const createTextInputSchema = z
     size: z.enum(["s", "m", "l", "xl"]).optional(),
     align: z.enum(["start", "middle", "end"]).optional(),
   })
-  .strict();
+  .strict()
+  .refine((input) => !input.fit || input.height === undefined, { path: ["height"], message: "Omit height when fit=content; width is a minimum wrapping width." });
 
 const createShapeInputSchema = z
   .object({
@@ -195,6 +203,8 @@ const createNodeInputSchema = z
     ...activityMetadataFields,
     nodeType: z.enum(["component", "service", "requirement", "decision", "open_question"]).optional(),
     nodeMetadata: nodeMetadataInputSchema.optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
     ...placementFields,
   })
   .strict()
@@ -553,6 +563,9 @@ function failure(tool: string, error: unknown): JazzboardToolFailure {
       },
     };
   }
+  if (error instanceof SemanticTextMeasurementError) {
+    return { ok: false, tool, error: { code: error.code, message: error.message, details: { stateChanged: false } } };
+  }
   if (error instanceof ToolInputFailure) {
     return {
       ok: false,
@@ -575,6 +588,19 @@ function failure(tool: string, error: unknown): JazzboardToolFailure {
       message: error instanceof Error ? error.message : "Jazzboard could not execute this tool.",
     },
   };
+}
+
+export function standaloneAuthoringContract(name: string) {
+  const contracts = {
+    create_node: { schema: createNodeInputSchema, example: { label: "API", nodeType: "service", fill: "#E8F1FA", stroke: "#334155", x: 80, y: 120 } },
+    create_shape: { schema: createShapeInputSchema, example: { label: "Queue", fill: "none", stroke: "#334155", width: 260, height: 140 } },
+    create_text: { schema: createTextInputSchema, example: { content: "System overview", size: "l", width: 480, fit: "content" } },
+  };
+  const contract = contracts[name as keyof typeof contracts];
+  if (!contract) return null;
+  contract.schema.parse(contract.example);
+  return { inputSchema: z.toJSONSchema(contract.schema, { io: "input" }), example: contract.example,
+    constraints: name === "create_node" ? ["nodeMetadata is lifecycle state only for decision/open_question and must match nodeType. Proposed decisions and open questions require null/omitted resolution; resolved statuses require nonempty trimmed resolution."] : name === "create_text" ? ["fit=content requires height to be omitted. Width is a minimum wrapping width; fitting may widen it."] : [] };
 }
 
 function defineTool<TSchema extends z.ZodType>(input: {
@@ -860,11 +886,12 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_text",
       title: "Create semantic canvas text",
-      description: "Create semantic text.",
+      description: "Create semantic text. fit=content measures the loaded canvas font, fits height, and may widen width to avoid truncation. Omit height with fit; explicit bounds remain the default.",
       inputSchema: {
         type: "object",
         properties: {
           content: { type: "string", minLength: 1, maxLength: 20_000 },
+          fit: { const: "content" },
           ...SEMANTIC_IDENTITY_PROPERTIES,
           ...ACTIVITY_METADATA_PROPERTIES,
           ...PLACEMENT_PROPERTIES,
@@ -879,7 +906,8 @@ export function createJazzboardWebMcpTools(
       annotations: { untrustedContentHint: true },
       async execute(input, signal) {
         const room = binding.context.getRoom();
-        const dimensions = position(input, binding.context.getViewport(), 320, 96);
+        const fitted = input.fit ? fitSemanticText(input.content, input.width ?? 320, input.size ?? "m", input.align ?? "start", await semanticTextMeasurer(signal)) : {};
+        const dimensions = position({ ...input, ...fitted }, binding.context.getViewport(), 320, 96);
         return dispatch(
           {
             type: "create",
@@ -951,13 +979,15 @@ export function createJazzboardWebMcpTools(
     defineTool({
       name: "create_node",
       title: "Create an architecture node",
-      description: "Create an architecture node.",
+      description: "Create an architecture node with optional fill/stroke; omitted paints retain the node-type palette.",
       inputSchema: {
         type: "object",
         properties: {
           label: { type: "string", minLength: 1, maxLength: 10_000 },
           ...SEMANTIC_IDENTITY_PROPERTIES,
           nodeType: { enum: ["component", "service", "requirement", "decision", "open_question"] },
+          fill: { $ref: "#/$defs/paint" },
+          stroke: { $ref: "#/$defs/paint" },
           nodeMetadata: {
             type: "object",
             description: "Decision/open_question lifecycle only; kind must match nodeType.",
@@ -967,6 +997,7 @@ export function createJazzboardWebMcpTools(
         },
         required: ["label"],
         additionalProperties: false,
+        $defs: { paint: PAINT_JSON_SCHEMA },
       },
       schema: createNodeInputSchema,
       annotations: { untrustedContentHint: true },
@@ -996,7 +1027,8 @@ export function createJazzboardWebMcpTools(
               nodeType: effectiveNodeType,
               nodeMetadata: input.nodeMetadata,
               label: input.label,
-              ...palette,
+              fill: input.fill ?? palette.fill,
+              stroke: input.stroke ?? palette.stroke,
             },
           },
           signal,
