@@ -1,5 +1,7 @@
 /// <reference types="webmcp-types" />
 
+import { createJazzboardAuthoringReadTools, JAZZBOARD_AUTHORING_READ_TOOL_NAMES } from "./authoring-tools";
+
 import {
   createJazzboardLifecycleWebMcpTools,
   JAZZBOARD_LIFECYCLE_READ_TOOL_NAMES,
@@ -85,6 +87,7 @@ export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_REVIEW_TOOL_NAMES,
   ...JAZZBOARD_PREVIEW_TOOL_NAMES,
   ...JAZZBOARD_MESSAGE_TOOL_NAMES,
+  ...JAZZBOARD_AUTHORING_READ_TOOL_NAMES,
 ] as const;
 
 export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
@@ -100,6 +103,7 @@ export const JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_PNG_EXPORT_TOOL_NAMES,
   ...JAZZBOARD_REVIEW_READ_TOOL_NAMES,
   ...JAZZBOARD_PREVIEW_READ_TOOL_NAMES,
+  ...JAZZBOARD_AUTHORING_READ_TOOL_NAMES,
 ] as const;
 
 /** Single composition point for all role-scoped tools registered inside a room. */
@@ -107,7 +111,7 @@ export function createJazzboardRoomWebMcpTools(
   binding: JazzboardWebMcpBinding,
   dependencies: JazzboardWebMcpDependencies = {},
 ): WebMCP.ModelContextTool[] {
-  return [
+  const tools = [
     ...createJazzboardCanvasCapabilityWebMcpTools(binding),
     ...createJazzboardGuidedWalkthroughWebMcpTools(binding, dependencies),
     ...createJazzboardLocalViewportWebMcpTools(binding),
@@ -122,6 +126,8 @@ export function createJazzboardRoomWebMcpTools(
     ...createJazzboardPreviewWebMcpTools(binding, dependencies),
     ...createJazzboardMessageWebMcpTools(binding, dependencies),
   ];
+  tools.push(...createJazzboardAuthoringReadTools(() => tools));
+  return tools;
 }
 
 /**

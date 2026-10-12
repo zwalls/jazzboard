@@ -163,6 +163,8 @@ const CORE_CAPABILITIES = {
 } as const;
 
 const AUTHORING_BUNDLE = {
+  schemaDiscovery: { tool: "get_canvas_tool_schema", example: { toolName: "apply_canvas_transaction", operation: "create_node" }, scope: "one runtime-matched operation; cross-field constraints remain authoritative" },
+  textFitting: { createInput: { fit: "content" }, measurementTool: "measure_canvas_text", contract: "Opt-in loaded-font ink measurement uses existing canvas/draft/PNG line wrapping. Omit height; width is a minimum and may widen. The six-line cap is preserved; no content is deleted. Fonts must load. Existing explicit bounds remain unchanged." },
   purpose:
     "Renderer-neutral mechanics for precise primitive creation, styling, transactions, and revision-guarded updates.",
   useWithCore: true,
@@ -320,8 +322,8 @@ const ARCHITECTURE_BUNDLE = {
     "Intent-led authoring for relationship-heavy diagrams with optional deterministic layout and route evidence.",
   useWithCore: true,
   workflow: [
-    "Write a compact visual contract: audience, required entities, relationships, hierarchy, and readability target.",
-    "Read the relevant Diagram or neighborhood; do not load unrelated board state.",
+    "Write a compact visual contract: audience, required entities, relationships, hierarchy, and readability target. Set node fill/stroke in its create operation. For unfamiliar fields, request get_canvas_tool_schema with toolName and one transaction operation; use its runtime-generated contract and validated example.",
+    "Read the relevant Diagram or neighborhood; use query_objects detail=compact for bounded geometry, styles and connector bindings. Continue revision-pinned pages. measureText=true adds loaded-font text ink bounds; pixels still require exact canvas inspection.",
     "Stage a user-visible new graph and its Diagram as a progressive create-only draft with stable temporary references. When the request supplies explicit relationship facts, include caller-authored relationshipAssertions in the same call so compiled endpoint/direction mistakes fail before mutation; use a direct transaction only for revision-checked corrections or when the user explicitly requests an instant result.",
     "Submit one coherent candidate, or rapid cumulative replacements when semantic reasoning genuinely changes it. Do not subdivide or pause work merely to pace the construction animation.",
     "Choose exact positions, explicit routes, or opt-in layout according to the requested composition.",
@@ -368,6 +370,8 @@ const ARCHITECTURE_BUNDLE = {
             tempRef: "client",
             label: "Client",
             nodeType: "component",
+            fill: "#E8F1FA",
+            stroke: "#334155",
             x: 80,
             y: 220,
           },

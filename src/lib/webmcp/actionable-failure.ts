@@ -28,6 +28,12 @@ function recoveryFor(tool: string, failure: ApiFailure): Recovery {
             : "Inspect error.details and this tool's registered input schema. Correct every reported issue path or invalid field, then retry the corrected call once. The failed call changed no Jazzboard state.",
         suggestedTools: tool === "get_canvas_capabilities" ? [] : ["get_canvas_capabilities"],
       };
+    case "COMPACT_RESPONSE_TOO_LARGE":
+      return { retry: "after_correction", instructions: "Narrow objectIds or the query filter and retry compact inspection. Do not drop a required target silently; continue revision-pinned pages. This read changed no canvas state.", suggestedTools: ["query_objects"] };
+    case "TEXT_MEASUREMENT_UNAVAILABLE":
+      return { retry: "after_correction", instructions: "Wait for the canvas font to load, then retry measurement or fitting. No mutation was sent. Do not certify fallback-font bounds.", suggestedTools: ["measure_canvas_text"] };
+    case "TEXT_CANNOT_FIT":
+      return { retry: "after_correction", instructions: "Split content into text objects or choose explicit bounds and inspect the rendered pixels. The six-line renderer cap remains; no content was deleted and no mutation was sent.", suggestedTools: ["measure_canvas_text", "get_canvas_tool_schema"] };
     case "DRAFT_REVISION_CONFLICT":
       return {
         retry: "after_refresh",
