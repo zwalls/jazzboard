@@ -55,6 +55,7 @@ describe("ActivityTimeline", () => {
     const avatar = container.querySelector("[data-agent-avatar-family]");
     expect(avatar).toBeInTheDocument();
     expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar?.querySelector("svg[data-ripple-seed]")).toHaveAttribute("data-ripple-seed", "jazzboard-agent:Ari");
     expect(screen.getByText("agent · 1m ago")).toBeInTheDocument();
     expect(screen.getByText(activity.summary!)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show affected" })).toBeEnabled();
