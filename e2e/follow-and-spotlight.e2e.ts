@@ -81,13 +81,25 @@ test("follows a live agent viewport and enters or leaves agent Spotlight immedia
     await expect(page.getByText("Following: Blair Builder’s agent")).toBeVisible();
     const agentCursor = page.getByTestId(`agent-cursor-${collaborator.participantId}`);
     await expect(agentCursor).toBeInViewport();
-    await expect(agentCursor.locator('[data-agent-avatar-state="working"]')).toBeVisible();
-    await expect(agentCursor.locator("canvas")).toBeVisible();
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect.poll(() => agentCursor.locator("canvas").evaluate(
-      (body) => getComputedStyle(body.parentElement!).animationName,
-    )).toBe("none");
+    const avatar = agentCursor.locator("[data-agent-avatar-family]");
+    await expect(avatar).toBeVisible();
+    await expect(avatar).toHaveAttribute("data-agent-avatar-state", "working");
+    await expect(avatar).toHaveAttribute("aria-hidden", "true");
+    await expect(avatar.locator("svg[data-ripple-seed]")).toHaveAttribute(
+      "data-ripple-seed",
+      "jazzboard-agent:Blair Builder",
+    );
+    await expect(avatar.locator("svg[data-ripple-seed]:visible, canvas:visible")).toHaveCount(1);
+    const avatarAnimationCount = () => avatar.evaluate(
+      (element) => element.getAnimations({ subtree: true }).length,
+    );
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect.poll(avatarAnimationCount).toBeGreaterThan(0);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(avatar).toHaveAttribute("data-agent-avatar-motion", "none");
+    await expect.poll(avatarAnimationCount).toBe(0);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect.poll(avatarAnimationCount).toBeGreaterThan(0);
 
     const canvas = page.getByTestId("jazzboard-canvas");
     const canvasBox = await canvas.boundingBox();

@@ -125,6 +125,7 @@ describe("ReviewPanel", () => {
     const avatar = container.querySelector("[data-agent-avatar-family]");
     expect(avatar).toBeInTheDocument();
     expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar?.querySelector("svg[data-ripple-seed]")).toHaveAttribute("data-ripple-seed", "jazzboard-agent:Ari");
     expect(screen.getByText("Add the authorization boundary")).toBeInTheDocument();
     expect(screen.getByText(/based on room r8/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve & apply" })).not.toBeInTheDocument();
