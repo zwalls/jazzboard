@@ -53,6 +53,29 @@ describe("agent-readable content", () => {
     }
   });
 
+  it("documents the conservative one-call native SVG import contract", () => {
+    const llms = makeLlmsTxt();
+    expect(llms).toMatch(/`import_svg_artwork`[^\n]*once[^\n]*mandatory `expectedRoomRevision`/i);
+    expect(llms).toMatch(/path\/rect\/ellipse\/circle\/polygon[^\n]*never raster/i);
+    expect(llms).toMatch(/exact native IDs[^\n]*`recommendedInspection`/i);
+
+    for (const render of [makeAgentGuideMarkdown, makeAgentsMarkdown, makeSkillMarkdown, makeWebMcpMarkdown]) {
+      const content = render();
+      expect(content).toContain("`import_svg_artwork`");
+      expect(content).toMatch(/once[^\n]*complete SVG source/i);
+      expect(content).toMatch(/mandatory `expectedRoomRevision`/i);
+      expect(content).toMatch(/positive unitless width\/height[^\n]*matching `viewBox=/i);
+      expect(content).toContain("`xMidYMid meet`");
+      expect(content).toMatch(/direct[^\n]*path[^\n]*rect[^\n]*ellipse[^\n]*circle[^\n]*polygon[^\n]*children/i);
+      expect(content).toMatch(/M\/L\/H\/V\/C\/Q\/Z/);
+      expect(content).toMatch(/Raster(?: images)?, groups, transforms, text, style\/class[^\n]*effects, scripts[^\n]*events?[^\n]*unsupported commands[\s\S]*rejected atomically/i);
+      expect(content).toMatch(/source index\/name[^\n]*exact native (?:object )?IDs?/i);
+      expect(content).toMatch(/bounds[\/, ]+counts[\/, ]+timing[^\n]*`recommendedInspection`/i);
+      expect(content).toMatch(/exact-revision pixels/i);
+      expect(content).toContain("`outcome: proposed`");
+    }
+  });
+
   it("keeps its public tool inventory synchronized with the executable tool sets", () => {
     expect(LANDING_TOOL_NAMES).toEqual(JAZZBOARD_LANDING_WEBMCP_TOOL_NAMES);
     expect(ROOM_PARTICIPANT_TOOL_NAMES).toEqual(
@@ -241,7 +264,7 @@ describe("agent-readable content", () => {
   });
 
   it("documents authoritative connector routing and visual verification", () => {
-    expect(AGENT_DOC_VERSION).toBe("1.43.0");
+    expect(AGENT_DOC_VERSION).toBe("1.44.0");
 
     const guide = makeAgentGuideMarkdown();
     const reference = makeWebMcpMarkdown();

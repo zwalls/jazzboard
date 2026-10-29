@@ -24,8 +24,8 @@ import {
 import { JAZZBOARD_SNAPSHOT_WEBMCP_TOOL_NAMES } from "@/lib/webmcp/snapshot-tools";
 
 export const JAZZBOARD_ORIGIN = "https://jazzboard-rho.vercel.app";
-export const AGENT_DOC_VERSION = "1.43.0";
-export const AGENT_DOC_LAST_UPDATED = "2026-09-04";
+export const AGENT_DOC_VERSION = "1.44.0";
+export const AGENT_DOC_LAST_UPDATED = "2026-10-29";
 export const JAZZBOARD_SKILL_DESCRIPTION =
   "Operate a private Jazzboard through its page-scoped browser WebMCP tools. Use when creating or joining a room; reading, editing, drawing, routing, laying out, analyzing and visually checking, reviewing, reverting, exporting, or templating its general semantic canvas and optional diagrams; answering participant Ask messages; or managing Follow and Spotlight without visual browser automation.";
 
@@ -77,6 +77,12 @@ function frontmatter(title: string, description: string): string[] {
 
 const MERMAID_DIAGRAM_WORKFLOW = "For new relationship diagrams supported by flowchart syntax, author Mermaid source yourself and prefer `import_mermaid_flowchart`; the user does not need to supply Mermaid. Read the exact current room revision, then submit `{source, expectedRoomRevision, grouping: 'compact'}` in one call. Compact is the default; choose `grouping: 'boxed'` when visible editable subgraph boundaries and titles matter, accepting that grouping can add crossings. The importer creates native editable objects with automatic layout. A nonblocking agent drawing reveal follows the saved import; do not wait for it or call finish_canvas_draft for it. Inspection and exports use the complete authoritative graph. After an applied result, follow `recommendedInspection` and inspect the pixels. This atomic import does not use `delivery` or `finish_canvas_draft`; an `outcome: proposed` still requires the room's normal human review. Use lower-level transactions for unsupported diagram features, precise custom geometry, subsequent corrections, and freeform art.";
 
+const MERMAID_DIAGRAM_LLMS_WORKFLOW = "For supported relationship diagrams, author Mermaid source yourself; the user does not need to supply Mermaid. Call `import_mermaid_flowchart` once with `{source, expectedRoomRevision, grouping: 'compact'}` at the exact room revision. Use `grouping: 'boxed'` for editable subgraph boundaries; it can add crossings. Native objects are saved atomically through live/review policy. The nonblocking agent drawing reveal needs no finish call; inspection/exports use the complete authoritative graph. This import does not use `delivery` or `finish_canvas_draft`. After apply, follow `recommendedInspection` and inspect pixels; `outcome: proposed` requires human review. Use lower-level transactions for unsupported features, precise geometry, corrections, and freeform art.";
+
+const SVG_ARTWORK_WORKFLOW = "For supplied vector artwork, call `import_svg_artwork` once with the complete SVG source and mandatory `expectedRoomRevision`; optional `origin` places its native editable paths above existing content. Imports allow 1–199 parts and at most 65,536 source characters. The SVG root needs positive unitless width/height, matching `viewBox=\"0 0 width height\"`, and default or `xMidYMid meet` aspect handling. The conservative subset accepts only direct `path`, `rect`, `ellipse`, `circle`, and `polygon` children; path data supports M/L/H/V/C/Q/Z, absolute or relative, with one subpath. Solid `none`, CSS-name, hex, rgb, and rgba paints plus stroke width, opacity, line cap/join, and fill rule are supported. Raster images, groups, transforms, text, style/class indirection, effects, scripts, event attributes, and unsupported commands are rejected atomically. The receipt maps every source index/name to its exact native object ID and reports bounds, counts, timing, and `recommendedInspection`; after an applied import, inspect those exact-revision pixels. Review mode returns `outcome: proposed`.";
+
+const SVG_ARTWORK_LLMS_WORKFLOW = "Call `import_svg_artwork` once with source and mandatory `expectedRoomRevision`. It supports direct path/rect/ellipse/circle/polygon only, never raster; retain exact native IDs and follow `recommendedInspection`.";
+
 const GUIDED_WALKTHROUGH_WORKFLOW = "To explain an existing diagram, use `start_guided_walkthrough` once with the complete sequence of steps, each targeting exact current `objectIds` and/or `connectorIds` with a concise caption and optional deeper details. The local board handles temporary highlights, avatar movement, readable target framing at each new step, and Back/Next/Exit controls; do not recolor or move diagram objects to present a tour. Registered WebMCP calls trigger local working feedback automatically; do not add calls just to animate the bot. This feedback represents board tool execution, not host-side model thinking. Match explanation depth to the user’s request. The user controls the pace: this feature does not synchronize highlights to spoken words. For text and voice, retain the last confirmed walkthrough receipt. On an explicit Next/Back request, navigate directly using that receipt’s fences in one call; do not first reread status. The revision guard rejects intervening manual changes. Read `get_guided_walkthrough_status` only when resuming without a receipt, when asked what is currently highlighted, or after a conflict/pending result. Never infer progress from your earlier explanation. Explain only the confirmed current caption/details and target labels when `presentation` is `displayed`. To advance, call `navigate_guided_walkthrough` with `walkthroughId: status.walkthroughId`, `expectedRevision: status.revision`, `expectedStep: status.currentStep.index`, and `action: next`, `back`, or `go_to` (the last also needs a one-based `step`). Navigation returns after the current overlay and viewport projection acknowledge display; this is not screenshot certification, completion of avatar animation, or proof of speech synchronization. A manual Next/Back action changes the revision. On a stale fence, pending presentation, replacement, exit, or display timeout, refresh status and resolve the mismatch before continuing the explanation; never narrate the intended next step as though it were confirmed. Use `stop_guided_walkthrough` to end the presentation. Walkthrough state is local to this browser and does not edit the shared document. Use it when asked to explain a diagram, trace a path, or give a guided tour; ordinary drawing and editing do not require a tour. Supply 1–20 steps, at most 12 object IDs and 12 connector IDs per step, captions up to 280 characters, and optional details up to 1,200 characters. Targets must exist in the current room; put connector IDs in `connectorIds`, not `objectIds`. Example shape: `start_guided_walkthrough({title: 'Cache miss', steps: [{caption: 'Check for a cached body.', objectIds: [knownCacheNodeId]}, {caption: 'On a miss, render in the worker.', objectIds: [knownWorkerNodeId], connectorIds: [knownMissEdgeId], details: 'The worker keeps rendering off the main thread.'}]})`. Resolve those IDs from the current diagram first. A new start replaces the local tour; use the returned `walkthroughId` with stop when an older request must not dismiss a newer tour. Start and navigation include camera framing in the same call; do not routinely follow them with a separate zoom or status call. Manual zoom remains available between steps. Use the successful navigation receipt directly for the next explanation. Recover stale navigation from fresh status, and never poll continuously.";
 
 const PROGRESSIVE_READ_WORKFLOW = "Choose the smallest read that answers the user’s question. For a known diagram’s structure, relationships, or explanation, use `describe_diagram({diagramId, detail: 'structure'})`: it retains exact target IDs and labels without visual geometry or edit history. It is a general structural view, not a walkthrough-only shortcut. Use `detail: 'full'` (the compatibility default) when the richer semantic description is needed; use `read_diagram` with member/connector inclusion for complete records. For a question about a few objects, request those exact IDs through `query_objects` with the needed detail rather than rereading the whole diagram. Styling, geometry, lifecycle notes, and history may require richer or purpose-specific reads; compact structure is not evidence of appearance. Use visual inspection for visual claims. Reads retain authoritative freshness checks; retain returned revisions and obey edit guards. For latency diagnosis, record caller wall-clock time immediately before and after the tool call and compare it with the registered response’s transportTiming arrival/completion timestamps. Cross-boundary differences are estimates only when caller and page clocks are aligned; negative values or clock changes invalidate that split. The monotonic duration measures registered execution, not transport, and existing executionTiming narrows the handler work further. Do not attribute all transport delay to payload size or claim these boundaries identify an internal host queue.";
@@ -89,7 +95,9 @@ export function makeLlmsTxt(origin = JAZZBOARD_ORIGIN): string {
     "",
     "> Jazzboard is a private multiplayer canvas for diagrams and illustration with browser-native WebMCP. Share rooms through invitations or download a local PNG.",
     "",
-    MERMAID_DIAGRAM_WORKFLOW,
+    MERMAID_DIAGRAM_LLMS_WORKFLOW,
+    "",
+    SVG_ARTWORK_LLMS_WORKFLOW,
     "",
     "Tours: `start_guided_walkthrough`; explain the confirmed step. Local zoom/framing: `control_local_viewport`, without pointer automation.",
     "",
@@ -180,6 +188,8 @@ export function makeAgentGuideMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "# Jazzboard agent guide",
     "",
     MERMAID_DIAGRAM_WORKFLOW,
+    "",
+    SVG_ARTWORK_WORKFLOW,
     "",
     GUIDED_WALKTHROUGH_WORKFLOW,
     "",
@@ -342,6 +352,8 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     MERMAID_DIAGRAM_WORKFLOW,
     "",
+    SVG_ARTWORK_WORKFLOW,
+    "",
     GUIDED_WALKTHROUGH_WORKFLOW,
     "",
     LOCAL_VIEWPORT_WORKFLOW,
@@ -458,6 +470,7 @@ export function makeWebMcpMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "| Move the shared agent viewport | `focus_viewport` |",
     "| Export a redacted board, Diagram, or selection | `export_canvas_artifact` |",
     "| Import supported Mermaid flowchart source as one native editable Diagram | `import_mermaid_flowchart` with `expectedRoomRevision`, then its exact `recommendedInspection` |",
+    "| Import supported SVG artwork as exact mapped native editable paths | `import_svg_artwork` once with `expectedRoomRevision`, then its exact `recommendedInspection` |",
     "| Save or instantiate reusable Diagram structure | `create_diagram_template` / `instantiate_diagram_template` |",
     "| Share live collaboration | Copy the room invitation in the visual UI; room state already supplies the exact code |",
     "| Download a frozen visual PNG | `export_canvas_png` (local browser download; no returned image bytes) |",
@@ -584,6 +597,8 @@ export function makeAgentsMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "",
     MERMAID_DIAGRAM_WORKFLOW,
     "",
+    SVG_ARTWORK_WORKFLOW,
+    "",
     GUIDED_WALKTHROUGH_WORKFLOW,
     "",
     LOCAL_VIEWPORT_WORKFLOW,
@@ -635,6 +650,8 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "# Operate Jazzboard with WebMCP",
     "",
     MERMAID_DIAGRAM_WORKFLOW,
+    "",
+    SVG_ARTWORK_WORKFLOW,
     "",
     GUIDED_WALKTHROUGH_WORKFLOW,
     "",
@@ -715,7 +732,7 @@ export function makeSkillMarkdown(origin = JAZZBOARD_ORIGIN): string {
     "- Routing and endpoint metadata survive Diagram membership, review and activity history, guarded reverts, templates, semantic JSON, and faithful canvas previews. Authored elbow waypoints follow the same contract, and template instantiation translates their absolute coordinates. SVG renders resolved route geometry and labels; Mermaid preserves topology rather than visual routing.",
     "- Preserve explicit node types. Never infer `service`, `component`, `requirement`, `decision`, or `open_question` from style.",
     "- Read `read_collaboration_state` before Follow or Spotlight transitions.",
-    "- Use `export_canvas_artifact` for redacted semantic JSON, Mermaid, or SVG. Use `import_mermaid_flowchart` with an exact room revision for supported flowchart source; it creates native editable objects atomically and returns compact ID mappings, counts, bounds, warnings, and `recommendedInspection`. Set grouping='boxed' for labeled editable group boundaries; default grouping='compact' prioritizes connection layout, and geometry still needs pixel inspection. Use `export_canvas_png` for an image-faithful local PNG download; use Diagram templates for reusable structure with fresh IDs.",
+    "- Use `export_canvas_artifact` for redacted semantic JSON, Mermaid, or SVG. Use `import_mermaid_flowchart` with an exact room revision for supported flowchart source; it creates native editable objects atomically and returns compact ID mappings, counts, bounds, warnings, and `recommendedInspection`. Set grouping='boxed' for labeled editable group boundaries; default grouping='compact' prioritizes connection layout. Use `import_svg_artwork` once for its documented conservative vector subset; retain its exact source-part-to-native-ID map, and inspect the returned exact-revision scope. Imported geometry still needs pixel inspection. Use `export_canvas_png` for an image-faithful local PNG download; use Diagram templates for reusable structure with fresh IDs.",
     "- Share collaboration through the live-room invitation. Do not look for a hosted snapshot-creation tool; Jazzboard has retired that surface.",
     "- Use `leave_room` only when the user wants to leave the view; it does not delete the room or revoke membership.",
     "",

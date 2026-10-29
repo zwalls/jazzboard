@@ -12,6 +12,7 @@ import {
   JAZZBOARD_ARTIFACT_EXPORT_FORMATS,
 } from "./interchange-service";
 import { requireGuestParticipantId } from "./session";
+import { importAuthorizedRoomSvgArtwork } from "./svg-import-service";
 
 type Context = { params: Promise<{ roomId: string }> };
 
@@ -52,6 +53,10 @@ export const importMermaidFlowchartRequestSchema = z
     summary: z.string().trim().min(1).max(500).optional(),
   })
   .strict();
+
+export const importSvgArtworkRequestSchema = importMermaidFlowchartRequestSchema
+  .omit({ action: true, grouping: true })
+  .extend({ action: z.literal("import_svg_artwork") });
 
 function queryObject(url: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -112,6 +117,34 @@ export async function handleAuthorizedTemplateInstantiation(
     const participantId = requireGuestParticipantId(request);
     const { roomId } = await context.params;
     const rawBody = await readJsonBody(request);
+    if (
+      typeof rawBody === "object" &&
+      rawBody !== null &&
+      "action" in rawBody &&
+      rawBody.action === "import_svg_artwork"
+    ) {
+      const body = importSvgArtworkRequestSchema.parse(rawBody);
+      const { intent, summary } = body;
+      const result = await runMutationRequest({
+        request,
+        participantId,
+        roomId,
+        operation: "room.svg.import",
+        actorKind,
+        parsedBody: body,
+        execute: () => importAuthorizedRoomSvgArtwork({
+          roomId,
+          participantId,
+          actorKind,
+          expectedRoomRevision: body.expectedRoomRevision,
+          source: body.source,
+          title: body.title,
+          origin: body.origin,
+          metadata: intent || summary ? { intent, summary } : undefined,
+        }),
+      });
+      return json({ ok: true, ...result }, { status: 201 });
+    }
     if (
       typeof rawBody === "object" &&
       rawBody !== null &&

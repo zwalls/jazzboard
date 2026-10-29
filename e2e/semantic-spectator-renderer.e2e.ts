@@ -54,6 +54,8 @@ const MUTATION_TOOL_NAMES = [
   "focus_viewport",
   "follow_participant",
   "group_objects",
+  "import_mermaid_flowchart",
+  "import_svg_artwork",
   "layout_objects",
   "move_objects",
 ] as const;
