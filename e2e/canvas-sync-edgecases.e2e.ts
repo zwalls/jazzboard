@@ -1391,6 +1391,7 @@ test.describe("canvas synchronization edge cases", () => {
 
     try {
       const left = await centerOf(page, LEFT_ID);
+      const originalPosition = await objectPagePosition(page, LEFT_ID);
       await selectSemanticObject(page, LEFT_ID);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
@@ -1401,26 +1402,50 @@ test.describe("canvas synchronization edge cases", () => {
       await page.mouse.move(left.x, left.y);
       await page.mouse.down();
       pointerDown = true;
-      for (let step = 1; step <= 6; step += 1) {
-        await page.waitForTimeout(60);
-        await page.mouse.move(left.x + step * 14, left.y + step * 4);
-      }
 
-      // The original keyboard timer has elapsed, but it must not end or flush
-      // the newer pointer gesture while pointer movement is still active.
+      // Let the old keyboard deadline pass before the pointer changes anything.
+      // Its timer must neither flush the adopted nudge nor end pointer ownership.
+      await page.waitForTimeout(300);
       expect(mutationRequests).toBe(0);
-      await page.mouse.up();
-      pointerDown = false;
+      const heldLease = (await getRoom(page.request, host.room.id)).room.leases[LEFT_ID];
+      expect(heldLease).toBeDefined();
+
+      // Pointer edits deliberately stream after their own debounce. Complete
+      // that intermediate save while held and verify the same lease survives.
+      await page.mouse.move(left.x + 42, left.y + 12);
       await mutationBlocked;
       expect(mutationRequests).toBe(1);
-
       releaseMutation();
       await expect
         .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision)
         .toBe(2);
+      expect((await getRoom(page.request, host.room.id)).room.leases[LEFT_ID]?.leaseId)
+        .toBe(heldLease.leaseId);
+
+      const intermediatePosition = await objectPagePosition(page, LEFT_ID);
+      await page.mouse.move(left.x + 84, left.y + 24);
+      await expect.poll(async () => (await objectPagePosition(page, LEFT_ID)).x)
+        .toBeGreaterThan(intermediatePosition.x);
+      const finalPosition = await objectPagePosition(page, LEFT_ID);
+      await page.mouse.up();
+      pointerDown = false;
+
+      await expect
+        .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision)
+        .toBe(3);
+      expect((await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]).toMatchObject(finalPosition);
+      expect(mutationRequests).toBe(2);
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
+
+      // Intermediate persistence must not split one absorbed gesture into
+      // separate history entries: one undo restores the pre-keyboard position.
+      await semanticCanvas(page).press("ControlOrMeta+z");
+      await expect.poll(async () => {
+        const object = (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID];
+        return { x: object.x, y: object.y };
+      }).toEqual(originalPosition);
     } finally {
       if (pointerDown) await page.mouse.up().catch(() => undefined);
       releaseMutation();
