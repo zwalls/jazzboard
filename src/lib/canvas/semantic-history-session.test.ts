@@ -304,6 +304,71 @@ describe("SemanticHistorySessionEngine", () => {
     expect(engine.getState()).toMatchObject({ undoDepth: 0, redoDepth: 1 });
   });
 
+  it("rejects an unrelated object incarnation that already matches the replay target", () => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+
+    expect(() => engine.prepareUndo(room([{ ...original, createdAt: 999 }])))
+      .toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(engine.getState()).toMatchObject({ undoDepth: 1, redoDepth: 0, replayPending: false });
+  });
+
+  it("rejects an unrelated Diagram incarnation that already matches the replay target", () => {
+    const original = shape("node", { diagramIds: ["diagram-auth"] });
+    const edited = committed(original, { x: 500 });
+    const beforeDiagram = diagram("diagram-auth", { memberObjectIds: ["node"] });
+    const afterDiagram = { ...beforeDiagram, title: "Local title", revision: 2 };
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move-and-title", room([original], { diagrams: [beforeDiagram] }),
+      room([edited], { diagrams: [afterDiagram] }), ["node"], ["diagram-auth"]);
+
+    expect(() => engine.prepareUndo(room([edited], {
+      diagrams: [{ ...beforeDiagram, createdAt: 999 }],
+    }))).toThrowError(expect.objectContaining({ code: "HISTORY_CONFLICT" }));
+    expect(engine.getState()).toMatchObject({ undoDepth: 1, redoDepth: 0, replayPending: false });
+  });
+
+  it.each(["undo", "redo"] as const)("rejects a replacement object during %s acknowledgement", (direction) => {
+    const original = shape("node");
+    const edited = committed(original, { x: 500 });
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move", room([original]), room([edited]), ["node"]);
+    if (direction === "redo") {
+      const undo = engine.prepareUndo(room([edited]))!;
+      engine.acknowledgeReplay(undo.token, room([original]));
+    }
+    const replay = direction === "undo"
+      ? engine.prepareUndo(room([edited]))!
+      : engine.prepareRedo(room([original]))!;
+    const target = direction === "undo" ? original : edited;
+
+    expect(() => engine.acknowledgeReplay(replay.token, room([{ ...target, createdAt: 999 }])))
+      .toThrowError(expect.objectContaining({ code: "STALE_REPLAY" }));
+    expect(engine.getState()).toMatchObject({
+      undoDepth: direction === "undo" ? 1 : 0,
+      redoDepth: direction === "redo" ? 1 : 0,
+      replayPending: false,
+    });
+  });
+
+  it("rejects a replacement Diagram during replay acknowledgement", () => {
+    const original = shape("node", { diagramIds: ["diagram-auth"] });
+    const edited = committed(original, { x: 500 });
+    const beforeDiagram = diagram("diagram-auth", { memberObjectIds: ["node"] });
+    const afterDiagram = { ...beforeDiagram, title: "Local title", revision: 2 };
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    record(engine, "move-and-title", room([original], { diagrams: [beforeDiagram] }),
+      room([edited], { diagrams: [afterDiagram] }), ["node"], ["diagram-auth"]);
+    const replay = engine.prepareUndo(room([edited], { diagrams: [afterDiagram] }))!;
+
+    expect(() => engine.acknowledgeReplay(replay.token, room([original], {
+      diagrams: [{ ...beforeDiagram, createdAt: 999 }],
+    }))).toThrowError(expect.objectContaining({ code: "STALE_REPLAY" }));
+    expect(engine.getState()).toMatchObject({ undoDepth: 1, redoDepth: 0, replayPending: false });
+  });
+
   it("records only acknowledged human gesture transactions, never transient frames", () => {
     const beforeObject = shape("node");
     const before = room([beforeObject]);

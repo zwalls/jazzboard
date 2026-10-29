@@ -10,6 +10,7 @@ import type {
 import { buildSemanticScene } from "./semantic-scene";
 import {
   applySemanticSelectionIntent,
+  expandSemanticSelectionGroups,
   hitTestSemanticScene,
   hitTestSemanticSceneObjects,
   normalizeSemanticSelectionBounds,
@@ -312,6 +313,63 @@ describe("semantic selection hit testing", () => {
       lockedImages: "exclude",
     })).toBeNull();
   });
+
+  it("falls through excluded images and loose shape bounds to the highest actual hit", () => {
+    const scene = buildSemanticScene(room([
+      rectangle("background", { zIndex: 1 }),
+      draw("nearby-stroke", { y: 3, zIndex: 2 }),
+      diamond("empty-corner", { zIndex: 3 }),
+      image("locked-overlay", true, { zIndex: 4 }),
+    ]));
+    const point = { x: 5, y: 5 };
+    const options = { zoom: 1, tolerancePx: 2, lockedImages: "exclude" as const };
+
+    const hits = hitTestSemanticSceneObjects(scene, point, options);
+    expect(hits.map((hit) => hit.objectId)).toEqual(["nearby-stroke", "background"]);
+    expect(hits[0].distance).toBeGreaterThan(hits[1].distance);
+    expect(hitTestSemanticScene(scene, point, options)).toEqual(hits[0]);
+    expect(hitTestSemanticScene(scene, point, { ...options, lockedImages: "selectable" })?.objectId)
+      .toBe("locked-overlay");
+  });
+
+  it("refreshes grouped hit membership and order after the scene changes", () => {
+    const first = buildSemanticScene(room([
+      rectangle("a", { zIndex: 1, groupId: "cluster" }),
+      rectangle("b", { zIndex: 2, groupId: "cluster" }),
+      rectangle("c", { x: 500, zIndex: 3 }),
+    ]));
+    const changed = buildSemanticScene(room([
+      rectangle("a", { zIndex: 3, groupId: "cluster" }),
+      rectangle("b", { zIndex: 2 }),
+      rectangle("c", { x: 500, zIndex: 1, groupId: "cluster" }),
+    ]));
+
+    const firstHits = hitTestSemanticSceneObjects(first, { x: 20, y: 20 }, { zoom: 1 });
+    expect(firstHits.map((hit) => hit.selectionObjectIds)).toEqual([["a", "b"], ["a", "b"]]);
+    expect(Object.isFrozen(firstHits)).toBe(true);
+    expect(firstHits.every((hit) => Object.isFrozen(hit) && Object.isFrozen(hit.selectionObjectIds))).toBe(true);
+    const changedHits = hitTestSemanticSceneObjects(changed, { x: 20, y: 20 }, { zoom: 1 });
+    expect(changedHits.map((hit) => hit.selectionObjectIds)).toEqual([["c", "a"], ["b"]]);
+    expect(hitTestSemanticScene(changed, { x: 20, y: 20 }, { zoom: 1 })).toEqual(changedHits[0]);
+    expect(firstHits[0].selectionObjectIds).toEqual(["a", "b"]);
+  });
+});
+
+describe("semantic selection paint order", () => {
+  it.each([0, 50])("keeps group expansion ordered with %i unrelated objects", (unrelatedCount) => {
+    const scene = buildSemanticScene(room([
+      rectangle("tie-z", { zIndex: 4, groupId: "cluster" }),
+      rectangle("earliest", { zIndex: -1, groupId: "cluster" }),
+      rectangle("tie-a", { zIndex: 4, groupId: "cluster" }),
+      ...Array.from({ length: unrelatedCount }, (_, index) => rectangle(`unrelated-${index}`, { zIndex: index })),
+    ]));
+
+    expect(expandSemanticSelectionGroups(scene, ["tie-z", "missing", "tie-z"]))
+      .toEqual(["earliest", "tie-a", "tie-z"]);
+    expect(expandSemanticSelectionGroups(scene, ["tie-z", "earliest", "tie-a", "tie-z"], "object"))
+      .toEqual(["earliest", "tie-a", "tie-z"]);
+    expect(expandSemanticSelectionGroups(scene, ["missing"])).toEqual([]);
+  });
 });
 
 describe("semantic marquee geometry", () => {
@@ -536,6 +594,16 @@ describe("SemanticMarqueeSelectionSessionEngine", () => {
 });
 
 describe("semantic selection validation", () => {
+  it.each([hitTestSemanticScene, hitTestSemanticSceneObjects])("validates an empty-scene hit query", (hitTest) => {
+    const scene = buildSemanticScene(room([]));
+    expect(() => hitTest(scene, { x: Number.NaN, y: 0 }, { zoom: 1 }))
+      .toThrowError(expect.objectContaining<Partial<SemanticSelectionSessionError>>({ code: "INVALID_POINT" }));
+    expect(() => hitTest(scene, { x: 0, y: 0 }, { zoom: 0 }))
+      .toThrowError(expect.objectContaining<Partial<SemanticSelectionSessionError>>({ code: "INVALID_ZOOM" }));
+    expect(() => hitTest(scene, { x: 0, y: 0 }, { zoom: 1, tolerancePx: -1 }))
+      .toThrowError(expect.objectContaining<Partial<SemanticSelectionSessionError>>({ code: "INVALID_TOLERANCE" }));
+  });
+
   it("rejects invalid zoom, tolerance, points, and bounds", () => {
     expect(() => selectionScreenPixelsToPageUnits(8, 0)).toThrowError(
       expect.objectContaining<Partial<SemanticSelectionSessionError>>({ code: "INVALID_ZOOM" }),

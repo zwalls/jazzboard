@@ -1213,6 +1213,103 @@ describe("useRoom request ordering", () => {
     expect(result.current.room?.roomRevision).toBe(3);
   });
 
+  it.each(["next poll", "later poll", "realtime snapshot", "unmount"] as const)(
+    "settles an invalidation that races both live reads through %s",
+    async (recovery) => {
+      const first = deferred<{ ok: true; room: RoomState; participantId: string }>();
+      const second = deferred<{ ok: true; room: RoomState; participantId: string }>();
+      let roomReads = 0;
+      mocks.apiRequest.mockImplementation((url: string) => {
+        if (url.endsWith("/drafts")) {
+          return Promise.resolve({ ok: true, drafts: [], serverTime: Date.now() });
+        }
+        roomReads += 1;
+        if (roomReads === 2) return first.promise;
+        if (roomReads === 3) return second.promise;
+        return Promise.resolve({
+          ok: true,
+          room: room(
+            "room-a",
+            roomReads === 1 ? 1 : recovery === "later poll" && roomReads === 4 ? 3 : 4,
+            ["participant-a"],
+          ),
+          participantId: "participant-a",
+        });
+      });
+      const { result, unmount } = renderHook(() => useRoom("room-a"));
+      const realtime = realtimeFor("room-a");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => {
+        realtime.onStatusChange?.("connected");
+        realtime.onEvent(compactEvent(2), { cursor: "2-0", replay: false });
+        realtime.onEvent(compactEvent(3), { cursor: "3-0", replay: false });
+      });
+      await act(async () => {
+        first.resolve({
+          ok: true,
+          room: room("room-a", 2, ["participant-a"]),
+          participantId: "participant-a",
+        });
+        await first.promise;
+      });
+      expect(roomReads).toBe(3);
+
+      act(() => {
+        realtime.onEvent(compactEvent(4), { cursor: "4-0", replay: false });
+      });
+      await act(async () => {
+        second.resolve({
+          ok: true,
+          room: room("room-a", 3, ["participant-a"]),
+          participantId: "participant-a",
+        });
+        await second.promise;
+      });
+      expect(result.current.room?.roomRevision).toBe(3);
+      expect(result.current.connection).toBe("live");
+      expect(result.current.error).toBeNull();
+
+      if (recovery === "realtime snapshot") {
+        act(() => {
+          realtime.onSnapshot(room("room-a", 4, ["participant-a"]), {
+            cursor: "4-0",
+            replayTruncated: false,
+          });
+        });
+      } else if (recovery === "unmount") {
+        unmount();
+      }
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_999);
+      });
+      expect(roomReads).toBe(3);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      const recoveryNeedsRead = recovery === "next poll" || recovery === "later poll";
+      expect(roomReads).toBe(recoveryNeedsRead ? 4 : 3);
+      if (recovery === "later poll") {
+        expect(result.current.room?.roomRevision).toBe(3);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(roomReads).toBe(5);
+      }
+      if (recovery !== "unmount") expect(result.current.room?.roomRevision).toBe(4);
+      expect(result.current.connection).toBe("live");
+      expect(result.current.error).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(roomReads).toBe(recovery === "later poll" ? 5 : recoveryNeedsRead ? 4 : 3);
+    },
+  );
+
   it("accepts a legacy full-state event without fetching when it covers the event revision", () => {
     const { result } = renderHook(() => useRoom("room-a"));
     const realtime = realtimeFor("room-a");
