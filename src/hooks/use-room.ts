@@ -900,7 +900,16 @@ export function useRoom(roomId: string) {
     };
     const roomFallbackPollingActive = () => {
       const failedAt = authoritativeRefreshFailedAtRef.current;
-      return realtimeFallbackPollingActive() || (
+      const eventRefresh = eventRefreshRef.current;
+      // A live socket can outrun both bounded event reads. Keep paced recovery
+      // until an authoritative response or realtime snapshot covers the target.
+      const hasUnreadEvent =
+        eventRefresh !== null &&
+        eventRefresh.visit === roomVisitRef.current &&
+        !eventRefresh.running &&
+        eventRefresh.targetRevision !== null &&
+        (roomRef.current === null || roomStateRevision(roomRef.current) < eventRefresh.targetRevision);
+      return hasUnreadEvent || realtimeFallbackPollingActive() || (
         failedAt !== null &&
         Date.now() - failedAt >= REALTIME_FALLBACK_GRACE_MS
       );

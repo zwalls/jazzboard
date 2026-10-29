@@ -567,6 +567,18 @@ function objectHitDistance(
 
 function stableSceneOrder(scene: SemanticScene, ids: Iterable<string>): string[] {
   const requested = new Set(ids);
+  // Pointer hits usually select one object or a small group. Sort those members
+  // directly instead of scanning an otherwise unrelated large board. Dense
+  // selections retain the linear walk through the scene's existing paint order.
+  if (requested.size * 4 < scene.objects.length) {
+    return [...requested]
+      .filter((id) => Object.hasOwn(scene.objectsById, id))
+      .sort((left, right) => {
+        const leftObject = scene.objectsById[left].object;
+        const rightObject = scene.objectsById[right].object;
+        return leftObject.zIndex - rightObject.zIndex || left.localeCompare(right);
+      });
+  }
   return scene.objects
     .filter(({ object }) => requested.has(object.id))
     .map(({ object }) => object.id);
@@ -597,6 +609,35 @@ function selectable(item: SemanticSceneObject, lockedImages: SemanticLockedImage
   return !(lockedImages === "exclude" && item.object.kind === "image" && item.object.locked);
 }
 
+function semanticSelectionHit(
+  scene: SemanticScene,
+  item: SemanticSceneObject,
+  point: Point,
+  tolerance: number,
+  groupMode: SemanticSelectionGroupMode,
+  lockedImages: SemanticLockedImageMode,
+  groupSelections?: Map<string, readonly string[]>,
+): SemanticSelectionHit | null {
+  if (!selectable(item, lockedImages)) return null;
+  if (!pointInBounds(point, expandBounds(item.bounds, tolerance))) return null;
+  const hitDistance = objectHitDistance(scene, item, point);
+  if (hitDistance > tolerance + EPSILON) return null;
+  const groupId = groupMode === "group" ? item.object.groupId : null;
+  let selectionObjectIds = groupId ? groupSelections?.get(groupId) : undefined;
+  if (!selectionObjectIds) {
+    selectionObjectIds = expandSemanticSelectionGroups(scene, [item.object.id], groupMode);
+    if (groupId) groupSelections?.set(groupId, selectionObjectIds);
+  }
+  return Object.freeze({
+    objectId: item.object.id,
+    object: item.object,
+    sceneObject: item,
+    groupId: item.object.groupId,
+    distance: hitDistance,
+    selectionObjectIds,
+  });
+}
+
 /** Return every hit in deterministic topmost-first order. */
 export function hitTestSemanticSceneObjects(
   scene: SemanticScene,
@@ -610,24 +651,19 @@ export function hitTestSemanticSceneObjects(
   );
   const groupMode = options.groupMode ?? "group";
   const lockedImages = options.lockedImages ?? "selectable";
-  const hits = scene.objects
-    .filter((item) => selectable(item, lockedImages))
-    .flatMap((item): SemanticSelectionHit[] => {
-      if (!pointInBounds(point, expandBounds(item.bounds, tolerance))) return [];
-      const hitDistance = objectHitDistance(scene, item, point);
-      if (hitDistance > tolerance + EPSILON) return [];
-      return [{
-        objectId: item.object.id,
-        object: item.object,
-        sceneObject: item,
-        groupId: item.object.groupId,
-        distance: hitDistance,
-        selectionObjectIds: expandSemanticSelectionGroups(scene, [item.object.id], groupMode),
-      }];
-    })
-    .sort((left, right) =>
-      right.object.zIndex - left.object.zIndex || right.object.id.localeCompare(left.object.id));
-  return Object.freeze(hits.map((hit) => Object.freeze(hit)));
+  const hits: SemanticSelectionHit[] = [];
+  // A scene is already in ascending paint order. Reversing traversal preserves
+  // topmost-first ordering without sorting or collecting a second candidate list.
+  // Group arrays are immutable and shared only within this query, never cached
+  // across a document update that could change membership or paint order.
+  const groupSelections = new Map<string, readonly string[]>();
+  for (let index = scene.objects.length - 1; index >= 0; index--) {
+    const hit = semanticSelectionHit(
+      scene, scene.objects[index], point, tolerance, groupMode, lockedImages, groupSelections,
+    );
+    if (hit) hits.push(hit);
+  }
+  return Object.freeze(hits);
 }
 
 /** Return the stable topmost semantic hit, independent of object proximity. */
@@ -636,7 +672,18 @@ export function hitTestSemanticScene(
   point: Point,
   options: SemanticSelectionHitTestOptions,
 ): SemanticSelectionHit | null {
-  return hitTestSemanticSceneObjects(scene, point, options)[0] ?? null;
+  finitePoint(point);
+  const tolerance = selectionScreenPixelsToPageUnits(
+    options.tolerancePx ?? SEMANTIC_SELECTION_DEFAULTS.hitTolerancePx,
+    options.zoom,
+  );
+  const groupMode = options.groupMode ?? "group";
+  const lockedImages = options.lockedImages ?? "selectable";
+  for (let index = scene.objects.length - 1; index >= 0; index--) {
+    const hit = semanticSelectionHit(scene, scene.objects[index], point, tolerance, groupMode, lockedImages);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function objectIntersectsMarquee(

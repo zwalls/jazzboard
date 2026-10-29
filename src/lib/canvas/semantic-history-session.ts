@@ -461,9 +461,15 @@ export class SemanticHistorySessionEngine {
     this.assertRoom(room);
     const pending = this.pendingReplay!;
 
-    for (const [objectId, target] of pending.targetObjects) {
+    for (const snapshot of pending.replay.entry.objectChanges) {
+      const { objectId } = snapshot;
+      const source = token.direction === "undo" ? snapshot.after : snapshot.before;
+      const target = pending.targetObjects.get(objectId) ?? null;
       const current = room.objects[objectId] ?? null;
-      if (!objectSemanticsEqual(current, target)) {
+      // An update keeps its incarnation; only a replay-owned create may
+      // acknowledge a fresh createdAt and rebind retained history below.
+      if (!objectSemanticsEqual(current, target) ||
+        (current && source && current.createdAt !== source.createdAt)) {
         this.pendingReplay = null;
         throw new SemanticHistorySessionError(
           "STALE_REPLAY",
@@ -471,9 +477,13 @@ export class SemanticHistorySessionEngine {
         );
       }
     }
-    for (const [diagramId, target] of pending.targetDiagrams) {
+    for (const snapshot of pending.replay.entry.diagramChanges) {
+      const { diagramId } = snapshot;
+      const source = token.direction === "undo" ? snapshot.after : snapshot.before;
+      const target = pending.targetDiagrams.get(diagramId) ?? null;
       const current = room.diagrams[diagramId] ?? null;
-      if (!diagramSemanticsEqual(current, target)) {
+      if (!diagramSemanticsEqual(current, target) ||
+        (current && source && current.createdAt !== source.createdAt)) {
         this.pendingReplay = null;
         throw new SemanticHistorySessionError(
           "STALE_REPLAY",
@@ -565,7 +575,9 @@ export class SemanticHistorySessionEngine {
       const current = room.objects[snapshot.objectId] ?? null;
       const matchesSource = objectSemanticsEqual(current, source)
         && current?.createdAt === source?.createdAt;
-      if (!matchesSource && !objectSemanticsEqual(current, target)) {
+      const matchesTarget = objectSemanticsEqual(current, target)
+        && current?.createdAt === target?.createdAt;
+      if (!matchesSource && !matchesTarget) {
         throw new SemanticHistorySessionError(
           "HISTORY_CONFLICT",
           `Cannot ${direction}: canvas object ${snapshot.objectId} changed since this history step. Its current work has been preserved.`,
@@ -578,7 +590,9 @@ export class SemanticHistorySessionEngine {
       const current = room.diagrams[snapshot.diagramId] ?? null;
       const matchesSource = diagramSemanticsEqual(current, source)
         && current?.createdAt === source?.createdAt;
-      if (!matchesSource && !diagramSemanticsEqual(current, target)) {
+      const matchesTarget = diagramSemanticsEqual(current, target)
+        && current?.createdAt === target?.createdAt;
+      if (!matchesSource && !matchesTarget) {
         throw new SemanticHistorySessionError(
           "HISTORY_CONFLICT",
           `Cannot ${direction}: diagram ${snapshot.diagramId} changed since this history step. Its current work has been preserved.`,
