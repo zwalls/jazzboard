@@ -14,12 +14,12 @@ const LANDING_WEBMCP_TOOL_NAMES = [
 ] as const;
 
 const SHARED_ROOM_READ_TOOL_NAMES = [
+  "get_canvas_capabilities",
+  "control_local_viewport",
   "start_guided_walkthrough",
   "get_guided_walkthrough_status",
   "navigate_guided_walkthrough",
   "stop_guided_walkthrough",
-  "control_local_viewport",
-  "get_canvas_capabilities",
   "read_room_state",
   "read_selection",
   "read_collaboration_state",
@@ -50,7 +50,6 @@ const PARTICIPANT_LOCAL_PREVIEW_TOOL_NAMES = ["render_canvas_preview"] as const;
 const AUTHORIZED_LOCAL_DOWNLOAD_TOOL_NAMES = ["export_canvas_png"] as const;
 
 const ROOM_MUTATION_TOOL_NAMES = [
-  "import_mermaid_flowchart",
   "create_text",
   "create_shape",
   "create_node",
@@ -81,6 +80,8 @@ const ROOM_MUTATION_TOOL_NAMES = [
   "edit_diagram",
   "revert_activity",
   "instantiate_diagram_template",
+  "import_mermaid_flowchart",
+  "import_svg_artwork",
   "enable_agent_review",
   "claim_agent_message",
   "reply_to_agent_message",
@@ -1045,12 +1046,12 @@ test.describe("WebMCP browser acceptance", () => {
     }));
   });
 
-  test("covers private landing actions, 60 participant tools, lifecycle actions, and semantic Diagram operations", async ({
+  test("covers private landing actions, 61 participant tools, lifecycle actions, and semantic Diagram operations", async ({
     browser,
     page,
   }) => {
     test.setTimeout(180_000);
-    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(60);
+    expect(PARTICIPANT_ROOM_TOOL_NAMES).toHaveLength(61);
     expect(SPECTATOR_ROOM_TOOL_NAMES).toHaveLength(23);
 
     await installWebMcpShim(page);

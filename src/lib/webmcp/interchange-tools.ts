@@ -68,6 +68,35 @@ const importMermaidFlowchartInput = z
     summary: z.string().trim().min(1).max(500).optional(),
   })
   .strict();
+const importSvgArtworkInput = z
+  .object({
+    expectedRoomRevision: z.number().int().positive(),
+    source: z.string().min(1).max(65_536),
+    title: z.string().trim().min(1).max(160).optional(),
+    origin: point.optional(),
+    intent: z.string().trim().min(1).max(1_000).optional(),
+    summary: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+const IMPORT_SVG_ARTWORK_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["expectedRoomRevision", "source"],
+  properties: {
+    expectedRoomRevision: { type: "integer", minimum: 1 },
+    source: { type: "string", minLength: 1, maxLength: 65_536 },
+    title: { type: "string", minLength: 1, maxLength: 160 },
+    origin: {
+      type: "object",
+      additionalProperties: false,
+      required: ["x", "y"],
+      properties: { x: { type: "number" }, y: { type: "number" } },
+    },
+    intent: { type: "string", minLength: 1, maxLength: 1_000 },
+    summary: { type: "string", minLength: 1, maxLength: 500 },
+  },
+} as WebMCP.ModelContextTool["inputSchema"];
 
 function compactInstantiateTemplateInputSchema(): WebMCP.ModelContextTool["inputSchema"] {
   const generated = z.toJSONSchema(instantiateTemplateDescriptorInput, {
@@ -142,8 +171,65 @@ type MermaidImportResponse = {
   presentation: AgentCanvasDraftSnapshot | null;
 };
 
+type SvgArtworkImportResponse = {
+  ok: true;
+  outcome: "applied" | "proposed";
+  room: RoomState;
+  changedObjectIds: string[];
+  changedDiagramIds: string[];
+  membershipObjectIds: string[];
+  idMap: {
+    parts: Array<{
+      sourceIndex: number;
+      sourceName: string;
+      nativeObjectId: string;
+    }>;
+  };
+  counts: { parts: number; paths: number };
+  bounds: { x: number; y: number; width: number; height: number };
+  warnings: string[];
+  activity: RoomActivitySummary | null;
+  proposal: AgentEditProposalSummary | null;
+  presentation: AgentCanvasDraftSnapshot | null;
+  importTiming: {
+    parseDurationMs: number;
+    transactionDurationMs: number;
+    totalServerDurationMs: number;
+  };
+};
+
 function failure(tool: string, error: unknown): JazzboardToolFailure {
-  if (error instanceof JazzboardApiError) return { ok: false, tool, error: error.failure };
+  if (error instanceof JazzboardApiError) {
+    const details = error.failure.details;
+    if (
+      tool === "import_svg_artwork"
+      && error.failure.code === "MUTATION_OUTCOME_UNKNOWN"
+      && details?.replayed === true
+      && (details.outcome === "applied" || details.outcome === "proposed")
+      && typeof details.committedRoomRevision === "number"
+      && Number.isSafeInteger(details.committedRoomRevision)
+      && details.committedRoomRevision > 0
+    ) {
+      const applied = details.outcome === "applied";
+      return {
+        ok: false,
+        tool,
+        error: {
+          ...error.failure,
+          recovery: {
+            retry: "verify_before_retry",
+            instructions: applied
+              ? `The replay receipt confirms the SVG import was applied at room revision ${details.committedRoomRevision}. Do not import the source again. Use list_activity to locate that committed revision, then read_room_state for its exact affected objects and inspect them. This receipt does not recover the source-to-native ID map or certify the current pixels.`
+              : `The replay receipt confirms an SVG import proposal was saved at room revision ${details.committedRoomRevision}; it does not confirm applied artwork. Do not import the source again. Use list_agent_edit_proposals and read_agent_edit_proposal to recover the existing proposal and its review status. This receipt does not recover the source-to-native ID map.`,
+            suggestedTools: applied
+              ? ["list_activity", "read_room_state", "inspect_canvas_scope"]
+              : ["list_agent_edit_proposals", "read_agent_edit_proposal"],
+          },
+        },
+      };
+    }
+    return { ok: false, tool, error: error.failure };
+  }
   if (error instanceof z.ZodError) {
     return {
       ok: false,
@@ -230,6 +316,7 @@ export const JAZZBOARD_INTERCHANGE_READ_TOOL_NAMES = [
 export const JAZZBOARD_INTERCHANGE_MUTATION_TOOL_NAMES = [
   "instantiate_diagram_template",
   "import_mermaid_flowchart",
+  "import_svg_artwork",
 ] as const;
 export const JAZZBOARD_INTERCHANGE_PARTICIPANT_TOOL_NAMES = [
   ...JAZZBOARD_INTERCHANGE_READ_TOOL_NAMES,
@@ -246,7 +333,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "export_canvas_artifact",
     title: "Export semantic canvas artifact",
     description:
-      "Export an authorized room, Diagram, or exact selection as redacted JSON, safe Mermaid, or fixed-vocabulary SVG; use export_canvas_png for image-faithful output.",
+      "Export an authorized room, Diagram, or selection as redacted JSON, safe Mermaid, or fixed-vocabulary SVG. Use export_canvas_png for visual output.",
     schema: exportArtifactInput,
     readOnly: true,
     async execute(input, signal) {
@@ -274,7 +361,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "create_diagram_template",
     title: "Create reusable Diagram template",
     description:
-      "Create a strict reusable template from one exact Diagram. Preserves semantics and layout, strips room state and media, and rejects images.",
+      "Create a strict reusable template from one Diagram. It preserves semantics/layout, strips room state/media, and rejects images.",
     schema: createTemplateInput,
     readOnly: true,
     async execute(input, signal) {
@@ -298,7 +385,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "instantiate_diagram_template",
     title: "Instantiate reusable Diagram template",
     description:
-      "Instantiate a strict template at an origin and exact room revision. Live mode creates fresh IDs atomically; review mode returns a proposal.",
+      "Instantiate a strict template with fresh IDs at an origin and exact room revision. Review mode proposes.",
     schema: instantiateTemplateInput,
     inputSchema: compactInstantiateTemplateInputSchema(),
     async execute(input, signal) {
@@ -329,7 +416,7 @@ export function createJazzboardInterchangeWebMcpTools(
     name: "import_mermaid_flowchart",
     title: "Import Mermaid flowchart",
     description:
-      "Import Mermaid flowchart source as one native, editable Jazzboard Diagram at an exact room revision. Use grouping='boxed' for visible subgraph boundaries; the default 'compact' prioritizes connection layout. The server lays out the complete graph atomically through the room's live-or-review policy. Imported geometry is not visually certified: after an applied result, run the returned recommendedInspection request.",
+      "Import a Mermaid flowchart as one native editable Diagram at an exact room revision. boxed adds subgraph boundaries; compact favors connection layout. The atomic live/review result needs its returned recommendedInspection after apply.",
     schema: importMermaidFlowchartInput,
     async execute(input, signal) {
       const response = await request<MermaidImportResponse>(artifactsUrl(binding.roomId), {
@@ -367,7 +454,64 @@ export function createJazzboardInterchangeWebMcpTools(
     },
   });
 
-  return [exportTool, createTemplateTool, instantiateTemplateTool, importMermaidTool];
+  const importSvgArtworkTool = defineTool({
+    name: "import_svg_artwork",
+    title: "Import editable SVG artwork",
+    description:
+      "Import 1–199 native editable paths at an exact room revision. Requires unitless width/height and matching identity viewBox. Supports direct path/rect/ellipse/circle/polygon with solid paints/basic strokes. Rejects raster, groups, transforms, text, styles, effects, scripts/events, and unsupported commands atomically; inspect after apply.",
+    schema: importSvgArtworkInput,
+    inputSchema: IMPORT_SVG_ARTWORK_INPUT_SCHEMA,
+    async execute(input, signal) {
+      const startedAt = performance.now();
+      const response = await request<SvgArtworkImportResponse>(artifactsUrl(binding.roomId), {
+        method: "POST",
+        body: JSON.stringify({ action: "import_svg_artwork", ...input }),
+        signal,
+      });
+      if (response.presentation) binding.context.acceptAgentDraft?.(response.presentation);
+      binding.context.acceptRoom(response.room);
+      const recommendedInspection = response.outcome === "applied"
+        ? recommendedCanvasInspection(
+            response.room,
+            response.changedObjectIds,
+            response.changedDiagramIds,
+          )
+        : null;
+      return {
+        outcome: response.outcome,
+        roomRevision: response.room.roomRevision,
+        idMap: response.idMap,
+        counts: response.counts,
+        bounds: response.bounds,
+        warnings: response.warnings,
+        nativeEditable: true,
+        geometryInspectionStatus: "not_performed",
+        recommendedInspection: recommendedInspection
+          ? {
+              ...recommendedInspection,
+              input: { ...recommendedInspection.input, representation: "overview" },
+            }
+          : null,
+        executionTiming: {
+          handlerDurationMs: performance.now() - startedAt,
+          measurement: "request_start_to_result_preparation",
+          includes: ["svg_parse", "revision_guarded_transaction"],
+          excludes: ["webmcp_transport", "pixel_render", "pixel_inspection"],
+        },
+        importTiming: response.importTiming,
+        activityId: response.activity?.id ?? null,
+        proposal: response.proposal,
+      };
+    },
+  });
+
+  return [
+    exportTool,
+    createTemplateTool,
+    instantiateTemplateTool,
+    importMermaidTool,
+    importSvgArtworkTool,
+  ];
 }
 
 export type { JazzboardTemplateV1 };

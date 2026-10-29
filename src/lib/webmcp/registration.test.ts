@@ -1,12 +1,15 @@
 /// <reference types="webmcp-types" />
 
 import { describe, expect, it, vi } from "vitest";
+import Ajv from "ajv";
 
 import type { RoomState } from "@/lib/domain/types";
 import type { GuidedWalkthrough } from "@/lib/canvas/guided-walkthrough";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
 
 import {
+  compactRegisteredInputSchema,
+  createJazzboardRoomWebMcpTools,
   JazzboardWebMcpRegistrar,
   JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES,
   JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES,
@@ -83,6 +86,111 @@ function participantDependencies() {
 }
 
 describe("JazzboardWebMcpRegistrar", () => {
+  it("preserves schema-looking property names, literal data, and unique guidance", () => {
+    const schema = {
+      type: "object", description: "Top-level prose", additionalProperties: false,
+      properties: {
+        description: { type: "string", description: "Property prose", minLength: 2 },
+        type: { const: "literal-type" },
+        payload: { const: { description: "literal data", $schema: "literal dialect", type: "literal" } },
+        choice: { enum: [{ description: "literal enum" }] },
+      },
+      required: ["description", "type"],
+    } as WebMCP.ModelContextTool["inputSchema"];
+    const compacted = compactRegisteredInputSchema(schema);
+    expect(compacted).toEqual({
+      type: "object", description: "Top-level prose", additionalProperties: false,
+      properties: {
+        description: { type: "string", description: "Property prose", minLength: 2 },
+        type: { const: "literal-type" },
+        payload: { const: { description: "literal data", $schema: "literal dialect", type: "literal" } },
+        choice: { enum: [{ description: "literal enum" }] },
+      },
+      required: ["description", "type"],
+    });
+    expect(schema).toHaveProperty("description", "Top-level prose");
+  });
+
+  it("preserves validation for const, enum, nullable, and integer-boundary schemas", () => {
+    const ajv = new Ajv({ strict: false });
+    const schemas = [
+      { type: "string", const: "fixed" },
+      { type: "string", enum: ["x", "y"] },
+      { type: "integer", exclusiveMinimum: 0 },
+      { type: "integer", exclusiveMinimum: 0, minimum: 5 },
+      { type: "number", exclusiveMinimum: 0 },
+      { type: ["string", "null"], enum: ["x", null] },
+      { type: "string", enum: ["x", null] },
+      { type: "string", const: 1 },
+      { type: "object", properties: {}, additionalProperties: false, description: "No arguments" },
+      { type: "object", properties: {}, additionalProperties: false, minProperties: 1 },
+      { type: "object", properties: {}, additionalProperties: false, patternProperties: { "^x": { type: "number" } } },
+      { anyOf: [{ type: "string" }, { type: "null" }] },
+      { anyOf: [{ type: "number" }, { type: "integer" }] },
+      { anyOf: [{ type: "string" }, { type: "string" }] },
+      { anyOf: [{ type: "string", minLength: 2 }, { type: "null" }] },
+      { type: "string", anyOf: [{ type: "string" }, { type: "null" }] },
+      { oneOf: [{ type: "number" }, { type: "integer" }] },
+    ];
+    const values = [null, false, true, 0, 0.5, 1, 5, "fixed", "x", "y", "invalid", {}, { x: 1 }, { x: "x" }, { unexpected: true }, []];
+    for (const schema of schemas) {
+      const original = ajv.compile(schema);
+      const compacted = ajv.compile(compactRegisteredInputSchema(schema as WebMCP.ModelContextTool["inputSchema"])!);
+      for (const value of values) expect(compacted(value), JSON.stringify({ schema, value })).toBe(original(value));
+    }
+    expect(compactRegisteredInputSchema({ type: "string", enum: [] })).toEqual({ type: "string", enum: [] });
+    expect(compactRegisteredInputSchema({ type: "object", properties: {}, additionalProperties: false, description: "No arguments" }))
+      .toEqual({ type: "object", maxProperties: 0, description: "No arguments" });
+    expect(compactRegisteredInputSchema({ anyOf: [{ type: "string" }, { type: "null" }], description: "Nullable label" }))
+      .toEqual({ type: ["string", "null"], description: "Nullable label" });
+    const describedBranches = { anyOf: [{ type: "string", description: "Unique branch guidance" }, { type: "null" }] };
+    expect(compactRegisteredInputSchema(describedBranches)).toEqual(describedBranches);
+  });
+
+  it("keeps all input constraints and properties when compacting the registration envelope", async () => {
+    const modelContext = new FakeModelContext();
+    const bound = binding("room-1", "participant");
+    const dependencies = participantDependencies();
+    const tools = createJazzboardRoomWebMcpTools(bound, dependencies);
+    const before = tools.map((tool) => JSON.stringify(tool.inputSchema));
+    const descriptions = (value: unknown): string[] => {
+      if (!value || typeof value !== "object") return [];
+      const record = value as Record<string, unknown>;
+      return [
+        ...(typeof record.description === "string" ? [record.description] : []),
+        ...Object.values(record).flatMap(descriptions),
+      ];
+    };
+    const registrar = new JazzboardWebMcpRegistrar(dependencies, () => modelContext as unknown as WebMCP.ModelContext);
+    await registrar.update(bound);
+    for (const tool of tools) {
+      const registered = modelContext.tools.get(tool.name)!;
+      const registeredSchema = registered.inputSchema as Record<string, unknown>;
+      const original = tool.inputSchema as Record<string, unknown>;
+      expect(descriptions(registered.inputSchema)).toEqual(descriptions(original));
+      expect(registered.inputSchema).toMatchObject({
+        type: original.type,
+        ...(original.required ? { required: original.required } : {}),
+        ...(original.additionalProperties !== undefined && registeredSchema.maxProperties !== 0
+          ? { additionalProperties: original.additionalProperties }
+          : {}),
+      });
+      if (registeredSchema.maxProperties === 0) {
+        expect(original).toMatchObject({ type: "object", properties: {}, additionalProperties: false });
+        expect(Object.keys(original.properties as object)).toHaveLength(0);
+      }
+    }
+    expect(tools.map((tool) => JSON.stringify(tool.inputSchema))).toEqual(before);
+    expect(modelContext.tools.get("create_diagram")?.inputSchema).toMatchObject({
+      properties: { description: { type: "string" } },
+    });
+    expect(JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES).toHaveLength(61);
+    expect(JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES).toHaveLength(23);
+    expect(JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES).not.toContain("import_svg_artwork");
+    expect(JAZZBOARD_ROOM_SPECTATOR_WEBMCP_TOOL_NAMES).not.toContain("import_mermaid_flowchart");
+    registrar.dispose();
+  });
+
   it("feature-detects browsers without document.modelContext", async () => {
     const registrar = new JazzboardWebMcpRegistrar({}, () => undefined);
 
@@ -155,6 +263,16 @@ describe("JazzboardWebMcpRegistrar", () => {
       `Production-shaped descriptors use ${descriptorBytes} bytes. Largest: ${JSON.stringify(largestDescriptors)}`,
     // Draft inspection, explicit waypoint control, native Mermaid import, and
     // the bounded local walkthrough and camera surfaces remain below 64 KB.
+    ).toBeLessThanOrEqual(64_000);
+    const localOrigin = "http://127.0.0.1:3188";
+    const localDescriptors = descriptors.map(tool => ({
+      ...tool,
+      origin: localOrigin,
+      pageUrl: `${localOrigin}/room/room_00000000-0000-4000-8000-000000000000`,
+    }));
+    expect(
+      new TextEncoder().encode(JSON.stringify(localDescriptors)).byteLength,
+      "The local native-WebMCP QA origin must also fit the bridge's descriptor budget.",
     ).toBeLessThanOrEqual(64_000);
 
     const collectDescriptions = (value: unknown): string[] => {

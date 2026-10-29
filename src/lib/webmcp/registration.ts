@@ -71,6 +71,63 @@ function documentModelContext(): WebMCP.ModelContext | undefined {
   return typeof document === "undefined" ? undefined : document.modelContext;
 }
 
+/** Compact redundant validation syntax while retaining every input description. */
+export function compactRegisteredInputSchema(
+  inputSchema: WebMCP.ModelContextTool["inputSchema"],
+): WebMCP.ModelContextTool["inputSchema"] {
+  if (!inputSchema) return inputSchema;
+  const compacted = structuredClone(inputSchema);
+  delete (compacted as Record<string, unknown>).$schema;
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const schema = value as Record<string, unknown>;
+    if (schema.type === "string" && (
+      typeof schema.const === "string"
+      || (Array.isArray(schema.enum) && schema.enum.length > 0 && schema.enum.every((entry) => typeof entry === "string"))
+    )) delete schema.type;
+    if (schema.type === "integer" && schema.exclusiveMinimum === 0 && !Object.hasOwn(schema, "minimum")) {
+      delete schema.exclusiveMinimum;
+      schema.minimum = 1;
+    }
+    // A closed object with no declared or patterned keys accepts only {}.
+    if (
+      schema.type === "object" && schema.additionalProperties === false
+      && schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
+      && Object.keys(schema.properties).length === 0 && !Object.hasOwn(schema, "patternProperties")
+      && (!Object.hasOwn(schema, "maxProperties") || (typeof schema.maxProperties === "number" && Number.isInteger(schema.maxProperties) && schema.maxProperties >= 0))
+    ) {
+      delete schema.properties;
+      delete schema.additionalProperties;
+      schema.maxProperties = 0;
+    }
+    // anyOf(type A, type B) is exactly a type union; oneOf is deliberately left alone.
+    if (!Object.hasOwn(schema, "type") && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+      const types = schema.anyOf.map((branch) => (
+        branch && typeof branch === "object" && !Array.isArray(branch) && Object.keys(branch).length === 1
+          ? (branch as Record<string, unknown>).type
+          : undefined
+      ));
+      if (types.every((type) => typeof type === "string" && ["null", "boolean", "object", "array", "number", "integer", "string"].includes(type))) {
+        schema.type = [...new Set(types)];
+        delete schema.anyOf;
+      }
+    }
+    for (const keyword of ["$defs", "definitions", "properties", "patternProperties", "dependentSchemas"]) {
+      const children = schema[keyword];
+      if (children && typeof children === "object") Object.values(children).forEach(visit);
+    }
+    for (const keyword of ["allOf", "anyOf", "oneOf", "prefixItems"]) {
+      const children = schema[keyword];
+      if (Array.isArray(children)) children.forEach(visit);
+    }
+    for (const keyword of ["items", "additionalProperties", "unevaluatedProperties", "contains", "propertyNames", "not", "if", "then", "else"]) {
+      visit(schema[keyword]);
+    }
+  };
+  visit(compacted);
+  return compacted as WebMCP.ModelContextTool["inputSchema"];
+}
+
 export const JAZZBOARD_ROOM_PARTICIPANT_WEBMCP_TOOL_NAMES = [
   ...JAZZBOARD_CANVAS_CAPABILITY_TOOL_NAMES,
   ...JAZZBOARD_GUIDED_WALKTHROUGH_TOOL_NAMES,
@@ -170,6 +227,7 @@ export class JazzboardWebMcpRegistrar {
       const execute = tool.execute;
       const registeredTool: WebMCP.ModelContextTool = {
         ...tool,
+        inputSchema: compactRegisteredInputSchema(tool.inputSchema),
         execute: async (input, options) => {
           const receivedAtUnixMs = Date.now();
           const executionStartedAt = performance.now();
