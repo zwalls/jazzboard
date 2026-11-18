@@ -22,6 +22,7 @@ import {
   materializeConnectorRoutes,
   normalizeConnectorRouting,
   pointAlongConnectorRoute,
+  resolveAffectedConnectorRoutes,
   resolveConnectorRoute,
   resolveConnectorRoutes,
 } from "./connector-routing";
@@ -523,6 +524,27 @@ describe("deterministic route geometry", () => {
       first["edge-a"].labelBounds!.y + first["edge-a"].labelBounds!.height,
     );
     expect(reordered).toEqual(first);
+  });
+
+  it("keeps untargeted peers in the port cohort of a targeted connector", () => {
+    const hub = node("hub", 0, 0);
+    const north = node("north", 500, -70);
+    const south = node("south", 500, 120);
+    const distantStart = node("distant-start", 1500, 1000);
+    const distantEnd = node("distant-end", 1800, 1000);
+    const auto = normalizeConnectorRouting({ mode: "auto" });
+    const edge = connector("target", hub.id, north.id, auto, 1);
+    const peer = connector("peer", hub.id, south.id, auto, 2);
+    const distant = connector("distant", distantStart.id, distantEnd.id, auto, 3);
+    const document = room([hub, north, south, distantStart, distantEnd, edge, peer, distant]);
+
+    const routes = resolveAffectedConnectorRoutes(document, new Set([edge.id]));
+    expect(routes[edge.id]).toEqual(resolveConnectorRoute(edge, createConnectorRoutingContext(document)));
+    expect(routes[edge.id].start.normalizedAnchor).not.toEqual(
+      resolveConnectorRoutes(room([hub, north, edge]))[edge.id].start.normalizedAnchor,
+    );
+    expect(routes[peer.id].start).toEqual(peer.start);
+    expect(routes[distant.id].start).toEqual(distant.start);
   });
 
   it("keeps mixed-direction connectors on unique physical lanes", () => {
