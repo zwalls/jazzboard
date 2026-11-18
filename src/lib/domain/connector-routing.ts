@@ -1609,7 +1609,7 @@ export function resolveConnectorRoutes(
  */
 export function materializeConnectorRoute(
   connector: ConnectorObject,
-  room: RoutingRoom,
+  room: Pick<RoutingRoom, "objects">,
   options: Pick<ConnectorRoutingOptions, "maxRoutePoints"> = {},
   laneIndex = 0,
 ): ResolvedConnectorRoute {

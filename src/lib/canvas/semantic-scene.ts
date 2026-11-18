@@ -1,4 +1,5 @@
 import {
+  materializeConnectorRoute,
   materializeConnectorRoutes,
   resolveAffectedConnectorRoutes,
   type ResolvedConnectorRoute,
@@ -130,6 +131,25 @@ function objectBounds(
   if (object.kind === "draw") return drawObjectBounds(object);
   if (object.kind === "path") return vectorPathBounds(object);
   return rectangularObjectBounds(object);
+}
+
+/** Project only the supplied artwork; endpoint context is not part of it. */
+export function projectPersistedSemanticArtwork(
+  artwork: Readonly<RoomState["objects"]>,
+  endpointObjects: Readonly<RoomState["objects"]>,
+): Pick<SemanticScene, "objects" | "bounds" | "connectorRoutes"> {
+  const sorted = Object.values(artwork).sort(compareObjects);
+  const connectorRoutes = Object.fromEntries(sorted.flatMap((object) =>
+    object.kind === "connector"
+      ? [[object.id, materializeConnectorRoute(object, { objects: endpointObjects })] as const]
+      : [],
+  ));
+  const objects = sorted.map((object) => ({ object, bounds: objectBounds(object, connectorRoutes) }));
+  const bounds = objects.reduce<CanvasBounds | null>(
+    (current, item) => unionBounds(current, item.bounds),
+    null,
+  );
+  return { objects, bounds, connectorRoutes };
 }
 
 /**
