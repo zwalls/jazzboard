@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { CanvasRuntime } from "@/lib/canvas/runtime";
+import * as sceneProjection from "@/lib/canvas/semantic-scene";
 import { SEMANTIC_CANVAS_CLIPBOARD_FORMAT } from "@/lib/canvas/semantic-keyboard-session";
 import {
   ACTIVE_PRESENCE_KEYFRAME_MS,
@@ -390,6 +391,29 @@ describe("SemanticCanvas", () => {
       rendererId: "jazzboard-semantic-v1",
       capabilities: { renderPng: true },
     })));
+  });
+
+  it("pans and zooms without reconciling the object list, then still handles selection", () => {
+    const buildScene = vi.spyOn(sceneProjection, "buildSemanticScene");
+    renderCanvas();
+    const scene = buildScene.mock.results.at(-1)?.value as sceneProjection.SemanticScene;
+    const mapObjects = vi.spyOn(scene.objects, "map");
+    const canvas = screen.getByTestId("semantic-canvas");
+    const camera = canvas.querySelector("svg > g")!;
+    const object = screen.getByRole("button", { name: /service: Room API/i });
+    const initialTransform = camera.getAttribute("transform");
+
+    fireEvent.wheel(canvas, { deltaX: 24, deltaY: 12 });
+    const pannedTransform = camera.getAttribute("transform");
+    expect(pannedTransform).not.toBe(initialTransform);
+    fireEvent.wheel(canvas, { ctrlKey: true, deltaY: -28, clientX: 120, clientY: 120 });
+    expect(camera.getAttribute("transform")).not.toBe(pannedTransform);
+    expect(mapObjects).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /service: Room API/i })).toBe(object);
+
+    fireEvent.keyDown(object, { key: "Enter" });
+    expect(object).toHaveAttribute("aria-pressed", "true");
+    expect(mapObjects).toHaveBeenCalled();
   });
 
   it("keeps authoritative objects while suppressing transient chrome in clean inspection mode", () => {
