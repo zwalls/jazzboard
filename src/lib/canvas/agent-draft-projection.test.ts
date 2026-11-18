@@ -5,9 +5,10 @@ import {
   type AgentCanvasDraftSnapshot,
   type AgentDraftCanvasObject,
 } from "@/lib/agent-drafts/types";
-import type { ActorRef, CanvasObject, Diagram } from "@/lib/domain/types";
+import type { ActorRef, CanvasObject, ConnectorObject, Diagram } from "@/lib/domain/types";
 
 import { projectAgentDraft } from "./agent-draft-projection";
+import { buildSemanticScene } from "./semantic-scene";
 
 const author: ActorRef = {
   participantId: "participant_projection",
@@ -118,5 +119,50 @@ describe("projectAgentDraft", () => {
     const recreated = { ...exact, createdAt: exact.createdAt + 1 };
     const afterRecreate = projectAgentDraft(candidate, { [recreated.id]: recreated }, {});
     expect(afterRecreate).toBeNull();
+  });
+
+  it("renders only draft artwork and uses the latest visible or authoritative connector endpoints", () => {
+    const previewStart = { ...shape("start", 1), rotation: Math.PI / 4 };
+    const previewEnd = shape("end", 2);
+    const connector: ConnectorObject & { authority: "draft" } = {
+      ...shape("link", 3),
+      kind: "connector",
+      start: { x: 70, y: 100, objectId: previewStart.id, normalizedAnchor: { x: 1, y: 0.5 } },
+      end: { x: 350, y: 190, objectId: previewEnd.id, normalizedAnchor: { x: 0, y: 0.5 } },
+      routing: { mode: "elbow", kind: "elbow", bend: 0, elbowMidPoint: 0.6, labelPosition: 0.4 },
+      label: "Labeled elbow",
+      direction: "end",
+      color: "blue",
+    };
+    const candidate = { ...draft(), status: "presenting" as const, previewObjects: [connector, previewEnd, previewStart] };
+    const oldStart = { ...previewStart, rotation: 0 };
+    const editedEnd = { ...previewEnd, revision: 2, rotation: Math.PI / 2 };
+    const unrelated = { ...connector, id: "unrelated" };
+    const authoritative = { start: oldStart, end: editedEnd, link: connector, unrelated };
+    const full = buildSemanticScene({
+      id: candidate.roomId, roomRevision: candidate.baselineRoomRevision, diagrams: {},
+      objects: { ...authoritative, start: previewStart, link: connector },
+    });
+    let unrelatedRoutingReads = 0;
+    Object.defineProperty(unrelated, "routing", {
+      get: () => { unrelatedRoutingReads++; return connector.routing; },
+    });
+
+    const projection = projectAgentDraft(candidate, authoritative);
+    expect(projection?.visibleObjects).toEqual([connector, previewStart]);
+    expect(projection?.objects).toEqual([full.objectsById.start, full.objectsById.link]);
+    expect(projection?.connectorRoutes).toEqual({ link: full.connectorRoutes.link });
+    expect(unrelatedRoutingReads).toBe(0);
+
+    const changedEnd = { ...authoritative, end: { ...editedEnd, rotation: 0 } };
+    const changed = projectAgentDraft(candidate, changedEnd);
+    expect(changed?.connectorRoutes.link.points).not.toEqual(projection?.connectorRoutes.link.points);
+    const withoutEnd = { start: oldStart, link: connector };
+    const deleted = projectAgentDraft(candidate, withoutEnd);
+    const fallback = buildSemanticScene({
+      id: candidate.roomId, roomRevision: candidate.baselineRoomRevision, diagrams: {},
+      objects: { ...withoutEnd, start: previewStart },
+    });
+    expect(deleted?.connectorRoutes.link).toEqual(fallback.connectorRoutes.link);
   });
 });

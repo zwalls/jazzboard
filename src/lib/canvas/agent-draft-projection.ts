@@ -2,7 +2,7 @@ import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
 import type { ResolvedConnectorRoute } from "@/lib/domain/connector-routing";
 import type { CanvasBounds, CanvasObject, Diagram } from "@/lib/domain/types";
 
-import { buildSemanticScene, type SemanticSceneObject } from "./semantic-scene";
+import { projectPersistedSemanticArtwork, type SemanticSceneObject } from "./semantic-scene";
 
 export type AgentDraftProjection = Readonly<{
   draft: AgentCanvasDraftSnapshot;
@@ -17,15 +17,6 @@ const projectionCache = new WeakMap<
   WeakMap<object, WeakMap<object, AgentDraftProjection | null>>
 >();
 const EMPTY_AUTHORITATIVE_DIAGRAMS: Readonly<Record<string, Diagram>> = Object.freeze({});
-
-function unionBounds(left: CanvasBounds | null, right: CanvasBounds): CanvasBounds {
-  if (!left) return { ...right };
-  const x = Math.min(left.x, right.x);
-  const y = Math.min(left.y, right.y);
-  const maxX = Math.max(left.x + left.width, right.x + right.width);
-  const maxY = Math.max(left.y + left.height, right.y + right.height);
-  return { x, y, width: Math.max(maxX - x, 1), height: Math.max(maxY - y, 1) };
-}
 
 /**
  * Builds the semantic draft scene once for both its artwork and presentation-only
@@ -70,23 +61,20 @@ export function projectAgentDraft(
   }
 
   const previewObjects = Object.fromEntries(visibleObjects.map((object) => [object.id, object]));
-  const previewDiagrams = Object.fromEntries(
-    draft.previewDiagrams.map((diagram) => [diagram.id, diagram]),
-  );
-  const scene = buildSemanticScene({
-    id: draft.roomId,
-    roomRevision: draft.baselineRoomRevision,
-    objects: { ...authoritativeObjects, ...previewObjects },
-    diagrams: { ...authoritativeDiagrams, ...previewDiagrams },
-  });
-  const visibleIds = new Set(visibleObjects.map((object) => object.id));
-  const objects = scene.objects.filter(({ object }) => visibleIds.has(object.id));
-  const bounds = objects.reduce<CanvasBounds | null>(
-    (current, object) => unionBounds(current, object.bounds),
-    null,
-  );
+  // Persisted preview routes need only their bound endpoint objects. Draft
+  // objects win over authoritative ones, just as in the full room overlay.
+  const endpointObjects: Record<string, CanvasObject> = Object.assign(Object.create(null), previewObjects);
+  for (const object of Object.values(previewObjects)) {
+    if (object.kind !== "connector") continue;
+    for (const id of [object.start.objectId, object.end.objectId]) {
+      if (id && !Object.hasOwn(endpointObjects, id) && Object.hasOwn(authoritativeObjects, id)) {
+        endpointObjects[id] = authoritativeObjects[id];
+      }
+    }
+  }
+  const { objects, bounds, connectorRoutes } = projectPersistedSemanticArtwork(previewObjects, endpointObjects);
   const projection = bounds
-    ? { draft, visibleObjects, objects, bounds, connectorRoutes: scene.connectorRoutes }
+    ? { draft, visibleObjects, objects, bounds, connectorRoutes }
     : null;
   byDiagrams.set(authoritativeDiagrams, projection);
   return projection;
