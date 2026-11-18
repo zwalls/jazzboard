@@ -408,13 +408,31 @@ type PortIncident = {
 function connectorPortPositions(
   room: RoutingRoom,
   connectors: readonly ConnectorObject[],
+  portTargetConnectorIds?: ReadonlySet<string>,
 ): Map<string, number> {
+  // A targeted solve needs the whole incident cohort at each targeted node,
+  // but cannot read ports assigned to any other node. Include untargeted
+  // edges at those nodes so preferred-side distribution stays identical.
+  let targetObjectIds: Set<string> | undefined;
+  if (portTargetConnectorIds) {
+    targetObjectIds = new Set();
+    for (const connector of connectors) {
+      if (!portTargetConnectorIds.has(connector.id)) continue;
+      if (connector.start.objectId) targetObjectIds.add(connector.start.objectId);
+      if (connector.end.objectId) targetObjectIds.add(connector.end.objectId);
+    }
+  }
+
   const incidents = new Map<string, PortIncident[]>();
   for (const connector of connectors) {
+    if (targetObjectIds &&
+      !(connector.start.objectId && targetObjectIds.has(connector.start.objectId)) &&
+      !(connector.end.objectId && targetObjectIds.has(connector.end.objectId))) continue;
     if (normalizeConnectorRouting(connector.routing).mode !== "auto") continue;
     for (const endpointName of ["start", "end"] as const) {
       const endpoint = connector[endpointName];
       if (!endpoint.objectId || !room.objects[endpoint.objectId]) continue;
+      if (targetObjectIds && !targetObjectIds.has(endpoint.objectId)) continue;
       if (
         endpoint.isPrecise &&
         endpoint.normalizedAnchor &&
@@ -481,6 +499,15 @@ export function createConnectorRoutingContext(
   options: ConnectorRoutingOptions = {},
   targetConnectorIds?: ReadonlySet<string>,
 ): ConnectorRoutingContext {
+  return buildConnectorRoutingContext(room, options, targetConnectorIds, false);
+}
+
+function buildConnectorRoutingContext(
+  room: RoutingRoom,
+  options: ConnectorRoutingOptions,
+  targetConnectorIds: ReadonlySet<string> | undefined,
+  scopePortsToTargets: boolean,
+): ConnectorRoutingContext {
   const normalized = normalizedOptions(options);
   const obstacles = Object.values(room.objects)
     .filter((object) => object.kind === "shape" ||
@@ -513,7 +540,7 @@ export function createConnectorRoutingContext(
     (object): object is ConnectorObject => object.kind === "connector",
   );
   const { laneIndexByConnector, laneDirectionByConnector } = connectorLaneIndexes(connectors);
-  const portPositionByEndpointSide = connectorPortPositions(room, connectors);
+  const portPositionByEndpointSide = connectorPortPositions(room, connectors, scopePortsToTargets ? targetConnectorIds : undefined);
 
   return {
     room,
@@ -1685,7 +1712,7 @@ export function resolveAffectedConnectorRoutes(
         ),
       }
     : options;
-  const context = createConnectorRoutingContext(room, effectiveOptions, connectorIds);
+  const context = buildConnectorRoutingContext(room, effectiveOptions, connectorIds, true);
   const connectors = Object.values(room.objects)
     .filter((object): object is ConnectorObject => object.kind === "connector")
     .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
