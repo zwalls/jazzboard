@@ -405,6 +405,16 @@ export function computeAffectedConnectorIds({
 
   // Crossing scores are ordered. Only later auto routes whose influence region
   // overlaps a changed route can depend on that changed route.
+  // Every impact tests the same current snapshot. Reuse a candidate's bounds
+  // across queue visits, but never across snapshots or pointer frames.
+  const currentInfluenceBounds = new Map<string, CanvasBounds>();
+  const currentInfluence = (connector: Extract<CanvasObject, { kind: "connector" }>): CanvasBounds => {
+    const cached = currentInfluenceBounds.get(connector.id);
+    if (cached) return cached;
+    const bounds = connectorInfluenceBounds(current, connector, currentRoutes[connector.id]);
+    currentInfluenceBounds.set(connector.id, bounds);
+    return bounds;
+  };
   const queue: Array<{
     connectorId: string;
     order: number;
@@ -414,7 +424,7 @@ export function computeAffectedConnectorIds({
     const connector = current.objects[connectorId];
     if (connector?.kind !== "connector") continue;
     const before = baseline.objects[connectorId];
-    const currentBounds = connectorInfluenceBounds(current, connector, currentRoutes[connectorId]);
+    const currentBounds = currentInfluence(connector);
     const bounds = before?.kind === "connector"
       ? unionCanvasBounds(
           currentBounds,
@@ -450,7 +460,7 @@ export function computeAffectedConnectorIds({
       ) {
         continue;
       }
-      const candidateBounds = connectorInfluenceBounds(current, connector, currentRoutes[connector.id]);
+      const candidateBounds = currentInfluence(connector);
       if (!canvasBoundsIntersect(impact.bounds, candidateBounds)) continue;
       affected.add(connector.id);
       queue.push({

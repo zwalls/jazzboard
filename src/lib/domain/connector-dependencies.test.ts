@@ -331,4 +331,64 @@ describe("connector dependency closure", () => {
       touchedObjectIds: new Set(["edge-3"]),
     })]).toEqual(["edge-3"]);
   });
+
+  it("reuses the same rotated influence bounds across impacts but checks fresh geometry next time", () => {
+    const a1 = node("a1", 0, 0);
+    const b1 = node("b1", 500, 0);
+    const a2 = node("a2", 0, 50);
+    const b2 = node("b2", 500, 50);
+    const a3 = node("a3", 0, 400);
+    const b3 = node("b3", 500, 400);
+    a3.rotation = Math.PI / 6;
+    const first = connector("first", a1, b1, 10);
+    const second = connector("second", a2, b2, 20);
+    const later = connector("later", a3, b3, 30);
+    const baseline = room([a1, b1, a2, b2, a3, b3, first, second, later]);
+    const updateTwoLabels = (next: ConnectorDependencyRoom) => {
+      (next.objects.first as ConnectorObject).label = "first update";
+      (next.objects.second as ConnectorObject).label = "second update";
+    };
+    const current = changedRoom(baseline, updateTwoLabels);
+    const readRotation = vi.fn(() => Math.PI / 6);
+    Object.defineProperty(current.objects.a3, "rotation", { get: readRotation });
+    const touchedObjectIds = new Set(["first", "second"]);
+
+    expect([...computeAffectedConnectorIds({ baseline, current, touchedObjectIds })]).toEqual(["first", "second"]);
+    // One pair of sine/cosine reads for the later endpoint despite two
+    // earlier route impacts visiting its unchanged candidate bounds.
+    expect(readRotation).toHaveBeenCalledTimes(2);
+
+    const nextBaseline = changedRoom(baseline, (next) => {
+      const left = next.objects.a3 as ShapeObject;
+      const right = next.objects.b3 as ShapeObject;
+      left.y = 80;
+      right.y = 80;
+      next.objects.later = connector("later", left, right, 30);
+    });
+    expect([...computeAffectedConnectorIds({
+      baseline: nextBaseline, current: changedRoom(nextBaseline, updateTwoLabels), touchedObjectIds,
+    })]).toEqual(["first", "second", "later"]);
+  });
+
+  it("keeps considering the old influence of a changed route for later connectors", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const laterLeft = node("later-left", 0, 55);
+    const laterRight = node("later-right", 500, 55);
+    const first = connector("first", left, right, 10);
+    first.start.objectId = null;
+    first.end.objectId = null;
+    const later = connector("later", laterLeft, laterRight, 20);
+    const baseline = room([left, right, laterLeft, laterRight, first, later]);
+    const current = changedRoom(baseline, (next) => {
+      const moved = next.objects.first as ConnectorObject;
+      moved.y += 600;
+      moved.start.y += 600;
+      moved.end.y += 600;
+    });
+
+    expect([...computeAffectedConnectorIds({
+      baseline, current, touchedObjectIds: new Set(["first"]),
+    })]).toEqual(["first", "later"]);
+  });
 });
