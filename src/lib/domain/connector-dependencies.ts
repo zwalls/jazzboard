@@ -272,19 +272,13 @@ export function computeAffectedConnectorIds({
   touchedObjectIds,
   touchedDiagramIds = new Set<string>(),
 }: ConnectorDependencyClosureInput): Set<string> {
-  const baselineRoutes = materializeConnectorRoutes(baseline);
-  const currentRoutes = materializeConnectorRoutes(current);
-  const currentConnectors = Object.values(current.objects)
-    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
-    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
-  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
   const affected = new Set<string>();
   const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
     objectGeometryChanged(baseline.objects[objectId], current.objects[objectId]),
   ));
-  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
-    baseline.objects[objectId]?.kind === "shape" || current.objects[objectId]?.kind === "shape",
-  );
+  const changedConnectorInputIds = new Set([...touchedObjectIds].filter((objectId) =>
+    connectorRouteInputChanged(baseline.objects[objectId], current.objects[objectId]),
+  ));
   const scopeChangedDiagramIds = new Set(
     [...touchedDiagramIds].filter((diagramId) => {
       const before = baseline.diagrams?.[diagramId];
@@ -298,11 +292,25 @@ export function computeAffectedConnectorIds({
     }),
   );
 
+  // Text/style/metadata edits can still update the document and its Diagram
+  // revisions, but without any route inputs changing there is no closure to
+  // compute and no need to materialize either connector snapshot here.
+  if (!changedGeometryIds.size && !changedConnectorInputIds.size && !scopeChangedDiagramIds.size) {
+    return affected;
+  }
+
+  const baselineRoutes = materializeConnectorRoutes(baseline);
+  const currentRoutes = materializeConnectorRoutes(current);
+  const currentConnectors = Object.values(current.objects)
+    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
+    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
+  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
+    baseline.objects[objectId]?.kind === "shape" || current.objects[objectId]?.kind === "shape",
+  );
+
   for (const connector of currentConnectors) {
-    if (
-      touchedObjectIds.has(connector.id) &&
-      connectorRouteInputChanged(baseline.objects[connector.id], connector)
-    ) {
+    if (changedConnectorInputIds.has(connector.id)) {
       affected.add(connector.id);
     }
     if (

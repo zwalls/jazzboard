@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as connectorRouting from "./connector-routing";
 import { normalizeConnectorRouting } from "./connector-routing";
 import {
   computeAffectedConnectorIds,
@@ -114,6 +115,30 @@ function changedRoom(
 }
 
 describe("connector dependency closure", () => {
+  it("does not materialize routes for node labels and Diagram metadata, but tracks connector labels", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const edge = connector("edge", left, right);
+    const baseline = room([left, right, edge], [diagram("diagram", [left.id, right.id], [edge.id])]);
+    const current = changedRoom(baseline, (state) => {
+      (state.objects.left as ShapeObject).label = "A new node label";
+      state.diagrams.diagram.title = "A new diagram title";
+    });
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
+    try {
+      const input = { baseline, current, touchedObjectIds: new Set(["left"]), touchedDiagramIds: new Set(["diagram"]) };
+      expect([...computeAffectedConnectorIds(input)]).toEqual([]);
+      expect(materialize).not.toHaveBeenCalled();
+
+      (current.objects.edge as ConnectorObject).label = "A new connector label";
+      expect([...computeAffectedConnectorIds({ ...input, touchedObjectIds: new Set(["left", "edge"]) })])
+        .toEqual(["edge"]);
+      expect(materialize).toHaveBeenCalledTimes(2);
+    } finally {
+      materialize.mockRestore();
+    }
+  });
+
   it("preflights grouped, bound, scoped auto, and transitive move dependencies", () => {
     const left = node("left", 0, 0);
     const right = node("right", 500, 0);
