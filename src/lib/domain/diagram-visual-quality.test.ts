@@ -1169,6 +1169,34 @@ describe("diagram visual quality analysis", () => {
     }));
   });
 
+  it("rebuilds member interiors and route intersections for each candidate geometry", () => {
+    const blocker = node("blocker", 120, 20, { rotation: Math.PI / 8 });
+    const horizontal = edge("horizontal", { x: 0, y: 55 }, { x: 400, y: 55 });
+    const vertical = edge("vertical", { x: 180, y: 0 }, { x: 180, y: 110 });
+    const initial = room([blocker, horizontal, vertical]);
+    const snapshot = structuredClone(initial);
+    const before = analyzeDiagramVisualQuality(initial, "quality-diagram");
+
+    expect(before.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_OBJECT_INTRUSION",
+      objectIds: ["blocker"],
+      connectorIds: ["horizontal"],
+    }));
+    expect(before.findings).toContainEqual(expect.objectContaining({
+      code: "CONNECTOR_CROSSING",
+      connectorIds: ["horizontal", "vertical"],
+      details: { point: [180, 55] },
+    }));
+
+    const moved = { ...blocker, y: 180 };
+    const rerouted = edge("vertical", { x: 440, y: 0 }, { x: 440, y: 110 });
+    const after = analyzeDiagramVisualQuality(room([moved, horizontal, rerouted]), "quality-diagram");
+    expect(codes(after)).not.toContain("CONNECTOR_OBJECT_INTRUSION");
+    expect(codes(after)).not.toContain("CONNECTOR_CROSSING");
+    expect(initial).toEqual(snapshot);
+    expect(analyzeDiagramVisualQuality(initial, "quality-diagram")).toEqual(before);
+  });
+
   it("does not report a crossing for two connectors with a legitimate shared terminal", () => {
     const member = node("member", 500, 500);
     const left = edge("left", { x: 0, y: 100 }, { x: 150, y: 100 });

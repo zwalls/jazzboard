@@ -191,8 +191,12 @@ type RouteConflictPair = {
   objectIds: Set<string>;
 };
 
-type MemberGeometry = {
+type PolygonGeometry = {
   polygon: Point[];
+  edges: Segment[];
+};
+
+type MemberGeometry = PolygonGeometry & {
   bounds: CanvasBounds;
 };
 
@@ -450,8 +454,11 @@ function polygonSegments(polygon: readonly Point[]): Segment[] {
 function pointInConvexPolygon(point: Point, polygon: readonly Point[]): boolean {
   if (polygon.length < 3) return false;
   let sign = 0;
-  for (const edge of polygonSegments(polygon)) {
-    const value = cross(subtract(edge.end, edge.start), subtract(point, edge.start));
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    const value = (end.x - start.x) * (point.y - start.y) -
+      (end.y - start.y) * (point.x - start.x);
     if (Math.abs(value) <= T.geometryEpsilon) continue;
     const nextSign = Math.sign(value);
     if (sign && nextSign !== sign) return false;
@@ -469,24 +476,28 @@ function pointSegmentDistance(point: Point, segment: Segment): number {
   return distance(point, addScaled(segment.start, vector, scale));
 }
 
-function polygonGap(left: readonly Point[], right: readonly Point[]): number {
-  const leftEdges = polygonSegments(left);
-  const rightEdges = polygonSegments(right);
-  if (
-    leftEdges.some((leftEdge) => rightEdges.some((rightEdge) => segmentRelation(leftEdge, rightEdge).kind !== "none")) ||
-    pointInConvexPolygon(left[0], right) ||
-    pointInConvexPolygon(right[0], left)
-  ) return 0;
-  return Math.min(
-    ...left.flatMap((point) => rightEdges.map((edge) => pointSegmentDistance(point, edge))),
-    ...right.flatMap((point) => leftEdges.map((edge) => pointSegmentDistance(point, edge))),
-  );
+function polygonGap(left: PolygonGeometry, right: PolygonGeometry): number {
+  for (const leftEdge of left.edges) {
+    for (const rightEdge of right.edges) {
+      if (segmentRelation(leftEdge, rightEdge).kind !== "none") return 0;
+    }
+  }
+  if (pointInConvexPolygon(left.polygon[0], right.polygon) ||
+      pointInConvexPolygon(right.polygon[0], left.polygon)) return 0;
+  let gap = Number.POSITIVE_INFINITY;
+  for (const point of left.polygon) {
+    for (const edge of right.edges) gap = Math.min(gap, pointSegmentDistance(point, edge));
+  }
+  for (const point of right.polygon) {
+    for (const edge of left.edges) gap = Math.min(gap, pointSegmentDistance(point, edge));
+  }
+  return gap;
 }
 
-function segmentIntersectsPolygon(segment: Segment, polygon: readonly Point[]): boolean {
+function segmentIntersectsPolygon(segment: Segment, { polygon, edges }: PolygonGeometry): boolean {
   return pointInConvexPolygon(segment.start, polygon) ||
     pointInConvexPolygon(segment.end, polygon) ||
-    polygonSegments(polygon).some((edge) => segmentRelation(segment, edge).kind !== "none");
+    edges.some((edge) => segmentRelation(segment, edge).kind !== "none");
 }
 
 /**
@@ -558,13 +569,15 @@ function legitimateSharedTerminal(
 function routePairGeometry(
   leftConnector: ConnectorObject,
   left: ResolvedConnectorRoute,
+  leftSegments: readonly Segment[],
   rightConnector: ConnectorObject,
   right: ResolvedConnectorRoute,
+  rightSegments: readonly Segment[],
 ): { crossing: Point | null; overlap: Extract<SegmentRelation, { kind: "overlap" }> | null } {
   let crossing: Point | null = null;
   let overlap: Extract<SegmentRelation, { kind: "overlap" }> | null = null;
-  for (const leftSegment of segments(left.points)) {
-    for (const rightSegment of segments(right.points)) {
+  for (const leftSegment of leftSegments) {
+    for (const rightSegment of rightSegments) {
       const relation = segmentRelation(leftSegment, rightSegment);
       if (
         relation.kind === "overlap" &&
@@ -1014,12 +1027,26 @@ export function analyzeDiagramVisualQuality(
   const memberGeometry = new Map(members.flatMap((object): Array<[string, MemberGeometry]> => {
     const polygon = objectPolygon(object);
     return polygon.length
-      ? [[object.id, { polygon, bounds: polygonBounds(polygon) }]]
+      ? [[object.id, { polygon, edges: polygonSegments(polygon), bounds: polygonBounds(polygon) }]]
       : [];
   }));
   const routes = Object.fromEntries(
     connectors.map((connector) => [connector.id, materializeConnectorRoute(connector, room)]),
   );
+  // Geometry belongs to this report only. Reuse exactly the same edges and
+  // inset outlines in the member, route-pair and label checks below.
+  const routeSegments = Object.fromEntries(
+    Object.entries(routes).map(([id, route]) => [id, segments(route.points)]),
+  );
+  const insetGeometry = new Map<CanvasObject, PolygonGeometry>();
+  const connectorInterior = (object: CanvasObject): PolygonGeometry => {
+    const existing = insetGeometry.get(object);
+    if (existing) return existing;
+    const polygon = objectPolygon(object, T.connectorIntrusionInset);
+    const geometry = { polygon, edges: polygonSegments(polygon) };
+    insetGeometry.set(object, geometry);
+    return geometry;
+  };
   const findings = new BoundedFindingCollector();
   const routeConflicts = new Map<string, RouteConflictPair>();
   let minimumMemberSpacing = Number.POSITIVE_INFINITY;
@@ -1060,7 +1087,7 @@ export function analyzeDiagramVisualQuality(
       if (!route) continue;
       if (
         scaffoldLabelBounds &&
-        segments(route.points).some((segment) => segmentIntersectsBounds(segment, scaffoldLabelBounds))
+        routeSegments[connector.id].some((segment) => segmentIntersectsBounds(segment, scaffoldLabelBounds))
       ) {
         findings.push(finding({
           code: "CONNECTOR_OBJECT_INTRUSION",
@@ -1126,12 +1153,12 @@ export function analyzeDiagramVisualQuality(
       const right = members[rightIndex];
       const rightGeometry = memberGeometry.get(right.id);
       if (!rightGeometry) continue;
-      const overlap = polygonOverlap(leftGeometry.polygon, rightGeometry.polygon);
-      const gap = overlap ? 0 : polygonGap(leftGeometry.polygon, rightGeometry.polygon);
       if (
         intentionalGroupedOverlap(left, right) ||
         intentionalSemanticContainment(left, leftGeometry, right, rightGeometry)
       ) continue;
+      const overlap = polygonOverlap(leftGeometry.polygon, rightGeometry.polygon);
+      const gap = overlap ? 0 : polygonGap(leftGeometry, rightGeometry);
       minimumMemberSpacing = Math.min(minimumMemberSpacing, gap);
       if (overlap && overlap.area >= T.objectOverlapMinimumArea) {
         findings.push(finding({
@@ -1160,6 +1187,7 @@ export function analyzeDiagramVisualQuality(
   for (const connector of connectors) {
     const route = routes[connector.id];
     if (!route) continue;
+    const connectorSegments = routeSegments[connector.id];
     const endpoints = endpointObjectIds(connector);
 
     for (const endpointName of ["start", "end"] as const) {
@@ -1167,9 +1195,9 @@ export function analyzeDiagramVisualQuality(
       if (!endpoint.objectId) continue;
       const endpointObject = room.objects[endpoint.objectId];
       if (!endpointObject) continue;
-      const interior = objectPolygon(endpointObject, T.connectorIntrusionInset);
+      const { polygon: interior } = connectorInterior(endpointObject);
       if (!interior.length) continue;
-      const intersectingSegmentIndexes = segments(route.points)
+      const intersectingSegmentIndexes = connectorSegments
         .filter((segment) => segmentPenetratesConvexPolygon(segment, interior))
         .map((segment) => segment.index);
       if (!intersectingSegmentIndexes.length) continue;
@@ -1202,7 +1230,7 @@ export function analyzeDiagramVisualQuality(
           : null;
         if (
           shapeLabelBounds &&
-          segments(route.points).some((segment) => segmentIntersectsBounds(segment, shapeLabelBounds))
+          connectorSegments.some((segment) => segmentIntersectsBounds(segment, shapeLabelBounds))
         ) {
           findings.push(finding({
             code: "CONNECTOR_OBJECT_INTRUSION",
@@ -1216,8 +1244,9 @@ export function analyzeDiagramVisualQuality(
         }
         continue;
       }
-      const interior = objectPolygon(member, T.connectorIntrusionInset);
-      if (!interior.length || !segments(route.points).some((segment) => segmentIntersectsPolygon(segment, interior))) continue;
+      const interior = connectorInterior(member);
+      if (!interior.polygon.length ||
+          !connectorSegments.some((segment) => segmentIntersectsPolygon(segment, interior))) continue;
       findings.push(finding({
         code: "CONNECTOR_OBJECT_INTRUSION",
         status: "fail",
@@ -1239,7 +1268,9 @@ export function analyzeDiagramVisualQuality(
       const right = connectors[rightIndex];
       const rightRoute = routes[right.id];
       if (!rightRoute) continue;
-      const geometry = routePairGeometry(left, leftRoute, right, rightRoute);
+      const geometry = routePairGeometry(
+        left, leftRoute, routeSegments[left.id], right, rightRoute, routeSegments[right.id],
+      );
       if (geometry.crossing) {
         const crossingBounds = pointBounds(geometry.crossing);
         addRouteConflict(
@@ -1353,8 +1384,7 @@ export function analyzeDiagramVisualQuality(
     }
     for (const other of connectors) {
       if (other.id === connector.id) continue;
-      const otherRoute = routes[other.id];
-      if (!otherRoute || !segments(otherRoute.points).some((segment) => segmentIntersectsBounds(segment, labelBounds))) continue;
+      if (!routeSegments[other.id]?.some((segment) => segmentIntersectsBounds(segment, labelBounds))) continue;
       addRouteConflict(
         routeConflicts,
         connector.id,
@@ -1390,10 +1420,15 @@ export function analyzeDiagramVisualQuality(
     }
   }
 
-  const uses = endpointUses(connectors, routes);
+  const connectorById = new Map(connectors.map((connector) => [connector.id, connector]));
+  const usesByObject = new Map<string, RouteEndpointUse[]>();
+  for (const use of endpointUses(connectors, routes)) {
+    const memberUses = usesByObject.get(use.objectId);
+    if (memberUses) memberUses.push(use);
+    else usesByObject.set(use.objectId, [use]);
+  }
   for (const member of members) {
-    const memberUses = uses.filter((use) => use.objectId === member.id);
-    const connectorById = new Map(connectors.map((connector) => [connector.id, connector]));
+    const memberUses = usesByObject.get(member.id) ?? [];
     for (const cluster of connectedPortClusters(memberUses)) {
       const distinctConnectorIds = [...new Set(cluster.map((use) => use.connectorId))].sort();
       if (distinctConnectorIds.length < T.attachmentPortMinimumConnectors) continue;
