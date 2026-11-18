@@ -4,7 +4,7 @@ import {
   normalizeConnectorRouting,
   type ResolvedConnectorRoute,
 } from "./connector-routing";
-import type { CanvasBounds, CanvasObject, RoomState } from "./types";
+import type { CanvasBounds, CanvasObject, Diagram, RoomState } from "./types";
 
 /**
  * The authoritative state needed to calculate connector dependencies. Keeping
@@ -140,38 +140,40 @@ function connectorRouteInputChanged(
   );
 }
 
+type ConnectorScopes = ReadonlyMap<string, readonly Diagram[]>;
+
+/** Index the forward memberships, including documents whose reverse index has not been normalized. */
+function indexConnectorScopes(diagrams: ConnectorDependencyRoom["diagrams"]): ConnectorScopes {
+  const scopes = new Map<string, Diagram[]>();
+  for (const diagram of Object.values(diagrams ?? {})) {
+    for (const connectorId of diagram.connectorIds) {
+      const existing = scopes.get(connectorId);
+      if (existing) existing.push(diagram);
+      else scopes.set(connectorId, [diagram]);
+    }
+  }
+  return scopes;
+}
+
 function connectorSeesObject(
-  room: ConnectorDependencyRoom,
+  byConnector: ConnectorScopes,
   connectorId: string,
   objectId: string,
 ): boolean {
-  const scopes = Object.values(room.diagrams ?? {}).filter((diagram) =>
-    diagram.connectorIds.includes(connectorId),
-  );
-  return scopes.length === 0 || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
-}
-
-function connectorDiagramIds(
-  room: ConnectorDependencyRoom,
-  connectorId: string,
-): Set<string> {
-  return new Set(
-    Object.values(room.diagrams ?? {})
-      .filter((diagram) => diagram.connectorIds.includes(connectorId))
-      .map((diagram) => diagram.id),
-  );
+  const scopes = byConnector.get(connectorId);
+  return !scopes || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
 }
 
 function connectorScopesOverlap(
-  room: ConnectorDependencyRoom,
+  byConnector: ConnectorScopes,
   leftConnectorId: string,
   rightConnectorId: string,
 ): boolean {
-  const left = connectorDiagramIds(room, leftConnectorId);
-  const right = connectorDiagramIds(room, rightConnectorId);
+  const left = byConnector.get(leftConnectorId);
+  const right = byConnector.get(rightConnectorId);
   // A connector without Diagram metadata is intentionally board-scoped.
-  if (!left.size || !right.size) return true;
-  return [...left].some((diagramId) => right.has(diagramId));
+  if (!left || !right) return true;
+  return left.some((diagram) => right.some((other) => diagram.id === other.id));
 }
 
 /**
@@ -196,6 +198,7 @@ export function computePotentialMoveConnectorIds({
   const movedShapeIds = [...movedObjectIds].filter(
     (objectId) => room.objects[objectId]?.kind === "shape",
   );
+  const scopes = indexConnectorScopes(room.diagrams);
   const affected = new Set<string>();
 
   for (const connector of connectors) {
@@ -212,7 +215,7 @@ export function computePotentialMoveConnectorIds({
     }
     if (
       connector.routing?.mode === "auto"
-      && movedShapeIds.some((objectId) => connectorSeesObject(room, connector.id, objectId))
+      && movedShapeIds.some((objectId) => connectorSeesObject(scopes, connector.id, objectId))
     ) {
       affected.add(connector.id);
     }
@@ -227,7 +230,7 @@ export function computePotentialMoveConnectorIds({
         affected.has(candidate.id)
         || candidate.routing?.mode !== "auto"
         || (order.get(candidate.id) ?? -1) <= sourceOrder
-        || !connectorScopesOverlap(room, connectorId, candidate.id)
+        || !connectorScopesOverlap(scopes, connectorId, candidate.id)
       ) {
         continue;
       }
@@ -308,6 +311,12 @@ export function computeAffectedConnectorIds({
   const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
     baseline.objects[objectId]?.kind === "shape" || current.objects[objectId]?.kind === "shape",
   );
+  const baselineScopes = changedObstacleIds.length ? indexConnectorScopes(baseline.diagrams) : null;
+  // Optimistic move frames keep the same Diagram map. Durable edits can
+  // supply different memberships without changing object revisions.
+  const currentScopes = baselineScopes && baseline.diagrams !== current.diagrams
+    ? indexConnectorScopes(current.diagrams)
+    : baselineScopes;
 
   for (const connector of currentConnectors) {
     if (changedConnectorInputIds.has(connector.id)) {
@@ -328,11 +337,11 @@ export function computeAffectedConnectorIds({
       continue;
     }
     const routeBounds = currentRoutes[connector.id]?.bounds;
-    if (!routeBounds) continue;
+    if (!routeBounds || !baselineScopes || !currentScopes) continue;
     for (const objectId of changedObstacleIds) {
       if (
-        !connectorSeesObject(baseline, connector.id, objectId) &&
-        !connectorSeesObject(current, connector.id, objectId)
+        !connectorSeesObject(baselineScopes, connector.id, objectId) &&
+        !connectorSeesObject(currentScopes, connector.id, objectId)
       ) {
         continue;
       }

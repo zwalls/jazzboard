@@ -163,6 +163,38 @@ describe("connector dependency closure", () => {
     })]).toEqual(["grouped", "auto", "later"]);
   });
 
+  it("indexes forward Diagram scopes once and follows only later overlapping dependencies", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const early = connector("early", left, right, 2);
+    const source = connector("source", left, right, 3, "straight");
+    const bridge = connector("bridge", left, right, 4);
+    const later = connector("later", left, right, 5);
+    const disjoint = connector("disjoint", left, right, 6);
+    const global = connector("global", left, right, 7, "straight");
+    const globalDependent = connector("global-dependent", left, right, 8);
+    const otherScope = diagram("third", [], [disjoint.id, globalDependent.id]);
+    // The reverse object memberships are deliberately empty in this fixture.
+    const scan = vi.fn(() => [disjoint.id, globalDependent.id]);
+    Object.defineProperty(otherScope, "connectorIds", { get: scan });
+    const state = room(
+      [left, right, early, source, bridge, later, disjoint, global, globalDependent],
+      [
+        diagram("first", [], [source.id, bridge.id]),
+        diagram("second", [], [early.id, bridge.id, later.id]),
+        otherScope,
+      ],
+    );
+
+    expect([...computePotentialMoveConnectorIds({
+      room: state, movedObjectIds: new Set(), explicitConnectorIds: new Set([source.id]),
+    })]).toEqual(["source", "bridge", "later"]);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect([...computePotentialMoveConnectorIds({
+      room: state, movedObjectIds: new Set(), explicitConnectorIds: new Set([global.id]),
+    })]).toEqual(["global", "global-dependent"]);
+  });
+
   it("includes a connector bound to a moved object for optimistic protection and leasing", () => {
     const left = node("left", 0, 0);
     const right = node("right", 400, 0);
@@ -243,6 +275,28 @@ describe("connector dependency closure", () => {
       current: scopedMove,
       touchedObjectIds: new Set(["scoped-obstacle"]),
     })).toEqual(new Set(["edge"]));
+  });
+
+  it("uses both geometry snapshots' forward scopes when Diagram membership changes", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const obstacle = node("obstacle", 240, 200);
+    const edge = connector("edge", left, right, 4);
+    const withoutObstacle = room([left, right, obstacle, edge], [
+      diagram("scope", [left.id, right.id], [edge.id]),
+    ]);
+    const withObstacle = changedRoom(withoutObstacle, (next) => {
+      next.objects.obstacle.y = 10;
+      next.diagrams.scope.memberObjectIds.push("obstacle");
+    });
+
+    const touchedObjectIds = new Set(["obstacle"]);
+    expect([...computeAffectedConnectorIds({
+      baseline: withoutObstacle, current: withObstacle, touchedObjectIds,
+    })]).toEqual(["edge"]);
+    expect([...computeAffectedConnectorIds({
+      baseline: withObstacle, current: withoutObstacle, touchedObjectIds,
+    })]).toEqual(["edge"]);
   });
 
   it("transitively includes only later ordered auto routes with overlapping influence", () => {
