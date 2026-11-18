@@ -437,6 +437,34 @@ describe("semantic marquee geometry", () => {
       .toEqual(["oval"]);
   });
 
+  it("contains small rectangular objects by their geometry, not padded scene bounds", () => {
+    const scene = buildSemanticScene(room([
+      rectangle("tiny", { width: 0.25, height: 0.5, rotation: 1e-10 }),
+      text("label", { width: 0.25, height: 0.5, zIndex: 2 }),
+      image("locked", true, { width: 0.25, height: 0.5, zIndex: 3 }),
+      rectangle("rotated", { width: 0.25, height: 0.5, rotation: Math.PI / 4 }),
+    ]));
+    const bounds = { x: 0, y: 0, width: 0.25, height: 0.5 };
+
+    expect(scene.objectsById.tiny.bounds.width).toBe(1);
+    expect(querySemanticSceneBounds(scene, bounds, { mode: "contain" }))
+      .toEqual(["tiny", "label", "locked"]);
+    expect(querySemanticSceneBounds(scene, bounds, { mode: "contain", lockedImages: "exclude" }))
+      .toEqual(["tiny", "label"]);
+  });
+
+  it("still intersects crossing rectangles and rejects empty diamond corners", () => {
+    const scene = buildSemanticScene(room([
+      rectangle("crossbar", { x: -50, y: -2, width: 100, height: 4 }),
+      diamond("diamond", { x: 100, y: 100, width: 60, height: 60 }),
+    ]));
+
+    expect(querySemanticSceneBounds(scene, { x: -1, y: -30, width: 2, height: 60 }))
+      .toEqual(["crossbar"]);
+    expect(querySemanticSceneBounds(scene, { x: 100, y: 100, width: 3, height: 3 }))
+      .toEqual([]);
+  });
+
   it("intersects freehand strokes and all resolved connector route kinds", () => {
     const scene = buildSemanticScene(room([
       draw("stroke", { y: 20, zIndex: 1 }),
