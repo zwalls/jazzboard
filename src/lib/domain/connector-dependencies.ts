@@ -1,10 +1,11 @@
 import {
   CONNECTOR_ROUTING_LIMITS,
+  materializeConnectorRoute,
   materializeConnectorRoutes,
   normalizeConnectorRouting,
   type ResolvedConnectorRoute,
 } from "./connector-routing";
-import type { CanvasBounds, CanvasObject, RoomState } from "./types";
+import type { CanvasBounds, CanvasObject, Diagram, RoomState } from "./types";
 
 /**
  * The authoritative state needed to calculate connector dependencies. Keeping
@@ -140,38 +141,40 @@ function connectorRouteInputChanged(
   );
 }
 
+type ConnectorScopes = ReadonlyMap<string, readonly Diagram[]>;
+
+/** Index the forward memberships, including documents whose reverse index has not been normalized. */
+function indexConnectorScopes(diagrams: ConnectorDependencyRoom["diagrams"]): ConnectorScopes {
+  const scopes = new Map<string, Diagram[]>();
+  for (const diagram of Object.values(diagrams ?? {})) {
+    for (const connectorId of diagram.connectorIds) {
+      const existing = scopes.get(connectorId);
+      if (existing) existing.push(diagram);
+      else scopes.set(connectorId, [diagram]);
+    }
+  }
+  return scopes;
+}
+
 function connectorSeesObject(
-  room: ConnectorDependencyRoom,
+  byConnector: ConnectorScopes,
   connectorId: string,
   objectId: string,
 ): boolean {
-  const scopes = Object.values(room.diagrams ?? {}).filter((diagram) =>
-    diagram.connectorIds.includes(connectorId),
-  );
-  return scopes.length === 0 || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
-}
-
-function connectorDiagramIds(
-  room: ConnectorDependencyRoom,
-  connectorId: string,
-): Set<string> {
-  return new Set(
-    Object.values(room.diagrams ?? {})
-      .filter((diagram) => diagram.connectorIds.includes(connectorId))
-      .map((diagram) => diagram.id),
-  );
+  const scopes = byConnector.get(connectorId);
+  return !scopes || scopes.some((diagram) => diagram.memberObjectIds.includes(objectId));
 }
 
 function connectorScopesOverlap(
-  room: ConnectorDependencyRoom,
+  byConnector: ConnectorScopes,
   leftConnectorId: string,
   rightConnectorId: string,
 ): boolean {
-  const left = connectorDiagramIds(room, leftConnectorId);
-  const right = connectorDiagramIds(room, rightConnectorId);
+  const left = byConnector.get(leftConnectorId);
+  const right = byConnector.get(rightConnectorId);
   // A connector without Diagram metadata is intentionally board-scoped.
-  if (!left.size || !right.size) return true;
-  return [...left].some((diagramId) => right.has(diagramId));
+  if (!left || !right) return true;
+  return left.some((diagram) => right.some((other) => diagram.id === other.id));
 }
 
 /**
@@ -196,6 +199,7 @@ export function computePotentialMoveConnectorIds({
   const movedShapeIds = [...movedObjectIds].filter(
     (objectId) => room.objects[objectId]?.kind === "shape",
   );
+  const scopes = indexConnectorScopes(room.diagrams);
   const affected = new Set<string>();
 
   for (const connector of connectors) {
@@ -212,7 +216,7 @@ export function computePotentialMoveConnectorIds({
     }
     if (
       connector.routing?.mode === "auto"
-      && movedShapeIds.some((objectId) => connectorSeesObject(room, connector.id, objectId))
+      && movedShapeIds.some((objectId) => connectorSeesObject(scopes, connector.id, objectId))
     ) {
       affected.add(connector.id);
     }
@@ -227,7 +231,7 @@ export function computePotentialMoveConnectorIds({
         affected.has(candidate.id)
         || candidate.routing?.mode !== "auto"
         || (order.get(candidate.id) ?? -1) <= sourceOrder
-        || !connectorScopesOverlap(room, connectorId, candidate.id)
+        || !connectorScopesOverlap(scopes, connectorId, candidate.id)
       ) {
         continue;
       }
@@ -266,25 +270,45 @@ function connectorInfluenceBounds(
  * The returned Set has stable insertion order: directly affected connectors
  * follow creation/id order, followed by later ordered auto-route dependants.
  */
-export function computeAffectedConnectorIds({
-  baseline,
-  current,
-  touchedObjectIds,
-  touchedDiagramIds = new Set<string>(),
-}: ConnectorDependencyClosureInput): Set<string> {
-  const baselineRoutes = materializeConnectorRoutes(baseline);
-  const currentRoutes = materializeConnectorRoutes(current);
-  const currentConnectors = Object.values(current.objects)
-    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
-    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
-  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
+export function computeAffectedConnectorIds(input: ConnectorDependencyClosureInput): Set<string> {
+  return computeAffectedConnectorClosure(input);
+}
+
+type ReadBaselineRoute = (id: string) => ResolvedConnectorRoute | undefined;
+
+/** Reuse only requested routes from a privately owned, immutable gesture baseline. */
+export function createConnectorDependencyAnalyzer(
+  baseline: ConnectorDependencyRoom,
+): (update: Omit<ConnectorDependencyClosureInput, "baseline">) => Set<string> {
+  let routes: Map<string, ResolvedConnectorRoute> | undefined;
+  const readBaselineRoute: ReadBaselineRoute = (id) => {
+    const cached = routes?.get(id);
+    if (cached) return cached;
+    const connector = baseline.objects[id];
+    if (connector?.kind !== "connector") return undefined;
+    const route = materializeConnectorRoute(connector, baseline);
+    (routes ??= new Map()).set(id, route);
+    return route;
+  };
+  return (update) => computeAffectedConnectorClosure({ ...update, baseline }, readBaselineRoute);
+}
+
+function computeAffectedConnectorClosure(
+  {
+    baseline,
+    current,
+    touchedObjectIds,
+    touchedDiagramIds = new Set<string>(),
+  }: ConnectorDependencyClosureInput,
+  readBaselineRoute?: ReadBaselineRoute,
+): Set<string> {
   const affected = new Set<string>();
   const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
     objectGeometryChanged(baseline.objects[objectId], current.objects[objectId]),
   ));
-  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
-    baseline.objects[objectId]?.kind === "shape" || current.objects[objectId]?.kind === "shape",
-  );
+  const changedConnectorInputIds = new Set([...touchedObjectIds].filter((objectId) =>
+    connectorRouteInputChanged(baseline.objects[objectId], current.objects[objectId]),
+  ));
   const scopeChangedDiagramIds = new Set(
     [...touchedDiagramIds].filter((diagramId) => {
       const before = baseline.diagrams?.[diagramId];
@@ -298,11 +322,32 @@ export function computeAffectedConnectorIds({
     }),
   );
 
+  // Text/style/metadata edits can still update the document and its Diagram
+  // revisions, but without any route inputs changing there is no closure to
+  // compute and no need to materialize either connector snapshot here.
+  if (!changedGeometryIds.size && !changedConnectorInputIds.size && !scopeChangedDiagramIds.size) {
+    return affected;
+  }
+
+  const baselineRoutes = readBaselineRoute ? undefined : materializeConnectorRoutes(baseline);
+  const baselineRoute: ReadBaselineRoute = readBaselineRoute ?? ((id) => baselineRoutes?.[id]);
+  const currentRoutes = materializeConnectorRoutes(current);
+  const currentConnectors = Object.values(current.objects)
+    .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
+    .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  const order = new Map(currentConnectors.map((connector, index) => [connector.id, index]));
+  const changedObstacleIds = [...changedGeometryIds].filter((objectId) =>
+    baseline.objects[objectId]?.kind === "shape" || current.objects[objectId]?.kind === "shape",
+  );
+  const baselineScopes = changedObstacleIds.length ? indexConnectorScopes(baseline.diagrams) : null;
+  // Optimistic move frames keep the same Diagram map. Durable edits can
+  // supply different memberships without changing object revisions.
+  const currentScopes = baselineScopes && baseline.diagrams !== current.diagrams
+    ? indexConnectorScopes(current.diagrams)
+    : baselineScopes;
+
   for (const connector of currentConnectors) {
-    if (
-      touchedObjectIds.has(connector.id) &&
-      connectorRouteInputChanged(baseline.objects[connector.id], connector)
-    ) {
+    if (changedConnectorInputIds.has(connector.id)) {
       affected.add(connector.id);
     }
     if (
@@ -320,11 +365,11 @@ export function computeAffectedConnectorIds({
       continue;
     }
     const routeBounds = currentRoutes[connector.id]?.bounds;
-    if (!routeBounds) continue;
+    if (!routeBounds || !baselineScopes || !currentScopes) continue;
     for (const objectId of changedObstacleIds) {
       if (
-        !connectorSeesObject(baseline, connector.id, objectId) &&
-        !connectorSeesObject(current, connector.id, objectId)
+        !connectorSeesObject(baselineScopes, connector.id, objectId) &&
+        !connectorSeesObject(currentScopes, connector.id, objectId)
       ) {
         continue;
       }
@@ -333,7 +378,7 @@ export function computeAffectedConnectorIds({
       const impactBounds = before && after
         ? unionCanvasBounds(routedObjectBounds(before), routedObjectBounds(after))
         : routedObjectBounds((before ?? after)!);
-      const priorRouteBounds = baselineRoutes[connector.id]?.bounds ?? routeBounds;
+      const priorRouteBounds = baselineRoute(connector.id)?.bounds ?? routeBounds;
       if (
         canvasBoundsIntersect(priorRouteBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding)) ||
         canvasBoundsIntersect(routeBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding))
@@ -388,6 +433,16 @@ export function computeAffectedConnectorIds({
 
   // Crossing scores are ordered. Only later auto routes whose influence region
   // overlaps a changed route can depend on that changed route.
+  // Every impact tests the same current snapshot. Reuse a candidate's bounds
+  // across queue visits, but never across snapshots or pointer frames.
+  const currentInfluenceBounds = new Map<string, CanvasBounds>();
+  const currentInfluence = (connector: Extract<CanvasObject, { kind: "connector" }>): CanvasBounds => {
+    const cached = currentInfluenceBounds.get(connector.id);
+    if (cached) return cached;
+    const bounds = connectorInfluenceBounds(current, connector, currentRoutes[connector.id]);
+    currentInfluenceBounds.set(connector.id, bounds);
+    return bounds;
+  };
   const queue: Array<{
     connectorId: string;
     order: number;
@@ -397,11 +452,11 @@ export function computeAffectedConnectorIds({
     const connector = current.objects[connectorId];
     if (connector?.kind !== "connector") continue;
     const before = baseline.objects[connectorId];
-    const currentBounds = connectorInfluenceBounds(current, connector, currentRoutes[connectorId]);
+    const currentBounds = currentInfluence(connector);
     const bounds = before?.kind === "connector"
       ? unionCanvasBounds(
           currentBounds,
-          connectorInfluenceBounds(baseline, before, baselineRoutes[connectorId]),
+          connectorInfluenceBounds(baseline, before, baselineRoute(connectorId)),
         )
       : currentBounds;
     queue.push({
@@ -420,7 +475,7 @@ export function computeAffectedConnectorIds({
     queue.push({
       connectorId: deleted.id,
       order: (firstLaterIndex < 0 ? currentConnectors.length : firstLaterIndex) - 1,
-      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoutes[deleted.id]),
+      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoute(deleted.id)),
     });
   }
   for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
@@ -433,7 +488,7 @@ export function computeAffectedConnectorIds({
       ) {
         continue;
       }
-      const candidateBounds = connectorInfluenceBounds(current, connector, currentRoutes[connector.id]);
+      const candidateBounds = currentInfluence(connector);
       if (!canvasBoundsIntersect(impact.bounds, candidateBounds)) continue;
       affected.add(connector.id);
       queue.push({

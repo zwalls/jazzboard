@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as connectorRouting from "./connector-routing";
 import { normalizeConnectorRouting } from "./connector-routing";
 import {
   computeAffectedConnectorIds,
   computePotentialMoveConnectorIds,
+  createConnectorDependencyAnalyzer,
   type ConnectorDependencyRoom,
 } from "./connector-dependencies";
 import type { ActorRef, CanvasObject, ConnectorObject, Diagram, ShapeObject } from "./types";
@@ -114,6 +116,30 @@ function changedRoom(
 }
 
 describe("connector dependency closure", () => {
+  it("does not materialize routes for node labels and Diagram metadata, but tracks connector labels", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const edge = connector("edge", left, right);
+    const baseline = room([left, right, edge], [diagram("diagram", [left.id, right.id], [edge.id])]);
+    const current = changedRoom(baseline, (state) => {
+      (state.objects.left as ShapeObject).label = "A new node label";
+      state.diagrams.diagram.title = "A new diagram title";
+    });
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
+    try {
+      const input = { baseline, current, touchedObjectIds: new Set(["left"]), touchedDiagramIds: new Set(["diagram"]) };
+      expect([...computeAffectedConnectorIds(input)]).toEqual([]);
+      expect(materialize).not.toHaveBeenCalled();
+
+      (current.objects.edge as ConnectorObject).label = "A new connector label";
+      expect([...computeAffectedConnectorIds({ ...input, touchedObjectIds: new Set(["left", "edge"]) })])
+        .toEqual(["edge"]);
+      expect(materialize).toHaveBeenCalledTimes(2);
+    } finally {
+      materialize.mockRestore();
+    }
+  });
+
   it("preflights grouped, bound, scoped auto, and transitive move dependencies", () => {
     const left = node("left", 0, 0);
     const right = node("right", 500, 0);
@@ -136,6 +162,38 @@ describe("connector dependency closure", () => {
       movedObjectIds: new Set(["obstacle"]),
       explicitConnectorIds: new Set(["grouped"]),
     })]).toEqual(["grouped", "auto", "later"]);
+  });
+
+  it("indexes forward Diagram scopes once and follows only later overlapping dependencies", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const early = connector("early", left, right, 2);
+    const source = connector("source", left, right, 3, "straight");
+    const bridge = connector("bridge", left, right, 4);
+    const later = connector("later", left, right, 5);
+    const disjoint = connector("disjoint", left, right, 6);
+    const global = connector("global", left, right, 7, "straight");
+    const globalDependent = connector("global-dependent", left, right, 8);
+    const otherScope = diagram("third", [], [disjoint.id, globalDependent.id]);
+    // The reverse object memberships are deliberately empty in this fixture.
+    const scan = vi.fn(() => [disjoint.id, globalDependent.id]);
+    Object.defineProperty(otherScope, "connectorIds", { get: scan });
+    const state = room(
+      [left, right, early, source, bridge, later, disjoint, global, globalDependent],
+      [
+        diagram("first", [], [source.id, bridge.id]),
+        diagram("second", [], [early.id, bridge.id, later.id]),
+        otherScope,
+      ],
+    );
+
+    expect([...computePotentialMoveConnectorIds({
+      room: state, movedObjectIds: new Set(), explicitConnectorIds: new Set([source.id]),
+    })]).toEqual(["source", "bridge", "later"]);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect([...computePotentialMoveConnectorIds({
+      room: state, movedObjectIds: new Set(), explicitConnectorIds: new Set([global.id]),
+    })]).toEqual(["global", "global-dependent"]);
   });
 
   it("includes a connector bound to a moved object for optimistic protection and leasing", () => {
@@ -220,6 +278,28 @@ describe("connector dependency closure", () => {
     })).toEqual(new Set(["edge"]));
   });
 
+  it("uses both geometry snapshots' forward scopes when Diagram membership changes", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const obstacle = node("obstacle", 240, 200);
+    const edge = connector("edge", left, right, 4);
+    const withoutObstacle = room([left, right, obstacle, edge], [
+      diagram("scope", [left.id, right.id], [edge.id]),
+    ]);
+    const withObstacle = changedRoom(withoutObstacle, (next) => {
+      next.objects.obstacle.y = 10;
+      next.diagrams.scope.memberObjectIds.push("obstacle");
+    });
+
+    const touchedObjectIds = new Set(["obstacle"]);
+    expect([...computeAffectedConnectorIds({
+      baseline: withoutObstacle, current: withObstacle, touchedObjectIds,
+    })]).toEqual(["edge"]);
+    expect([...computeAffectedConnectorIds({
+      baseline: withObstacle, current: withoutObstacle, touchedObjectIds,
+    })]).toEqual(["edge"]);
+  });
+
   it("transitively includes only later ordered auto routes with overlapping influence", () => {
     const a1 = node("a1", 0, 0);
     const b1 = node("b1", 500, 0);
@@ -251,5 +331,101 @@ describe("connector dependency closure", () => {
       current: lastCurrent,
       touchedObjectIds: new Set(["edge-3"]),
     })]).toEqual(["edge-3"]);
+  });
+
+  it("reuses the same rotated influence bounds across impacts but checks fresh geometry next time", () => {
+    const a1 = node("a1", 0, 0);
+    const b1 = node("b1", 500, 0);
+    const a2 = node("a2", 0, 50);
+    const b2 = node("b2", 500, 50);
+    const a3 = node("a3", 0, 400);
+    const b3 = node("b3", 500, 400);
+    a3.rotation = Math.PI / 6;
+    const first = connector("first", a1, b1, 10);
+    const second = connector("second", a2, b2, 20);
+    const later = connector("later", a3, b3, 30);
+    const baseline = room([a1, b1, a2, b2, a3, b3, first, second, later]);
+    const updateTwoLabels = (next: ConnectorDependencyRoom) => {
+      (next.objects.first as ConnectorObject).label = "first update";
+      (next.objects.second as ConnectorObject).label = "second update";
+    };
+    const current = changedRoom(baseline, updateTwoLabels);
+    const readRotation = vi.fn(() => Math.PI / 6);
+    Object.defineProperty(current.objects.a3, "rotation", { get: readRotation });
+    const touchedObjectIds = new Set(["first", "second"]);
+
+    expect([...computeAffectedConnectorIds({ baseline, current, touchedObjectIds })]).toEqual(["first", "second"]);
+    // One pair of sine/cosine reads for the later endpoint despite two
+    // earlier route impacts visiting its unchanged candidate bounds.
+    expect(readRotation).toHaveBeenCalledTimes(2);
+
+    const nextBaseline = changedRoom(baseline, (next) => {
+      const left = next.objects.a3 as ShapeObject;
+      const right = next.objects.b3 as ShapeObject;
+      left.y = 80;
+      right.y = 80;
+      next.objects.later = connector("later", left, right, 30);
+    });
+    expect([...computeAffectedConnectorIds({
+      baseline: nextBaseline, current: changedRoom(nextBaseline, updateTwoLabels), touchedObjectIds,
+    })]).toEqual(["first", "second", "later"]);
+  });
+
+  it("reuses just the required baseline route across updates and rematerializes current geometry", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const farLeft = node("far-left", 0, 1500);
+    const farRight = node("far-right", 500, 1500);
+    const baseline = room([left, right, farLeft, farRight,
+      connector("edge", left, right), connector("unrelated", farLeft, farRight, 2)], [
+      diagram("near", [left.id, right.id], ["edge"]),
+      diagram("far", [farLeft.id, farRight.id], ["unrelated"]),
+    ]);
+    const metadata = changedRoom(baseline, (next) => {
+      (next.objects.left as ShapeObject).label = "New label";
+    });
+    const updates = [10, 20].map((y) => ({
+      current: changedRoom(baseline, (next) => { next.objects.left.y = y; }),
+      touchedObjectIds: new Set(["left"]),
+    }));
+    const expected = updates.map((update) => [...computeAffectedConnectorIds({ ...update, baseline })]);
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoute");
+    const materializeAll = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
+    try {
+      const analyze = createConnectorDependencyAnalyzer(baseline);
+      expect([...analyze({ current: metadata, touchedObjectIds: new Set(["left"]) })]).toEqual([]);
+      expect(materialize).not.toHaveBeenCalled();
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(expected).toEqual([["edge"], ["edge"]]);
+      expect(updates.map((update) => [...analyze(update)])).toEqual(expected);
+      expect(materialize).toHaveBeenCalledExactlyOnceWith(baseline.objects.edge, baseline);
+      expect(materializeAll.mock.calls.map(([current]) => current))
+        .toEqual(updates.map(({ current }) => current));
+    } finally {
+      materialize.mockRestore();
+      materializeAll.mockRestore();
+    }
+  });
+
+  it("keeps considering the old influence of a changed route for later connectors", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const laterLeft = node("later-left", 0, 55);
+    const laterRight = node("later-right", 500, 55);
+    const first = connector("first", left, right, 10);
+    first.start.objectId = null;
+    first.end.objectId = null;
+    const later = connector("later", laterLeft, laterRight, 20);
+    const baseline = room([left, right, laterLeft, laterRight, first, later]);
+    const current = changedRoom(baseline, (next) => {
+      const moved = next.objects.first as ConnectorObject;
+      moved.y += 600;
+      moved.start.y += 600;
+      moved.end.y += 600;
+    });
+
+    expect([...computeAffectedConnectorIds({
+      baseline, current, touchedObjectIds: new Set(["first"]),
+    })]).toEqual(["first", "later"]);
   });
 });

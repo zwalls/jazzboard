@@ -1,5 +1,5 @@
 import {
-  computeAffectedConnectorIds,
+  createConnectorDependencyAnalyzer,
   computePotentialMoveConnectorIds,
 } from "@/lib/domain/connector-dependencies";
 import {
@@ -163,6 +163,7 @@ type ResolvedCohort = {
 type InternalSession = {
   snapshot: SemanticMoveSession;
   baseline: RoomState;
+  analyzeConnectorDependencies: ReturnType<typeof createConnectorDependencyAnalyzer>;
   baseDrafts: ReadonlyMap<string, CreateCanvasObject>;
   translatedConnectorDrafts: ReadonlyMap<string, CreateCanvasObject>;
   selectedObjectIds: readonly string[];
@@ -446,8 +447,7 @@ function proposedRoom(internal: InternalSession): RoomState {
 function discoverDependencies(
   internal: InternalSession,
 ): SemanticMoveConnectorDependency[] {
-  const affected = computeAffectedConnectorIds({
-    baseline: internal.baseline,
+  const affected = internal.analyzeConnectorDependencies({
     current: proposedRoom(internal),
     touchedObjectIds: new Set(internal.snapshot.objectIds),
   });
@@ -608,6 +608,7 @@ export class SemanticMoveSessionEngine {
     this.active = {
       snapshot,
       baseline,
+      analyzeConnectorDependencies: createConnectorDependencyAnalyzer(baseline),
       baseDrafts: new Map(resolved.objects.map((object) => [object.id, draftFromObject(object)])),
       translatedConnectorDrafts: new Map(connectorDependencies.flatMap((dependency) => {
         const connector = baseline.objects[dependency.objectId];

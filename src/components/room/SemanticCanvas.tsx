@@ -132,7 +132,7 @@ import {
   type SemanticCanvasContextMenuActionId,
   type SemanticCanvasContextMenuItem,
 } from "./SemanticCanvasContextMenu";
-import { SemanticCanvasObject } from "./SemanticCanvasObject";
+import { SemanticCanvasObjectLayer } from "./SemanticCanvasObjectLayer";
 import { GuidedWalkthroughOverlay } from "./GuidedWalkthroughOverlay";
 import {
   SemanticImagePicker,
@@ -292,6 +292,7 @@ type TouchLongPress = {
 const CONTEXT_MENU_MARGIN = 8;
 
 const emptySubscribe = () => () => undefined;
+const noPresentingObjectIds: ReadonlySet<string> = new Set();
 let fallbackSemanticId = 0;
 
 /** Stable object dispatchers must observe committed handlers, not abandoned renders. */
@@ -674,7 +675,9 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     getProjectedRoom,
     getProjectedRoom,
   );
+  const projectedObjects = projectedRoom.objects;
   const presentingObjectIds = useMemo(() => {
+    if (!liveAgentDrafts.length) return noPresentingObjectIds;
     const ids = new Set<string>();
     for (const draft of liveAgentDrafts) {
       if (
@@ -683,15 +686,15 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         draft.hardExpiresAt <= presentationNow
       ) continue;
       for (const preview of draft.previewObjects) {
-        const authoritative = projectedRoom.objects[preview.id];
+        const authoritative = projectedObjects[preview.id];
         if (
           authoritative?.revision === preview.revision &&
           authoritative.createdAt === preview.createdAt
         ) ids.add(preview.id);
       }
     }
-    return ids;
-  }, [liveAgentDrafts, presentationNow, projectedRoom]);
+    return ids.size ? ids : noPresentingObjectIds;
+  }, [liveAgentDrafts, presentationNow, projectedObjects]);
   const [activeTextEditor, setActiveTextEditor] = useState<ActiveTextEditor | null>(null);
   const renderedRoom = useMemo<RoomState>(() => {
     const inspectedDraft = cleanInspectionActive && cleanInspectionDraftScope
@@ -3225,25 +3228,19 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
     >
       <svg className={styles.viewport} width="100%" height="100%" aria-label="Board objects">
         <g transform={`translate(${-viewport.x * viewport.zoom} ${-viewport.y * viewport.zoom}) scale(${viewport.zoom})`}>
-          {scene.objects.map(({ object, bounds }) => (
-            <SemanticCanvasObject
-              key={`object:${object.id}`}
-              object={object}
-              bounds={bounds}
-              connectorRoute={object.kind === "connector" ? scene.connectorRoutes[object.id] : undefined}
-              selected={!cleanInspectionActive && selectionSet.has(object.id)}
-              focused={!cleanInspectionActive && focusedObjectId === object.id}
-              suppressFocusVisual={cleanInspectionActive}
-              presentationHidden={!cleanInspectionActive && presentingObjectIds.has(object.id)}
-              tabIndex={!cleanInspectionActive && effectiveTabStopObjectId === object.id ? 0 : -1}
-              className={styles.objectHitTarget}
-              onSelect={dispatchObjectSelect}
-              onPointerStart={controller ? dispatchObjectPointerStart : undefined}
-              onEditRequested={controller ? dispatchObjectEditRequested : undefined}
-              onFocus={dispatchObjectFocus}
-              onBlur={dispatchObjectBlur}
-            />
-          ))}
+          <SemanticCanvasObjectLayer
+            scene={scene}
+            selectedObjectIds={selectionSet}
+            focusedObjectId={focusedObjectId}
+            cleanInspectionActive={cleanInspectionActive}
+            presentingObjectIds={presentingObjectIds}
+            tabStopObjectId={effectiveTabStopObjectId}
+            onSelect={dispatchObjectSelect}
+            onPointerStart={controller ? dispatchObjectPointerStart : undefined}
+            onEditRequested={controller ? dispatchObjectEditRequested : undefined}
+            onFocus={dispatchObjectFocus}
+            onBlur={dispatchObjectBlur}
+          />
           {!cleanInspectionActive && activeMarqueeSession ? (
             <rect
               className={styles.marquee}

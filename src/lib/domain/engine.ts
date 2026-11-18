@@ -846,29 +846,34 @@ export function applySemanticTransaction(
     touchedObjectIds,
     touchedDiagramIds,
   });
-  const resolvedRoutes = resolveAffectedConnectorRoutes(
-    room,
-    connectorIdsToResolve,
-    connectorIdsToResolve.size > BULK_CONNECTOR_ROUTING_THRESHOLD
-      ? { resolutionMode: "bounded", maxCandidates: BULK_CONNECTOR_MAX_CANDIDATES }
-      : undefined,
-  );
-  for (const object of Object.values(room.objects)) {
-    if (object.kind !== "connector") continue;
-    if (!connectorIdsToResolve.has(object.id)) continue;
-    const route = resolvedRoutes[object.id];
-    if (!route) continue;
-    const geometry = connectorGeometry(route);
-    if (!connectorGeometryChanged(object, geometry)) continue;
-    const wasExplicitlyTouched = touchedObjectIds.has(object.id);
-    if (!wasExplicitlyTouched && baseline.objects[object.id]) verifyLease(room, object, actor, undefined, now);
-    Object.assign(object, geometry);
-    if (!wasExplicitlyTouched && baseline.objects[object.id]) {
-      object.revision += 1;
-      object.updatedAt = now;
-      object.lastEditedBy = actor;
+  const resolvedRoutes = connectorIdsToResolve.size
+    ? resolveAffectedConnectorRoutes(
+        room,
+        connectorIdsToResolve,
+        connectorIdsToResolve.size > BULK_CONNECTOR_ROUTING_THRESHOLD
+          ? { resolutionMode: "bounded", maxCandidates: BULK_CONNECTOR_MAX_CANDIDATES }
+          : undefined,
+      )
+    // Diagram bounds below still need the persisted paths and label bounds.
+    : materializeConnectorRoutes(room);
+  if (connectorIdsToResolve.size) {
+    for (const object of Object.values(room.objects)) {
+      if (object.kind !== "connector") continue;
+      if (!connectorIdsToResolve.has(object.id)) continue;
+      const route = resolvedRoutes[object.id];
+      if (!route) continue;
+      const geometry = connectorGeometry(route);
+      if (!connectorGeometryChanged(object, geometry)) continue;
+      const wasExplicitlyTouched = touchedObjectIds.has(object.id);
+      if (!wasExplicitlyTouched && baseline.objects[object.id]) verifyLease(room, object, actor, undefined, now);
+      Object.assign(object, geometry);
+      if (!wasExplicitlyTouched && baseline.objects[object.id]) {
+        object.revision += 1;
+        object.updatedAt = now;
+        object.lastEditedBy = actor;
+      }
+      touchedObjectIds.add(object.id);
     }
-    touchedObjectIds.add(object.id);
   }
 
   const diagrams = room.diagrams ?? (room.diagrams = {});

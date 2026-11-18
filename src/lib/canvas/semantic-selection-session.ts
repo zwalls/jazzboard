@@ -565,8 +565,7 @@ function objectHitDistance(
   return polygonDistance(point, polygon);
 }
 
-function stableSceneOrder(scene: SemanticScene, ids: Iterable<string>): string[] {
-  const requested = new Set(ids);
+function stableSceneOrder(scene: SemanticScene, requested: ReadonlySet<string>): string[] {
   // Pointer hits usually select one object or a small group. Sort those members
   // directly instead of scanning an otherwise unrelated large board. Dense
   // selections retain the linear walk through the scene's existing paint order.
@@ -595,12 +594,18 @@ export function expandSemanticSelectionGroups(
   groupMode: SemanticSelectionGroupMode = "group",
 ): readonly string[] {
   const expanded = new Set<string>();
+  let expandedGroupIds: Set<string> | undefined;
   for (const objectId of objectIds) {
     const item = scene.objectsById[objectId];
     if (!item) continue;
     expanded.add(objectId);
-    if (groupMode !== "group" || !item.object.groupId) continue;
-    for (const memberId of scene.groupMembers[item.object.groupId] ?? []) expanded.add(memberId);
+    if (groupMode !== "group") continue;
+    const groupId = item.object.groupId;
+    if (!groupId) continue;
+    expandedGroupIds ??= new Set();
+    if (expandedGroupIds.has(groupId)) continue;
+    expandedGroupIds.add(groupId);
+    for (const memberId of scene.groupMembers[groupId] ?? []) expanded.add(memberId);
   }
   return Object.freeze(stableSceneOrder(scene, expanded));
 }
@@ -702,9 +707,13 @@ function objectIntersectsMarquee(
       return Boolean(route && boundsContain(marquee, route.bounds));
     }
     if (object.kind === "draw" || object.kind === "path") return boundsContain(marquee, item.bounds);
-    const polygon = object.kind === "shape" && object.shape === "diamond"
-      ? diamondCorners(object)
-      : rectangleCorners(object);
+    const diamond = object.kind === "shape" && object.shape === "diamond";
+    // For an unrotated rectangle, testing its two extreme corners is
+    // equivalent to testing all four. Use geometry, not the padded scene bounds.
+    if (!diamond && Math.abs(object.rotation) <= EPSILON && object.width >= 0 && object.height >= 0) {
+      return boundsContain(marquee, object);
+    }
+    const polygon = diamond ? diamondCorners(object) : rectangleCorners(object);
     return polygon.every((point) => pointInBounds(point, marquee));
   }
 
@@ -736,9 +745,11 @@ function objectIntersectsMarquee(
     return route.points.some((point, index) =>
       index > 0 && segmentIntersectsBounds(route.points[index - 1], point, marquee));
   }
-  const polygon = object.kind === "shape" && object.shape === "diamond"
-    ? diamondCorners(object)
-    : rectangleCorners(object);
+  const diamond = object.kind === "shape" && object.shape === "diamond";
+  // The unrotated top-left corner is the first point the polygon test would
+  // check. Only short-circuit a definite hit; crossings still use exact geometry.
+  if (!diamond && Math.abs(object.rotation) <= EPSILON && pointInBounds(object, marquee)) return true;
+  const polygon = diamond ? diamondCorners(object) : rectangleCorners(object);
   return polygonIntersectsBounds(polygon, marquee);
 }
 
@@ -759,10 +770,13 @@ export function querySemanticSceneBounds(
   );
   const marquee = expandBounds(bounds, tolerance);
   const lockedImages = options.lockedImages ?? "selectable";
-  const direct = scene.objects
-    .filter((item) => selectable(item, lockedImages))
-    .filter((item) => objectIntersectsMarquee(scene, item, marquee, options.mode ?? "intersect"))
-    .map(({ object }) => object.id);
+  const mode = options.mode ?? "intersect";
+  const direct: string[] = [];
+  for (const item of scene.objects) {
+    if (selectable(item, lockedImages) && objectIntersectsMarquee(scene, item, marquee, mode)) {
+      direct.push(item.object.id);
+    }
+  }
   return expandSemanticSelectionGroups(scene, direct, options.groupMode ?? "group");
 }
 
