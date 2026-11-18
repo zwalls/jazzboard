@@ -5,6 +5,7 @@ import { normalizeConnectorRouting } from "./connector-routing";
 import {
   computeAffectedConnectorIds,
   computePotentialMoveConnectorIds,
+  createConnectorDependencyAnalyzer,
   type ConnectorDependencyRoom,
 } from "./connector-dependencies";
 import type { ActorRef, CanvasObject, ConnectorObject, Diagram, ShapeObject } from "./types";
@@ -368,6 +369,42 @@ describe("connector dependency closure", () => {
     expect([...computeAffectedConnectorIds({
       baseline: nextBaseline, current: changedRoom(nextBaseline, updateTwoLabels), touchedObjectIds,
     })]).toEqual(["first", "second", "later"]);
+  });
+
+  it("reuses just the required baseline route across updates and rematerializes current geometry", () => {
+    const left = node("left", 0, 0);
+    const right = node("right", 500, 0);
+    const farLeft = node("far-left", 0, 1500);
+    const farRight = node("far-right", 500, 1500);
+    const baseline = room([left, right, farLeft, farRight,
+      connector("edge", left, right), connector("unrelated", farLeft, farRight, 2)], [
+      diagram("near", [left.id, right.id], ["edge"]),
+      diagram("far", [farLeft.id, farRight.id], ["unrelated"]),
+    ]);
+    const metadata = changedRoom(baseline, (next) => {
+      (next.objects.left as ShapeObject).label = "New label";
+    });
+    const updates = [10, 20].map((y) => ({
+      current: changedRoom(baseline, (next) => { next.objects.left.y = y; }),
+      touchedObjectIds: new Set(["left"]),
+    }));
+    const expected = updates.map((update) => [...computeAffectedConnectorIds({ ...update, baseline })]);
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoute");
+    const materializeAll = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
+    try {
+      const analyze = createConnectorDependencyAnalyzer(baseline);
+      expect([...analyze({ current: metadata, touchedObjectIds: new Set(["left"]) })]).toEqual([]);
+      expect(materialize).not.toHaveBeenCalled();
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(expected).toEqual([["edge"], ["edge"]]);
+      expect(updates.map((update) => [...analyze(update)])).toEqual(expected);
+      expect(materialize).toHaveBeenCalledExactlyOnceWith(baseline.objects.edge, baseline);
+      expect(materializeAll.mock.calls.map(([current]) => current))
+        .toEqual(updates.map(({ current }) => current));
+    } finally {
+      materialize.mockRestore();
+      materializeAll.mockRestore();
+    }
   });
 
   it("keeps considering the old influence of a changed route for later connectors", () => {

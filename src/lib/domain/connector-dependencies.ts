@@ -1,5 +1,6 @@
 import {
   CONNECTOR_ROUTING_LIMITS,
+  materializeConnectorRoute,
   materializeConnectorRoutes,
   normalizeConnectorRouting,
   type ResolvedConnectorRoute,
@@ -269,12 +270,38 @@ function connectorInfluenceBounds(
  * The returned Set has stable insertion order: directly affected connectors
  * follow creation/id order, followed by later ordered auto-route dependants.
  */
-export function computeAffectedConnectorIds({
-  baseline,
-  current,
-  touchedObjectIds,
-  touchedDiagramIds = new Set<string>(),
-}: ConnectorDependencyClosureInput): Set<string> {
+export function computeAffectedConnectorIds(input: ConnectorDependencyClosureInput): Set<string> {
+  return computeAffectedConnectorClosure(input);
+}
+
+type ReadBaselineRoute = (id: string) => ResolvedConnectorRoute | undefined;
+
+/** Reuse only requested routes from a privately owned, immutable gesture baseline. */
+export function createConnectorDependencyAnalyzer(
+  baseline: ConnectorDependencyRoom,
+): (update: Omit<ConnectorDependencyClosureInput, "baseline">) => Set<string> {
+  let routes: Map<string, ResolvedConnectorRoute> | undefined;
+  const readBaselineRoute: ReadBaselineRoute = (id) => {
+    const cached = routes?.get(id);
+    if (cached) return cached;
+    const connector = baseline.objects[id];
+    if (connector?.kind !== "connector") return undefined;
+    const route = materializeConnectorRoute(connector, baseline);
+    (routes ??= new Map()).set(id, route);
+    return route;
+  };
+  return (update) => computeAffectedConnectorClosure({ ...update, baseline }, readBaselineRoute);
+}
+
+function computeAffectedConnectorClosure(
+  {
+    baseline,
+    current,
+    touchedObjectIds,
+    touchedDiagramIds = new Set<string>(),
+  }: ConnectorDependencyClosureInput,
+  readBaselineRoute?: ReadBaselineRoute,
+): Set<string> {
   const affected = new Set<string>();
   const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
     objectGeometryChanged(baseline.objects[objectId], current.objects[objectId]),
@@ -302,7 +329,8 @@ export function computeAffectedConnectorIds({
     return affected;
   }
 
-  const baselineRoutes = materializeConnectorRoutes(baseline);
+  const baselineRoutes = readBaselineRoute ? undefined : materializeConnectorRoutes(baseline);
+  const baselineRoute: ReadBaselineRoute = readBaselineRoute ?? ((id) => baselineRoutes?.[id]);
   const currentRoutes = materializeConnectorRoutes(current);
   const currentConnectors = Object.values(current.objects)
     .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
@@ -350,7 +378,7 @@ export function computeAffectedConnectorIds({
       const impactBounds = before && after
         ? unionCanvasBounds(routedObjectBounds(before), routedObjectBounds(after))
         : routedObjectBounds((before ?? after)!);
-      const priorRouteBounds = baselineRoutes[connector.id]?.bounds ?? routeBounds;
+      const priorRouteBounds = baselineRoute(connector.id)?.bounds ?? routeBounds;
       if (
         canvasBoundsIntersect(priorRouteBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding)) ||
         canvasBoundsIntersect(routeBounds, expandCanvasBounds(impactBounds, CONNECTOR_ROUTING_LIMITS.obstaclePadding))
@@ -428,7 +456,7 @@ export function computeAffectedConnectorIds({
     const bounds = before?.kind === "connector"
       ? unionCanvasBounds(
           currentBounds,
-          connectorInfluenceBounds(baseline, before, baselineRoutes[connectorId]),
+          connectorInfluenceBounds(baseline, before, baselineRoute(connectorId)),
         )
       : currentBounds;
     queue.push({
@@ -447,7 +475,7 @@ export function computeAffectedConnectorIds({
     queue.push({
       connectorId: deleted.id,
       order: (firstLaterIndex < 0 ? currentConnectors.length : firstLaterIndex) - 1,
-      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoutes[deleted.id]),
+      bounds: connectorInfluenceBounds(baseline, deleted, baselineRoute(deleted.id)),
     });
   }
   for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
