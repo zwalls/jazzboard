@@ -370,6 +370,43 @@ describe("semantic selection paint order", () => {
       .toEqual(["earliest", "tie-a", "tie-z"]);
     expect(expandSemanticSelectionGroups(scene, ["missing"])).toEqual([]);
   });
+
+  it("expands each seeded group once per call without changing paint order", () => {
+    const scene = buildSemanticScene(room([
+      rectangle("a-last", { zIndex: 4, groupId: "alpha" }),
+      rectangle("b-last", { zIndex: 4, groupId: "beta" }),
+      image("locked", true, { zIndex: 0, groupId: "alpha" }),
+      rectangle("a-seed", { zIndex: 2, groupId: "alpha" }),
+      rectangle("b-seed", { zIndex: 1, groupId: "beta" }),
+      rectangle("solo", { zIndex: 3 }),
+    ]));
+    const lookups: string[] = [];
+    const observedScene = {
+      ...scene,
+      groupMembers: {
+        get alpha() {
+          lookups.push("alpha");
+          return scene.groupMembers.alpha;
+        },
+        get beta() {
+          lookups.push("beta");
+          return scene.groupMembers.beta;
+        },
+      },
+    };
+    const seeds = ["b-last", "a-last", "missing", "b-seed", "a-seed", "solo", "b-last"];
+    const grouped = expandSemanticSelectionGroups(observedScene, seeds.values());
+
+    expect(grouped).toEqual(["locked", "b-seed", "a-seed", "solo", "a-last", "b-last"]);
+    expect(Object.isFrozen(grouped)).toBe(true);
+    expect(lookups).toEqual(["beta", "alpha"]);
+    expect(expandSemanticSelectionGroups(observedScene, seeds, "object"))
+      .toEqual(["b-seed", "a-seed", "solo", "a-last", "b-last"]);
+    expect(lookups).toEqual(["beta", "alpha"]);
+    expect(expandSemanticSelectionGroups(observedScene, ["b-last", "b-last"]))
+      .toEqual(["b-seed", "b-last"]);
+    expect(lookups).toEqual(["beta", "alpha", "beta"]);
+  });
 });
 
 describe("semantic marquee geometry", () => {

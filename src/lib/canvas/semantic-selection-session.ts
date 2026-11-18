@@ -595,12 +595,18 @@ export function expandSemanticSelectionGroups(
   groupMode: SemanticSelectionGroupMode = "group",
 ): readonly string[] {
   const expanded = new Set<string>();
+  let expandedGroupIds: Set<string> | undefined;
   for (const objectId of objectIds) {
     const item = scene.objectsById[objectId];
     if (!item) continue;
     expanded.add(objectId);
-    if (groupMode !== "group" || !item.object.groupId) continue;
-    for (const memberId of scene.groupMembers[item.object.groupId] ?? []) expanded.add(memberId);
+    if (groupMode !== "group") continue;
+    const groupId = item.object.groupId;
+    if (!groupId) continue;
+    expandedGroupIds ??= new Set();
+    if (expandedGroupIds.has(groupId)) continue;
+    expandedGroupIds.add(groupId);
+    for (const memberId of scene.groupMembers[groupId] ?? []) expanded.add(memberId);
   }
   return Object.freeze(stableSceneOrder(scene, expanded));
 }
