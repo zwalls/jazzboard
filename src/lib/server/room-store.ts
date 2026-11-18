@@ -404,8 +404,11 @@ function verifiedCommittedRoomRevision(error: unknown): number | null {
     : null;
 }
 
-function currentRoomCopy(room: RoomState): RoomState {
-  const current = normalizeRoomSemanticState(structuredClone(room));
+/** Call only with an owned snapshot (a fresh composition or decoded JSON).
+ * The semantic normalizer deliberately mutates its input.
+ */
+function normalizeOwnedRoom(room: RoomState): RoomState {
+  const current = normalizeRoomSemanticState(room);
   current.stateRevision = Math.max(current.stateRevision ?? current.roomRevision, current.roomRevision);
   return current;
 }
@@ -818,7 +821,7 @@ function parseDocumentPlane(encoded: string | null): RoomDocumentPlane | null {
 
 function parseLegacyRoom(encoded: string): RoomState {
   try {
-    return currentRoomCopy(JSON.parse(encoded) as RoomState);
+    return normalizeOwnedRoom(JSON.parse(encoded) as RoomState);
   } catch {
     throw new Error("Jazzboard could not decode its legacy room snapshot.");
   }
@@ -1575,7 +1578,7 @@ class MemoryRoomStore implements RoomStore {
     if (generation) {
       const stored = state.rooms.get(generation.roomId);
       const room = stored
-        ? currentRoomCopy(composeRoomState(normalizedLocalPlanes(stored)))
+        ? normalizeOwnedRoom(composeRoomState(normalizedLocalPlanes(stored)))
         : null;
       if (
         !room ||
@@ -1714,7 +1717,7 @@ class MemoryRoomStore implements RoomStore {
         state.rooms.set(roomId, planes);
         publishLocal(derivedStateEvent(roomId, reconciliation, now));
       }
-      return currentRoomCopy(composeRoomState(planes));
+      return normalizeOwnedRoom(composeRoomState(planes));
     } finally {
       release();
       if (state.queues.get(roomId) === queued) state.queues.delete(roomId);
@@ -1838,7 +1841,7 @@ class MemoryRoomStore implements RoomStore {
         state.rooms.set(roomId, planes);
         publishLocal(derivedStateEvent(roomId, reconciliation, now));
       }
-      const before = currentRoomCopy(composeRoomState(planes));
+      const before = normalizeOwnedRoom(composeRoomState(planes));
       const updated = updater(structuredClone(before));
       const mutation = normalizeMutationRevisions(before, updated.room);
       await assertLocalPrivateBlobReferences(
@@ -2490,7 +2493,7 @@ export class RedisRoomStore implements RoomStore {
         Date.now(),
       ) === null
     ) {
-      return currentRoomCopy(composeRoomState(current));
+      return normalizeOwnedRoom(composeRoomState(current));
     }
 
     // Migration, incomplete/fenced planes, and derived transitions still take
@@ -2516,7 +2519,7 @@ export class RedisRoomStore implements RoomStore {
       const planes = read.persisted && !derivedStateIsCurrent
         ? await this.reconcileDerivedPlanes(connection, roomId, read.planes)
         : read.planes;
-      return currentRoomCopy(composeRoomState(planes));
+      return normalizeOwnedRoom(composeRoomState(planes));
     } finally {
       await connection.quit().catch(() => undefined);
     }
@@ -2767,7 +2770,7 @@ export class RedisRoomStore implements RoomStore {
           throw committedMutationReplay(receipt);
         }
         const basePlanes = persisted;
-        const persistedBefore = currentRoomCopy(composeRoomState(basePlanes));
+        const persistedBefore = normalizeOwnedRoom(composeRoomState(basePlanes));
         const derived = reconcileDerivedState(
           basePlanes.awareness,
           basePlanes.coordination,
@@ -2775,7 +2778,7 @@ export class RedisRoomStore implements RoomStore {
           Date.now(),
         );
         const before = derived
-          ? currentRoomCopy(composeRoomState({
+          ? normalizeOwnedRoom(composeRoomState({
               ...basePlanes,
               awareness: derived.awareness,
               coordination: derived.coordination,

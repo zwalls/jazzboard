@@ -1459,6 +1459,33 @@ describe("RedisRoomStore v3 persistence", () => {
     expectSharedReadOnly(ownership);
   });
 
+  it("keeps stable Redis read snapshots isolated without writing back normalization", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const source = presenceRoom();
+    const image = privateImage(source, privateBlobPathname(source.id));
+    source.objects[image.id] = image;
+    const planes = splitRoomState(source);
+    const documentKey = `jazzboard:room:v3:document:${source.id}`;
+    const encodedDocument = JSON.stringify(planes.document);
+    const { connection, state } = fakeRedis([
+      [documentKey, encodedDocument],
+      [`jazzboard:room:v3:awareness:${source.id}`, JSON.stringify(planes.awareness)],
+      [`jazzboard:room:v3:coordination:${source.id}`, JSON.stringify(planes.coordination)],
+    ]);
+    const store = new RedisRoomStore(connection as unknown as Redis);
+
+    const snapshot = (await store.getRoom(source.id))!;
+    snapshot.objects[image.id].diagramIds.push("not-a-member");
+    snapshot.objects[image.id].createdBy.displayName = "Local change";
+    snapshot.participants.p_owner.human.cursor = { x: 3, y: 4 };
+
+    await expect(store.getRoom(source.id)).resolves.toEqual(source);
+    expect(state.values.get(documentKey)).toBe(encodedDocument);
+    expect(state.writes).toEqual([]);
+    expect(state.watches).toEqual([]);
+  });
+
   it("does not bypass a mismatched durable-document fence on a stable read", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));

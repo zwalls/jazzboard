@@ -106,6 +106,27 @@ describe("room service authorization", () => {
     await expectDomainError(readAuthorizedRoom(room.id, "p_outsider"), "FORBIDDEN");
   });
 
+  it("returns an owned room snapshot without exposing stored objects or lease records", async () => {
+    const { room } = await seededRoom();
+    await runCanvasCommand({
+      roomId: room.id, participantId: "p_owner", actorKind: "human",
+      command: createTextCommand("note"),
+    });
+    await runLeaseAction({
+      roomId: room.id, participantId: "p_owner", actorKind: "human",
+      action: "acquire", objectId: "note", expectedRevision: 1, operation: "edit",
+    });
+
+    const snapshot = await readAuthorizedRoom(room.id, "p_owner");
+    const expected = structuredClone(snapshot);
+    snapshot.objects.note.createdBy.displayName = "Local change";
+    snapshot.objects.note.diagramIds.push("not-a-committed-diagram");
+    snapshot.leases.note.actor.displayName = "Local lease change";
+    snapshot.participants.p_owner.human.cursor = { x: 3, y: 4 };
+
+    await expect(readAuthorizedRoom(room.id, "p_spectator")).resolves.toEqual(expected);
+  });
+
   it("renames a room as a durable participant mutation without touching awareness", async () => {
     const { store, room } = await seededRoom();
     const before = await store.getRoom(room.id);
