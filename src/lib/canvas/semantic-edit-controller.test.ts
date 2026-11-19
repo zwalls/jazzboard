@@ -24,6 +24,8 @@ import {
   SemanticCanvasEditPersistenceDriver,
   type SemanticEditPersistenceClock,
 } from "./semantic-edit-persistence";
+import { SemanticKeyboardSessionEngine } from "./semantic-keyboard-session";
+import { SemanticMoveSessionEngine } from "./semantic-move-session";
 
 const actor = {
   participantId: "human-1",
@@ -445,6 +447,56 @@ function startUpdate(
 }
 
 describe("SemanticCanvasEditController", () => {
+  it("saves a subsequent group when a click's move lease resolves after the group debounce", async () => {
+    const a = shape("a");
+    const b = shape("b", 250);
+    const edge = connector("edge", a.id, b.id);
+    const objectIds = [a.id, b.id, edge.id];
+    const { controller, harness, clock, renderSettles } = setup(roomWith([a, b, edge]));
+    const held = deferred<void>();
+    const leaseMany = harness.host.leaseMany;
+    vi.spyOn(harness.host, "leaseMany").mockImplementation(async (action, actorKind) => {
+      const result = await leaseMany(action, actorKind);
+      if (action.action === "acquire-many" && action.targets.some((target) => target.operation === "move")) {
+        await held.promise;
+      }
+      return result;
+    });
+    const transaction = vi.spyOn(harness.host, "semanticTransaction");
+    const move = new SemanticMoveSessionEngine();
+    const keyboard = new SemanticKeyboardSessionEngine();
+    const point = { x: 20, y: 30 };
+
+    try {
+      const click = move.begin({ room: controller.getSnapshot(), selectedObjectIds: [a.id], pointerStart: point });
+      if (click.status !== "started") throw new Error("Click did not start a move session.");
+      controller.dispatch(click.lifecycleEvent);
+      const finished = move.finish(click.session.token, point);
+      if (finished.status !== "finished") throw new Error("Click did not finish its move session.");
+      for (const event of finished.lifecycleEvents) controller.dispatch(event);
+      renderSettles.shift()!();
+      await microtasks();
+
+      const group = keyboard.group({ room: controller.getSnapshot(), selection: { objectIds }, groupIdFactory: () => "group-a" });
+      for (const event of group.lifecycleEvents) controller.dispatch(event);
+      while (renderSettles.length) renderSettles.shift()!();
+      clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+      await microtasks();
+      expect(transaction).not.toHaveBeenCalled();
+
+      held.resolve();
+      await microtasks(100);
+      expect(transaction).toHaveBeenCalledTimes(1);
+      await controller.whenIdle();
+      for (const id of objectIds) expect(harness.serverRoom.objects[id]).toMatchObject({ groupId: "group-a", revision: 2 });
+      expect(harness.serverRoom.leases).toEqual({});
+      expect(harness.errors).toEqual([]);
+    } finally {
+      held.resolve();
+      controller.dispose();
+    }
+  });
+
   it("keeps optimistic move and text pixels across newer stale snapshots", () => {
     const a = shape("a");
     const label = textObject("label");

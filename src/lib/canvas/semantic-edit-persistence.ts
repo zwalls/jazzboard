@@ -838,10 +838,16 @@ export class SemanticCanvasEditPersistenceDriver {
   }
 
   private flush(intent: SemanticCanvasSyncFlushIntent): Promise<void> | null {
+    const releaseOnly = intent.source === "pointer" && intent.edits.length === 0 &&
+      !this.batches.has(intent.batchKey);
     const batch = this.updateBatch(intent);
     batch.finalVersion = batch.version;
     this.clearBatchTimer(batch);
-    const operation = this.queueBatch(batch);
+    // A click can own an eager move lease without ever scheduling a mutation.
+    // Reserving a save here would make an overlapping edit wait for this click
+    // while the click waits for the edit's lease upgrade.
+    if (releaseOnly) batch.acknowledgedVersion = batch.version;
+    const operation = releaseOnly ? null : this.queueBatch(batch);
     if (operation) {
       this.track(operation);
       return operation;
@@ -849,6 +855,9 @@ export class SemanticCanvasEditPersistenceDriver {
     const finalize = this.emitFinalAcknowledgementIfReady(batch).then(async () => {
       const release = this.releaseFinalCohortIfAcknowledged(batch);
       if (release) await release;
+      if (releaseOnly) {
+        for (const objectId of batch.objectIds) this.coordinator.prune(objectId);
+      }
     });
     this.track(finalize);
     return finalize;
