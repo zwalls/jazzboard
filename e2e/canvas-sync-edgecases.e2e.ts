@@ -703,6 +703,103 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
+  test("saves a group after a click's delayed move lease", async ({ page }) => {
+    test.setTimeout(35_000);
+    const host = await createRoomViaApi(page.request, "Group Mover", "Group after a click");
+    const path = `/api/rooms/${encodeURIComponent(host.room.id)}`;
+    await seedComplexGroupMembers(page, host.room.id);
+    const baseline = (await getRoom(page.request, host.room.id)).room;
+
+    let deliverAcquire!: () => void;
+    const holdAcquire = new Promise<void>((resolve) => { deliverAcquire = resolve; });
+    let reportAcquire!: (status: number) => void;
+    const acquireStatus = new Promise<number>((resolve) => { reportAcquire = resolve; });
+    let held = false;
+    const leaseUrl = `**${path}/leases`;
+    await page.route(leaseUrl, async (route) => {
+      const body = route.request().postDataJSON() as {
+        action: string;
+        targets?: Array<{ objectId: string; operation: string }>;
+      };
+      if (held || body.action !== "acquire-many" || !body.targets?.some((target) =>
+        target.objectId === COMPLEX_GROUP_NODE_IDS[0] && target.operation === "move")) {
+        await route.continue();
+        return;
+      }
+      held = true;
+      const response = await route.fetch();
+      reportAcquire(response.status());
+      await holdAcquire;
+      await route.fulfill({ response });
+    });
+
+    const writes: Request[] = [];
+    const leaseReleases: Request[] = [];
+    page.on("request", (request) => {
+      if (request.method() !== "POST") return;
+      const pathname = new URL(request.url()).pathname;
+      if (pathname === `${path}/semantic` || pathname === `${path}/commands`) {
+        writes.push(request);
+      }
+      if (pathname === `${path}/leases` && request.postDataJSON().action === "release-many") {
+        leaseReleases.push(request);
+      }
+    });
+
+    try {
+      await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+      await expect(renderedShape(page, COMPLEX_GROUP_NODE_IDS[0])).toBeVisible();
+      await selectObjects(page, COMPLEX_GROUP_IDS);
+      expect(await acquireStatus).toBe(200);
+      await semanticCanvas(page).press("ControlOrMeta+g");
+      const ungroup = page.getByRole("toolbar", { name: "Selection actions" })
+        .getByRole("button", { name: "Ungroup", exact: true });
+      await expect(ungroup).toBeVisible();
+      // Keep the genuine lease response in flight through the edit debounce.
+      await page.waitForTimeout(2_200);
+      const beforeDelivery = (await getRoom(page.request, host.room.id)).room;
+      expect(beforeDelivery.roomRevision).toBe(baseline.roomRevision);
+      expect(COMPLEX_GROUP_IDS.map((id) => beforeDelivery.objects[id].groupId))
+        .toEqual(COMPLEX_GROUP_IDS.map(() => null));
+      expect(writes).toHaveLength(0);
+      deliverAcquire();
+
+      await expect.poll(async () => {
+        const room = (await getRoom(page.request, host.room.id)).room;
+        return room.roomRevision;
+      }).toBe(baseline.roomRevision + 1);
+      const saved = (await getRoom(page.request, host.room.id)).room;
+      const groupId = saved.objects[COMPLEX_GROUP_NODE_IDS[0]].groupId;
+      expect(typeof groupId).toBe("string");
+      for (const id of COMPLEX_GROUP_IDS) {
+        expect(saved.objects[id]).toMatchObject({ groupId, revision: baseline.objects[id].revision + 1 });
+      }
+      await expect.poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+        .toEqual([]);
+      const released = leaseReleases.flatMap((request) =>
+        (request.postDataJSON() as { targets: Array<{ objectId: string }> }).targets.map(({ objectId }) => objectId));
+      expect(new Set(released)).toEqual(new Set(COMPLEX_GROUP_IDS));
+
+      await page.reload();
+      await expect(renderedShape(page, COMPLEX_GROUP_NODE_IDS[0])).toBeVisible();
+      await semanticCanvas(page).press("ControlOrMeta+a");
+      await expect(ungroup).toBeVisible();
+      const reloaded = (await getRoom(page.request, host.room.id)).room;
+      expect(reloaded.roomRevision).toBe(saved.roomRevision);
+      expect(reloaded.objects).toEqual(saved.objects);
+      expect(reloaded.leases).toEqual({});
+      expect(writes).toHaveLength(1);
+      expect(new URL(writes[0].url()).pathname).toBe(`${path}/semantic`);
+      const { transaction } = writes[0].postDataJSON() as { transaction: { commands: CanvasCommand[] } };
+      expect(transaction.commands.map((command) => "objectId" in command ? command.objectId : null).sort())
+        .toEqual([...COMPLEX_GROUP_IDS].sort());
+      expect(transaction.commands.every((command) => command.type === "update")).toBe(true);
+    } finally {
+      deliverAcquire();
+      await page.unrouteAll({ behavior: "wait" });
+    }
+  });
+
   test("leases a keyboard-edited node and bound connector before debounce", async ({ browser, page }) => {
     test.setTimeout(35_000);
     const host = await createRoomViaApi(page.request, "Keyboard Mover", "Immediate keyboard leases");
