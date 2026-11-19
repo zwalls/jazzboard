@@ -103,10 +103,16 @@ export class SemanticCanvasEditLifecycleController {
     return this.pendingEdits.get(objectId);
   }
 
-  /** Prevents an older acknowledgement from discarding a newer generation. */
-  clearPendingEdit(objectId: string, generation: number): boolean {
+  /** Retires only the acknowledged draft in its original recovery epoch. */
+  clearPendingEdit({
+    objectId,
+    generation,
+    recoveryEpoch,
+  }: Pick<PendingSemanticCanvasEdit, "objectId" | "generation" | "recoveryEpoch">): boolean {
     const pending = this.pendingEdits.get(objectId);
-    if (!pending || pending.generation !== generation) return false;
+    if (!pending || pending.generation !== generation || pending.recoveryEpoch !== recoveryEpoch) {
+      return false;
+    }
     this.pendingEdits.delete(objectId);
     return true;
   }

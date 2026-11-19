@@ -36,7 +36,6 @@ import {
 import {
   SemanticLocalDocumentStore,
   type SemanticAuthoritativeRoomOptions,
-  type SemanticLocalObjectFence,
   type SemanticLocalObjectOverride,
 } from "./semantic-local-document";
 import { CanvasObjectSyncCoordinator } from "./sync-coordinator";
@@ -293,27 +292,13 @@ export class SemanticCanvasEditController {
         },
         onAcknowledged: (event) => {
           if (this.disposed) return;
-          // Persistence has already accepted event.room. Exact fences prevent
-          // an N acknowledgement from clearing optimistic generation N+1.
-          const settled: (SemanticLocalObjectFence & { objectId: string })[] = [];
+          // A later dependency checkpoint can keep the coordinator dirty
+          // after this exact draft has been saved. Only its own receipt may
+          // retire the draft, without lifting that later protection.
           for (const acknowledgement of event.acknowledgements) {
-            const override = this.store.getOverride(acknowledgement.objectId);
-            if (
-              acknowledgement.latestGenerationSettled &&
-              override?.generation === acknowledgement.generation
-            ) {
-              settled.push({
-                objectId: acknowledgement.objectId,
-                generation: override.generation,
-                recoveryEpoch: override.recoveryEpoch,
-              });
-            }
-            this.lifecycle.clearPendingEdit(
-              acknowledgement.objectId,
-              acknowledgement.generation,
-            );
+            this.lifecycle.clearPendingEdit(acknowledgement);
           }
-          this.store.clearAcknowledgedMany(settled);
+          this.store.clearAcknowledgedMany(event.acknowledgements);
           if (event.final && event.gestureId) {
             const replay = this.historyReplaysByGesture.get(event.gestureId);
             if (replay) {
