@@ -248,6 +248,9 @@ test.describe("canvas synchronization edge cases", () => {
   for (const mode of ["create", "update"] as const) {
     test(`recovers a receipt-confirmed ${mode} after another tab deletes its object`, async ({ page, context }) => {
       test.setTimeout(60_000);
+      const waitForFallback = mode === "create" && (await jsonBody<{ realtime: string }>(
+        await page.request.get("/api/health"),
+      )).realtime === "polling+process-memory";
       const host = await createRoomViaApi(page.request, "Two-tab editor", "Superseded committed save");
       await seedPair(page, host.room.id);
       const roomPath = `/room/${host.room.id}`;
@@ -280,6 +283,17 @@ test.describe("canvas synchronization edge cases", () => {
       await page.route(commandUrl, handler);
       try {
         if (mode === "create") {
+          if (waitForFallback) {
+            // The seed is visible after the initial read, before polling is active.
+            // The held create receipt won't send a cross-tab notification.
+            const roomApiPath = `/api/rooms/${encodeURIComponent(host.room.id)}`;
+            const fallbackRead = await otherTab.waitForRequest((request) =>
+              request.method() === "GET" && new URL(request.url()).pathname === roomApiPath,
+            { timeout: 20_000 });
+            const snapshot = await fallbackRead.response();
+            if (!snapshot?.ok()) throw new Error("The observer's fallback room read failed.");
+            expect((await snapshot.json()).room.id).toBe(host.room.id);
+          }
           await page.getByRole("button", { name: "Rectangle tool", exact: true }).click();
           const bounds = await semanticCanvas(page).boundingBox();
           if (!bounds) throw new Error("Canvas is unavailable.");
