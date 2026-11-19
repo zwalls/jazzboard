@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request, type Response, type Route } from "@playwright/test";
 
-import type { RoomState } from "@/lib/domain/types";
+import { SEMANTIC_EDIT_DEBOUNCE_MS } from "@/lib/canvas/semantic-edit-persistence";
+import type { CanvasCommand, RoomState } from "@/lib/domain/types";
 
 import {
   connectorObject,
@@ -322,28 +323,52 @@ test.describe("canvas synchronization edge cases", () => {
     test.setTimeout(45_000);
     const host = await createRoomViaApi(page.request, "Replay Mover", "Replay reconciliation");
     await seedPair(page, host.room.id);
+    await page.clock.install();
     await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
     await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+    const { room: baseline } = await getRoom(page.request, host.room.id);
+    const baseRevision = baseline.objects[LEFT_ID].revision;
 
     let releaseReplay!: () => void;
     const replayGate = new Promise<void>((resolve) => {
       releaseReplay = resolve;
     });
-    let markFirstCommitted!: () => void;
-    const firstCommitted = new Promise<void>((resolve) => {
+    let markFirstCommitted!: (room: RoomState) => void;
+    const firstCommitted = new Promise<RoomState>((resolve) => {
       markFirstCommitted = resolve;
     });
-    let firstCommand = true;
+    let releaseFinal!: () => void;
+    const finalGate = new Promise<void>((resolve) => {
+      releaseFinal = resolve;
+    });
+    let markFinalHeld!: () => void;
+    const finalHeld = new Promise<void>((resolve) => {
+      markFinalHeld = resolve;
+    });
+    const moves: Extract<CanvasCommand, { type: "move" }>["targets"][number][] = [];
     const commandUrl = `**/api/rooms/${encodeURIComponent(host.room.id)}/commands`;
     const commandHandler = async (route: Route, request: Request) => {
-      if (request.method() !== "POST" || !firstCommand) {
+      const command = request.method() === "POST"
+        ? (request.postDataJSON() as { command: CanvasCommand }).command
+        : null;
+      if (command?.type !== "move") {
         await route.continue();
         return;
       }
-      firstCommand = false;
+      expect(command.targets.map(({ objectId }) => objectId)).toEqual([LEFT_ID]);
+      const moveNumber = moves.push(command.targets[0]);
+      if (moveNumber === 3) {
+        markFinalHeld();
+        await finalGate;
+      }
       const upstream = await route.fetch();
+      expect(upstream.ok()).toBe(true);
+      if (moveNumber !== 1) {
+        await route.fulfill({ response: upstream });
+        return;
+      }
       const payload = (await upstream.json()) as { room: RoomState };
-      markFirstCommitted();
+      markFirstCommitted(payload.room);
       await replayGate;
       await route.fulfill({
         status: 409,
@@ -387,41 +412,78 @@ test.describe("canvas synchronization edge cases", () => {
     await page.route(roomUrl, roomHandler);
 
     try {
-      await dragFrom(page, LEFT_ID, 65, 20);
-      await firstCommitted;
-      const afterFirst = await centerOf(page, LEFT_ID);
+      // Send one short save before the debounce, then explicitly queue one
+      // held save and one final save behind its delayed acknowledgement.
+      const start = await centerOf(page, LEFT_ID);
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 65, start.y + 20);
+      await page.mouse.up();
+      await page.clock.runFor(64);
+      const first = await firstCommitted;
+      expect(first.objects[LEFT_ID].revision).toBe(baseRevision + 1);
+      const lease = first.leases[LEFT_ID];
+      expect(lease).toMatchObject({
+        operation: "move",
+        actor: { kind: "human", participantId: host.participantId },
+      });
 
       // Generation N+1 is rendered while generation N's committed response is
       // still ambiguous and its serialized queue task remains in flight.
-      await dragFrom(page, LEFT_ID, 90, 45);
+      const afterFirst = await centerOf(page, LEFT_ID);
+      await page.mouse.move(afterFirst.x, afterFirst.y);
+      await page.mouse.down();
+      await page.mouse.move(afterFirst.x + 45, afterFirst.y + 22);
+      const midpoint = await objectPagePosition(page, LEFT_ID);
+      await page.clock.runFor(SEMANTIC_EDIT_DEBOUNCE_MS + 1);
+      await page.mouse.move(afterFirst.x + 90, afterFirst.y + 45);
+      await page.mouse.up();
+      await page.clock.runFor(64);
       const afterSecond = await centerOf(page, LEFT_ID);
       const afterSecondPage = await objectPagePosition(page, LEFT_ID);
       expect(afterSecond.x - afterFirst.x).toBeGreaterThan(70);
+      expect(moves).toHaveLength(1);
 
       holdRefresh = true;
       releaseReplay();
       await refreshHeld;
-      await page.waitForTimeout(500);
+      await page.clock.runFor(500);
       const whileReconciling = await centerOf(page, LEFT_ID);
       expect(whileReconciling.x).toBeCloseTo(afterSecond.x, 0);
       expect(whileReconciling.y).toBeCloseTo(afterSecond.y, 0);
-      expect(Object.keys((await getRoom(page.request, host.room.id)).room.leases)).toContain(LEFT_ID);
+      expect(await objectPagePosition(page, LEFT_ID)).toEqual(afterSecondPage);
+      expect(moves).toHaveLength(1);
+      expect((await getRoom(page.request, host.room.id)).room.leases[LEFT_ID]?.leaseId).toBe(lease.leaseId);
 
       holdRefresh = false;
       releaseRefresh();
-      await expect
-        .poll(async () => (await getRoom(page.request, host.room.id)).room.objects[LEFT_ID]?.revision)
-        .toBe(3);
+      await finalHeld;
+      const intermediate = (await getRoom(page.request, host.room.id)).room;
+      expect(intermediate.objects[LEFT_ID]).toMatchObject({ ...midpoint, revision: baseRevision + 2 });
+      expect(intermediate.leases[LEFT_ID]?.leaseId).toBe(lease.leaseId);
+      expect(await objectPagePosition(page, LEFT_ID)).toEqual(afterSecondPage);
+      expect(moves.map(({ expectedRevision, leaseId }) => [expectedRevision, leaseId]))
+        .toEqual([0, 1, 2].map((offset) => [baseRevision + offset, lease.leaseId]));
+
+      releaseFinal();
+      await page.clock.resume();
+      await expectRenderedRevision(page, LEFT_ID, baseRevision + 3);
       const committed = (await getRoom(page.request, host.room.id)).room;
-      expect(Number(committed.objects[LEFT_ID].x)).toBeCloseTo(afterSecondPage.x, 1);
-      expect(Number(committed.objects[LEFT_ID].y)).toBeCloseTo(afterSecondPage.y, 1);
+      expect(committed.objects[LEFT_ID]).toMatchObject({ ...afterSecondPage, revision: baseRevision + 3 });
       await expect
         .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
         .toEqual([]);
+      expect(moves).toHaveLength(3);
       await expect(page.getByText("The exact mutation already committed.")).toHaveCount(0);
+      await page.reload();
+      await expectRenderedRevision(page, LEFT_ID, baseRevision + 3);
+      expect(await objectPagePosition(page, LEFT_ID)).toEqual(afterSecondPage);
     } finally {
       releaseReplay();
       releaseRefresh();
+      releaseFinal();
+      await page.clock.resume().catch(() => undefined);
       await page.unroute(commandUrl, commandHandler).catch(() => undefined);
       await page.unroute(roomUrl, roomHandler).catch(() => undefined);
     }
