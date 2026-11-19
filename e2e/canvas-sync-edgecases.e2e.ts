@@ -505,7 +505,7 @@ test.describe("canvas synchronization edge cases", () => {
     });
   }
 
-  test("pointer-drags a complex selected group with one atomic lease cohort", async ({ page }) => {
+  test("streams a complex selected group with one atomic lease cohort", async ({ page }) => {
     test.setTimeout(45_000);
     const host = await createRoomViaApi(page.request, "Complex Group Mover", "Atomic group leases");
     await seedComplexGroupMembers(page, host.room.id);
@@ -531,9 +531,12 @@ test.describe("canvas synchronization edge cases", () => {
       ] as const)),
     );
 
-    const leaseRequests: Array<{ action?: string; targets?: Array<{ objectId: string }> }> = [];
+    const leaseRequests: Array<{ action?: string; targets?: Array<{ objectId: string; leaseId?: string }> }> = [];
+    const moveRequests: Request[] = [];
     const failedLeaseStatuses: number[] = [];
+    const isMove = (request: Request) => atomicSemanticMoveRequest(request, host.room.id);
     const recordRequest = (request: Request) => {
+      if (isMove(request)) moveRequests.push(request);
       const url = new URL(request.url());
       if (request.method() !== "POST" || url.pathname !== `/api/rooms/${host.room.id}/leases`) return;
       leaseRequests.push(request.postDataJSON());
@@ -547,10 +550,31 @@ test.describe("canvas synchronization edge cases", () => {
     page.on("request", recordRequest);
     page.on("response", recordResponse);
     try {
-      const moveRequest = page.waitForRequest((request) =>
-        atomicSemanticMoveRequest(request, host.room.id),
+      const start = await centerOf(page, COMPLEX_GROUP_IDS[4]);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      // Let the first position commit while the pointer is held, then make one
+      // final move. The number of writes depends on the save deadline, so drive
+      // the two positions explicitly rather than assuming a multi-step drag is fast.
+      const intermediateSave = page.waitForResponse((response) => isMove(response.request()));
+      await page.mouse.move(start.x + 60, start.y + 35);
+      expect((await intermediateSave).ok()).toBe(true);
+      const firstMove = (await getRoom(page.request, host.room.id)).room;
+      expect(firstMove.roomRevision).toBe(baseline.roomRevision + 1);
+      expect(new Set(Object.keys(firstMove.leases))).toEqual(new Set(COMPLEX_GROUP_IDS));
+      for (const objectId of COMPLEX_GROUP_IDS) {
+        expect(firstMove.objects[objectId].revision).toBe(baseline.objects[objectId].revision + 1);
+        expect(firstMove.leases[objectId]?.leaseId).toBeTruthy();
+      }
+      for (const objectId of COMPLEX_GROUP_NODE_IDS) {
+        expect(Number(firstMove.objects[objectId].x)).toBeGreaterThan(Number(baseline.objects[objectId].x));
+      }
+      const finalSave = page.waitForResponse((response) =>
+        isMove(response.request()) && response.request() !== moveRequests[0],
       );
-      await dragFrom(page, COMPLEX_GROUP_IDS[4], 120, 70);
+      await page.mouse.move(start.x + 120, start.y + 70);
+      await page.mouse.up();
+      expect((await finalSave).ok()).toBe(true);
       const localAfter = Object.fromEntries(
         await Promise.all(COMPLEX_GROUP_NODE_IDS.map(async (objectId) => [
           objectId,
@@ -560,25 +584,32 @@ test.describe("canvas synchronization edge cases", () => {
       for (const objectId of COMPLEX_GROUP_NODE_IDS) {
         expect(localAfter[objectId].x).toBeGreaterThan(localBefore[objectId].x + 40);
       }
-      const targets = semanticMoveTargets(await moveRequest);
-      expect(new Set(targets.map((target) => target.objectId))).toEqual(
-        new Set(COMPLEX_GROUP_NODE_IDS),
-      );
+      const targetsByWrite = moveRequests.map((request) => semanticMoveTargets(request)
+        .map(({ objectId, expectedRevision }) => ({ objectId, expectedRevision }))
+        .sort((a, b) => a.objectId.localeCompare(b.objectId)));
+      expect(targetsByWrite).toEqual([0, 1].map((offset) =>
+        [...COMPLEX_GROUP_NODE_IDS].sort().map((objectId) => ({
+          objectId,
+          expectedRevision: baseline.objects[objectId].revision + offset,
+        })),
+      ));
 
       await expect
         .poll(async () => {
           const objects = (await getRoom(page.request, host.room.id)).room.objects;
           return COMPLEX_GROUP_IDS.map((objectId) => objects[objectId]?.revision);
         })
-        .toEqual(COMPLEX_GROUP_IDS.map(() => 3));
+        .toEqual(COMPLEX_GROUP_IDS.map((objectId) => baseline.objects[objectId].revision + 2));
       for (const objectId of COMPLEX_GROUP_IDS) {
-        await expectRenderedRevision(page, objectId, 3);
+        await expectRenderedRevision(page, objectId, baseline.objects[objectId].revision + 2);
       }
       const moved = (await getRoom(page.request, host.room.id)).room;
+      expect(moved.roomRevision).toBe(baseline.roomRevision + 2);
       for (const objectId of COMPLEX_GROUP_NODE_IDS) {
         expect(Number(moved.objects[objectId].x)).toBeCloseTo(localAfter[objectId].x, 1);
         expect(Number(moved.objects[objectId].y)).toBeCloseTo(localAfter[objectId].y, 1);
-        expect(Number(moved.objects[objectId].x)).toBeGreaterThan(Number(baseline.objects[objectId].x));
+        expect(Number(moved.objects[objectId].x)).toBeGreaterThan(Number(firstMove.objects[objectId].x));
+        expect(Number(moved.objects[objectId].y)).toBeGreaterThan(Number(firstMove.objects[objectId].y));
       }
       for (const [index, objectId] of COMPLEX_GROUP_CONNECTOR_IDS.entries()) {
         const connector = moved.objects[objectId];
@@ -600,8 +631,9 @@ test.describe("canvas synchronization edge cases", () => {
         .toEqual([]);
       const releaseMany = leaseRequests.filter((request) => request.action === "release-many");
       expect(releaseMany).toHaveLength(1);
-      expect(new Set(releaseMany[0].targets?.map((target) => target.objectId))).toEqual(
-        new Set(COMPLEX_GROUP_IDS),
+      expect(releaseMany[0].targets?.map(({ objectId, leaseId }) => ({ objectId, leaseId }))
+        .sort((a, b) => a.objectId.localeCompare(b.objectId))).toEqual(
+        [...COMPLEX_GROUP_IDS].sort().map((objectId) => ({ objectId, leaseId: firstMove.leases[objectId].leaseId })),
       );
     } finally {
       page.off("request", recordRequest);
