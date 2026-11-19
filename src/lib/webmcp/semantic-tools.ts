@@ -3,6 +3,14 @@
 import { z } from "zod";
 
 import type { AgentCanvasDraftSnapshot } from "@/lib/agent-drafts/types";
+import {
+  fitSemanticText,
+  measureSemanticText,
+  semanticTextMeasurer,
+  SemanticTextMeasurementError,
+  type SemanticTextMeasurer,
+} from "@/lib/canvas/semantic-text-measurement";
+
 import { apiRequest, JazzboardApiError } from "@/lib/client/api";
 import {
   DEFAULT_AUTOMATIC_LAYOUT_COLUMNS,
@@ -24,7 +32,6 @@ import { diagramVisualQualityFindingKey } from "@/lib/domain/diagram-visual-qual
 import {
   connectorRoutingInputSchema,
   nodeMetadataInputSchema,
-  SEMANTIC_COLOR_NAMES,
   semanticColorSchema,
   semanticNameSchema,
   semanticPaintSchema,
@@ -65,7 +72,6 @@ import {
   recommendedDraftInspection,
   recommendedRoomCompositionInspection,
 } from "./inspection-recommendation";
-import { CONNECTOR_ROUTING_INPUT_JSON_SCHEMA } from "./routing-schema";
 
 const id = z.string().min(1).max(128);
 const draftId = z.string().regex(/^draft_[A-Za-z0-9_-]{1,120}$/);
@@ -235,6 +241,8 @@ const createNodeOperation = z
     label: z.string().min(1).max(10_000),
     nodeType,
     nodeMetadata: nodeMetadataInputSchema.optional(),
+    fill: semanticPaintSchema.optional(),
+    stroke: semanticPaintSchema.optional(),
     ...semanticIdentityFields,
     ...placement,
     ...activityMetadataFields,
@@ -260,6 +268,7 @@ const createTextOperation = z
     op: z.literal("create_text"),
     tempRef,
     content: z.string().min(1).max(20_000),
+    fit: z.literal("content").optional(),
     color: semanticColorSchema.default("black"),
     size: z.enum(["s", "m", "l", "xl"]).default("m"),
     align: z.enum(["start", "middle", "end"]).default("start"),
@@ -500,6 +509,37 @@ const transactionOperation = z.discriminatedUnion("op", [
   autoLayoutOperation,
 ]);
 
+export function transactionOperationContract(operation: string) {
+  const canonicalOperation = operation === "draw_connection" ? "connect" : operation;
+  const schema = transactionOperation.options.find((candidate) => candidate.shape.op.value === canonicalOperation);
+  if (!schema) return null;
+  const examples: Record<string, Record<string, unknown>> = {
+    create_node: { op: "create_node", tempRef: "api", label: "API", nodeType: "service", fill: "#E8F1FA", stroke: "#334155", x: 80, y: 120 },
+    create_shape: { op: "create_shape", tempRef: "queue", label: "Queue", fill: "none", stroke: "#334155" },
+    create_text: { op: "create_text", tempRef: "heading", content: "System overview", width: 480, size: "l", fit: "content" },
+    connect: { op: "connect", tempRef: "request", start: { tempRef: "api", port: { side: "right", position: 0.5, exact: true } }, end: { tempRef: "queue", port: { side: "left", position: 0.5, exact: true } }, direction: "end", label: "request" },
+    update_object: { op: "update_object", objectId: "node_existing", expectedRevision: 3, patch: { fill: "#E8F1FA" } },
+  };
+  const example = examples[canonicalOperation] ?? null;
+  if (example) schema.parse(example);
+  const conditionalRules: Record<string, string[]> = {
+    create_node: ["nodeMetadata kind must match nodeType. Proposed decisions and open questions require null/omitted resolution; resolved statuses require nonempty trimmed resolution."],
+    create_text: ["fit=content requires height to be omitted. Width is a minimum wrapping width; fitting may widen it."],
+    connect: ["tempRefs must resolve in this transaction or its exact current draft; example endpoint nodes must be created first."],
+    update: ["patch must contain at least one mutable field. Existing-object edits cannot use progressive draft delivery."],
+    update_object: ["patch must contain at least one mutable field. Existing-object edits cannot use progressive draft delivery."],
+    update_draft_connector: ["Change at least one of start/end/label/routing. This operation requires an exact existing draft revision and delivery.updateMode=patch."],
+    create_path: ["A path must have visible fill or stroke. A visible stroke requires positive strokeWidth; normalized geometry must fit persisted object limits."],
+    create_polygon: ["A polygon must have visible fill or stroke. A visible stroke requires positive strokeWidth; normalized geometry must fit persisted object limits."],
+    create_diagram: ["When creating multiple Diagrams, provide explicit members and connectors for each. References must resolve; omitted membership is inferred only for compatible creates."],
+    edit_diagram: ["Authoritative edits use diagramId and expectedRevision. Draft metadata/membership edits use diagramTempRef plus exact draftId/expectedDraftRevision and delivery.updateMode=patch."],
+    auto_layout: ["At most one auto_layout per transaction. Targets must be unique, refer to newly created placeable objects, and omit explicit x/y; diagramTempRef must resolve to a created Diagram."],
+  };
+  return { inputSchema: z.toJSONSchema(schema, { io: "input" }), example,
+    inputSchemaScope: "field_types_limits_and_required_keys",
+    constraints: ["Operations execute inside apply_canvas_transaction. Runtime also enforces conditional rules, reference resolution, exact revisions, leases, permissions, and review policy.", ...(conditionalRules[canonicalOperation] ?? [])] };
+}
+
 const draftDelivery = z
   .object({
     mode: z.literal("draft"),
@@ -636,6 +676,9 @@ const canonicalTransactionInput = z
       }
     });
     input.operations.forEach((operation, index) => {
+      if (operation.op === "create_text" && operation.fit && operation.height !== undefined) {
+        context.addIssue({ code: "custom", path: ["operations", index, "height"], message: "Omit height when fit=content; width is a minimum wrapping width." });
+      }
       if (
         operation.op === "create_node" &&
         operation.nodeMetadata &&
@@ -717,22 +760,10 @@ const canonicalTransactionInput = z
 
 const transactionInput = z.preprocess(normalizeTransactionAliases, canonicalTransactionInput);
 
-const SEMANTIC_COLOR_JSON_SCHEMA = {
-  type: "string",
-  pattern: `^(?:${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Named color or #RGB/#RRGGBB/#RRGGBBAA.",
-} as const;
-const SEMANTIC_PAINT_JSON_SCHEMA = {
-  type: "string",
-  pattern: `^(?:none|${SEMANTIC_COLOR_NAMES.join("|")}|#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?)$`,
-  description: "Color above, or none.",
-} as const;
-const WORLD_PATH_SEGMENT_JSON_SCHEMA = {
-  type: "object",
-} as const;
 // Zod is the authoritative op-specific validator. The registered schema keeps
-// the complete field vocabulary and the coordinate/reference rules visible,
-// without duplicating every discriminated-union branch in the browser budget.
+// the complete field vocabulary visible. Deep routing/lifecycle constraints
+// are queried from runtime validators with get_canvas_tool_schema rather than
+// duplicated in the browser's initial descriptor budget.
 const TRANSACTION_TOOL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -746,88 +777,10 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
         type: "object",
         additionalProperties: false,
         required: ["op"],
+        description: "Field vocabulary only. Get exact fields/limits with get_canvas_tool_schema toolName=apply_canvas_transaction and operation.",
         properties: {
-          op: {
-            enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "draw_connection", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"],
-          },
-          tempRef: { type: "string" },
-          objectId: { type: "string" },
-          expectedRevision: { type: "integer" },
-          leaseId: { type: "string" },
-          operation: { enum: ["move", "resize", "edit", "connect", "delete", "annotate"] },
-          patch: { type: "object", description: "Patch; path coordinates are documented." },
-          semanticName: { type: "string", minLength: 1, maxLength: 160 },
-          semanticRole: { type: "string", minLength: 1, maxLength: 128 },
-          label: { type: "string" },
-          content: { type: "string" },
-          nodeType: { enum: ["service", "component", "requirement", "decision", "open_question"] },
-          nodeMetadata: {
-            type: "object",
-            additionalProperties: false,
-            required: ["kind"],
-            properties: {
-              kind: { enum: ["decision", "open_question"] },
-              status: { enum: ["proposed", "accepted", "rejected", "superseded", "open", "answered", "deferred", "closed"] },
-              owner: { type: ["string", "null"] },
-              resolution: { type: ["string", "null"] },
-            },
-            description: "Decision/open_question lifecycle only; kind must match nodeType.",
-          },
-          shape: { enum: ["rectangle", "ellipse", "diamond"] },
-          fill: { $ref: "#/$defs/paint" },
-          stroke: { $ref: "#/$defs/paint" },
-          color: { $ref: "#/$defs/color" },
-          size: { enum: ["s", "m", "l", "xl"] },
-          align: { enum: ["start", "middle", "end"] },
-          points: {
-            type: "array",
-            items: { type: "object" },
-          },
-          segments: {
-            type: "array",
-            description: "line{to}|quadratic{control,to}|cubic{controls,to}.",
-            items: WORLD_PATH_SEGMENT_JSON_SCHEMA,
-          },
-          closed: { type: "boolean" },
-          strokeWidth: { type: "number", description: "Canvas units." },
-          opacity: { type: "number", description: "0..1." },
-          lineCap: { enum: ["butt", "round", "square"] },
-          lineJoin: { enum: ["miter", "round", "bevel"] },
-          fillRule: { enum: ["nonzero", "evenodd"] },
-          start: { type: "object", description: "Point|object|tempRef endpoint." },
-          end: { type: "object" },
-          routing: CONNECTOR_ROUTING_INPUT_JSON_SCHEMA,
-          direction: { enum: ["none", "end", "both"] },
-          diagramId: { type: "string" },
-          title: { type: "string" },
-          description: { type: "string" },
-          diagramType: {
-            enum: ["architecture", "flow", "hierarchy", "system_context", "process", "custom"],
-          },
-          category: { type: ["string", "null"] },
-          tags: { type: "array", items: { type: "string" } },
-          members: { type: "array", items: { type: "object" } },
-          addMembers: { type: "array", items: { type: "object" } },
-          connectors: { type: "array", items: { type: "object" } },
-          addConnectors: { type: "array", items: { type: "object" } },
-          memberObjectRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
-          connectorRefs: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } },
-          x: { type: "number" },
-          y: { type: "number" },
-          width: { type: "number" },
-          height: { type: "number" },
-          rotation: { type: "number" },
-          zIndex: { type: "integer" },
-          groupId: { type: ["string", "null"] },
-          intent: { type: "string" },
-          summary: { type: "string" },
-          layout: { enum: ["flow", "grid", "hierarchy"] },
-          layoutDirection: { enum: ["right", "down"] },
-          density: { enum: ["comfortable", "compact"] },
-          targets: { type: "array", items: { type: "string" } },
-          diagramTempRef: { type: "string" },
-          origin: { type: "object" },
-          columns: { type: "integer" },
+          ...Object.fromEntries(["tempRef", "objectId", "expectedRevision", "leaseId", "operation", "patch", "semanticName", "semanticRole", "label", "content", "fit", "nodeType", "nodeMetadata", "shape", "fill", "stroke", "color", "size", "align", "points", "segments", "closed", "strokeWidth", "opacity", "lineCap", "lineJoin", "fillRule", "start", "end", "routing", "direction", "diagramId", "title", "description", "diagramType", "category", "tags", "members", "addMembers", "connectors", "addConnectors", "memberObjectRefs", "connectorRefs", "x", "y", "width", "height", "rotation", "zIndex", "groupId", "intent", "summary", "layout", "layoutDirection", "density", "targets", "diagramTempRef", "origin", "columns"].map((key) => [key, {}])),
+          op: { enum: ["create_node", "create_shape", "create_text", "create_drawing", "create_path", "create_polygon", "connect", "draw_connection", "update_draft_connector", "update", "update_object", "create_diagram", "edit_diagram", "auto_layout"] },
         },
       },
     },
@@ -876,10 +829,7 @@ const TRANSACTION_TOOL_INPUT_SCHEMA = {
       ],
     },
   },
-  $defs: {
-    color: SEMANTIC_COLOR_JSON_SCHEMA,
-    paint: SEMANTIC_PAINT_JSON_SCHEMA,
-  },
+
 } as const;
 
 const layoutInput = z
@@ -994,13 +944,14 @@ const queryInput = z
     limit: z.number().int().min(1).max(200).default(50),
     offset: z.number().int().min(0).max(5_000).default(0),
     expectedRoomRevision: z.number().int().nonnegative().optional(),
-    detail: readDetail.default("summary"),
+    detail: z.enum(["summary", "full", "compact"]).default("summary"),
+    measureText: z.boolean().default(false),
   })
   .strict()
   .refine(
     (value) => value.offset === 0 || value.expectedRoomRevision !== undefined,
     { path: ["expectedRoomRevision"], message: "expectedRoomRevision is required when offset is greater than 0." },
-  );
+  ).refine((input) => input.detail !== "compact" || input.limit <= 50, { path: ["limit"], message: "Compact inspection is bounded to 50 objects per page; continue with nextPageInput." }).refine((input) => !input.measureText || input.detail === "compact", { path: ["measureText"], message: "measureText requires detail=compact." });
 
 const QUERY_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -1053,7 +1004,8 @@ const QUERY_TOOL_INPUT_SCHEMA = {
       type: "integer",
       minimum: 0,
     },
-    detail: { enum: ["summary", "full"] },
+    detail: { enum: ["summary", "full", "compact"] },
+    measureText: { type: "boolean", description: "Measure loaded-font ink bounds for returned text. Browser-local measurement; pagination remains revision-pinned." },
   },
   anyOf: [
     { properties: { offset: { maximum: 0 } } },
@@ -1355,6 +1307,9 @@ function toolFailure(tool: string, error: unknown): JazzboardToolFailure {
         details: { issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) },
       },
     };
+  }
+  if (error instanceof SemanticTextMeasurementError) {
+    return { ok: false, tool, error: { code: error.code, message: error.message, details: { stateChanged: false } } };
   }
   if (error instanceof SemanticToolError) {
     return { ok: false, tool, error: { code: error.code, message: error.message, details: error.details } };
@@ -1980,6 +1935,28 @@ function compactReadObject(room: RoomState, object: CanvasObject) {
   return base;
 }
 
+function compactAuthoringObject(room: RoomState, object: CanvasObject, measure?: SemanticTextMeasurer) {
+  const base = { ...compactMutationObject(object), geometry: { x: object.x, y: object.y, width: object.width, height: object.height }, rotation: object.rotation, groupId: object.groupId };
+  if (object.kind === "shape") {
+    const label = boundedText(object.label);
+    return { ...base, label: label.value, labelTruncated: label.truncated, nodeType: object.nodeType, fill: object.fill, stroke: object.stroke };
+  }
+  if (object.kind === "text") {
+    const content = boundedText(object.content);
+    const measured = measure ? measureSemanticText(object.content, object.width, object.height, object.size, object.align, measure) : undefined;
+    const textLayout = measured ? { ...measured, lines: undefined, lineCount: measured.lines.length, coordinateSpace: "object_local_unrotated" } : undefined;
+    return { ...base, content: content.value, contentTruncated: content.truncated, color: object.color, size: object.size, align: object.align, textLayout };
+  }
+  if (object.kind === "connector") {
+    const label = boundedText(object.label);
+    const route = materializeConnectorRoute(object, room);
+    return { ...base, label: label.value, labelTruncated: label.truncated, color: object.color, direction: object.direction,
+      start: object.start, end: object.end, routing: object.routing?.mode ?? "auto",
+      pathBounds: route.pathBounds, labelBounds: route.labelBounds };
+  }
+  return base;
+}
+
 function compactValidation(
   quality: ReturnType<typeof diagramQualityReports>,
   totalChangedDiagramCount: number,
@@ -2570,7 +2547,7 @@ export function createJazzboardSemanticWebMcpTools(
       name: "query_objects",
       title: "Query semantic canvas objects",
       description:
-        "Find bounded objects by exact ID, content, type, group, Diagram, relationship, or region. Continue with nextPageInput.",
+        "Find bounded objects. detail=compact: styles, exact bounds and bindings, max 50/page. measureText=true: loaded-font text ink bounds/warnings. Continue with revision-pinned nextPageInput. Full route evidence: summary/full or pixel inspection.",
       schema: queryInput,
       inputSchema: QUERY_TOOL_INPUT_SCHEMA,
       annotations: readAnnotations,
@@ -2632,6 +2609,27 @@ export function createJazzboardSemanticWebMcpTools(
             nextPageInput,
             objects: selected,
           };
+        }
+        if (input.detail === "compact") {
+          const measure = input.measureText && selected.some((object) => object.kind === "text") ? await semanticTextMeasurer(signal) : undefined;
+          const objects = selected.map((object) => compactAuthoringObject(room, object, measure));
+          const responseByteLimit = 60_000;
+          const packet = () => {
+            const continuationOffset = input.offset + objects.length < matches.length ? input.offset + objects.length : null;
+            return { roomRevision: room.roomRevision, offset: input.offset, nextOffset: continuationOffset, totalMatched: matches.length,
+              truncated: continuationOffset !== null, missingObjectIds,
+              nextPageInput: continuationOffset === null ? null : { ...input, offset: continuationOffset, expectedRoomRevision: room.roomRevision },
+              visualInspectionStatus: "not_performed", responseByteLimit, objects };
+          };
+          let result = packet();
+          while (new TextEncoder().encode(JSON.stringify(result)).byteLength > responseByteLimit) {
+            if (objects.length <= 1) {
+              throw new SemanticToolError("COMPACT_RESPONSE_TOO_LARGE", "Narrow the objectIds or filter; even one compact object plus continuation metadata exceeds the byte budget.", { stateChanged: false, responseByteLimit });
+            }
+            objects.pop();
+            result = packet();
+          }
+          return result;
         }
         const diagramIds = selected.flatMap((object) => object.diagramIds);
         return {
@@ -3155,14 +3153,18 @@ export function createJazzboardSemanticWebMcpTools(
           (operation): operation is z.output<typeof createNodeOperation> | z.output<typeof createShapeOperation> | z.output<typeof createTextOperation> =>
             operation.op === "create_node" || operation.op === "create_shape" || operation.op === "create_text",
         );
+        const textMeasure = placeableOperations.some((operation) => operation.op === "create_text" && operation.fit)
+          ? await semanticTextMeasurer(signal) : undefined;
+        const fittedDimensions = new Map(placeableOperations.flatMap((operation) => operation.op === "create_text" && operation.fit
+          ? [[operation.tempRef, fitSemanticText(operation.content, operation.width ?? 320, operation.size, operation.align, textMeasure!)] as const] : []));
         const automaticOrigins = automaticBatchOrigins(
           placeableOperations.map((operation) => {
             const defaults = operation.op === "create_text"
               ? { width: 320, height: 96 }
               : { width: 280, height: 152 };
             return {
-              width: operation.width ?? defaults.width,
-              height: operation.height ?? defaults.height,
+              width: fittedDimensions.get(operation.tempRef)?.width ?? operation.width ?? defaults.width,
+              height: fittedDimensions.get(operation.tempRef)?.height ?? operation.height ?? defaults.height,
             };
           }),
           binding.context.getViewport(),
@@ -3261,7 +3263,8 @@ export function createJazzboardSemanticWebMcpTools(
             continue;
           }
           const defaults = operation.op === "create_text" ? { width: 320, height: 96 } : { width: 280, height: 152 };
-          const position = batchPosition(operation, automaticOrigins[createIndex]!, defaults);
+          const fitted = fittedDimensions.get(operation.tempRef) ?? {};
+          const position = batchPosition({ ...operation, ...fitted }, automaticOrigins[createIndex]!, defaults);
           const common = {
             id: objectId,
             ...transactionSemanticIdentity(operation),
@@ -3279,7 +3282,8 @@ export function createJazzboardSemanticWebMcpTools(
               nodeType: operation.nodeType,
               nodeMetadata: operation.nodeMetadata,
               label: operation.label,
-              ...palette(operation.nodeType),
+              fill: operation.fill ?? palette(operation.nodeType).fill,
+              stroke: operation.stroke ?? palette(operation.nodeType).stroke,
             };
           } else if (operation.op === "create_shape") {
             object = {

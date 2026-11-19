@@ -267,3 +267,60 @@ describe("revision-pinned semantic pagination", () => {
     expect([...diagramFirst.diagrams!, ...diagramSecond.diagrams!]).toHaveLength(125);
   });
 });
+
+
+describe("compact authoring inspection", () => {
+  it("returns all 64 IDs, geometry and styles in two bounded revision-pinned pages", async () => {
+    const state = room(64, 0);
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const query = tool(createJazzboardSemanticWebMcpTools(binding(), { request }), "query_objects");
+    const first = data<Record<string, unknown>>(await execute(query, { detail: "compact" }));
+    const second = data<Record<string, unknown>>(await execute(query, first.nextPageInput!));
+    expect(first.objects).toHaveLength(50);
+    expect(second.objects).toHaveLength(14);
+    expect(first.nextPageInput).toMatchObject({ detail: "compact", offset: 50, expectedRoomRevision: state.roomRevision });
+    const objects = [...first.objects!, ...second.objects!];
+    expect(new Set(objects.map((object) => object.id)).size).toBe(64);
+    expect(first.objects![0]).toMatchObject({ geometry: { x: 0, y: 0, width: 100, height: 60 }, fill: "blue", stroke: "blue" });
+    expect(new TextEncoder().encode(JSON.stringify(first)).byteLength).toBeLessThan(45_000);
+    expect(await execute(query, { detail: "compact", limit: 51 })).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(await execute(query, { detail: "summary", measureText: true })).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+  });
+
+  it("rejects a compact continuation after a concurrent edit", async () => {
+    const initial = room(64, 0);
+    const request = vi.fn().mockResolvedValueOnce({ ok: true, room: initial }).mockResolvedValueOnce({ ok: true, room: { ...initial, roomRevision: initial.roomRevision + 1 } }) as unknown as WebMcpRequest;
+    const query = tool(createJazzboardSemanticWebMcpTools(binding(), { request }), "query_objects");
+    const first = data(await execute(query, { detail: "compact" }));
+    expect(await execute(query, first.nextPageInput!)).toMatchObject({ ok: false, error: { code: "ROOM_REVISION_CONFLICT" } });
+  });
+});
+
+
+describe("compact UTF-8 response byte budget", () => {
+  it("shrinks pages for large Unicode metadata without dropping or repeating objects", async () => {
+    const state = room(80, 0);
+    for (const object of Object.values(state.objects)) {
+      object.semanticName = "界".repeat(160);
+      object.semanticRole = "界".repeat(128);
+      if (object.kind === "shape") object.label = "界".repeat(10_000);
+    }
+    const request = vi.fn(async () => ({ ok: true, room: state })) as unknown as WebMcpRequest;
+    const query = tool(createJazzboardSemanticWebMcpTools(binding(), { request }), "query_objects");
+    let input: Record<string, unknown> | null = { detail: "compact" };
+    const ids: unknown[] = [];
+    const counts: number[] = [];
+    while (input) {
+      const page: PageData<Record<string, unknown>> = data(await execute(query, input));
+      expect(new TextEncoder().encode(JSON.stringify(page)).byteLength).toBeLessThanOrEqual(60_000);
+      expect(page.objects!.length).toBeGreaterThan(0);
+      counts.push(page.objects!.length);
+      ids.push(...page.objects!.map((object) => object.id));
+      input = page.nextPageInput;
+    }
+    expect(counts[0]).toBeLessThan(50);
+    expect(ids).toHaveLength(80);
+    expect(new Set(ids).size).toBe(80);
+    expect(new Set(ids)).toEqual(new Set(Object.keys(state.objects)));
+  });
+});
