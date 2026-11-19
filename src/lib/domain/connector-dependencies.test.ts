@@ -125,7 +125,7 @@ describe("connector dependency closure", () => {
       (state.objects.left as ShapeObject).label = "A new node label";
       state.diagrams.diagram.title = "A new diagram title";
     });
-    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoute");
     try {
       const input = { baseline, current, touchedObjectIds: new Set(["left"]), touchedDiagramIds: new Set(["diagram"]) };
       expect([...computeAffectedConnectorIds(input)]).toEqual([]);
@@ -134,7 +134,10 @@ describe("connector dependency closure", () => {
       (current.objects.edge as ConnectorObject).label = "A new connector label";
       expect([...computeAffectedConnectorIds({ ...input, touchedObjectIds: new Set(["left", "edge"]) })])
         .toEqual(["edge"]);
-      expect(materialize).toHaveBeenCalledTimes(2);
+      expect(materialize.mock.calls).toEqual([
+        [current.objects.edge, current],
+        [baseline.objects.edge, baseline],
+      ]);
     } finally {
       materialize.mockRestore();
     }
@@ -377,7 +380,7 @@ describe("connector dependency closure", () => {
     const farLeft = node("far-left", 0, 1500);
     const farRight = node("far-right", 500, 1500);
     const baseline = room([left, right, farLeft, farRight,
-      connector("edge", left, right), connector("unrelated", farLeft, farRight, 2)], [
+      connector("edge", left, right), connector("unrelated", farLeft, farRight, 2, "straight")], [
       diagram("near", [left.id, right.id], ["edge"]),
       diagram("far", [farLeft.id, farRight.id], ["unrelated"]),
     ]);
@@ -390,20 +393,19 @@ describe("connector dependency closure", () => {
     }));
     const expected = updates.map((update) => [...computeAffectedConnectorIds({ ...update, baseline })]);
     const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoute");
-    const materializeAll = vi.spyOn(connectorRouting, "materializeConnectorRoutes");
     try {
       const analyze = createConnectorDependencyAnalyzer(baseline);
       expect([...analyze({ current: metadata, touchedObjectIds: new Set(["left"]) })]).toEqual([]);
       expect(materialize).not.toHaveBeenCalled();
-      expect(materializeAll).not.toHaveBeenCalled();
       expect(expected).toEqual([["edge"], ["edge"]]);
       expect(updates.map((update) => [...analyze(update)])).toEqual(expected);
-      expect(materialize).toHaveBeenCalledExactlyOnceWith(baseline.objects.edge, baseline);
-      expect(materializeAll.mock.calls.map(([current]) => current))
-        .toEqual(updates.map(({ current }) => current));
+      expect(materialize.mock.calls).toEqual([
+        [updates[0].current.objects.edge, updates[0].current],
+        [baseline.objects.edge, baseline],
+        [updates[1].current.objects.edge, updates[1].current],
+      ]);
     } finally {
       materialize.mockRestore();
-      materializeAll.mockRestore();
     }
   });
 
