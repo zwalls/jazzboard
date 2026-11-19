@@ -2,6 +2,7 @@
 
 import { SlidersHorizontal, X } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -215,33 +216,36 @@ function SelectionActionBar({
   children: ReactNode;
 }>) {
   const actionBarRef = useRef<HTMLDivElement>(null);
-  const [placement, setPlacement] = useState<SelectionActionBarPlacement>(() =>
-    semanticSelectionActionBarPlacement(selectedBounds.y, ACTION_BAR_ESTIMATED_HEIGHT),
-  );
+  const [height, setHeight] = useState(ACTION_BAR_ESTIMATED_HEIGHT);
+  const placement = semanticSelectionActionBarPlacement(selectedBounds.y, height);
+
+  const measureHeight = useCallback(() => {
+    const actionBar = actionBarRef.current;
+    if (actionBar) setHeight(actionBar.getBoundingClientRect().height);
+  }, []);
 
   useLayoutEffect(() => {
     const actionBar = actionBarRef.current;
     if (!actionBar) return;
 
-    const updatePlacement = () => {
-      const next = semanticSelectionActionBarPlacement(
-        selectedBounds.y,
-        actionBar.getBoundingClientRect().height,
-      );
-      setPlacement((current) => current === next ? current : next);
-    };
-
-    updatePlacement();
     const observer = typeof ResizeObserver === "undefined"
       ? null
-      : new ResizeObserver(updatePlacement);
-    observer?.observe(actionBar);
-    window.addEventListener("resize", updatePlacement);
+      : new ResizeObserver(measureHeight);
+    if (observer) {
+      measureHeight();
+      observer.observe(actionBar, { box: "border-box" });
+    }
+    window.addEventListener("resize", measureHeight);
     return () => {
       observer?.disconnect();
-      window.removeEventListener("resize", updatePlacement);
+      window.removeEventListener("resize", measureHeight);
     };
-  }, [selectedBounds.y]);
+  }, [measureHeight]);
+
+  useLayoutEffect(() => {
+    // Preserve the geometry refresh fallback for browsers without ResizeObserver.
+    if (typeof ResizeObserver === "undefined") measureHeight();
+  }, [measureHeight, selectedBounds.y]);
 
   const style: CSSProperties = {
     left: selectedBounds.x + selectedBounds.width / 2,
