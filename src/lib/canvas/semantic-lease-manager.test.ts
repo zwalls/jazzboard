@@ -350,6 +350,42 @@ describe("SemanticLeaseCohortManager", () => {
     await manager.releaseCohort("delayed-frame");
   });
 
+  it("includes same-turn extensions when an overlapping cohort already owns the leases", async () => {
+    const connectorLease = { ...objectLease("connector"), operation: "connect" as const };
+    const connector = { ...target("connector"), operation: "connect" as const };
+    const lease = vi.fn<(action: SemanticLeaseAction) => Promise<SemanticLeaseResult>>();
+    const leaseMany = vi.fn(async (action: SemanticLeaseBatchAction) => {
+      if (action.action === "acquire-many") {
+        return { room: room(1), leases: [objectLease("node"), connectorLease] };
+      }
+      if (action.action === "release-many") return { room: room(2), leases: [] };
+      throw new Error(`Unexpected ${action.action}`);
+    });
+    const manager = new SemanticLeaseCohortManager(managerOptions({ lease, leaseMany }));
+    await manager.acquireCohort({ cohortId: "first", targets: [target("node"), connector] });
+
+    const node = manager.ensureCohort({ cohortId: "repeat", targets: [target("node")] });
+    const extended = manager.ensureCohort({ cohortId: "repeat", targets: [connector] });
+
+    await expect(node).resolves.toMatchObject({ cohortId: "repeat" });
+    const snapshot = await extended;
+    expect(snapshot.objectIds).toEqual(["node", "connector"]);
+    expect(snapshot.leases.get("connector")).toEqual(connectorLease);
+    expect(lease).not.toHaveBeenCalled();
+    expect(leaseMany).toHaveBeenCalledTimes(1);
+    expect(manager.referenceCount("connector")).toBe(2);
+
+    await manager.releaseCohort("first");
+    expect(manager.getOwnedLease("connector")).toEqual(connectorLease);
+    expect(leaseMany).toHaveBeenCalledTimes(1);
+    await manager.releaseCohort("repeat");
+    expect(manager.getOwnedLease("connector")).toBeNull();
+    expect(leaseMany.mock.calls.map(([action]) => action.action)).toEqual([
+      "acquire-many",
+      "release-many",
+    ]);
+  });
+
   it("treats repeated identical discoveries as idempotent", async () => {
     const lease = vi.fn(async (action: SemanticLeaseAction) => {
       if (action.action === "acquire") {

@@ -497,6 +497,77 @@ describe("SemanticCanvasEditController", () => {
     }
   });
 
+  it.each([false, true])("keeps rapid nudges in one history gesture (bound connector: %s)", async (bound) => {
+    const a = shape("a");
+    const b = shape("b", 250);
+    const objects = bound ? [a, b, connector("edge", a.id, b.id)] : [a, b];
+    const { controller, harness, clock, renderSettles } = setup(roomWith(objects));
+    const keyboard = new SemanticKeyboardSessionEngine();
+    const initialCommand = harness.commandImpl;
+    const firstSave = deferred<void>();
+    const command = vi.fn(initialCommand);
+    const leaseMany = vi.spyOn(harness.host, "leaseMany");
+    try {
+      harness.commandImpl = command;
+      command.mockImplementationOnce(async (save) => {
+        await firstSave.promise;
+        return initialCommand(save);
+      });
+
+      const nudge = () => controller.dispatchKeyboardNudge(keyboard.nudge({
+        room: controller.getSnapshot(),
+        selection: { objectIds: [a.id] },
+        delta: { x: 1, y: 0 },
+      }).lifecycleEvents);
+      nudge();
+      nudge();
+      expect(controller.getSnapshot().objects.a.x).toBe(a.x + 2);
+      expect(renderSettles).toHaveLength(1);
+
+      // Stream the first save without settling the gesture, then repeat
+      // again while its receipt is held and after its revision advances.
+      clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+      await microtasks(50);
+      expect(command).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        targets: [expect.objectContaining({ x: a.x + 2, expectedRevision: a.revision })],
+      }));
+      nudge();
+      firstSave.resolve();
+      await microtasks(100);
+      expect(controller.getAuthoritativeRoom().objects.a.revision).toBe(a.revision + 1);
+      expect(controller.getSnapshot().objects.a.x).toBe(a.x + 3);
+      nudge();
+      expect(renderSettles).toHaveLength(1);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+
+      expect(command).toHaveBeenCalledTimes(2);
+      expect(controller.isProjectionAuthoritative(a.id)).toBe(true);
+      expect(harness.serverRoom.objects.a).toMatchObject({ x: a.x + 4, revision: a.revision + 2 });
+      expect(controller.historyState()).toMatchObject({ undoDepth: 1, redoDepth: 0 });
+      const batchOperations = leaseMany.mock.calls.map(([action]) => action.action);
+      expect(batchOperations).toEqual(bound ? ["acquire-many", "release-many"] : []);
+
+      expect(await controller.undo()).toBe(true);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+      expect(harness.serverRoom.objects.a.x).toBe(a.x);
+      expect(controller.historyState()).toMatchObject({ undoDepth: 0, redoDepth: 1 });
+
+      expect(await controller.redo()).toBe(true);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+      expect(harness.serverRoom.objects.a.x).toBe(a.x + 4);
+      expect(controller.historyState()).toMatchObject({ undoDepth: 1, redoDepth: 0 });
+      expect(harness.serverRoom.leases).toEqual({});
+      expect(harness.errors).toEqual([]);
+      expect(harness.rollbacks).toEqual([]);
+    } finally {
+      firstSave.resolve();
+      controller.dispose();
+    }
+  });
+
   it("keeps optimistic move and text pixels across newer stale snapshots", () => {
     const a = shape("a");
     const label = textObject("label");

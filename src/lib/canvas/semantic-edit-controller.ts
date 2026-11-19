@@ -12,6 +12,7 @@ import type {
 } from "@/lib/domain/types";
 
 import type { SemanticCanvasEditEvent, SemanticCanvasEditIntent, PendingSemanticCanvasEdit } from "./semantic-edit-events";
+import type { SemanticKeyboardNudgeEvents } from "./semantic-keyboard-session";
 import { SemanticCanvasEditLifecycleController } from "./semantic-edit-lifecycle";
 import {
   SEMANTIC_EDIT_DEBOUNCE_MS,
@@ -44,6 +45,11 @@ type CommandResult = Readonly<{ room: RoomState; changedObjectIds: readonly stri
 type TransactionResult = CommandResult & Readonly<{ changedDiagramIds?: readonly string[] }>;
 type LeaseResult = Readonly<{ lease: ObjectLease | null; room: RoomState }>;
 type LeaseBatchResult = Readonly<{ leases: readonly ObjectLease[]; room: RoomState }>;
+
+type KeyboardNudge = Readonly<{
+  scope: NonNullable<SemanticKeyboardNudgeEvents[0]>;
+  edits: NonNullable<SemanticKeyboardNudgeEvents[1]>;
+}>;
 
 export type SemanticEditControllerRollback = Readonly<{
   gestureId: string | null;
@@ -244,6 +250,7 @@ export class SemanticCanvasEditController {
   private readonly rollbackNotifiedGestures = new Set<string>();
   private readonly historyStagesByGesture = new Map<string, SemanticHistoryStageToken>();
   private readonly historyReplaysByGesture = new Map<string, SemanticHistoryReplayToken>();
+  private keyboardNudge: KeyboardNudge | null = null;
   private disposed = false;
 
   constructor(options: SemanticEditControllerOptions) {
@@ -444,6 +451,46 @@ export class SemanticCanvasEditController {
     return this.dispatchLifecycleOnly(event);
   }
 
+  dispatchKeyboardNudge(events: SemanticKeyboardNudgeEvents): void {
+    if (this.disposed) return;
+    if (!events.length) {
+      this.keyboardNudge = null;
+      return;
+    }
+    const [scope, edits, finish] = events;
+    const active = this.keyboardNudge;
+    if (active) {
+      const sameMembers = scope.objects.length === active.scope.objects.length
+        && scope.objects.every((member, index) => {
+          const previous = active.scope.objects[index]!;
+          return member.objectId === previous.objectId &&
+            member.baseCreatedAt === previous.baseCreatedAt &&
+            member.operation === previous.operation;
+        });
+      const sameEdits = edits.changes.length === active.edits.changes.length &&
+        edits.changes.every((change, index) => change.draft.id === active.edits.changes[index]?.draft.id);
+      if (sameMembers && sameEdits) {
+        const gestureId = active.scope.gestureId;
+        // A streamed save can advance the authoritative revision mid-gesture.
+        // Keep the opening lease target while persistence checks the live base.
+        this.dispatch({
+          ...edits,
+          gestureId,
+          changes: edits.changes.map((change, index) => ({
+            ...change,
+            baseRevision: active.edits.changes[index]!.baseRevision,
+          })),
+        });
+        this.dispatch({ ...finish, gestureId });
+        return;
+      }
+    }
+    this.dispatch(scope);
+    this.keyboardNudge = { scope, edits };
+    this.dispatch(edits);
+    this.dispatch(finish);
+  }
+
   connectivityRestored(): void {
     if (!this.disposed) this.persistence.connectivityRestored();
   }
@@ -506,6 +553,11 @@ export class SemanticCanvasEditController {
     event: SemanticCanvasEditEvent,
   ): readonly SemanticCanvasEditIntent[] {
     if (this.disposed) return [];
+    if (
+      event.type === "gesture.started" ||
+      (event.type === "gesture.settled" && event.token.gestureId === this.keyboardNudge?.scope.gestureId) ||
+      (event.type === "gesture.recovery-settled" && event.gestureId === this.keyboardNudge?.scope.gestureId)
+    ) this.keyboardNudge = null;
     if (event.type === "gesture.started" && event.source === "pointer") {
       const pendingKeyboardGestures = new Set<string>();
       const overlappingObjectIds: string[] = [];

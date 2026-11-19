@@ -530,12 +530,15 @@ describe("semantic keyboard mutations", () => {
     expect(result.selectionReport.lockedImageObjectIds).toEqual([]);
     expect(eventTypes(result.lifecycleEvents)).toEqual([
       "gesture.started",
-      "gesture.dependencies-added",
       "objects.changed",
       "gesture.finish-requested",
     ]);
-    expect(result.lifecycleEvents[1]).toMatchObject({
-      objects: [{ objectId: "edge", operation: "connect" }],
+    expect(result.lifecycleEvents[0]).toMatchObject({
+      objects: [
+        { objectId: "left", operation: "move" },
+        { objectId: "locked", operation: "move" },
+        { objectId: "edge", operation: "connect" },
+      ],
     });
     expect(updateDrafts(result)).toMatchObject([
       { id: "left", x: 20, y: 20 },
