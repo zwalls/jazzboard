@@ -656,6 +656,35 @@ describe("SemanticMarqueeSelectionSessionEngine", () => {
     expect(finished.session.candidateObjectIds).toEqual([]);
     expect(finished.session.selectedObjectIds).toEqual([]);
   });
+
+  it.each([
+    { groupMode: "group", intent: "add", first: ["a", "b", "locked"], second: ["a", "b", "locked"] },
+    { groupMode: "group", intent: "toggle", first: ["locked"], second: ["a", "b", "locked"] },
+    { groupMode: "object", intent: "replace", first: ["a"], second: [] },
+  ] as const)("preserves $intent across pointer updates in $groupMode mode", ({
+    groupMode, intent, first, second,
+  }) => {
+    const engine = new SemanticMarqueeSelectionSessionEngine();
+    const { session: { token } } = engine.begin(scene, {
+      pointerStart: { x: -10, y: -10 },
+      selectedObjectIds: ["b", "a", "locked"],
+      lockedImages: "exclude",
+      groupMode,
+      intent,
+    });
+
+    const hit = engine.updatePointer(token, { x: 110, y: 70 });
+    const miss = engine.updatePointer(token, { x: -5, y: -5 });
+    if (hit.status !== "updated" || miss.status !== "updated") throw new Error("Expected updates.");
+
+    expect(hit.session.candidateObjectIds).toEqual(["a"]);
+    expect(hit.session.targetObjectIds).toEqual(groupMode === "group" ? ["a", "b"] : ["a"]);
+    expect(hit.session.selectedObjectIds).toEqual(first);
+    expect(miss.session.candidateObjectIds).toEqual([]);
+    expect(miss.session.selectedObjectIds).toEqual(second);
+    expect(Object.isFrozen(hit.session.selectedObjectIds)).toBe(true);
+    expect(engine.finish(token)).toMatchObject({ session: { selectedObjectIds: second } });
+  });
 });
 
 describe("semantic selection validation", () => {
