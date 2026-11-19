@@ -1,7 +1,6 @@
 import {
   CONNECTOR_ROUTING_LIMITS,
   materializeConnectorRoute,
-  materializeConnectorRoutes,
   normalizeConnectorRouting,
   type ResolvedConnectorRoute,
 } from "./connector-routing";
@@ -274,22 +273,26 @@ export function computeAffectedConnectorIds(input: ConnectorDependencyClosureInp
   return computeAffectedConnectorClosure(input);
 }
 
-type ReadBaselineRoute = (id: string) => ResolvedConnectorRoute | undefined;
+type ReadPersistedRoute = (id: string) => ResolvedConnectorRoute | undefined;
+
+function readPersistedRoutes(room: ConnectorDependencyRoom): ReadPersistedRoute {
+  let routes: Map<string, ResolvedConnectorRoute> | undefined;
+  return (id) => {
+    const cached = routes?.get(id);
+    if (cached) return cached;
+    const connector = room.objects[id];
+    if (connector?.kind !== "connector") return undefined;
+    const route = materializeConnectorRoute(connector, room);
+    (routes ??= new Map()).set(id, route);
+    return route;
+  };
+}
 
 /** Reuse only requested routes from a privately owned, immutable gesture baseline. */
 export function createConnectorDependencyAnalyzer(
   baseline: ConnectorDependencyRoom,
 ): (update: Omit<ConnectorDependencyClosureInput, "baseline">) => Set<string> {
-  let routes: Map<string, ResolvedConnectorRoute> | undefined;
-  const readBaselineRoute: ReadBaselineRoute = (id) => {
-    const cached = routes?.get(id);
-    if (cached) return cached;
-    const connector = baseline.objects[id];
-    if (connector?.kind !== "connector") return undefined;
-    const route = materializeConnectorRoute(connector, baseline);
-    (routes ??= new Map()).set(id, route);
-    return route;
-  };
+  const readBaselineRoute = readPersistedRoutes(baseline);
   return (update) => computeAffectedConnectorClosure({ ...update, baseline }, readBaselineRoute);
 }
 
@@ -300,7 +303,7 @@ function computeAffectedConnectorClosure(
     touchedObjectIds,
     touchedDiagramIds = new Set<string>(),
   }: ConnectorDependencyClosureInput,
-  readBaselineRoute?: ReadBaselineRoute,
+  readBaselineRoute?: ReadPersistedRoute,
 ): Set<string> {
   const affected = new Set<string>();
   const changedGeometryIds = new Set([...touchedObjectIds].filter((objectId) =>
@@ -329,9 +332,10 @@ function computeAffectedConnectorClosure(
     return affected;
   }
 
-  const baselineRoutes = readBaselineRoute ? undefined : materializeConnectorRoutes(baseline);
-  const baselineRoute: ReadBaselineRoute = readBaselineRoute ?? ((id) => baselineRoutes?.[id]);
-  const currentRoutes = materializeConnectorRoutes(current);
+  const baselineRoute = readBaselineRoute ?? readPersistedRoutes(baseline);
+  // Only obstacle and crossing checks need path geometry. Keep the current
+  // cache local to this snapshot, since endpoints can change on every move.
+  const currentRoute = readPersistedRoutes(current);
   const currentConnectors = Object.values(current.objects)
     .filter((object): object is Extract<CanvasObject, { kind: "connector" }> => object.kind === "connector")
     .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
@@ -364,8 +368,7 @@ function computeAffectedConnectorClosure(
       affected.add(connector.id);
       continue;
     }
-    const routeBounds = currentRoutes[connector.id]?.bounds;
-    if (!routeBounds || !baselineScopes || !currentScopes) continue;
+    if (!baselineScopes || !currentScopes) continue;
     for (const objectId of changedObstacleIds) {
       if (
         !connectorSeesObject(baselineScopes, connector.id, objectId) &&
@@ -373,6 +376,8 @@ function computeAffectedConnectorClosure(
       ) {
         continue;
       }
+      const routeBounds = currentRoute(connector.id)?.bounds;
+      if (!routeBounds) break;
       const before = baseline.objects[objectId];
       const after = current.objects[objectId];
       const impactBounds = before && after
@@ -439,7 +444,7 @@ function computeAffectedConnectorClosure(
   const currentInfluence = (connector: Extract<CanvasObject, { kind: "connector" }>): CanvasBounds => {
     const cached = currentInfluenceBounds.get(connector.id);
     if (cached) return cached;
-    const bounds = connectorInfluenceBounds(current, connector, currentRoutes[connector.id]);
+    const bounds = connectorInfluenceBounds(current, connector, currentRoute(connector.id));
     currentInfluenceBounds.set(connector.id, bounds);
     return bounds;
   };
