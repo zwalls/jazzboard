@@ -306,6 +306,34 @@ describe("shared semantic scene projection", () => {
     expect(shared.connectorRoutes.edge).not.toBe(previous.connectorRoutes.edge);
   });
 
+  it.each(["start", "end"] as const)(
+    "rebuilds a persisted elbow when its %s endpoint record is removed and replaced",
+    (endpoint) => {
+      const start = { ...shape("start", 0, 100, 1), rotation: Math.PI / 6 };
+      const end = { ...shape("end", 500, 100, 2), rotation: -Math.PI / 6 };
+      const edge = {
+        ...connector("edge", start.id, end.id, 3),
+        routing: normalizeConnectorRouting({ mode: "elbow", elbowMidPoint: 0.4 }),
+      };
+      const prior = buildSemanticScene(room([start, end, edge]));
+      const departed = endpoint === "start" ? start : end;
+      const retained = endpoint === "start" ? end : start;
+      const withoutEndpoint = room([retained, edge]);
+      const missing = buildSemanticScene(withoutEndpoint, {}, prior);
+      expect(missing).toEqual(buildSemanticScene(withoutEndpoint));
+      expect(missing.connectorRoutes.edge.points).not.toEqual(prior.connectorRoutes.edge.points);
+
+      // A new incarnation can arrive at the same ID and revision. Its shape
+      // changes the elbow even though the connector record is still shared.
+      const replacement = { ...departed, rotation: -departed.rotation, createdAt: 2 };
+      const withReplacement = room([retained, replacement, edge]);
+      const replaced = buildSemanticScene(withReplacement, {}, missing);
+      expect(replaced).toEqual(buildSemanticScene(withReplacement));
+      expect(replaced.connectorRoutes.edge.points).not.toEqual(missing.connectorRoutes.edge.points);
+      expect(replaced.connectorRoutes.edge.points).not.toEqual(prior.connectorRoutes.edge.points);
+    },
+  );
+
   it("does not preserve speculative routes after protection ends or reuse routes across lane changes", () => {
     const a = shape("a", 0, 100, 1);
     const b = shape("b", 500, 100, 2);
