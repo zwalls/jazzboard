@@ -753,15 +753,11 @@ function objectIntersectsMarquee(
   return polygonIntersectsBounds(polygon, marquee);
 }
 
-/**
- * Query a page-space marquee. Direct matches are returned in ascending paint
- * order; callers can request group expansion without any renderer records.
- */
-export function querySemanticSceneBounds(
+function collectSemanticSceneBoundsMatches(
   scene: SemanticScene,
   bounds: CanvasBounds,
-  options: SemanticSelectionBoundsQueryOptions = {},
-): readonly string[] {
+  options: SemanticSelectionBoundsQueryOptions,
+): string[] {
   finiteBounds(bounds);
   const zoom = options.zoom ?? 1;
   const tolerance = selectionScreenPixelsToPageUnits(
@@ -777,6 +773,19 @@ export function querySemanticSceneBounds(
       direct.push(item.object.id);
     }
   }
+  return direct;
+}
+
+/**
+ * Query a page-space marquee. Direct matches are returned in ascending paint
+ * order; callers can request group expansion without any renderer records.
+ */
+export function querySemanticSceneBounds(
+  scene: SemanticScene,
+  bounds: CanvasBounds,
+  options: SemanticSelectionBoundsQueryOptions = {},
+): readonly string[] {
+  const direct = collectSemanticSceneBoundsMatches(scene, bounds, options);
   return expandSemanticSelectionGroups(scene, direct, options.groupMode ?? "group");
 }
 
@@ -788,9 +797,19 @@ export function applySemanticSelectionIntent(
   intent: SemanticSelectionIntent,
   groupMode: SemanticSelectionGroupMode = "group",
 ): readonly string[] {
-  const selected = new Set(expandSemanticSelectionGroups(scene, selectedObjectIds, groupMode));
+  const initial = expandSemanticSelectionGroups(scene, selectedObjectIds, groupMode);
   const targets = expandSemanticSelectionGroups(scene, targetObjectIds, groupMode);
+  return applyNormalizedSelectionIntent(scene, initial, targets, intent);
+}
+
+function applyNormalizedSelectionIntent(
+  scene: SemanticScene,
+  initial: readonly string[],
+  targets: readonly string[],
+  intent: SemanticSelectionIntent,
+): readonly string[] {
   if (intent === "replace") return targets;
+  const selected = new Set(initial);
   if (intent === "add") {
     for (const objectId of targets) selected.add(objectId);
   } else {
@@ -941,25 +960,23 @@ export class SemanticMarqueeSelectionSessionEngine {
     const bounds = normalizeSemanticSelectionBounds(previous.pointerStart, pointer);
     const hasArea = bounds.width > EPSILON || bounds.height > EPSILON;
     const candidateObjectIds = hasArea
-      ? querySemanticSceneBounds(current.scene, bounds, {
+      ? collectSemanticSceneBoundsMatches(current.scene, bounds, {
           mode: previous.mode,
           zoom: previous.zoom,
           tolerancePx: previous.tolerancePx,
-          groupMode: "object",
           lockedImages: previous.lockedImages,
         })
       : [];
-    const targetObjectIds = expandSemanticSelectionGroups(
-      current.scene,
-      candidateObjectIds,
-      previous.groupMode,
-    );
-    const selectedObjectIds = applySemanticSelectionIntent(
+    // The geometry walk follows paint order, and begin() already normalized
+    // the initial selection against this same captured scene.
+    const targetObjectIds = previous.groupMode === "group"
+      ? expandSemanticSelectionGroups(current.scene, candidateObjectIds)
+      : candidateObjectIds;
+    const selectedObjectIds = applyNormalizedSelectionIntent(
       current.scene,
       current.initialSelection,
       targetObjectIds,
       previous.intent,
-      previous.groupMode,
     );
     return freezeSession({
       ...previous,
