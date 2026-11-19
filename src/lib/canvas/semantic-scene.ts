@@ -50,6 +50,33 @@ export type SemanticScene = Readonly<{
   connectorRoutes: Readonly<Record<string, ResolvedConnectorRoute>>;
 }>;
 
+// Keep projection provenance with the scene that produced it. A previously
+// resolved route is not a cached persisted route even when its inputs match.
+const optimisticRoutesByScene = new WeakMap<SemanticScene, ReadonlySet<string>>();
+const noOptimisticRoutes: ReadonlySet<string> = new Set();
+
+function materializeSceneRoute(previous?: SemanticScene): typeof materializeConnectorRoute {
+  const previousOptimisticRoutes = previous && optimisticRoutesByScene.get(previous);
+  if (!previous || !previousOptimisticRoutes) return materializeConnectorRoute;
+  const matchesEndpoint = (id: string | null | undefined, objects: RoomState["objects"]) =>
+    !id || previous.objectsById[id]?.object === objects[id];
+
+  return (connector, room, options, laneIndex = 0) => {
+    const cached = previous.connectorRoutes[connector.id];
+    if (
+      cached?.laneIndex === laneIndex &&
+      options?.maxRoutePoints === undefined &&
+      !previousOptimisticRoutes.has(connector.id) &&
+      previous.objectsById[connector.id]?.object === connector &&
+      matchesEndpoint(connector.start.objectId, room.objects) &&
+      matchesEndpoint(connector.end.objectId, room.objects)
+    ) {
+      return cached;
+    }
+    return materializeConnectorRoute(connector, room, options, laneIndex);
+  };
+}
+
 function compareObjects(left: CanvasObject, right: CanvasObject): number {
   return left.zIndex - right.zIndex || left.id.localeCompare(right.id);
 }
@@ -168,17 +195,20 @@ export function buildSemanticScene(
   previousScene?: SemanticScene,
 ): SemanticScene {
   const sortedObjects = Object.values(room.objects).sort(compareObjects);
-  const materializedConnectorRoutes = options.optimisticConnectorIds?.size
-    ? resolveAffectedConnectorRoutes(room, options.optimisticConnectorIds)
-    : materializeConnectorRoutes(room);
+  const optimisticRouteIds = options.optimisticConnectorIds;
+  // Like object-bound sharing, route reuse relies on immutable scene inputs.
+  const materializeRoute = materializeSceneRoute(previousScene?.roomId === room.id ? previousScene : undefined);
+  const materializedConnectorRoutes = optimisticRouteIds?.size
+    ? resolveAffectedConnectorRoutes(room, optimisticRouteIds, undefined, materializeRoute)
+    : materializeConnectorRoutes(room, undefined, materializeRoute);
   const connectorRoutes = Object.fromEntries(
     sortedObjects
       .filter((object) => object.kind === "connector")
       .map((object) => {
         const route = materializedConnectorRoutes[object.id];
         const previous = previousScene?.connectorRoutes[object.id];
-        // Always recompute connectors: targets, lanes, and other routes may
-        // change even when the connector itself has the same object reference.
+        // Newly resolved routes can still match the previous projection.
+        // Persisted cache hits take the identity fast path here.
         return [object.id, previous && equalDocumentValue(previous, route) ? previous : route];
       }),
   );
@@ -207,7 +237,7 @@ export function buildSemanticScene(
     [...membersByGroup.entries()].sort(([left], [right]) => left.localeCompare(right)),
   );
 
-  return {
+  const scene: SemanticScene = {
     roomId: room.id,
     roomRevision: room.roomRevision,
     objects,
@@ -216,4 +246,6 @@ export function buildSemanticScene(
     groupMembers,
     connectorRoutes,
   };
+  optimisticRoutesByScene.set(scene, optimisticRouteIds?.size ? new Set(optimisticRouteIds) : noOptimisticRoutes);
+  return scene;
 }

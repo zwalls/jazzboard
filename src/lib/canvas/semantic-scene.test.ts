@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as connectorRouting from "@/lib/domain/connector-routing";
 import {
   materializeConnectorRoutes,
   normalizeConnectorRouting,
@@ -305,6 +306,34 @@ describe("shared semantic scene projection", () => {
     expect(shared.connectorRoutes.edge).not.toBe(previous.connectorRoutes.edge);
   });
 
+  it.each(["start", "end"] as const)(
+    "rebuilds a persisted elbow when its %s endpoint record is removed and replaced",
+    (endpoint) => {
+      const start = { ...shape("start", 0, 100, 1), rotation: Math.PI / 6 };
+      const end = { ...shape("end", 500, 100, 2), rotation: -Math.PI / 6 };
+      const edge = {
+        ...connector("edge", start.id, end.id, 3),
+        routing: normalizeConnectorRouting({ mode: "elbow", elbowMidPoint: 0.4 }),
+      };
+      const prior = buildSemanticScene(room([start, end, edge]));
+      const departed = endpoint === "start" ? start : end;
+      const retained = endpoint === "start" ? end : start;
+      const withoutEndpoint = room([retained, edge]);
+      const missing = buildSemanticScene(withoutEndpoint, {}, prior);
+      expect(missing).toEqual(buildSemanticScene(withoutEndpoint));
+      expect(missing.connectorRoutes.edge.points).not.toEqual(prior.connectorRoutes.edge.points);
+
+      // A new incarnation can arrive at the same ID and revision. Its shape
+      // changes the elbow even though the connector record is still shared.
+      const replacement = { ...departed, rotation: -departed.rotation, createdAt: 2 };
+      const withReplacement = room([retained, replacement, edge]);
+      const replaced = buildSemanticScene(withReplacement, {}, missing);
+      expect(replaced).toEqual(buildSemanticScene(withReplacement));
+      expect(replaced.connectorRoutes.edge.points).not.toEqual(missing.connectorRoutes.edge.points);
+      expect(replaced.connectorRoutes.edge.points).not.toEqual(prior.connectorRoutes.edge.points);
+    },
+  );
+
   it("does not preserve speculative routes after protection ends or reuse routes across lane changes", () => {
     const a = shape("a", 0, 100, 1);
     const b = shape("b", 500, 100, 2);
@@ -319,5 +348,45 @@ describe("shared semantic scene projection", () => {
     const parallel = room([...Object.values(next.objects), connector("edge-2", a.id, b.id, 4)]);
     const projected = buildSemanticScene(parallel, options, previous);
     expect(projected).toEqual(buildSemanticScene(parallel, options));
+  });
+
+  it("skips rebuilding untouched persisted routes in an active projection", () => {
+    const a = shape("a", 0, 100, 1);
+    const b = shape("b", 500, 100, 2);
+    const edge = connector("edge", a.id, b.id, 3);
+    const c = shape("c", 0, 500, 4);
+    const d = shape("d", 500, 500, 5);
+    const unrelated = connector("unrelated", c.id, d.id, 6);
+    const options = { optimisticConnectorIds: new Set([edge.id]) };
+    const prior = buildSemanticScene(room([a, b, c, d, edge, unrelated]), options);
+    const next = room([{ ...a, y: 190 }, b, c, d, edge, unrelated]);
+    const expected = buildSemanticScene(next, options);
+    const materialize = vi.spyOn(connectorRouting, "materializeConnectorRoute");
+    try {
+      const projected = buildSemanticScene(next, options, prior);
+      expect(projected).toEqual(expected);
+      expect(projected.connectorRoutes.edge.start).not.toEqual(prior.connectorRoutes.edge.start);
+      expect(projected.connectorRoutes.unrelated).toBe(prior.connectorRoutes.unrelated);
+      expect(materialize).not.toHaveBeenCalled();
+    } finally {
+      materialize.mockRestore();
+    }
+  });
+
+  it("rebuilds an otherwise unchanged persisted route when its lane index changes", () => {
+    const a = shape("a", 0, 100, 1);
+    const b = shape("b", 500, 100, 2);
+    const edge = connector("edge", a.id, b.id, 3);
+    const c = shape("c", 0, 500, 4);
+    const d = shape("d", 500, 500, 5);
+    const untargeted = connector("untargeted", c.id, d.id, 6);
+    const options = { optimisticConnectorIds: new Set([edge.id]) };
+    const prior = buildSemanticScene(room([a, b, c, d, edge, untargeted]), options);
+    const earlier = connector("earlier", c.id, d.id, 7);
+    const next = room([a, b, c, d, edge, untargeted, earlier]);
+    const projected = buildSemanticScene(next, options, prior);
+    expect(prior.connectorRoutes.untargeted.laneIndex).toBe(0);
+    expect(projected.connectorRoutes.untargeted.laneIndex).toBe(1);
+    expect(projected).toEqual(buildSemanticScene(next, options));
   });
 });

@@ -1681,12 +1681,13 @@ export function materializeConnectorRoute(
 export function materializeConnectorRoutes(
   room: RoutingRoom,
   options: Pick<ConnectorRoutingOptions, "maxRoutePoints"> = {},
+  materializePersistedRoute = materializeConnectorRoute,
 ): Record<string, ResolvedConnectorRoute> {
   const connectors = Object.values(room.objects).filter(
     (object): object is ConnectorObject => object.kind === "connector",
   );
   return Object.fromEntries(
-    connectors.map((connector) => [connector.id, materializeConnectorRoute(connector, room, options)]),
+    connectors.map((connector) => [connector.id, materializePersistedRoute(connector, room, options)]),
   );
 }
 
@@ -1700,6 +1701,7 @@ export function resolveAffectedConnectorRoutes(
   room: RoutingRoom,
   connectorIds: ReadonlySet<string>,
   options: ConnectorRoutingOptions = {},
+  materializePersistedRoute = materializeConnectorRoute,
 ): Record<string, ResolvedConnectorRoute> {
   const effectiveOptions = options.resolutionMode === undefined &&
     connectorIds.size > CONNECTOR_ROUTING_QUALITY_BATCH_LIMIT
@@ -1721,7 +1723,7 @@ export function resolveAffectedConnectorRoutes(
     resolved.push(
       connectorIds.has(connector.id)
         ? resolveConnectorRoute(connector, context, resolved)
-        : materializeConnectorRoute(
+        : materializePersistedRoute(
             connector,
             room,
             effectiveOptions,
