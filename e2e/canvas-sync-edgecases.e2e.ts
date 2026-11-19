@@ -427,52 +427,83 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
-  test("saves a multi-selection move as one atomic semantic command", async ({ page }) => {
-    const host = await createRoomViaApi(page.request, "Batch Mover", "Atomic multi-move");
-    await seedPair(page, host.room.id);
-    await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
-    await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
-    await expect(renderedShape(page, RIGHT_ID)).toBeVisible();
-    const baseline = await getRoom(page.request, host.room.id);
+  for (const { streamWhileHeld, title } of [
+    { streamWhileHeld: false, title: "flushes a short multi-selection move as one atomic command" },
+    { streamWhileHeld: true, title: "streams a held multi-selection move as atomic revision steps" },
+  ]) {
+    test(title, async ({ page }) => {
+      const host = await createRoomViaApi(page.request, "Batch Mover", "Atomic multi-move");
+      await seedPair(page, host.room.id);
+      if (!streamWhileHeld) await page.clock.install();
+      await page.goto(`/room/${encodeURIComponent(host.room.id)}`);
+      await expect(renderedShape(page, LEFT_ID)).toBeVisible({ timeout: 20_000 });
+      await expect(renderedShape(page, RIGHT_ID)).toBeVisible();
+      const baseline = (await getRoom(page.request, host.room.id)).room;
+      const ids = [LEFT_ID, RIGHT_ID] as const;
+      const readRevisions = async () => {
+        const { room } = await getRoom(page.request, host.room.id);
+        return ids.map((id) => room.objects[id]?.revision);
+      };
+      const writes: Request[] = [];
+      const isMove = (request: Request) => atomicSemanticMoveRequest(request, host.room.id);
+      page.on("request", (request) => {
+        if (isMove(request)) writes.push(request);
+      });
 
-    await selectPair(page);
-    const localBefore = {
-      left: await objectPagePosition(page, LEFT_ID),
-      right: await objectPagePosition(page, RIGHT_ID),
-    };
-    const moveRequest = page.waitForRequest((request) =>
-      atomicSemanticMoveRequest(request, host.room.id),
-    );
-    await dragFrom(page, LEFT_ID, 110, 65);
-    const localAfter = {
-      left: await objectPagePosition(page, LEFT_ID),
-      right: await objectPagePosition(page, RIGHT_ID),
-    };
-    expect(localAfter.left.x).toBeGreaterThan(localBefore.left.x + 40);
-    expect(localAfter.right.x).toBeGreaterThan(localBefore.right.x + 40);
-    const targets = semanticMoveTargets(await moveRequest);
-    expect(targets).toHaveLength(2);
-    expect(new Set(targets.map((target) => target.objectId))).toEqual(
-      new Set([LEFT_ID, RIGHT_ID]),
-    );
+      await selectPair(page);
+      const start = await centerOf(page, LEFT_ID);
+      await page.mouse.move(start.x, start.y);
+      if (!streamWhileHeld) {
+        // Preserve a short gesture even if sending its input takes longer than
+        // the browser's persistence debounce on a slow runner.
+        await page.clock.pauseAt(Date.now() + 1_000);
+      }
+      try {
+        await page.mouse.down();
+        if (streamWhileHeld) {
+          const intermediate = page.waitForResponse((response) => isMove(response.request()));
+          await page.mouse.move(start.x + 55, start.y + 33);
+          expect((await intermediate).ok()).toBe(true);
+          await expect.poll(readRevisions).toEqual(ids.map((id) => baseline.objects[id].revision + 1));
+          const held = (await getRoom(page.request, host.room.id)).room;
+          expect(Object.keys(held.leases).sort()).toEqual([...ids].sort());
+        }
+        await page.mouse.move(start.x + 110, start.y + 65, { steps: streamWhileHeld ? 1 : 8 });
+        if (!streamWhileHeld) expect(writes).toHaveLength(0);
+        await page.mouse.up();
+      } finally {
+        if (!streamWhileHeld) await page.clock.resume();
+      }
 
-    await expect
-      .poll(async () => {
-        const room = (await getRoom(page.request, host.room.id)).room;
-        return [room.objects[LEFT_ID]?.revision, room.objects[RIGHT_ID]?.revision];
-      })
-      .toEqual([2, 2]);
-    await expectRenderedRevision(page, LEFT_ID, 2);
-    await expectRenderedRevision(page, RIGHT_ID, 2);
-    const saved = (await getRoom(page.request, host.room.id)).room;
-    expect(Number(saved.objects[LEFT_ID].x)).toBeCloseTo(localAfter.left.x, 1);
-    expect(Number(saved.objects[RIGHT_ID].x)).toBeCloseTo(localAfter.right.x, 1);
-    expect(Number(saved.objects[LEFT_ID].x)).toBeGreaterThan(Number(baseline.room.objects[LEFT_ID].x));
-    expect(Number(saved.objects[RIGHT_ID].x)).toBeGreaterThan(Number(baseline.room.objects[RIGHT_ID].x));
-    await expect
-      .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
-      .toEqual([]);
-  });
+      const localAfter = await Promise.all(ids.map((id) => objectPagePosition(page, id)));
+      const commitCount = streamWhileHeld ? 2 : 1;
+      const finalRevisions = ids.map((id) => baseline.objects[id].revision + commitCount);
+      await expect.poll(readRevisions).toEqual(finalRevisions);
+      for (const [index, id] of ids.entries()) {
+        await expectRenderedRevision(page, id, finalRevisions[index]);
+      }
+      await expect
+        .poll(async () => Object.keys((await getRoom(page.request, host.room.id)).room.leases))
+        .toEqual([]);
+
+      const targetsByWrite = writes.map((request) => semanticMoveTargets(request)
+        .map(({ objectId, expectedRevision }) => ({ objectId, expectedRevision }))
+        .sort((a, b) => a.objectId.localeCompare(b.objectId)));
+      expect(targetsByWrite).toEqual(Array.from({ length: commitCount }, (_, revisionOffset) =>
+        ids.map((objectId) => ({
+          objectId,
+          expectedRevision: baseline.objects[objectId].revision + revisionOffset,
+        })),
+      ));
+
+      const saved = (await getRoom(page.request, host.room.id)).room;
+      for (const [index, id] of ids.entries()) {
+        expect(localAfter[index].x).toBeGreaterThan(Number(baseline.objects[id].x) + 40);
+        expect(Number(saved.objects[id].x)).toBeCloseTo(localAfter[index].x, 1);
+        expect(Number(saved.objects[id].y)).toBeCloseTo(localAfter[index].y, 1);
+      }
+    });
+  }
 
   test("pointer-drags a complex selected group with one atomic lease cohort", async ({ page }) => {
     test.setTimeout(45_000);
