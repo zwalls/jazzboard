@@ -195,7 +195,7 @@ type EntryCardProps = {
 
 function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
   const [mode, setMode] = useState<EntryMode>("create");
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState("");
   const [role, setRole] = useState<RoomRole>("participant");
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -204,7 +204,8 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
   useEffect(() => {
     let inviteFrame: number | null = null;
     const timer = window.setTimeout(() => {
-      setDisplayName(readDisplayName());
+      const storedName = readDisplayName();
+      setDisplayName((current) => current ?? storedName);
       const invitedCode = roomInviteCodeFromHash(window.location.hash);
       if (invitedCode) {
         setMode("join");
@@ -229,7 +230,7 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const name = displayName.trim();
+    const name = displayName?.trim();
     const code = mode === "join" ? normalizeRoomCode(joinCode) : null;
 
     if (!name) {
@@ -343,7 +344,7 @@ function RoomEntryCard({ onEnteredRoom }: EntryCardProps) {
             placeholder="e.g. Maya Chen"
             required
             type="text"
-            value={displayName}
+            value={displayName ?? ""}
           />
           <small className="field-hint">This is how people and agents identify you.</small>
         </label>
