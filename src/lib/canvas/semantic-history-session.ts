@@ -352,9 +352,10 @@ export class SemanticHistorySessionEngine {
       requestedObjectIds: new Set(input.objectIds),
       requestedDiagramIds: new Set(input.diagramIds ?? []),
       // The authoritative acknowledgement may report implicit connector or
-      // diagram dependencies that were not known at gesture start.
-      beforeObjects: cloneFrozen(input.room.objects),
-      beforeDiagrams: cloneFrozen(input.room.diagrams),
+      // diagram dependencies that were not known at gesture start. The full
+      // before-image is private; only published history records need freezing.
+      beforeObjects: structuredClone(input.room.objects),
+      beforeDiagrams: structuredClone(input.room.diagrams),
     });
     return token;
   }
@@ -421,7 +422,7 @@ export class SemanticHistorySessionEngine {
         if (change.after) beforeObjects[change.objectId] = change.after;
         else delete beforeObjects[change.objectId];
       }
-      following.beforeObjects = deepFreeze(beforeObjects);
+      following.beforeObjects = beforeObjects;
       const beforeDiagrams = { ...following.beforeDiagrams };
       for (const change of entry.diagramChanges) {
         const captured = beforeDiagrams[change.diagramId] ?? null;
@@ -429,7 +430,7 @@ export class SemanticHistorySessionEngine {
         if (change.after) beforeDiagrams[change.diagramId] = change.after;
         else delete beforeDiagrams[change.diagramId];
       }
-      following.beforeDiagrams = deepFreeze(beforeDiagrams);
+      following.beforeDiagrams = beforeDiagrams;
     }
 
     this.redoStack.length = 0;

@@ -229,6 +229,54 @@ function record(
 }
 
 describe("SemanticHistorySessionEngine", () => {
+  it("isolates private before-images for dependencies discovered at acknowledgement", () => {
+    const originalInk = draw("ink");
+    const originalDiagram = diagram("auth");
+    const engine = new SemanticHistorySessionEngine({ roomId: "room-history" });
+    const before = room([shape("node"), originalInk], { diagrams: [originalDiagram] });
+    const token = engine.stageHumanTransaction({
+      transactionId: "edit-node",
+      room: before,
+      objectIds: ["node"],
+    });
+    const following = engine.stageHumanTransaction({
+      transactionId: "edit-ink",
+      room: before,
+      objectIds: ["ink"],
+    });
+
+    originalInk.points[1].x = 89;
+    originalDiagram.tags.push("live");
+    const afterInk = draw("ink", { points: [{ x: 0, y: 0 }, { x: 14, y: 17 }] });
+    const afterDiagram = diagram("auth", { tags: ["edited"] });
+    const entry = engine.acknowledgeHumanTransaction({
+      token,
+      room: room([shape("node", { x: 40 }), afterInk], { diagrams: [afterDiagram] }),
+      changedObjectIds: ["ink"],
+      changedDiagramIds: ["auth"],
+    })!;
+    afterInk.points[1].x = 97;
+    afterDiagram.tags.push("live too");
+
+    expect(entry.objectChanges[0]).toMatchObject({
+      objectId: "ink",
+      before: { points: [{ x: 0, y: 0 }, { x: 12, y: 17 }, { x: 40, y: 50 }] },
+      after: { points: [{ x: 0, y: 0 }, { x: 14, y: 17 }] },
+    });
+    expect(entry.diagramChanges[0]).toMatchObject({
+      diagramId: "auth", before: { tags: ["auth", "redis"] }, after: { tags: ["edited"] },
+    });
+    const publishedInk = entry.objectChanges[0].before as DrawObject;
+    expect(Object.isFrozen(publishedInk.points[1])).toBe(true);
+    expect(Object.isFrozen(entry.diagramChanges[0].after!.tags)).toBe(true);
+
+    const nextEntry = engine.acknowledgeHumanTransaction({
+      token: following,
+      room: room([shape("node"), draw("ink", { x: 78 })]),
+    })!;
+    expect(nextEntry.objectChanges[0].before).toEqual(entry.objectChanges[0].after);
+  });
+
   it("rejects undo atomically when another participant changes one of its objects", () => {
     const original = shape("node");
     const edited = committed(original, { x: 500 });
