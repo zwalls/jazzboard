@@ -120,6 +120,30 @@ describe("SemanticTransformSessionEngine", () => {
     expect(unchanged).toMatchObject({ x: 10, y: 20, width: 100, height: 50, rotation: Math.PI / 3 });
   });
 
+  it("fits a selection with 140,000 drawing points and a connector into one exact frame", () => {
+    const points = Array.from({ length: 20_000 }, (_, index) => (
+      index % 2 === 0 ? { x: 0, y: 0 } : { x: 100, y: 50 }
+    ));
+    const strokes = Array.from({ length: 7 }, (_, index) => ({
+      ...draw(`stroke-${index}`),
+      x: index * 200 - 150,
+      y: index * 60 - 40,
+      rotation: index === 6 ? Math.PI / 2 : 0,
+      points,
+    }));
+    const edge = {
+      ...connector("edge"),
+      start: { x: -200, y: 30, objectId: null },
+      end: { x: 1_100, y: 30, objectId: null },
+    };
+
+    expect(semanticTransformFrameForObjects([...strokes, edge])).toEqual({
+      bounds: { x: -200, y: -40, width: 1_300, height: 460 },
+      rotation: 0,
+      localAxes: false,
+    });
+  });
+
   it("starts by synchronously protecting exact immutable identities", () => {
     const source = shape("node", 10, 20, 7);
     const result = new SemanticTransformSessionEngine().begin({ room: room([source]), mode: "resize", handle: "se", selectedObjectIds: ["node"], pointerStart: { x: 110, y: 70 } });
