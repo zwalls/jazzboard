@@ -54,14 +54,15 @@ For existing boards, `read_room_state({detail: "summary"})` provides bounded ori
 
 ## Browserless MCP
 
-A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes two tools for an explicitly granted, existing room.
+A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes three tools for an explicitly granted, existing room.
 
 | Tool | Minimum access | Result |
 | --- | --- | --- |
 | `read_canvas` | `room:read` | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
+| `render_canvas_preview` | `room:read` | Cropped PNG with bounds, selected object revisions, and rendering metadata |
 | `apply_canvas_edits` | `room:read room:write` | Atomic native creates and updates, or a proposal when the room requires review |
 
-Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page.
+Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page. A preview requires exact object IDs with their revisions or one group ID with the current room revision. It returns a standard MCP `image/png` content block plus metadata. A request can select up to 120 native objects, with output capped at 1,536 pixels per side and 1,500,000 PNG bytes. A scope containing an image asset is rejected. Server fonts can differ from the canvas.
 
 Remote MCP is disabled by default. It works with an operator-managed OAuth issuer. Jazzboard publishes protected-resource metadata at `/.well-known/oauth-protected-resource/api/mcp` when configured. Configure the existing issuer to issue short-lived RFC 9068 JWT access tokens to a dedicated client with the following properties.
 
@@ -85,7 +86,7 @@ Set `JAZZBOARD_REMOTE_MCP_ISSUER` and `JAZZBOARD_REMOTE_MCP_JWKS_URL` to the tru
 
 Jazzboard checks membership on every call and requires an editable Jazzboard role, write scope, and an explicit write grant for writes. The service has no room discovery or creation tool. Keep the grants server-side, use a dedicated participant for agent edits, and set `JAZZBOARD_REMOTE_MCP_ENABLED=1` only after reviewing the issuer, resource, and room grants. The browser's existing WebMCP connection continues to use its signed guest session.
 
-Run `npm test -- src/lib/server/remote-mcp-route.test.ts` for a real SDK client and local signed-token transport tests.
+Run `npm test -- src/lib/server/remote-mcp-route.test.ts src/lib/canvas/targeted-png.server.test.ts` for signed-token transport and renderer tests. After `npm run build`, run `node scripts/smoke-remote-mcp.mjs` with local Chromium and Redis binaries to test edits, reload, and decoded preview pixels through the production-built app.
 
 ## Agent discovery and reusable guidance
 

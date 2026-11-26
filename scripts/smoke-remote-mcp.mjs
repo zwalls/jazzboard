@@ -1,7 +1,7 @@
 // Run after npm run build. Requires a local redis-server binary and installed Chromium.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -13,6 +13,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { chromium, expect } from "@playwright/test";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import Redis from "ioredis";
+import sharp from "sharp";
 
 async function listen(server) {
   server.listen(0, "127.0.0.1");
@@ -54,6 +55,28 @@ function unpack(result) {
   const data = JSON.parse(body.text);
   assert(!result.isError, JSON.stringify(data));
   return data;
+}
+
+function unpackPreview(result) {
+  const metadata = unpack(result);
+  const image = result.content.find((entry) => entry.type === "image");
+  assert.equal(image?.mimeType, "image/png");
+  const bytes = Buffer.from(image.data, "base64");
+  assert.equal(bytes.subarray(1, 4).toString(), "PNG");
+  assert.equal(metadata.byteLength, bytes.length);
+  return { bytes, metadata, base64Bytes: Buffer.byteLength(image.data) };
+}
+
+async function countColors(bytes, palette) {
+  const { data, info } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(info.channels, 4);
+  const counts = Object.fromEntries(palette.map((color) => [color, 0]));
+  const pixels = new Map(palette.map((color) => [Number.parseInt(color.slice(1), 16), color]));
+  for (let i = 0; i < data.length; i += 4) {
+    const color = pixels.get((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+    if (color && data[i + 3] > 0) counts[color] += 1;
+  }
+  return counts;
 }
 
 const temp = await mkdtemp(join(tmpdir(), "jazzboard-mcp-smoke-"));
@@ -171,13 +194,26 @@ try {
 
   const start = performance.now();
   mcp = new Client({ name: "jazzboard-smoke", version: "1.0.0" });
-  await mcp.connect(new StreamableHTTPClientTransport(new URL(endpoint), { authProvider: { token: async () => token } }));
+  let capturedBody;
+  await mcp.connect(new StreamableHTTPClientTransport(new URL(endpoint), {
+    authProvider: { token: async () => token },
+    fetch: async (url, init) => {
+      const response = await fetch(url, init);
+      const request = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      if (request.method === "tools/call" && request.params?.name === "render_canvas_preview") {
+        capturedBody = { contentType: response.headers.get("content-type"), bytes: (await response.clone().arrayBuffer()).byteLength };
+      }
+      return response;
+    },
+  }));
   const toolNames = (await mcp.listTools()).tools.map(({ name }) => name).sort();
   assert(toolNames.includes("apply_canvas_edits"));
   assert(toolNames.includes("read_canvas"));
+  assert(toolNames.includes("render_canvas_preview"));
   const setupMs = performance.now() - start;
   const call = (name, args = {}) => mcp.callTool({ name, arguments: { roomId: room.id, ...args } });
   const read = async () => unpack(await call("read_canvas"));
+  const render = async (scope, padding) => unpackPreview(await call("render_canvas_preview", { scope, padding }));
   const apply = async (commands, roomRevision) => unpack(await call("apply_canvas_edits", {
     commands, expectedRoomRevision: roomRevision, idempotencyKey: randomUUID(),
   }));
@@ -219,22 +255,13 @@ try {
   await expect(shape).toHaveAttribute("data-object-x", "61", { timeout: 15_000 });
   const after = await read();
 
-  let preview;
-  if (toolNames.includes("render_canvas_preview")) {
-    const rendered = await call("render_canvas_preview", {
-      scope: { kind: "group", groupId, expectedRoomRevision: after.roomRevision },
-    });
-    preview = unpack(rendered);
-    const image = rendered.content.find((block) => block.type === "image");
-    assert.equal(image?.mimeType, "image/png");
-    const bytes = Buffer.from(image.data, "base64");
-    assert.equal(bytes.subarray(1, 4).toString(), "PNG");
-    await writeFile(join(resultDir, "targeted-preview.png"), bytes);
-  }
+  const groupPreview = await render({ kind: "group", groupId, expectedRoomRevision: after.roomRevision });
+  assert.deepEqual(groupPreview.metadata.objectRevisions.map(({ objectId }) => objectId).sort(), ["mcp-smoke-path", "mcp-smoke-shape"]);
+  await writeFile(join(resultDir, "targeted-preview.png"), groupPreview.bytes);
   await page.screenshot({ path: join(resultDir, "editable-room.png") });
   let portrait;
   if (process.env.JAZZBOARD_MCP_SMOKE_PORTRAIT) {
-    const { fixture } = await import(pathToFileURL(process.env.JAZZBOARD_MCP_SMOKE_PORTRAIT).href);
+    const { fixture, review } = await import(pathToFileURL(process.env.JAZZBOARD_MCP_SMOKE_PORTRAIT).href);
     const submitted = performance.now();
     const portraitSave = await apply(fixture, after.roomRevision);
     const applyMs = performance.now() - submitted;
@@ -245,25 +272,82 @@ try {
     await page.reload();
     await expect(targets).toHaveCount(fixture.length);
     const groupId = fixture[0].object.groupId;
-    if (preview) {
-      const result = await call("render_canvas_preview", {
-        scope: { kind: "group", groupId, expectedRoomRevision: (await read()).roomRevision },
-        padding: 0,
+    let correction;
+    if (review) {
+      const toInspect = (names) => names.map((semanticName) => {
+        const command = fixture.find(({ object }) => object.semanticName === semanticName);
+        assert(command, `Missing portrait role: ${semanticName}`);
+        return { objectId: command.object.id, expectedRevision: 1 };
       });
-      const image = result.content.find((block) => block.type === "image");
-      assert.equal(image?.mimeType, "image/png");
-      const png = Buffer.from(image.data, "base64");
-      await writeFile(join(resultDir, "mona-lisa.png"), png);
+      for (const [name, names] of Object.entries(review.focus)) {
+        const inspection = await render({ kind: "objects", targets: toInspect(names) }, 10);
+        await writeFile(join(resultDir, `mona-lisa-${name}.png`), inspection.bytes);
+      }
+      const [{ objectId, expectedRevision }] = toInspect([review.correction.semanticName]);
+      const corrected = await apply([{
+        type: "update", objectId, expectedRevision, operation: "edit", patch: review.correction.patch,
+      }], (await read()).roomRevision);
+      assert.equal(corrected.outcome, "applied");
+      await page.reload();
+      await expect(page.locator(`[data-object-id="${objectId}"]`)).toHaveAttribute("data-object-revision", "2");
+      correction = { ...review.correction, roomRevision: corrected.roomRevision };
     }
+    const rendered = await render({ kind: "group", groupId, expectedRoomRevision: (await read()).roomRevision }, 0);
+    assert.equal(rendered.metadata.objectRevisions.length, fixture.length);
+    await writeFile(join(resultDir, "mona-lisa.png"), rendered.bytes);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.getByRole("button", { name: "Fit board", exact: true }).click();
     await page.screenshot({ path: join(resultDir, "mona-lisa-browser.png") });
     const kinds = fixture.reduce((counts, command) => {
       const kind = command.object.kind;
       counts[kind] = (counts[kind] ?? 0) + 1;
       return counts;
     }, {});
-    portrait = { groupId, kinds, roomRevision: portraitSave.roomRevision, applyMs, browserVisibleMs, verifiedReload: true };
+    portrait = { groupId, kinds, roomRevision: portraitSave.roomRevision, applyMs, browserVisibleMs, correction, png: rendered.metadata, verifiedReload: true };
   }
-  const report = { toolNames, setupMs, create, after, preview, portrait, verifiedBrowserNudge: true, verifiedReload: true };
+  const positions = [{ x: 800, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 160 }];
+  const palette = ["#be323c", "#2a9d8f", "#633dc0"];
+  const paletteOffset = randomInt(3);
+  const ellipseIndex = randomInt(3);
+  const targets = positions.map(({ x, y }, position) => ({
+    id: randomUUID(), kind: "shape", shape: position === ellipseIndex ? "ellipse" : "rectangle",
+    x, y, width: 72, height: 64, zIndex: 10 + position,
+    fill: palette[(position + paletteOffset) % palette.length], stroke: "none",
+  }));
+  const decoy = {
+    id: randomUUID(), kind: "shape", shape: "rectangle", x: 895, y: 95,
+    width: 56, height: 60, zIndex: 99, fill: "#ff00ff", stroke: "none",
+  };
+  const staged = await apply([...targets, decoy].map((object) => ({ type: "create", object })), (await read()).roomRevision);
+  assert.equal(staged.changedObjectIds.length, 4);
+  const started = performance.now();
+  const selected = await render({
+    kind: "objects", targets: targets.map(({ id }) => ({ objectId: id, expectedRevision: 1 })),
+  }, 0);
+  const captureMs = performance.now() - started;
+  const serializedResponse = capturedBody;
+  const expectedColorPixelCounts = await countColors(selected.bytes, [...palette, decoy.fill]);
+  for (const color of palette) assert(expectedColorPixelCounts[color] > 100);
+  assert.equal(expectedColorPixelCounts[decoy.fill], 0);
+  assert(serializedResponse?.bytes > selected.base64Bytes);
+  assert.deepEqual(selected.metadata.objectRevisions.map(({ objectId }) => objectId).sort(), targets.map(({ id }) => id).sort());
+  const bounds = selected.metadata.bounds;
+  assert(decoy.x >= bounds.x && decoy.y >= bounds.y);
+  assert(decoy.x + decoy.width <= bounds.x + bounds.width && decoy.y + decoy.height <= bounds.y + bounds.height);
+
+  const decoyOnly = await render({ kind: "objects", targets: [{ objectId: decoy.id, expectedRevision: 1 }] }, 0);
+  const decoyControlPixels = (await countColors(decoyOnly.bytes, [decoy.fill]))[decoy.fill];
+  assert(decoyControlPixels > 100);
+  await writeFile(join(resultDir, "opaque-scope-preview.png"), selected.bytes);
+  const scopeProof = {
+    targets: targets.map(({ id, x, y, fill, shape }) => ({ id, x, y, fill, shape })),
+    decoy, expectedColorPixelCounts, excludedDecoyPixels: 0, decoyControlPixels, metadata: selected.metadata,
+    pngBytes: selected.bytes.length, base64Bytes: selected.base64Bytes, serializedResponse, captureMs,
+  };
+  const report = {
+    toolNames, setupMs, create, after, preview: groupPreview.metadata, portrait, scopeProof,
+    verifiedBrowserNudge: true, verifiedReload: true,
+  };
   console.log(JSON.stringify(report, null, 2));
   if (resultDir !== temp) await writeFile(join(resultDir, "smoke-report.json"), JSON.stringify(report, null, 2));
 } finally {

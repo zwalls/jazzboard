@@ -1,6 +1,12 @@
 import type { AuthInfo, CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
+import {
+  renderTargetedCanvasPng,
+  targetedCanvasPngInputSchema,
+  TargetedCanvasPngError,
+} from "@/lib/canvas/targeted-png.server";
+
 import { requireMutationRole, requireParticipant } from "@/lib/domain/engine";
 import { DomainError, isDomainError } from "@/lib/domain/errors";
 import { canvasCommandSchema, createCanvasObjectSchema } from "@/lib/domain/schemas";
@@ -24,6 +30,10 @@ const readCanvasInput = z.strictObject({
   offset: z.number().int().min(0).max(5000).default(0),
   limit: z.number().int().min(1).max(20).default(20),
   includeGeometry: z.boolean().default(false),
+});
+
+const renderPreviewInput = targetedCanvasPngInputSchema.safeExtend({
+  roomId: remoteRoomIdSchema,
 });
 
 const nativeEdit = z.discriminatedUnion("type", [
@@ -135,6 +145,33 @@ export function registerRemoteMcpTools(server: McpServer, config: RemoteMcpConfi
         nextOffset: next < ids.length ? next : null,
       });
     } catch (error) {
+      return remoteMcpToolError(error);
+    }
+  });
+
+  server.registerTool("render_canvas_preview", {
+    description: "Render a targeted PNG for explicitly named objects or one group from an authorized room. Use exact object revisions for IDs or the room revision from read_canvas for a group. The response includes an image and cropped bounds. A selection containing an image asset is rejected.",
+    inputSchema: renderPreviewInput,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ roomId, ...preview }, context) => {
+    try {
+      const room = await readRemoteMcpRoom(config, context.http?.authInfo, roomId);
+      const { bytes, metadata } = await renderTargetedCanvasPng(room, preview);
+      return {
+        content: [
+          { type: "image", mimeType: "image/png", data: bytes.toString("base64") },
+          { type: "text", text: JSON.stringify(metadata) },
+        ],
+      };
+    } catch (error) {
+      if (error instanceof TargetedCanvasPngError) {
+        return result({
+          error: {
+            code: error.code,
+            message: error.message,
+          },
+        }, true);
+      }
       return remoteMcpToolError(error);
     }
   });

@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { POST, GET, DELETE } from "@/app/api/mcp/route";
 import { GET as metadata } from "@/app/.well-known/oauth-protected-resource/api/mcp/route";
+import { createCanvasObjectSchema } from "@/lib/domain/schemas";
 import { MCP_METADATA_PATH } from "./remote-mcp-auth";
 import { getRoomStore } from "./room-store";
 import { runCanvasCommand, runLeaseAction, setAgentEditPolicy } from "./room-service";
@@ -69,6 +70,7 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
   let privateKey: CryptoKey;
   let roomId: string;
   let otherRoomId: string;
+  let previewRoomId: string;
 
   async function token(options: { sub?: string; scope?: string; audience?: string | string[]; issuer?: string; typ?: string; exp?: number; client?: string } = {}) {
     return new SignJWT({ client_id: options.client ?? clientId, scope: options.scope ?? writeScope })
@@ -119,6 +121,13 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     await store.joinRoom({ code: room.code, participantId: peer, displayName: "Peer", role: "participant" });
     await store.joinRoom({ code: room.code, participantId: visitor, displayName: "Visitor", role: "spectator" });
     otherRoomId = (await store.createRoom({ participantId: owner, displayName: "Owner", title: "Other room" })).id;
+    const previewRoom = await store.createRoom({ participantId: owner, displayName: "Owner", title: "Preview room" });
+    previewRoomId = previewRoom.id;
+    await store.joinRoom({ code: previewRoom.code, participantId: visitor, displayName: "Visitor", role: "spectator" });
+    await runCanvasCommand({
+      roomId: previewRoomId, participantId: owner, actorKind: "human",
+      command: { type: "create", object: createCanvasObjectSchema.parse(nativePath.object) },
+    });
 
     const pair = await generateKeyPair("RS256");
     privateKey = pair.privateKey;
@@ -173,6 +182,8 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
       { subject: "map-read-only", clientId, roomId, participantId: peer, access: "read" },
       { subject: "spectator", clientId, roomId, participantId: visitor, access: "write" },
       { subject: "former-member", clientId, roomId, participantId: missing, access: "write" },
+      { subject: "preview-reader", clientId, roomId: previewRoomId, participantId: visitor, access: "read" },
+      { subject: "preview-removed", clientId, roomId: previewRoomId, participantId: missing, access: "read" },
     ]));
   }, 15_000);
 
@@ -330,5 +341,57 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     const image = objects.find(({ id }: { id: string }) => id === "private-image");
     expect(image).toMatchObject({ kind: "image", x: 12, width: 20, mediaOmitted: true });
     for (const key of ["url", "sourceUrl", "assetId", "alt", "mimeType", "createdBy"]) expect(image).not.toHaveProperty(key);
+    const denied = await reader.callTool({
+      name: "render_canvas_preview",
+      arguments: { roomId, scope: { kind: "objects", targets: [{ objectId: "private-image", expectedRevision: image.revision }] } },
+    });
+    expect(denied.isError).toBe(true);
+    expect(content(denied)).toMatchObject({ error: { code: "UNSUPPORTED_CONTENT" } });
+    expect(denied.content?.every((block) => block.type !== "image")).toBe(true);
+  });
+  it("returns a scoped PNG to read-only members and denies invalid or unauthorized scopes", async () => {
+    const reader = await connect(await token({ sub: "preview-reader", scope: readScope }));
+    const ungranted = await connect(await token({ scope: readScope }));
+    const removed = await connect(await token({ sub: "preview-removed", scope: readScope }));
+    const objectId = nativePath.object.id;
+    const room = content(await read(reader, previewRoomId));
+    const preview = (client: Client, scope?: Record<string, unknown>, requestedRoomId = previewRoomId) =>
+      client.callTool({ name: "render_canvas_preview", arguments: { roomId: requestedRoomId, scope } });
+    const objectScope = { kind: "objects", targets: [{ objectId, expectedRevision: 1 }] };
+    const groupScope = { kind: "group", groupId: "test-group", expectedRoomRevision: room.roomRevision };
+    const advertised = (await reader.listTools()).tools.find(({ name }) => name === "render_canvas_preview");
+    expect(advertised?.annotations).toMatchObject({ readOnlyHint: true });
+
+    for (const scope of [objectScope, groupScope]) {
+      const rendered = await preview(reader, scope);
+      expect(rendered.isError, JSON.stringify(rendered.content)).not.toBe(true);
+      const image = rendered.content?.find((block) => block.type === "image");
+      if (image?.type !== "image") throw new Error("Expected MCP image content.");
+      expect(image.mimeType).toBe("image/png");
+      const png = Buffer.from(image.data, "base64");
+      expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      expect(content(rendered)).toMatchObject({
+        mimeType: "image/png", byteLength: png.length, roomRevision: room.roomRevision,
+        objectRevisions: [{ objectId, revision: 1 }],
+        width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+      });
+    }
+
+    const failures = [
+      [await preview(ungranted, objectScope), "FORBIDDEN"],
+      [await preview(removed, objectScope), "FORBIDDEN"],
+      [await preview(reader, objectScope, otherRoomId), "FORBIDDEN"],
+      [await preview(reader, { kind: "objects", targets: [{ objectId, expectedRevision: 2 }] }), "REVISION_MISMATCH"],
+      [await preview(reader, { ...groupScope, expectedRoomRevision: room.roomRevision + 1 }), "REVISION_MISMATCH"],
+    ] as const;
+    for (const [denied, code] of failures) {
+      expect(denied.isError).toBe(true);
+      expect(content(denied)).toMatchObject({ error: { code } });
+      expect(denied.content?.every((block) => block.type !== "image")).toBe(true);
+    }
+    const wholeRoom = await preview(reader);
+    expect(wholeRoom.isError).toBe(true);
+    expect(wholeRoom.content?.every((block) => block.type !== "image")).toBe(true);
+    expect(content(await read(reader, previewRoomId))).toEqual(room);
   });
 });
