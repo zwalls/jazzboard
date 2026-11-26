@@ -10,7 +10,7 @@ import { POST, GET, DELETE } from "@/app/api/mcp/route";
 import { GET as metadata } from "@/app/.well-known/oauth-protected-resource/api/mcp/route";
 import { MCP_METADATA_PATH } from "./remote-mcp-auth";
 import { getRoomStore } from "./room-store";
-import { runLeaseAction, setAgentEditPolicy } from "./room-service";
+import { runCanvasCommand, runLeaseAction, setAgentEditPolicy } from "./room-service";
 
 const owner = "p_remote_mcp_owner_fixture";
 const peer = "p_remote_mcp_second_fixture";
@@ -216,6 +216,20 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     expect((await request({ Authorization: authorization }, JSON.stringify("x".repeat(256 * 1024)))).status).toBe(413);
   });
 
+  it("accepts the stable 2025 Streamable HTTP initialization handshake", async () => {
+    const protocolVersion = "2025-06-18";
+    const response = await request({
+      Authorization: `Bearer ${await token()}`,
+      Accept: "application/json, text/event-stream",
+    }, JSON.stringify({
+      jsonrpc: "2.0", id: 7, method: "initialize",
+      params: { protocolVersion, capabilities: {}, clientInfo: { name: "legacy-client", version: "1" } },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toContain(`"protocolVersion":"${protocolVersion}"`);
+  });
+
   it("requires a matching room grant, OAuth scope, membership and mutation role on each call", async () => {
     const writer = await connect(await token());
     const scopeReader = await connect(await token({ scope: readScope }));
@@ -275,13 +289,46 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     expect((await read(writer, roomId, { offset: 1, expectedRoomRevision: revision })).isError).toBe(true);
     expect(content(await read(writer, roomId, { offset: 1, expectedRoomRevision: revision + 1 }))).toMatchObject({ objects: [], nextOffset: null });
 
-    await runLeaseAction({ roomId, objectId: nativePath.object.id, participantId: peer, actorKind: "human", action: "acquire", operation: "move", expectedRevision: 1 });
+    const acquired = await runLeaseAction({
+      roomId, objectId: nativePath.object.id, participantId: peer, actorKind: "human", action: "acquire",
+      operation: "move", expectedRevision: 1,
+    });
     const leasedRevision = content(await read(writer)).roomRevision;
     expect(content(await apply(writer, leasedRevision, [nativeEdit]))).toMatchObject({ error: { code: "OBJECT_BUSY" } });
+    if (!acquired.lease) throw new Error("Expected the human lease.");
+    await runLeaseAction({
+      roomId, objectId: nativePath.object.id, participantId: peer, actorKind: "human", action: "release",
+      leaseId: acquired.lease.leaseId,
+    });
+    const revisionAfterRelease = content(await read(writer)).roomRevision;
+    expect(content(await apply(writer, revisionAfterRelease, [nativeEdit]))).toMatchObject({
+      outcome: "applied", changedObjectIds: [nativePath.object.id],
+    });
+    expect(content(await read(writer, roomId, { includeGeometry: true })).objects[0]).toMatchObject({ x: 31, revision: 2 });
     await setAgentEditPolicy({ roomId, participantId: owner, actorKind: "human", policy: "review" });
     const reviewRevision = content(await read(writer)).roomRevision;
     const secondPath = { ...nativePath, object: { ...nativePath.object, id: "review-path" } };
     expect(content(await apply(writer, reviewRevision, [secondPath]))).toMatchObject({ outcome: "proposed", proposalId: expect.any(String) });
     expect(content(await read(writer)).objects.map(({ id }: { id: string }) => id)).toEqual([nativePath.object.id]);
+  });
+
+  it("returns private image bounds without its source or asset metadata", async () => {
+    await runCanvasCommand({
+      roomId, participantId: owner, actorKind: "human",
+      command: {
+        type: "create",
+        object: {
+          id: "private-image", kind: "image", x: 12, y: 22, width: 20, height: 40,
+          rotation: 0, zIndex: 2, groupId: null, url: "https://example.net/private.png",
+          sourceUrl: "https://example.net/source.png", assetId: "private-asset-id",
+          alt: "private-image-label", mimeType: "image/png", locked: false,
+        },
+      },
+    });
+    const reader = await connect(await token({ scope: readScope }));
+    const objects = content(await read(reader, roomId, { includeGeometry: true })).objects;
+    const image = objects.find(({ id }: { id: string }) => id === "private-image");
+    expect(image).toMatchObject({ kind: "image", x: 12, width: 20, mediaOmitted: true });
+    for (const key of ["url", "sourceUrl", "assetId", "alt", "mimeType", "createdBy"]) expect(image).not.toHaveProperty(key);
   });
 });
