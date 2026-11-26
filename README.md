@@ -54,20 +54,19 @@ For existing boards, `read_room_state({detail: "summary"})` provides bounded ori
 
 ## Browserless MCP
 
-A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes three tools for an explicitly granted, existing room.
+A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes two tools for an explicitly granted, existing room.
 
 | Tool | Minimum access | Result |
 | --- | --- | --- |
 | `read_canvas` | `room:read` | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
 | `apply_canvas_edits` | `room:read room:write` | Atomic native creates and updates, or a proposal when the room requires review |
-| `render_canvas_preview` | `room:read` | Scoped PNG and render metadata for explicitly named object IDs or one group |
 
-Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page and for a group preview. Individual preview objects require their exact object revisions. Preview returns image bytes in a standard MCP image content block. Raster objects are omitted, and the renderer caps the object count, dimensions, and PNG size.
+Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page.
 
 Remote MCP is disabled by default. It works with an operator-managed OAuth issuer. Jazzboard publishes protected-resource metadata at `/.well-known/oauth-protected-resource/api/mcp` when configured. Configure the existing issuer to issue short-lived RFC 9068 JWT access tokens to a dedicated client with the following properties.
 
 - `typ: at+jwt` and a signature with RS256 or ES256. The issuer JWKS endpoint must use the issuer's origin.
-- Exact `iss` and a single `aud` matching the canonical URL set in `JAZZBOARD_REMOTE_MCP_RESOURCE`, including `/api/mcp`. Use HTTPS for deployed environments.
+- Exact `iss` and a single `aud` matching the canonical URL set in `JAZZBOARD_REMOTE_MCP_RESOURCE`, including `/api/mcp`. Use the canonical HTTPS host directly. Jazzboard production uses `https://www.jazzboard.xyz/api/mcp`.
 - `sub`, `client_id`, `scope`, `jti`, `iat`, and `exp`. The maximum token lifetime is 15 minutes. Ask for `room:read` and add `room:write` only for edit workflows.
 
 Set `JAZZBOARD_REMOTE_MCP_ISSUER` and `JAZZBOARD_REMOTE_MCP_JWKS_URL` to the trusted issuer and public key set. Set `JAZZBOARD_REMOTE_MCP_ROOM_GRANTS` to a JSON array of explicit mappings. Each mapping binds one subject and OAuth client to one existing room and one existing Jazzboard participant. For example, substituting the actual identifiers:
