@@ -1288,3 +1288,19 @@ describe("agent virtual viewport", () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+
+describe("architecture node creation palette parity", () => {
+  it("accepts custom fills and strokes without a follow-up command and retains omitted defaults", async () => {
+    const fixture = contextFixture();
+    const request = requestMock(async () => ({ ok: true, room: room(), outcome: "applied", changedObjectIds: [], activity: null, proposal: null }));
+    const tools = createJazzboardWebMcpTools(binding(fixture.context), { request });
+    const node = toolByName(tools, "create_node");
+    expect(await execute(node, { label: "API", nodeType: "service", fill: "#E8F1FA", stroke: "#334155" })).toMatchObject({ ok: true });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>)).toMatchObject({ command: { object: { fill: "#E8F1FA", stroke: "#334155", nodeType: "service" } } });
+    expect(await execute(node, { label: "Queue", nodeType: "component", fill: "none" })).toMatchObject({ ok: true });
+    expect(parsedBody(request as unknown as ReturnType<typeof vi.fn>, 1)).toMatchObject({ command: { object: { fill: "none", stroke: "blue" } } });
+    expect(await execute(node, { label: "invalid", fill: "bad" })).toMatchObject({ ok: false, error: { code: "INVALID_TOOL_INPUT" } });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+});

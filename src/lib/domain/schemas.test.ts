@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  SEMANTIC_COLOR_NAMES,
+  semanticColorSchema,
+  semanticPaintSchema,
   agentEditPolicyRequestSchema,
   canvasCommandSchema,
   createCanvasObjectSchema,
@@ -509,5 +512,17 @@ describe("lease, presence, and spotlight schemas", () => {
     }
     expect(spotlightRequestSchema.safeParse({ action: "start", target: "room" }).success).toBe(false);
     expect(spotlightRequestSchema.safeParse({ action: "takeover" }).success).toBe(false);
+  });
+});
+
+
+describe("generated paint schema preserves established acceptance", () => {
+  it("keeps exact named colors, transparent paint and the existing hex policy", () => {
+    const values = [...SEMANTIC_COLOR_NAMES, "none", "NONE", "blue\n", "none\n", "blue ", "#fff", "#FFf", "#fF00aA", "#Ff00AA88", "#fff\n", "#12345", "#1234567", "#123456789", "url(javascript:x)", ""];
+    const oldColor = (value: string) => value.length <= 32 && ((SEMANTIC_COLOR_NAMES as readonly string[]).includes(value) || /^(?:#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8})$/i.test(value));
+    for (const value of values) {
+      expect(semanticColorSchema.safeParse(value).success, JSON.stringify(value)).toBe(oldColor(value));
+      expect(semanticPaintSchema.safeParse(value).success, JSON.stringify(value)).toBe(value === "none" || oldColor(value));
+    }
   });
 });
