@@ -183,40 +183,50 @@ function draftFromObject(object: CanvasObject): CreateCanvasObject {
   return { ...draft };
 }
 
-function rotatedCorners(object: CanvasObject): Point[] {
+function visitTransformPoints(object: CanvasObject, visit: (x: number, y: number) => void): void {
   if (object.kind === "connector") {
-    return [{ x: object.start.x, y: object.start.y }, { x: object.end.x, y: object.end.y }];
+    visit(object.start.x, object.start.y);
+    visit(object.end.x, object.end.y);
+    return;
   }
+  const cosine = Math.cos(object.rotation);
+  const sine = Math.sin(object.rotation);
   if (object.kind === "draw") {
-    const cosine = Math.cos(object.rotation);
-    const sine = Math.sin(object.rotation);
-    return object.points.map((point) => ({
-      x: object.x + point.x * cosine - point.y * sine,
-      y: object.y + point.x * sine + point.y * cosine,
-    }));
+    for (const point of object.points) {
+      visit(
+        object.x + point.x * cosine - point.y * sine,
+        object.y + point.x * sine + point.y * cosine,
+      );
+    }
+    return;
   }
   const cx = object.x + object.width / 2;
   const cy = object.y + object.height / 2;
-  const cosine = Math.cos(object.rotation);
-  const sine = Math.sin(object.rotation);
-  return [
+  const corners = [
     { x: object.x, y: object.y },
     { x: object.x + object.width, y: object.y },
     { x: object.x + object.width, y: object.y + object.height },
     { x: object.x, y: object.y + object.height },
-  ].map((point) => {
+  ];
+  for (const point of corners) {
     const dx = point.x - cx;
     const dy = point.y - cy;
-    return { x: cx + dx * cosine - dy * sine, y: cy + dx * sine + dy * cosine };
-  });
+    visit(cx + dx * cosine - dy * sine, cy + dx * sine + dy * cosine);
+  }
 }
 
 function boundsFor(objects: readonly CanvasObject[]): SemanticTransformBounds {
-  const points = objects.flatMap(rotatedCorners);
-  const minX = Math.min(...points.map((point) => point.x));
-  const minY = Math.min(...points.map((point) => point.y));
-  const maxX = Math.max(...points.map((point) => point.x));
-  const maxY = Math.max(...points.map((point) => point.y));
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const include = (x: number, y: number) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const object of objects) visitTransformPoints(object, include);
   return Object.freeze({
     x: stableCoordinate(minX),
     y: stableCoordinate(minY),

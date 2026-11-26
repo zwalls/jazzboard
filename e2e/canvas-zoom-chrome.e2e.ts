@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { createRoomViaApi } from "./helpers";
+import { createCanvasObject, createRoomViaApi, getRoom, shapeObject } from "./helpers";
 
 type Bounds = Readonly<{
   x: number;
@@ -159,4 +159,47 @@ test("keeps floating canvas controls visible, clickable, and screen-fixed throug
   } finally {
     await page.keyboard.up("Control");
   }
+});
+
+test("fits the whole board inside a short desktop viewport without document scrolling", async ({ page }) => {
+  const desktop = { width: 1_280, height: 800 };
+  const shortDesktop = { width: 1_120, height: 390 };
+  await page.setViewportSize(desktop);
+  const { room } = await createRoomViaApi(page.request, "Desktop fit", "Tall board in a short window");
+  await createCanvasObject(page.request, room.id, shapeObject("fit-upper", "Upper", 240, 100), "human");
+  await createCanvasObject(page.request, room.id, shapeObject("fit-lower", "Lower", 240, 1_250, "green"), "human");
+  const before = (await getRoom(page.request, room.id)).room;
+
+  await page.goto(`/room/${encodeURIComponent(room.id)}`);
+  const canvas = page.getByTestId("semantic-canvas");
+  const upper = canvas.locator('[data-object-id="fit-upper"]');
+  const lower = canvas.locator('[data-object-id="fit-lower"]');
+  await expect(upper).toBeVisible();
+  await expect(lower).toBeVisible();
+
+  const fitBoard = page.getByRole("button", { name: "Fit board", exact: true });
+  async function expectBoardFits(viewport: { width: number; height: number }) {
+    await fitBoard.click();
+    await expect.poll(async () => {
+      const boxes = await Promise.all([upper.boundingBox(), lower.boundingBox()]);
+      return Math.max(0, ...boxes.map((box) => !box ? Infinity : Math.max(
+        -box.x, -box.y, box.x + box.width - viewport.width, box.y + box.height - viewport.height,
+      )));
+    }, { message: "Both fitted shapes must stay within the visible browser viewport" })
+      .toBeLessThanOrEqual(POSITION_TOLERANCE_PX);
+  }
+
+  await expectBoardFits(desktop);
+  await page.setViewportSize(shortDesktop);
+  await expectBoardFits(shortDesktop);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await expectBoardFits(shortDesktop);
+
+  await page.setViewportSize(desktop);
+  await expectBoardFits(desktop);
+  const after = (await getRoom(page.request, room.id)).room;
+  expect(after.roomRevision).toBe(before.roomRevision);
+  expect(after.objects).toEqual(before.objects);
+  expect(after.leases).toEqual({});
 });
