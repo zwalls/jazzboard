@@ -229,7 +229,7 @@ export class SemanticLeaseCohortManager {
    * repeated identical discoveries are idempotent, while changing an existing
    * member's revision or operation is a fenced programming error.
    */
-  ensureCohort(input: Readonly<{
+  async ensureCohort(input: Readonly<{
     cohortId: string;
     targets: readonly ObjectLeaseAcquireTarget[];
   }>): Promise<SemanticLeaseCohortSnapshot> {
@@ -294,7 +294,14 @@ export class SemanticLeaseCohortManager {
       this.addReference(cohort.id, target.objectId);
     }
 
-    return this.startEnsuring(cohort);
+    // The shared request may have captured a snapshot before this call extended
+    // the cohort. Targets only grow, so a shorter snapshot cannot cover this call.
+    const targetCount = cohort.targets.size;
+    let snapshot = await this.startEnsuring(cohort);
+    while (snapshot.objectIds.length < targetCount) {
+      snapshot = await this.startEnsuring(cohort);
+    }
+    return snapshot;
   }
 
   /** Returns how many live edit cohorts currently depend on an object lease. */

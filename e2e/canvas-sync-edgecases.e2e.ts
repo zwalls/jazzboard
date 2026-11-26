@@ -920,6 +920,67 @@ test.describe("canvas synchronization edge cases", () => {
     }
   });
 
+  test("persists rapid keyboard repeat as one history gesture with a bound connector", async ({ page }) => {
+    const { room } = await createRoomViaApi(page.request, "Keyboard repeater", "Rapid nudge history");
+    await seedPair(page, room.id, true);
+    await page.goto(`/room/${encodeURIComponent(room.id)}`);
+    await selectSemanticObject(page, LEFT_ID);
+    await semanticCanvas(page).focus();
+
+    const read = async () => (await getRoom(page.request, room.id)).room;
+    const before = await read();
+    const start = before.objects[LEFT_ID].x;
+    if (typeof start !== "number") throw new Error("The seeded shape has no horizontal position.");
+    const mutations: Request[] = [];
+    let deliver!: () => void;
+    const hold = new Promise<void>((resolve) => { deliver = resolve; });
+    const pattern = /\/(commands|semantic)$/;
+    const handler = async (route: Route, request: Request) => {
+      if (atomicSemanticMoveRequest(request, room.id)) {
+        mutations.push(request);
+        if (mutations.length === 1) await hold;
+      }
+      await route.continue();
+    };
+    await page.route(pattern, handler);
+    async function expectSaved(increment: number, x: number) {
+      await expect.poll(async () => {
+        const current = await read();
+        return [current.roomRevision, current.objects[LEFT_ID].x, Object.keys(current.leases)];
+      }).toEqual([before.roomRevision + increment, x, []]);
+      await expectRenderedRevision(page, LEFT_ID, before.objects[LEFT_ID].revision + increment);
+      await expectRenderedRevision(page, CONNECTOR_ID, before.objects[CONNECTOR_ID].revision + increment);
+    }
+
+    try {
+      await page.keyboard.down("ArrowRight");
+      await page.keyboard.down("ArrowRight");
+      await page.keyboard.up("ArrowRight");
+      await expect(renderedShape(page, LEFT_ID)).toHaveAttribute("data-object-x", String(start + 2));
+      await expect.poll(() => mutations.length).toBe(1);
+      const held = await read();
+      expect(held.roomRevision).toBe(before.roomRevision);
+      expect(Object.keys(held.leases).sort()).toEqual([CONNECTOR_ID, LEFT_ID]);
+
+      deliver();
+      await expectSaved(1, start + 2);
+      expect(mutations).toHaveLength(1);
+      await semanticCanvas(page).press("ControlOrMeta+z");
+      await expectSaved(2, start);
+      await semanticCanvas(page).press("ControlOrMeta+Shift+z");
+      await expectSaved(3, start + 2);
+      expect(mutations).toHaveLength(3);
+
+      await page.reload();
+      await expectSaved(3, start + 2);
+      expect(mutations).toHaveLength(3);
+    } finally {
+      deliver();
+      await page.keyboard.up("ArrowRight");
+      await page.unroute(pattern, handler);
+    }
+  });
+
   test("cancels a delayed lease when a pointer edit returns to authoritative state", async ({
     browser,
     page,

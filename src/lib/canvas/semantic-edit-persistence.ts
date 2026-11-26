@@ -52,6 +52,7 @@ export type SemanticEditPersistenceErrorClassification =
 export type SemanticEditPersistenceAcknowledgement = Readonly<{
   objectId: string;
   generation: number;
+  recoveryEpoch: number;
   revision: number | null;
   createdAt: number | null;
   latestGenerationSettled: boolean;
@@ -1375,6 +1376,7 @@ export class SemanticCanvasEditPersistenceDriver {
       acknowledgements.push({
         objectId: object.objectId,
         generation: object.generation,
+        recoveryEpoch: object.recoveryEpoch,
         revision: identity.revision,
         createdAt: identity.createdAt,
         latestGenerationSettled,

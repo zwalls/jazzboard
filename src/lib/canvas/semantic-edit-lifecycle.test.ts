@@ -756,9 +756,13 @@ describe("SemanticCanvasEditLifecycleController", () => {
     const first = intentOf(controller.dispatch(event("first")), "sync.schedule");
     const second = intentOf(controller.dispatch(event("second")), "sync.schedule");
 
-    expect(controller.clearPendingEdit("new-node", first.edits[0].generation)).toBe(false);
+    expect(controller.clearPendingEdit(first.edits[0])).toBe(false);
     expect(controller.getPendingEdit("new-node")?.generation).toBe(second.edits[0].generation);
-    expect(controller.clearPendingEdit("new-node", second.edits[0].generation)).toBe(true);
+    expect(controller.clearPendingEdit({
+      ...second.edits[0],
+      recoveryEpoch: second.edits[0].recoveryEpoch + 1,
+    })).toBe(false);
+    expect(controller.clearPendingEdit(second.edits[0])).toBe(true);
     expect(controller.getPendingEdit("new-node")).toBeUndefined();
   });
 

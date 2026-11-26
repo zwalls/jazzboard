@@ -497,6 +497,152 @@ describe("SemanticCanvasEditController", () => {
     }
   });
 
+  it.each([false, true])("keeps rapid nudges in one history gesture (bound connector: %s)", async (bound) => {
+    const a = shape("a");
+    const b = shape("b", 250);
+    const objects = bound ? [a, b, connector("edge", a.id, b.id)] : [a, b];
+    const { controller, harness, clock, renderSettles } = setup(roomWith(objects));
+    const keyboard = new SemanticKeyboardSessionEngine();
+    const initialCommand = harness.commandImpl;
+    const firstSave = deferred<void>();
+    const command = vi.fn(initialCommand);
+    const leaseMany = vi.spyOn(harness.host, "leaseMany");
+    try {
+      harness.commandImpl = command;
+      command.mockImplementationOnce(async (save) => {
+        await firstSave.promise;
+        return initialCommand(save);
+      });
+
+      const nudge = () => controller.dispatchKeyboardNudge(keyboard.nudge({
+        room: controller.getSnapshot(),
+        selection: { objectIds: [a.id] },
+        delta: { x: 1, y: 0 },
+      }).lifecycleEvents);
+      nudge();
+      nudge();
+      expect(controller.getSnapshot().objects.a.x).toBe(a.x + 2);
+      expect(renderSettles).toHaveLength(1);
+
+      // Stream the first save without settling the gesture, then repeat
+      // again while its receipt is held and after its revision advances.
+      clock.advance(SEMANTIC_EDIT_DEBOUNCE_MS);
+      await microtasks(50);
+      expect(command).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        targets: [expect.objectContaining({ x: a.x + 2, expectedRevision: a.revision })],
+      }));
+      nudge();
+      firstSave.resolve();
+      await microtasks(100);
+      expect(controller.getAuthoritativeRoom().objects.a.revision).toBe(a.revision + 1);
+      expect(controller.getSnapshot().objects.a.x).toBe(a.x + 3);
+      nudge();
+      expect(renderSettles).toHaveLength(1);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+
+      expect(command).toHaveBeenCalledTimes(2);
+      expect(controller.isProjectionAuthoritative(a.id)).toBe(true);
+      expect(harness.serverRoom.objects.a).toMatchObject({ x: a.x + 4, revision: a.revision + 2 });
+      expect(controller.historyState()).toMatchObject({ undoDepth: 1, redoDepth: 0 });
+      const batchOperations = leaseMany.mock.calls.map(([action]) => action.action);
+      expect(batchOperations).toEqual(bound ? ["acquire-many", "release-many"] : []);
+
+      expect(await controller.undo()).toBe(true);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+      expect(harness.serverRoom.objects.a.x).toBe(a.x);
+      expect(controller.historyState()).toMatchObject({ undoDepth: 0, redoDepth: 1 });
+
+      expect(await controller.redo()).toBe(true);
+      renderSettles.shift()!();
+      await controller.whenIdle();
+      expect(harness.serverRoom.objects.a.x).toBe(a.x + 4);
+      expect(controller.historyState()).toMatchObject({ undoDepth: 1, redoDepth: 0 });
+      expect(harness.serverRoom.leases).toEqual({});
+      expect(harness.errors).toEqual([]);
+      expect(harness.rollbacks).toEqual([]);
+    } finally {
+      firstSave.resolve();
+      controller.dispose();
+    }
+  });
+
+  it("retires a saved nudge overlay even when a later cohort still tracks the object", async () => {
+    const a = shape("a");
+    const b = shape("b", 250);
+    const { controller, harness, renderSettles } = setup(roomWith([a, b]));
+    const keyboard = new SemanticKeyboardSessionEngine();
+    const first = deferred<void>();
+    const applyCommand = harness.commandImpl;
+    const save = vi.fn(async (command: CanvasCommand) => {
+      if (command.type === "move" && command.targets[0].objectId === a.id) await first.promise;
+      return applyCommand(command);
+    });
+    harness.commandImpl = save;
+    const readPositions = () => [a.id, b.id].map((id) => controller.getSnapshot().objects[id].x);
+    const settle = async () => {
+      while (renderSettles.length) renderSettles.shift()!();
+      await controller.whenIdle();
+    };
+
+    try {
+      for (const id of [a.id, b.id, a.id]) {
+        controller.dispatchKeyboardNudge(keyboard.nudge({
+          room: controller.getSnapshot(),
+          selection: { objectIds: [id] },
+          delta: { x: 1, y: 0 },
+        }).lifecycleEvents);
+      }
+      const settled = settle();
+      await microtasks(80);
+      expect(save.mock.calls.map(([command]) => command)).toEqual([
+        expect.objectContaining({ targets: [expect.objectContaining({ objectId: a.id, x: a.x + 2, expectedRevision: 1 })] }),
+        expect.objectContaining({ targets: [expect.objectContaining({ objectId: b.id, x: b.x + 1, expectedRevision: 1 })] }),
+      ]);
+      expect(readPositions()).toEqual([a.x + 2, b.x + 1]);
+      expect(controller.getAuthoritativeRoom().objects.a).toMatchObject({ x: a.x, revision: 1 });
+      expect(controller.getAuthoritativeRoom().objects.b).toMatchObject({ x: b.x + 1, revision: 2 });
+      expect(controller.isProjectionAuthoritative(a.id)).toBe(false);
+
+      first.resolve();
+      await settled;
+      expect(harness.serverRoom.roomRevision).toBe(3);
+      expect(harness.serverRoom.leases).toEqual({});
+      for (const id of [a.id, b.id]) {
+        expect(controller.getSnapshot().objects[id].revision).toBe(2);
+        expect(controller.isProjectionAuthoritative(id)).toBe(true);
+      }
+      expect(controller.historyState()).toMatchObject({ undoDepth: 2, redoDepth: 0, pendingHumanTransactions: 0 });
+      expect(await controller.undo()).toBe(true);
+      await settle();
+      expect(readPositions()).toEqual([a.x + 2, b.x]);
+      expect(await controller.undo()).toBe(true);
+      await settle();
+      expect(readPositions()).toEqual([a.x, b.x]);
+      expect(await controller.redo()).toBe(true);
+      await settle();
+      expect(readPositions()).toEqual([a.x + 2, b.x]);
+      expect(await controller.redo()).toBe(true);
+      await settle();
+      expect(readPositions()).toEqual([a.x + 2, b.x + 1]);
+
+      const peer = structuredClone(harness.serverRoom);
+      peer.roomRevision += 1;
+      peer.stateRevision = (peer.stateRevision ?? 0) + 1;
+      peer.objects.a = { ...peer.objects.a, x: a.x + 1, revision: peer.objects.a.revision + 1 };
+      peer.objects.b = { ...peer.objects.b, x: b.x, revision: peer.objects.b.revision + 1 };
+      controller.acceptRoom(peer);
+      expect(readPositions()).toEqual([a.x + 1, b.x]);
+      expect(controller.getSnapshot().objects.a.revision).toBe(peer.objects.a.revision);
+      expect(harness.errors).toEqual([]);
+      expect(harness.rollbacks).toEqual([]);
+    } finally {
+      first.resolve();
+      controller.dispose();
+    }
+  });
+
   it("keeps optimistic move and text pixels across newer stale snapshots", () => {
     const a = shape("a");
     const label = textObject("label");
@@ -588,6 +734,8 @@ describe("SemanticCanvasEditController", () => {
     await microtasks(80);
     expect(harness.errors).toEqual([]);
     expect(controller.getAuthoritativeRoom().objects.a.revision).toBe(2);
+    expect(controller.getSnapshot().objects.a).toMatchObject({ x: 180, width: 240, revision: 1 });
+    expect(controller.isProjectionAuthoritative(a.id)).toBe(false);
     expect(acquisitions.at(-1)).toMatchObject({ operation: "resize", expectedRevision: 2 });
     controller.dispatch({ type: "gesture.finish-requested", gestureId: "resize-a", reason: "pointer-up" });
     renderSettles.shift()!();
