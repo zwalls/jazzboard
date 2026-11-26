@@ -52,6 +52,42 @@ The generated `/webmcp.md` and downloadable skill take their landing, participan
 
 For existing boards, `read_room_state({detail: "summary"})` provides bounded orientation: revision, policy, counts, a capped Diagram index, selection, and next reads. `query_objects` accepts exact `objectIds` alongside its semantic filters. Both `query_objects` and `find_diagrams` return `nextPageInput` for complete pagination pinned to one room revision; a concurrent edit rejects continuation and instructs the agent to restart. `read_canvas_drafts({detail: "summary", owner: "self"})` recovers owned draft status without repeating preview geometry; read one exact draft with `detail: "full"` when needed. Existing room and draft reads still default to full detail. These modes reduce model-visible context; transport still fetches the authorized room or draft state for the live client.
 
+## Browserless MCP
+
+A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes three tools for an explicitly granted, existing room.
+
+| Tool | Minimum access | Result |
+| --- | --- | --- |
+| `read_canvas` | `room:read` | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
+| `apply_canvas_edits` | `room:read room:write` | Atomic native creates and updates, or a proposal when the room requires review |
+| `render_canvas_preview` | `room:read` | Scoped PNG and render metadata for explicitly named object IDs or one group |
+
+Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page and for a group preview. Individual preview objects require their exact object revisions. Preview returns image bytes in a standard MCP image content block. Raster objects are omitted, and the renderer caps the object count, dimensions, and PNG size.
+
+Remote MCP is disabled by default. It works with an operator-managed OAuth issuer. Jazzboard publishes protected-resource metadata at `/.well-known/oauth-protected-resource/api/mcp` when configured. Configure the existing issuer to issue short-lived RFC 9068 JWT access tokens to a dedicated client with the following properties.
+
+- `typ: at+jwt` and a signature with RS256 or ES256. The issuer JWKS endpoint must use the issuer's origin.
+- Exact `iss` and a single `aud` matching the canonical URL set in `JAZZBOARD_REMOTE_MCP_RESOURCE`, including `/api/mcp`. Use HTTPS for deployed environments.
+- `sub`, `client_id`, `scope`, `jti`, `iat`, and `exp`. The maximum token lifetime is 15 minutes. Ask for `room:read` and add `room:write` only for edit workflows.
+
+Set `JAZZBOARD_REMOTE_MCP_ISSUER` and `JAZZBOARD_REMOTE_MCP_JWKS_URL` to the trusted issuer and public key set. Set `JAZZBOARD_REMOTE_MCP_ROOM_GRANTS` to a JSON array of explicit mappings. Each mapping binds one subject and OAuth client to one existing room and one existing Jazzboard participant. For example, substituting the actual identifiers:
+
+```json
+[
+  {
+    "subject": "granted-oauth-subject",
+    "clientId": "registered-mcp-client",
+    "roomId": "room_00000000-0000-0000-0000-000000000000",
+    "participantId": "p_exampleParticipantId",
+    "access": "read"
+  }
+]
+```
+
+Jazzboard checks membership on every call and requires an editable Jazzboard role, write scope, and an explicit write grant for writes. The service has no room discovery or creation tool. Keep the grants server-side, use a dedicated participant for agent edits, and set `JAZZBOARD_REMOTE_MCP_ENABLED=1` only after reviewing the issuer, resource, and room grants. The browser's existing WebMCP connection continues to use its signed guest session.
+
+Run `npm test -- src/lib/server/remote-mcp-route.test.ts` for a real SDK client and local signed-token transport tests.
+
 ## Agent discovery and reusable guidance
 
 Jazzboard advertises its WebMCP-first operating contract on first contact, before React hydrates. The root HTML links `/llms.txt` with `rel="describedby"` and `/agent-guide.md` with `rel="help"`; the root HTTP `Link` header advertises `/llms.txt` and the `/index.md` Markdown alternate. The homepage returns that Markdown representation for an explicit `Accept: text/markdown` request. A Next.js client-instrumentation singleton registers all five landing lifecycle tools before hydration and keeps one registry through the landing page lifetime. Room tools still wait for signed-session authorization and current role resolution; an already-issued, still-valid legacy snapshot page registers its local frozen-artifact tools after loading. Hosts should listen for or recheck the registry after navigation rather than assuming an initial empty list is final. The live page's registry remains authoritative.
