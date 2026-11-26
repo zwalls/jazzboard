@@ -150,6 +150,82 @@ describe("SemanticSelectionControls", () => {
     expect(semanticSelectionActionBarPlacement(226, 80)).toBe("above");
   });
 
+  it("uses one toolbar observer across moves and remeasures when the border box changes", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    let resized = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resized = callback; }
+      observe = observe;
+      disconnect = disconnect;
+    });
+    let height = 40;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(() => new DOMRect(0, 0, 300, height));
+    const addListener = vi.spyOn(window, "addEventListener");
+    const removeListener = vi.spyOn(window, "removeEventListener");
+    const controls = (y: number, editing = true) => (
+      <SemanticSelectionControls
+        {...defaultProps}
+        editing={editing}
+        viewport={{ ...viewport, y: 0, zoom: 1 }}
+        selectedObjects={[{ ...shapeScene, bounds: { ...shapeScene.bounds, y } }]}
+      />
+    );
+    try {
+      const { rerender } = render(controls(200));
+      const toolbar = screen.getByRole("toolbar", { name: "Selection actions" });
+      expect(toolbar).toHaveAttribute("data-selection-placement", "above");
+      expect(observe).toHaveBeenCalledExactlyOnceWith(toolbar, { box: "border-box" });
+      expect(rect).toHaveBeenCalledTimes(1);
+
+      rerender(controls(180));
+      expect(toolbar).toHaveAttribute("data-selection-placement", "below");
+      rerender(controls(200));
+      expect(toolbar).toHaveAttribute("data-selection-placement", "above");
+      expect(rect).toHaveBeenCalledTimes(1);
+      expect(disconnect).not.toHaveBeenCalled();
+
+      height = 72;
+      act(() => resized());
+      expect(toolbar).toHaveAttribute("data-selection-placement", "below");
+      height = 40;
+      fireEvent(window, new Event("resize"));
+      expect(toolbar).toHaveAttribute("data-selection-placement", "above");
+
+      rerender(controls(200, false));
+      expect(toolbar).not.toBeInTheDocument();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+      const resizeListener = addListener.mock.calls.find(([type]) => type === "resize")?.[1];
+      expect(resizeListener).toBeDefined();
+      expect(removeListener).toHaveBeenCalledWith("resize", resizeListener);
+    } finally {
+      rect.mockRestore();
+      addListener.mockRestore();
+      removeListener.mockRestore();
+    }
+  });
+
+  it("remeasures after vertical movement and window resize when ResizeObserver is unavailable", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    let height = 40;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(() => new DOMRect(0, 0, 300, height));
+    try {
+      const { rerender } = render(<SemanticSelectionControls {...defaultProps} />);
+      const toolbar = screen.getByRole("toolbar", { name: "Selection actions" });
+      expect(toolbar).toHaveAttribute("data-selection-placement", "below");
+      height = 90;
+      rerender(<SemanticSelectionControls {...defaultProps} viewport={{ ...viewport, y: -48 }} />);
+      expect(toolbar).toHaveAttribute("data-selection-placement", "below");
+      height = 40;
+      fireEvent(window, new Event("resize"));
+      expect(toolbar).toHaveAttribute("data-selection-placement", "above");
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
   it("projects a rotated sole object's semantic geometry through pan and zoom", () => {
     render(<SemanticSelectionControls {...defaultProps} />);
 
