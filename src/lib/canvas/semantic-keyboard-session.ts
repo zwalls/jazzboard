@@ -15,10 +15,10 @@ import type {
 
 import type {
   SemanticCanvasEditEvent,
-  SemanticCanvasGestureDependenciesAddedEvent,
   SemanticCanvasGestureFinishRequestedEvent,
   SemanticCanvasGestureStartedEvent,
   SemanticCanvasObjectsChangedEvent,
+  SemanticCanvasObjectUpdate,
 } from "./semantic-edit-events";
 import {
   planSemanticZOrder,
@@ -114,6 +114,16 @@ export type SemanticKeyboardMutationResult = Readonly<{
   lifecycleEvents: readonly SemanticCanvasEditEvent[];
 }>;
 
+type SemanticKeyboardNudgeChanges = Omit<SemanticCanvasObjectsChangedEvent, "changes"> & Readonly<{
+  changes: readonly SemanticCanvasObjectUpdate[];
+}>;
+
+export type SemanticKeyboardNudgeEvents = readonly [] | readonly [
+  SemanticCanvasGestureStartedEvent,
+  SemanticKeyboardNudgeChanges,
+  SemanticCanvasGestureFinishRequestedEvent,
+];
+
 export type SemanticClipboardCutResult = Readonly<{
   status: "finished" | "noop";
   payload: SemanticCanvasClipboardPayload | null;
@@ -170,7 +180,7 @@ const clipboardPayloadSchema = z.object({
 }).strict();
 
 const EMPTY_IDS = Object.freeze([]) as readonly string[];
-const EMPTY_EVENTS = Object.freeze([]) as readonly SemanticCanvasEditEvent[];
+const EMPTY_EVENTS: readonly [] = Object.freeze([]);
 const EMPTY_RECORD = Object.freeze({}) as Readonly<Record<string, string>>;
 
 function sortedUnique(values: Iterable<string>): string[] {
@@ -637,7 +647,7 @@ function changedMixedUpdateEvent(
     draft: CreateCanvasObject;
     operation: "move" | "connect";
   }>[],
-): SemanticCanvasObjectsChangedEvent {
+): SemanticKeyboardNudgeChanges {
   return Object.freeze({
     type: "objects.changed",
     gestureId,
@@ -664,22 +674,6 @@ function changedDeleteEvent(
       baseRevision: object.revision,
       baseCreatedAt: object.createdAt,
       operation: "delete" as const,
-    }))),
-  });
-}
-
-function dependencyEvent(
-  gestureId: string,
-  dependencies: readonly CanvasObject[],
-): SemanticCanvasGestureDependenciesAddedEvent {
-  return Object.freeze({
-    type: "gesture.dependencies-added",
-    gestureId,
-    objects: Object.freeze(dependencies.map((object) => Object.freeze({
-      objectId: object.id,
-      baseRevision: object.revision,
-      baseCreatedAt: object.createdAt,
-      operation: "connect" as const,
     }))),
   });
 }
@@ -963,7 +957,7 @@ export class SemanticKeyboardSessionEngine {
     room: RoomState;
     selection: SemanticKeyboardSelection;
     delta: Point;
-  }>): SemanticKeyboardMutationResult {
+  }>): SemanticKeyboardMutationResult & { lifecycleEvents: SemanticKeyboardNudgeEvents } {
     assertFiniteCoordinate(input.delta.x, "Nudge x");
     assertFiniteCoordinate(input.delta.y, "Nudge y");
     if (
@@ -1032,11 +1026,14 @@ export class SemanticKeyboardSessionEngine {
       return object?.kind === "connector" && !pairIds.has(id) ? [object] : [];
     }));
     const gestureId = this.gestureId("nudge");
-    const lifecycleEvents: SemanticCanvasEditEvent[] = [
-      startedMixedUpdateEvent(gestureId, pairs),
-    ];
-    if (dependencies.length) lifecycleEvents.push(dependencyEvent(gestureId, dependencies));
-    lifecycleEvents.push(changedMixedUpdateEvent(gestureId, pairs), finishEvent(gestureId));
+    const lifecycleEvents = [
+      startedMixedUpdateEvent(gestureId, [
+        ...pairs,
+        ...dependencies.map((object) => ({ object, operation: "connect" as const })),
+      ]),
+      changedMixedUpdateEvent(gestureId, pairs),
+      finishEvent(gestureId),
+    ] as const;
     return Object.freeze({
       status: "finished",
       gestureId,
@@ -1162,9 +1159,9 @@ export class SemanticKeyboardSessionEngine {
     });
   }
 
-  private noop(report: SemanticKeyboardSelectionReport): SemanticKeyboardMutationResult {
+  private noop(report: SemanticKeyboardSelectionReport) {
     return Object.freeze({
-      status: "noop",
+      status: "noop" as const,
       gestureId: null,
       targetObjectIds: EMPTY_IDS,
       selectionReport: report,

@@ -2198,7 +2198,11 @@ export const SemanticCanvas = forwardRef<CanvasSurfaceHandle, SemanticCanvasProp
         case "ungroup": runSelectionAction("ungroup"); break;
         case "order-forward": runSelectionAction("forward"); break;
         case "order-backward": runSelectionAction("backward"); break;
-        case "nudge": dispatchMutation(engine.nudge({ room: snapshot, selection: currentKeyboardSelection(), delta: shortcut.delta })); break;
+        case "nudge": {
+          const nudge = engine.nudge({ room: snapshot, selection: currentKeyboardSelection(), delta: shortcut.delta });
+          controllerRef.current?.dispatchKeyboardNudge(nudge.lifecycleEvents);
+          break;
+        }
         case "duplicate": {
           const result = engine.duplicate({
             room: snapshot,

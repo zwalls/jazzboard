@@ -1852,7 +1852,7 @@ describe("explicit persistence gesture identity with pending connector dependenc
       onAcknowledged: (event) => {
         harness.host.onAcknowledged(event);
         for (const acknowledgement of event.acknowledgements) {
-          lifecycle.clearPendingEdit(acknowledgement.objectId, acknowledgement.generation);
+          lifecycle.clearPendingEdit(acknowledgement);
         }
       },
     };
