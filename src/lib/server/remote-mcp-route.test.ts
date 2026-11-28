@@ -3,24 +3,15 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { POST, GET, DELETE } from "@/app/api/mcp/route";
-import { GET as metadata } from "@/app/.well-known/oauth-protected-resource/api/mcp/route";
+import { GET as listConnections, POST as manageConnections } from "@/app/api/rooms/[roomId]/mcp-connections/route";
 import { createCanvasObjectSchema } from "@/lib/domain/schemas";
-import { MCP_METADATA_PATH } from "./remote-mcp-auth";
+import { createRemoteMcpGrant } from "./remote-mcp-auth";
+import { getOrCreateGuestSession } from "./session";
 import { getRoomStore } from "./room-store";
 import { runCanvasCommand, runLeaseAction, setAgentEditPolicy } from "./room-service";
-
-const owner = "p_remote_mcp_owner_fixture";
-const peer = "p_remote_mcp_second_fixture";
-const visitor = "p_remote_mcp_spectator_fixture";
-const missing = "p_remote_mcp_missing_fixture";
-const subject = "fixture-subject";
-const clientId = "fixture-client";
-const readScope = "room:read";
-const writeScope = "room:read room:write";
 
 const nativePath = {
   type: "create",
@@ -67,21 +58,42 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
   let server: Server;
   let base: string;
   let endpoint: string;
-  let privateKey: CryptoKey;
   let roomId: string;
   let otherRoomId: string;
   let previewRoomId: string;
+  let owner: string;
+  let peer: string;
+  let ownerCookie: string;
+  let peerCookie: string;
+  let visitorCookie: string;
+  let outsiderCookie: string;
+  let writerToken: string;
+  let readerToken: string;
+  let peerReaderToken: string;
+  let visitorToken: string;
+  let formerMemberToken: string;
+  let previewToken: string;
+  let removedPreviewToken: string;
 
-  async function token(options: { sub?: string; scope?: string; audience?: string | string[]; issuer?: string; typ?: string; exp?: number; client?: string } = {}) {
-    return new SignJWT({ client_id: options.client ?? clientId, scope: options.scope ?? writeScope })
-      .setProtectedHeader({ alg: "RS256", typ: options.typ ?? "at+jwt", kid: "test-key" })
-      .setIssuer(options.issuer ?? base)
-      .setAudience(options.audience ?? endpoint)
-      .setSubject(options.sub ?? subject)
-      .setJti(randomUUID())
-      .setIssuedAt()
-      .setExpirationTime(options.exp ?? "5m")
-      .sign(privateKey);
+  function guestSession() {
+    const result = getOrCreateGuestSession(new Request("http://localhost"));
+    if (!result.setCookie) throw new Error("Expected a signed guest cookie.");
+    return { participantId: result.participantId, cookie: result.setCookie.split(";")[0] };
+  }
+
+  function manage(id: string, cookie?: string, input?: Record<string, unknown>, origin = base) {
+    return fetch(`${base}/api/rooms/${id}/mcp-connections`, {
+      method: input ? "POST" : "GET",
+      headers: { ...(cookie ? { Cookie: cookie } : {}), ...(input ? { Origin: origin, "Content-Type": "application/json" } : {}) },
+      ...(input ? { body: JSON.stringify(input) } : {}),
+    });
+  }
+
+  async function issue(id: string, cookie: string, access: "read" | "write", label = "Local client") {
+    const response = await manage(id, cookie, { action: "create", label, access });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    return (await response.json()).connection as { token: string; id: string };
   }
 
   async function connect(accessToken: string): Promise<Client> {
@@ -115,6 +127,18 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     vi.stubEnv("VERCEL_ENV", "");
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
+    globalThis.__jazzboardLocalMcpGrants = undefined;
+    const ownerSession = guestSession();
+    const peerSession = guestSession();
+    const visitorSession = guestSession();
+    const outsiderSession = guestSession();
+    owner = ownerSession.participantId;
+    peer = peerSession.participantId;
+    ownerCookie = ownerSession.cookie;
+    peerCookie = peerSession.cookie;
+    visitorCookie = visitorSession.cookie;
+    outsiderCookie = outsiderSession.cookie;
+    const visitor = visitorSession.participantId;
     const store = getRoomStore();
     const room = await store.createRoom({ participantId: owner, displayName: "Owner", title: "MCP test room" });
     roomId = room.id;
@@ -129,15 +153,8 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
       command: { type: "create", object: createCanvasObjectSchema.parse(nativePath.object) },
     });
 
-    const pair = await generateKeyPair("RS256");
-    privateKey = pair.privateKey;
-    const publicJwk = { ...await exportJWK(pair.publicKey), alg: "RS256", kid: "test-key" };
     server = createServer(async (incoming, outgoing) => {
       try {
-        if (incoming.url === "/jwks") {
-          outgoing.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ keys: [publicJwk] }));
-          return;
-        }
         const method = incoming.method ?? "GET";
         const headers = new Headers();
         for (const [name, value] of Object.entries(incoming.headers)) {
@@ -150,10 +167,10 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
           headers,
           body: chunks.length ? Buffer.concat(chunks) : undefined,
         });
-        const route = incoming.url === MCP_METADATA_PATH
-          ? metadata
-          : method === "POST" ? POST : method === "DELETE" ? DELETE : GET;
-        const response = await route(request);
+        const management = new URL(request.url).pathname.match(/^\/api\/rooms\/([^/]+)\/mcp-connections$/);
+        const response = management
+          ? await (method === "POST" ? manageConnections : listConnections)(request, { params: Promise.resolve({ roomId: management[1] }) })
+          : await (method === "POST" ? POST : method === "DELETE" ? DELETE : GET)(request);
         outgoing.writeHead(response.status, Object.fromEntries(response.headers));
         if (response.body) {
           const reader = response.body.getReader();
@@ -171,20 +188,19 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     base = await listen(server);
     endpoint = `${base}/api/mcp`;
     expect((await request()).status).toBe(404);
-    expect((await fetch(base + MCP_METADATA_PATH)).status).toBe(404);
-
+    expect((await manage(roomId, ownerCookie)).status).toBe(404);
     vi.stubEnv("JAZZBOARD_REMOTE_MCP_ENABLED", "1");
     vi.stubEnv("JAZZBOARD_REMOTE_MCP_RESOURCE", endpoint);
-    vi.stubEnv("JAZZBOARD_REMOTE_MCP_ISSUER", base);
-    vi.stubEnv("JAZZBOARD_REMOTE_MCP_JWKS_URL", `${base}/jwks`);
-    vi.stubEnv("JAZZBOARD_REMOTE_MCP_ROOM_GRANTS", JSON.stringify([
-      { subject, clientId, roomId, participantId: owner, access: "write" },
-      { subject: "map-read-only", clientId, roomId, participantId: peer, access: "read" },
-      { subject: "spectator", clientId, roomId, participantId: visitor, access: "write" },
-      { subject: "former-member", clientId, roomId, participantId: missing, access: "write" },
-      { subject: "preview-reader", clientId, roomId: previewRoomId, participantId: visitor, access: "read" },
-      { subject: "preview-removed", clientId, roomId: previewRoomId, participantId: missing, access: "read" },
-    ]));
+    writerToken = (await issue(roomId, ownerCookie, "write")).token;
+    readerToken = (await issue(roomId, ownerCookie, "read")).token;
+    peerReaderToken = (await issue(roomId, peerCookie, "read")).token;
+    visitorToken = (await issue(roomId, visitorCookie, "read")).token;
+    previewToken = (await issue(previewRoomId, visitorCookie, "read")).token;
+    // Exercise a stored connection whose original member no longer exists.
+    const resource = new URL(endpoint);
+    const absentParticipant = { participantId: outsiderSession.participantId, label: "Former member", access: "read" } as const;
+    formerMemberToken = (await createRemoteMcpGrant(resource, { roomId, ...absentParticipant })).token;
+    removedPreviewToken = (await createRemoteMcpGrant(resource, { roomId: previewRoomId, ...absentParticipant })).token;
   }, 15_000);
 
   afterAll(async () => {
@@ -195,42 +211,70 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     }
     globalThis.__jazzboardRoomStore = undefined;
     globalThis.__jazzboardLocalState = undefined;
+    globalThis.__jazzboardLocalMcpGrants = undefined;
     vi.unstubAllEnvs();
   });
 
-  it("advertises the exact OAuth resource, rejects invalid tokens and rejects foreign Origin", async () => {
+  it("requires a valid room token and rejects browser origins outside Jazzboard", async () => {
     const missingToken = await request();
     expect(missingToken.status).toBe(401);
-    expect(missingToken.headers.get("www-authenticate")).toContain(`resource_metadata="${base + MCP_METADATA_PATH}"`);
-    const discovery = await fetch(base + MCP_METADATA_PATH);
-    expect(discovery.headers.get("cache-control")).toBe("no-store");
-    expect(await discovery.json()).toMatchObject({
-      resource: endpoint,
-      authorization_servers: [base],
-      scopes_supported: ["room:read", "room:write"],
-    });
-    const signed = (await token()).split(".");
-    const changedSignature = (signed[2][0] === "A" ? "B" : "A") + signed[2].slice(1);
-    const invalid = [
-      "malformed.token",
-      [signed[0], signed[1], changedSignature].join("."),
-      await token({ audience: base }),
-      await token({ audience: [endpoint, base] }),
-      await token({ issuer: `${base}/different` }),
-      await token({ exp: Math.floor(Date.now() / 1000) - 30 }),
-      await token({ typ: "JWT" }),
-    ];
-    for (const value of invalid) expect((await request({ Authorization: `Bearer ${value}` })).status).toBe(401);
-    const authorization = `Bearer ${await token()}`;
+    expect(missingToken.headers.get("www-authenticate")).toBe('Bearer realm="Jazzboard MCP"');
+    expect(missingToken.headers.get("cache-control")).toBe("no-store");
+    const invalid = "x" + writerToken.slice(1);
+    const altered = writerToken.slice(0, -1) + (writerToken.endsWith("a") ? "b" : "a");
+    for (const value of [invalid, altered, ownerCookie]) {
+      expect((await request({ Authorization: `Bearer ${value}` })).status).toBe(401);
+    }
+    expect((await request({ Cookie: ownerCookie })).status).toBe(401);
+    const authorization = `Bearer ${writerToken}`;
     expect((await request({ Authorization: authorization, Origin: "https://outside.example" })).status).toBe(403);
-    expect((await request({ Authorization: `Bearer ${await token({ scope: "room:write" })}` })).status).toBe(403);
     expect((await request({ Authorization: authorization }, JSON.stringify("x".repeat(256 * 1024)))).status).toBe(413);
+  });
+
+  it("lets only same-origin room members create and manage their scoped connections", async () => {
+    const input = { action: "create", access: "write", label: "Temporary connection" };
+    expect((await manage(roomId, undefined, input)).status).toBe(401);
+    expect((await manage(roomId, outsiderCookie, input)).status).toBe(403);
+    expect((await manage(roomId, visitorCookie, input)).status).toBe(403);
+    expect((await manage(roomId, ownerCookie, input, "https://outside.example")).status).toBe(403);
+    const transient = await issue(roomId, ownerCookie, "read", "Temporary connection");
+    const listed = await (await manage(roomId, ownerCookie)).json();
+    expect(listed.connections).toContainEqual(expect.objectContaining({ id: transient.id, access: "read" }));
+    expect(JSON.stringify(listed)).not.toContain(transient.token);
+    expect(JSON.stringify(listed)).not.toContain("digest");
+    expect((await (await manage(roomId, peerCookie)).json()).connections).not.toContainEqual(expect.objectContaining({ id: transient.id }));
+    expect((await manage(roomId, peerCookie, { action: "revoke", id: transient.id })).status).toBe(403);
+    expect((await manage(roomId, outsiderCookie, { action: "revoke", id: transient.id })).status).toBe(403);
+    const client = await connect(transient.token);
+    expect(content(await read(client))).toMatchObject({ roomId });
+    expect((await manage(roomId, ownerCookie, { action: "revoke", id: transient.id })).status).toBe(200);
+    await expect(read(client)).rejects.toThrow();
+    expect((await request({ Authorization: `Bearer ${transient.token}` })).status).toBe(401);
+  });
+
+  it("isolates grants by endpoint and rejects expired credentials", async () => {
+    const readGrant = await issue(roomId, ownerCookie, "read", "Expiry fixture");
+    const parallelEndpoint = new URL("https://separate-jazzboard.example/api/mcp");
+    const other = await createRemoteMcpGrant(parallelEndpoint, {
+      roomId, participantId: owner, label: "Separate endpoint", access: "write",
+    });
+    expect((await request({ Authorization: `Bearer ${other.token}` })).status).toBe(401);
+    const before = await (await manage(roomId, ownerCookie)).json();
+    expect(before.connections).not.toContainEqual(expect.objectContaining({ id: other.id }));
+    const expired = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 24 * 60 * 60 * 1000);
+    try {
+      expect((await request({ Authorization: `Bearer ${readGrant.token}` })).status).toBe(401);
+      const listed = await (await manage(roomId, ownerCookie)).json();
+      expect(listed.connections).not.toContainEqual(expect.objectContaining({ id: readGrant.id }));
+    } finally {
+      expired.mockRestore();
+    }
   });
 
   it("accepts the stable 2025 Streamable HTTP initialization handshake", async () => {
     const protocolVersion = "2025-06-18";
     const response = await request({
-      Authorization: `Bearer ${await token()}`,
+      Authorization: `Bearer ${writerToken}`,
       Accept: "application/json, text/event-stream",
     }, JSON.stringify({
       jsonrpc: "2.0", id: 7, method: "initialize",
@@ -241,13 +285,12 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     expect(await response.text()).toContain(`"protocolVersion":"${protocolVersion}"`);
   });
 
-  it("requires a matching room grant, OAuth scope, membership and mutation role on each call", async () => {
-    const writer = await connect(await token());
-    const scopeReader = await connect(await token({ scope: readScope }));
-    const mappingReader = await connect(await token({ sub: "map-read-only" }));
-    const spectator = await connect(await token({ sub: "spectator" }));
-    const wrongClient = await connect(await token({ client: "ungranted-client" }));
-    const formerMember = await connect(await token({ sub: "former-member" }));
+  it("requires a matching room grant, connection permission, membership and mutation role on each call", async () => {
+    const writer = await connect(writerToken);
+    const scopeReader = await connect(readerToken);
+    const mappingReader = await connect(peerReaderToken);
+    const spectator = await connect(visitorToken);
+    const formerMember = await connect(formerMemberToken);
     const start = content(await read(writer));
     expect(start).toMatchObject({ roomId, title: "MCP test room", objects: [] });
     expect(start).not.toHaveProperty("participants");
@@ -260,7 +303,6 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     }
     for (const challenge of [
       await read(writer, otherRoomId),
-      await read(wrongClient),
       await read(formerMember),
       await read(writer, "room_00000000-0000-0000-0000-000000000001"),
     ]) {
@@ -270,7 +312,7 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
   });
 
   it("applies native edits atomically, handles retries, and preserves concurrency and review safeguards", async () => {
-    const writer = await connect(await token());
+    const writer = await connect(writerToken);
     const start = content(await read(writer));
     const revision = start.roomRevision;
     expect(content(await apply(writer, revision + 1, [nativePath]))).toMatchObject({ error: { code: "REVISION_CONFLICT" } });
@@ -336,7 +378,7 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
         },
       },
     });
-    const reader = await connect(await token({ scope: readScope }));
+    const reader = await connect(readerToken);
     const objects = content(await read(reader, roomId, { includeGeometry: true })).objects;
     const image = objects.find(({ id }: { id: string }) => id === "private-image");
     expect(image).toMatchObject({ kind: "image", x: 12, width: 20, mediaOmitted: true });
@@ -350,9 +392,9 @@ describe("remote Jazzboard MCP over Streamable HTTP", () => {
     expect(denied.content?.every((block) => block.type !== "image")).toBe(true);
   });
   it("returns a scoped PNG to read-only members and denies invalid or unauthorized scopes", async () => {
-    const reader = await connect(await token({ sub: "preview-reader", scope: readScope }));
-    const ungranted = await connect(await token({ scope: readScope }));
-    const removed = await connect(await token({ sub: "preview-removed", scope: readScope }));
+    const reader = await connect(previewToken);
+    const ungranted = await connect(readerToken);
+    const removed = await connect(removedPreviewToken);
     const objectId = nativePath.object.id;
     const room = content(await read(reader, previewRoomId));
     const preview = (client: Client, scope?: Record<string, unknown>, requestedRoomId = previewRoomId) =>

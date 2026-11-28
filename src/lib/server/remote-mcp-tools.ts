@@ -16,8 +16,8 @@ import { sha256 } from "@/lib/server/idempotency";
 import {
   remoteRoomIdSchema,
   requireRemoteMcpGrant,
-  type RemoteMcpConfiguration,
 } from "@/lib/server/remote-mcp-auth";
+import { type RemoteMcpConfiguration } from "@/lib/server/remote-mcp-config";
 import { readAuthorizedRoom, runSemanticTransaction } from "@/lib/server/room-service";
 
 const MAX_GEOMETRY_BYTES = 256 * 1024;
@@ -84,8 +84,8 @@ export function remoteMcpToolError(error: unknown): CallToolResult {
   return result({ error: { code, message } }, true);
 }
 
-export async function readRemoteMcpRoom(config: RemoteMcpConfiguration, auth: AuthInfo | undefined, roomId: string) {
-  const grant = requireRemoteMcpGrant(config, auth, roomId, "read");
+export async function readRemoteMcpRoom(auth: AuthInfo | undefined, roomId: string) {
+  const grant = requireRemoteMcpGrant(auth, roomId, "read");
   return readAuthorizedRoom(roomId, grant.participantId);
 }
 
@@ -115,7 +115,7 @@ export function registerRemoteMcpTools(server: McpServer, config: RemoteMcpConfi
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async (input, context) => {
     try {
-      const room = await readRemoteMcpRoom(config, context.http?.authInfo, input.roomId);
+      const room = await readRemoteMcpRoom(context.http?.authInfo, input.roomId);
       if (input.offset && input.expectedRoomRevision === undefined) {
         throw new DomainError("INVALID_OPERATION", "Follow-up pages require the first page's room revision.");
       }
@@ -155,7 +155,7 @@ export function registerRemoteMcpTools(server: McpServer, config: RemoteMcpConfi
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ roomId, ...preview }, context) => {
     try {
-      const room = await readRemoteMcpRoom(config, context.http?.authInfo, roomId);
+      const room = await readRemoteMcpRoom(context.http?.authInfo, roomId);
       const { bytes, metadata } = await renderTargetedCanvasPng(room, preview);
       return {
         content: [
@@ -182,7 +182,7 @@ export function registerRemoteMcpTools(server: McpServer, config: RemoteMcpConfi
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async (input, context) => {
     try {
-      const grant = requireRemoteMcpGrant(config, context.http?.authInfo, input.roomId, "write");
+      const grant = requireRemoteMcpGrant(context.http?.authInfo, input.roomId, "write");
       const room = await readAuthorizedRoom(grant.roomId, grant.participantId);
       requireMutationRole(requireParticipant(room, grant.participantId), "agent");
       // The native-kind check must also apply to the snapshot the transaction can commit.
@@ -202,7 +202,7 @@ export function registerRemoteMcpTools(server: McpServer, config: RemoteMcpConfi
         }
       }
 
-      const key = sha256(JSON.stringify([config.issuer, grant.subject, grant.clientId, grant.roomId, input.idempotencyKey]));
+      const key = sha256(JSON.stringify([grant.id, grant.roomId, input.idempotencyKey]));
       const request = new Request(config.resource, {
         method: "POST",
         headers: { "Idempotency-Key": key },

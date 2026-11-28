@@ -54,39 +54,23 @@ For existing boards, `read_room_state({detail: "summary"})` provides bounded ori
 
 ## Browserless MCP
 
-A separately enabled Streamable HTTP server at `/api/mcp` shares Jazzboard's room authorization and native canvas transaction engine. Use an MCP client with OAuth or a securely supplied OAuth access token for the exact endpoint. It exposes three tools for an explicitly granted, existing room.
+Jazzboard uses private invites and signed guest sessions. A live invite opens the join form with the exact room code. A person chooses participant or spectator and joins before accessing the board. Open **Share board → Manage MCP connections** in that browser to create a separate token for one remote MCP client. Choose **View canvas and previews** or, if the guest is a participant, **View and edit canvas**.
 
-| Tool | Minimum access | Result |
+Enter the displayed server URL and bearer token in your MCP client's private authorization setting. Use the displayed room ID in tool calls. The token is shown once and expires after 30 days. Anyone holding it can exercise its room permissions under your agent's name. Revoke it from the same guest session under **Your active connections**. The next request with a revoked token fails. The server checks current membership and write role on each tool call. Browser-native WebMCP continues to use the guest session.
+
+| Tool | Permission | Result |
 | --- | --- | --- |
-| `read_canvas` | `room:read` | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
-| `render_canvas_preview` | `room:read` | Cropped PNG with bounds, selected object revisions, and rendering metadata |
-| `apply_canvas_edits` | `room:read room:write` | Atomic native creates and updates, or a proposal when the room requires review |
+| `read_canvas` | View | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
+| `render_canvas_preview` | View | A cropped `image/png` content block and metadata |
+| `apply_canvas_edits` | Edit | Atomic native creates and updates, or a proposal when the room requires review |
 
-Use the room and object revisions returned by `read_canvas` for edits. Keep the same idempotency key when retrying the same batch. A verified replay reports `already_committed` with the recorded revision and instructions to read the current canvas. Read the canvas again before constructing a batch after a conflict or uncertain outcome. Use the room revision for each continuation page. A preview requires exact object IDs with their revisions or one group ID with the current room revision. It returns a standard MCP `image/png` content block plus metadata. A request can select up to 120 native objects, with output capped at 1,536 pixels per side and 1,500,000 PNG bytes. A scope containing an image asset is rejected. Server fonts can differ from the canvas.
+Use the exact room revision for writes and page continuations. Keep the same idempotency key when retrying the same edit batch. A verified replay reports `already_committed` and the recorded revision. To preview, supply explicit object IDs with current revisions or a group ID with the latest room revision. A preview can select up to 120 native objects. Its PNG is capped at 1,536 pixels per side and 1,500,000 bytes. A scope containing an image asset is rejected.
 
-Remote MCP is disabled by default. It works with an operator-managed OAuth issuer. Jazzboard publishes protected-resource metadata at `/.well-known/oauth-protected-resource/api/mcp` when configured. Configure the existing issuer to issue short-lived RFC 9068 JWT access tokens to a dedicated client with the following properties.
+The Streamable HTTP endpoint is opt-in. Set `JAZZBOARD_REMOTE_MCP_ENABLED=1` and set `JAZZBOARD_REMOTE_MCP_RESOURCE` to the exact endpoint URL. For production use `https://www.jazzboard.xyz/api/mcp`. Local development can use a loopback HTTP URL. Production uses the existing Redis and guest-session signing secret to store and verify connections, scoped to the exact endpoint. No OAuth provider or user account is required.
 
-- `typ: at+jwt` and a signature with RS256 or ES256. The issuer JWKS endpoint must use the issuer's origin.
-- Exact `iss` and a single `aud` matching the canonical URL set in `JAZZBOARD_REMOTE_MCP_RESOURCE`, including `/api/mcp`. Use the canonical HTTPS host directly. Jazzboard production uses `https://www.jazzboard.xyz/api/mcp`.
-- `sub`, `client_id`, `scope`, `jti`, `iat`, and `exp`. The maximum token lifetime is 15 minutes. Ask for `room:read` and add `room:write` only for edit workflows.
+MCP Inspector 2.17.0 can use a private config entry under `mcpServers` with `type: "http"`, the displayed `url`, and an `Authorization: Bearer <token>` entry in `headers`. Keep that file out of shared folders and version control. Run Inspector with `--cli --config <private-config> --server <entry> --method tools/call --tool-name read_canvas --tool-arg roomId=<room-id>`.
 
-Set `JAZZBOARD_REMOTE_MCP_ISSUER` and `JAZZBOARD_REMOTE_MCP_JWKS_URL` to the trusted issuer and public key set. Set `JAZZBOARD_REMOTE_MCP_ROOM_GRANTS` to a JSON array of explicit mappings. Each mapping binds one subject and OAuth client to one existing room and one existing Jazzboard participant. For example, substituting the actual identifiers:
-
-```json
-[
-  {
-    "subject": "granted-oauth-subject",
-    "clientId": "registered-mcp-client",
-    "roomId": "room_00000000-0000-0000-0000-000000000000",
-    "participantId": "p_exampleParticipantId",
-    "access": "read"
-  }
-]
-```
-
-Jazzboard checks membership on every call and requires an editable Jazzboard role, write scope, and an explicit write grant for writes. The service has no room discovery or creation tool. Keep the grants server-side, use a dedicated participant for agent edits, and set `JAZZBOARD_REMOTE_MCP_ENABLED=1` only after reviewing the issuer, resource, and room grants. The browser's existing WebMCP connection continues to use its signed guest session.
-
-Run `npm test -- src/lib/server/remote-mcp-route.test.ts src/lib/canvas/targeted-png.server.test.ts` for signed-token transport and renderer tests. After `npm run build`, run `node scripts/smoke-remote-mcp.mjs` with local Chromium and Redis binaries to test edits, reload, and decoded preview pixels through the production-built app.
+Run `npm test -- src/lib/server/remote-mcp-route.test.ts src/lib/canvas/targeted-png.server.test.ts`. After `npm run build`, run `node scripts/smoke-remote-mcp.mjs` with Chromium and Redis to test the Share board flow, revocation, saved edits, and PNG pixels through a production build on loopback.
 
 ## Agent discovery and reusable guidance
 

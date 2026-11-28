@@ -1,6 +1,6 @@
 // Run after npm run build. Requires a local redis-server binary and installed Chromium.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { chromium, expect } from "@playwright/test";
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import Redis from "ioredis";
 import sharp from "sharp";
 
@@ -87,16 +87,6 @@ const redisPort = await localPort();
 const base = `http://localhost:${port}`;
 const endpoint = `${base}/api/mcp`;
 const redisUrl = `redis://127.0.0.1:${redisPort}`;
-const keys = await generateKeyPair("RS256");
-const publicJwk = { ...await exportJWK(keys.publicKey), alg: "RS256", kid: "mcp-local-smoke" };
-const issuerServer = createServer((request, response) => {
-  if (request.url !== "/jwks") {
-    response.writeHead(404).end();
-    return;
-  }
-  response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ keys: [publicJwk] }));
-});
-const issuer = `http://127.0.0.1:${await listen(issuerServer)}`;
 const session = randomBytes(32).toString("hex");
 const commonEnv = {
   ...process.env,
@@ -115,19 +105,17 @@ let next;
 let redis;
 let browser;
 let mcp;
+let reader;
 
-async function startNext(grants) {
+async function startNext(enabled) {
   next = spawn(process.execPath, [
     "node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port),
   ], {
     stdio: "inherit",
     env: {
       ...commonEnv,
-      JAZZBOARD_REMOTE_MCP_ENABLED: grants ? "1" : "0",
+      JAZZBOARD_REMOTE_MCP_ENABLED: enabled ? "1" : "0",
       JAZZBOARD_REMOTE_MCP_RESOURCE: endpoint,
-      JAZZBOARD_REMOTE_MCP_ISSUER: issuer,
-      JAZZBOARD_REMOTE_MCP_JWKS_URL: `${issuer}/jwks`,
-      JAZZBOARD_REMOTE_MCP_ROOM_GRANTS: JSON.stringify(grants ?? []),
     },
   });
   await waitFor(async () => {
@@ -170,27 +158,31 @@ try {
     data: { action: "join", code: room.code, displayName: "Local MCP agent", role: "participant" },
   });
   assert(joined.ok(), await joined.text());
-  const { participantId } = await joined.json();
-  const grant = {
-    subject: "local-test-subject",
-    clientId: "local-test-client",
-    roomId: room.id,
-    participantId,
-    access: "write",
-  };
   await stop(next);
-  await startNext([grant]);
+  await startNext(true);
 
   const unauthenticated = await fetch(endpoint, { method: "POST" });
   assert.equal(unauthenticated.status, 401);
-  const discovery = await fetch(`${base}/.well-known/oauth-protected-resource/api/mcp`);
-  assert.equal(discovery.status, 200);
-  assert.equal((await discovery.json()).resource, endpoint);
+  assert.equal(unauthenticated.headers.get("www-authenticate"), 'Bearer realm="Jazzboard MCP"');
 
-  const token = await new SignJWT({ client_id: grant.clientId, scope: "room:read room:write" })
-    .setProtectedHeader({ alg: "RS256", typ: "at+jwt", kid: "mcp-local-smoke" })
-    .setSubject(grant.subject).setIssuer(issuer).setAudience(endpoint)
-    .setJti(randomUUID()).setIssuedAt().setExpirationTime("5m").sign(keys.privateKey);
+  const connectionsPage = await agent.newPage();
+  await connectionsPage.goto(`/room/${room.id}`);
+  await connectionsPage.getByRole("button", { name: "Share board", exact: true }).click();
+  await connectionsPage.getByRole("link", { name: "Manage MCP connections" }).click();
+  await expect(connectionsPage.getByRole("heading", { name: "MCP connections" })).toBeVisible();
+  async function createConnection(label, access) {
+    await connectionsPage.getByLabel("Connection name").fill(label);
+    await connectionsPage.getByLabel("Permission").selectOption(access);
+    await connectionsPage.getByRole("button", { name: "Create connection" }).click();
+    await expect(connectionsPage.getByLabel("Server URL")).toHaveValue(endpoint);
+    await expect(connectionsPage.getByLabel("Room ID")).toHaveValue(room.id);
+    const secret = await connectionsPage.getByLabel("Bearer token").inputValue();
+    assert(secret.startsWith("jb_mcp_v1."), "Expected a guest connection token.");
+    await connectionsPage.getByRole("button", { name: "Hide token" }).click();
+    return secret;
+  }
+  const token = await createConnection("Editor smoke", "write");
+  const readerToken = await createConnection("Reader smoke", "read");
 
   const start = performance.now();
   mcp = new Client({ name: "jazzboard-smoke", version: "1.0.0" });
@@ -258,6 +250,82 @@ try {
   const groupPreview = await render({ kind: "group", groupId, expectedRoomRevision: after.roomRevision });
   assert.deepEqual(groupPreview.metadata.objectRevisions.map(({ objectId }) => objectId).sort(), ["mcp-smoke-path", "mcp-smoke-shape"]);
   await writeFile(join(resultDir, "targeted-preview.png"), groupPreview.bytes);
+  reader = new Client({ name: "jazzboard-smoke-reader", version: "1.0.0" });
+  await reader.connect(new StreamableHTTPClientTransport(new URL(endpoint), {
+    requestInit: { headers: { Authorization: `Bearer ${readerToken}` } },
+  }));
+  const readOnlyPreview = await reader.callTool({
+    name: "render_canvas_preview",
+    arguments: { roomId: room.id, scope: { kind: "group", groupId, expectedRoomRevision: after.roomRevision } },
+  });
+  assert.deepEqual(unpackPreview(readOnlyPreview).bytes, groupPreview.bytes);
+
+  const readOnlyEdit = await reader.callTool({
+    name: "apply_canvas_edits",
+    arguments: {
+      roomId: room.id, expectedRoomRevision: after.roomRevision, idempotencyKey: randomUUID(),
+      commands: [{
+        type: "update", objectId: "mcp-smoke-shape", expectedRevision: 2, operation: "move", patch: { x: 62 },
+      }],
+    },
+  });
+  assert.equal(readOnlyEdit.isError, true);
+  assert.match(readOnlyEdit.content[0].text, /FORBIDDEN/);
+
+  const other = await studio.request.post("/api/rooms", {
+    data: { action: "create", displayName: "Local human", title: "Separate smoke test room" },
+  });
+  assert(other.ok());
+  const otherRoomId = (await other.json()).room.id;
+  const crossRoom = await reader.callTool({ name: "read_canvas", arguments: { roomId: otherRoomId } });
+  assert.equal(crossRoom.isError, true);
+  assert.match(crossRoom.content[0].text, /FORBIDDEN/);
+  assert.equal((await read()).roomRevision, after.roomRevision);
+
+  let inspector;
+  if (process.env.JAZZBOARD_MCP_INSPECTOR_CLI) {
+    const invoke = promisify(execFile);
+    const configPath = join(temp, "inspector-fixture.json");
+    await writeFile(configPath, JSON.stringify({
+      mcpServers: { jazzboard: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${readerToken}` } } },
+    }), { mode: 0o600 });
+    const cli = process.env.JAZZBOARD_MCP_INSPECTOR_CLI;
+    async function inspectorCall(tool, entries) {
+      const args = [
+        "--cli", "--config", configPath, "--server", "jazzboard", "--quiet", "--format", "json",
+        "--method", "tools/call", "--tool-name", tool,
+      ];
+      for (const [key, value] of entries) args.push("--tool-arg", `${key}=${value}`);
+      const node = process.env.JAZZBOARD_MCP_INSPECTOR_NODE;
+      const { stdout } = await invoke(node ?? cli, node ? [cli, ...args] : args, {
+        timeout: 15_000,
+        env: { ...process.env, MCP_STORAGE_DIR: temp, MCP_INSPECTOR_SECRET_STORE: "memory" },
+      });
+      return JSON.parse(stdout).result;
+    }
+    try {
+      const result = unpack(await inspectorCall("read_canvas", [["roomId", room.id]]));
+      assert.equal(result.roomId, room.id);
+      const resultPreview = unpackPreview(await inspectorCall("render_canvas_preview", [
+        ["roomId", room.id], ["scope", JSON.stringify({ kind: "group", groupId, expectedRoomRevision: after.roomRevision })],
+      ]));
+      assert.deepEqual(resultPreview.bytes, groupPreview.bytes);
+      inspector = { roomId: room.id, tools: ["read_canvas", "render_canvas_preview"], pngBytes: resultPreview.bytes.length };
+    } catch (error) {
+      if (typeof error.stderr === "string") console.error(error.stderr.replaceAll(readerToken, "[redacted]").slice(0, 1500));
+      throw new Error("MCP Inspector CLI could not complete the authenticated room read and preview.");
+    } finally {
+      await rm(configPath, { force: true });
+    }
+  }
+
+  await connectionsPage.reload();
+  await expect(connectionsPage.getByLabel("Bearer token")).toHaveCount(0);
+  await connectionsPage.getByRole("button", { name: "Revoke Reader smoke" }).click();
+  await expect(connectionsPage.getByText("Connection revoked.")).toBeVisible();
+  await assert.rejects(() => reader.callTool({ name: "read_canvas", arguments: { roomId: room.id } }));
+  assert.equal((await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${readerToken}` } })).status, 401);
+
   await page.screenshot({ path: join(resultDir, "editable-room.png") });
   let portrait;
   if (process.env.JAZZBOARD_MCP_SMOKE_PORTRAIT) {
@@ -345,16 +413,17 @@ try {
     pngBytes: selected.bytes.length, base64Bytes: selected.base64Bytes, serializedResponse, captureMs,
   };
   const report = {
-    toolNames, setupMs, create, after, preview: groupPreview.metadata, portrait, scopeProof,
+    toolNames, setupMs, create, after, preview: groupPreview.metadata, portrait, scopeProof, inspector,
+    verifiedConnectionUi: true, verifiedReadOnly: true, verifiedCrossRoomDenial: true, verifiedRevocation: true,
     verifiedBrowserNudge: true, verifiedReload: true,
   };
   console.log(JSON.stringify(report, null, 2));
   if (resultDir !== temp) await writeFile(join(resultDir, "smoke-report.json"), JSON.stringify(report, null, 2));
 } finally {
+  await reader?.close();
   await mcp?.close();
   await browser?.close();
   await stop(next);
   await stop(redis);
-  await close(issuerServer);
   await rm(temp, { recursive: true, force: true });
 }
