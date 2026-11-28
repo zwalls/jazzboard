@@ -52,6 +52,26 @@ The generated `/webmcp.md` and downloadable skill take their landing, participan
 
 For existing boards, `read_room_state({detail: "summary"})` provides bounded orientation: revision, policy, counts, a capped Diagram index, selection, and next reads. `query_objects` accepts exact `objectIds` alongside its semantic filters. Both `query_objects` and `find_diagrams` return `nextPageInput` for complete pagination pinned to one room revision; a concurrent edit rejects continuation and instructs the agent to restart. `read_canvas_drafts({detail: "summary", owner: "self"})` recovers owned draft status without repeating preview geometry; read one exact draft with `detail: "full"` when needed. Existing room and draft reads still default to full detail. These modes reduce model-visible context; transport still fetches the authorized room or draft state for the live client.
 
+## Browserless MCP
+
+Jazzboard uses private invites and signed guest sessions. A live invite opens the join form with the exact room code. A person chooses participant or spectator and joins before accessing the board. Open **Share board → Manage MCP connections** in that browser to create a separate token for one remote MCP client. Choose **View canvas and previews** or, if the guest is a participant, **View and edit canvas**.
+
+Enter the displayed server URL and bearer token in your MCP client's private authorization setting. Use the displayed room ID in tool calls. The token is shown once and expires after 30 days. Anyone holding it can exercise its room permissions under your agent's name. Revoke it from the same guest session under **Your active connections**. The next request with a revoked token fails. The server checks current membership and write role on each tool call. Browser-native WebMCP continues to use the guest session.
+
+| Tool | Permission | Result |
+| --- | --- | --- |
+| `read_canvas` | View | Current room revision and a bounded page of object IDs, revisions, bounds, and optional native geometry |
+| `render_canvas_preview` | View | A cropped `image/png` content block and metadata |
+| `apply_canvas_edits` | Edit | Atomic native creates and updates, or a proposal when the room requires review |
+
+Use the exact room revision for writes and page continuations. Keep the same idempotency key when retrying the same edit batch. A verified replay reports `already_committed` and the recorded revision. To preview, supply explicit object IDs with current revisions or a group ID with the latest room revision. A preview can select up to 120 native objects. Its PNG is capped at 1,536 pixels per side and 1,500,000 bytes. A scope containing an image asset is rejected.
+
+The Streamable HTTP endpoint is opt-in. Set `JAZZBOARD_REMOTE_MCP_ENABLED=1` and set `JAZZBOARD_REMOTE_MCP_RESOURCE` to the exact endpoint URL. For production use `https://www.jazzboard.xyz/api/mcp`. Local development can use a loopback HTTP URL. Production uses the existing Redis and guest-session signing secret to store and verify connections, scoped to the exact endpoint. No OAuth provider or user account is required.
+
+MCP Inspector 2.17.0 can use a private config entry under `mcpServers` with `type: "http"`, the displayed `url`, and an `Authorization: Bearer <token>` entry in `headers`. Keep that file out of shared folders and version control. Run Inspector with `--cli --config <private-config> --server <entry> --method tools/call --tool-name read_canvas --tool-arg roomId=<room-id>`.
+
+Run `npm test -- src/lib/server/remote-mcp-route.test.ts src/lib/canvas/targeted-png.server.test.ts`. After `npm run build`, run `node scripts/smoke-remote-mcp.mjs` with Chromium and Redis to test the Share board flow, revocation, saved edits, and PNG pixels through a production build on loopback.
+
 ## Agent discovery and reusable guidance
 
 Jazzboard advertises its WebMCP-first operating contract on first contact, before React hydrates. The root HTML links `/llms.txt` with `rel="describedby"` and `/agent-guide.md` with `rel="help"`; the root HTTP `Link` header advertises `/llms.txt` and the `/index.md` Markdown alternate. The homepage returns that Markdown representation for an explicit `Accept: text/markdown` request. A Next.js client-instrumentation singleton registers all five landing lifecycle tools before hydration and keeps one registry through the landing page lifetime. Room tools still wait for signed-session authorization and current role resolution; an already-issued, still-valid legacy snapshot page registers its local frozen-artifact tools after loading. Hosts should listen for or recheck the registry after navigation rather than assuming an initial empty list is final. The live page's registry remains authoritative.

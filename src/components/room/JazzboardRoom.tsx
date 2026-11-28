@@ -137,7 +137,7 @@ function objectLabel(room: RoomState, objectId: string): string {
   return "Freehand annotation";
 }
 
-export function JazzboardRoom({ roomId }: { roomId: string }) {
+export function JazzboardRoom({ roomId, remoteMcpEnabled = false }: { roomId: string; remoteMcpEnabled?: boolean }) {
   const router = useRouter();
   const controller = useRoom(roomId);
   const mobileLayout = useCanvasMobileLayout();
@@ -1279,6 +1279,7 @@ export function JazzboardRoom({ roomId }: { roomId: string }) {
           <DurabilityPanel
             key={`${room.id}:${durabilityMode}`}
             mode={durabilityMode}
+            remoteMcpEnabled={remoteMcpEnabled}
             room={room}
             role={self.role}
             selection={selection}

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import { loadRemoteMcpConfiguration } from "@/lib/server/remote-mcp-config";
+
 import { JazzboardRoom } from "@/components/room/JazzboardRoom";
 
 export const metadata: Metadata = {
@@ -13,5 +15,5 @@ export const metadata: Metadata = {
 
 export default async function RoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await params;
-  return <JazzboardRoom roomId={roomId} />;
+  return <JazzboardRoom roomId={roomId} remoteMcpEnabled={!!loadRemoteMcpConfiguration()} />;
 }

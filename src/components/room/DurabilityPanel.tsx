@@ -69,6 +69,7 @@ export function DurabilityPanel({
   mode,
   room,
   role,
+  remoteMcpEnabled = false,
   selection,
   runtime,
   prepareForArtifact,
@@ -80,6 +81,7 @@ export function DurabilityPanel({
   mode: DurabilityPanelMode;
   room: RoomState;
   role: "participant" | "spectator";
+  remoteMcpEnabled?: boolean;
   selection: string[];
   runtime: CanvasRuntime | null;
   prepareForArtifact(): Promise<RoomState>;
@@ -323,6 +325,7 @@ export function DurabilityPanel({
               <button onClick={() => void copyLiveInvite()}><Copy size={15} /> Copy invite</button>
             </div>
             <p className={styles.hint}>The invite opens Jazzboard with this exact code filled in. Your friend chooses participant or spectator and joins through normal room authorization.</p>
+            {remoteMcpEnabled ? <p className={styles.hint}><a href={`/room/${encodeURIComponent(room.id)}/connections`}>Manage MCP connections</a></p> : null}
             <p className={styles.hint}>For a frozen visual copy, use Export → PNG. Jazzboard creates the file locally and does not store it.</p>
           </section>
         ) : null}

@@ -1,0 +1,54 @@
+.page {
+  width: min(100%, 40rem);
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+.page a { color: var(--brand-deep); }
+
+.page h1 { margin: 1.25rem 0 .5rem; }
+
+.page p { line-height: 1.55; }
+
+.card, .list li {
+  display: grid;
+  gap: .9rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--paper);
+}
+
+.card label {
+  display: grid;
+  gap: .4rem;
+  font-weight: 600;
+}
+
+.card input, .card select {
+  width: 100%;
+  padding: .65rem;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: .5rem;
+  background: var(--paper);
+}
+
+.page button {
+  width: fit-content;
+  min-height: 2.5rem;
+  padding: .45rem .75rem;
+  color: var(--brand-deep);
+  border: 1px solid var(--line-strong);
+  border-radius: .55rem;
+  background: var(--brand-soft);
+  cursor: pointer;
+}
+
+.page button:disabled { opacity: .65; cursor: default; }
+.actions { display: flex; flex-wrap: wrap; gap: .65rem; }
+.list { padding: 0; list-style: none; }
+.list li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.list span { display: block; margin-top: .25rem; color: var(--ink-soft); }
+.error { color: #9d2435; }
